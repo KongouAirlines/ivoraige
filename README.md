@@ -7,6 +7,7 @@
 - [文档导航](docs/README.md)
 - [代理协作与模型分工规则](AGENTS.md)
 - [功能需求与优先级 v1.0](docs/requirements/v1.0/01_功能需求概览_v1.0.md)
+- [术语分类与适用范围需求补充](docs/requirements/amendments/0001-term-applicability.md)
 - [当前工具与插件选型 v1.1](docs/research/tool-selection-v1.1.md)
 - [项目启动与 MVP 计划（建议稿）](docs/plans/mvp-startup.md)
 - [M0：范围、样本与验收准备](docs/plans/m0-scope-and-evaluation.md)
