@@ -13,6 +13,7 @@
 - [M0 任务分工与进度](docs/plans/m0-tasks.md)
 - [M0 交付报告](docs/plans/m0-completion-report.md)：002已落实用户反馈，001出版摘录快照保留。
 - [M1 技术验证结论](docs/plans/m1-completion-report.md)
+- [M2 文本闭环与插件关系规划](docs/plans/m2-text-workflow.md)
 - [Cordis 与 DeepSeek Harness 模块复用实验](docs/research/cordis-harness.md)
 - [PDF 已有译文注入实验](docs/research/pdf-translation-injection.md)
 

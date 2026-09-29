@@ -27,6 +27,7 @@
 - [M0 样本目录与来源](research/m0-sample-catalog.md)：核心材料与后备池，分别记录核实／取得状态。
 - [评估材料与原创控制样本](../evaluation/README.md)：六个原创例子与运行评审模板，尚未执行。
 - [M1 技术验证结论](plans/m1-completion-report.md)：模块复用与 PDF 译文回放已验证，M2 下一步。
+- [M2 文本闭环与插件关系规划](plans/m2-text-workflow.md)：插件职责、服务依赖、复用流程与分步验收；当前仅规划。
 - [Cordis／Harness 调研](research/cordis-harness.md)：固定源码与真实模块接入实验，10 项检查通过。
 - [PDF 译文注入实验](research/pdf-translation-injection.md)：两页原创样本、7 条记录、三出口与重跑复用。
 - [ADR-0001 运行时选择](decisions/0001-runtime-selection.md)：M2 采用 Cordis＋DSH 模型模块。
