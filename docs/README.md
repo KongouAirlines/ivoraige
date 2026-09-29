@@ -16,6 +16,7 @@
 - [代理协作规则](../AGENTS.md)：轻量子代理优先、任务边界、模型升级与私有语料处理。
 - [功能需求概览 v1.0](requirements/v1.0/01_功能需求概览_v1.0.md)：44 项需求及当前优先级。
 - [候选工具与初步选型 v1.0](requirements/v1.0/02_候选工具与初步选型_v1.0.md)：16 组、83 个候选条目，非最终选型。
+- [当前选型 v1.1](research/tool-selection-v1.1.md)：承接原候选池，补充 DSH／Cordis 生态插件、组件依赖与接入顺序；需求版本仍为 v1.0。
 - [v1.0 更新记录](requirements/v1.0/CHANGELOG.v1.0.md)。
 - [历史来源记录](requirements/v1.0/sources.v1.0.md)：其中能力结论仍以原查阅日期为准。
 - [归档来源与完整性](requirements/v1.0/IMPORT.md)。

@@ -6,6 +6,8 @@
 
 采用 Cordis 组织服务，优先复用 DSH 的 `LlmRuntime`、`llm-pi-ai` 及其请求／响应类型和配置解析。先建立小型翻译程序，不启动完整 DSH 的 agent、会话、工具和 UI 子系统。业务层自行实现术语选择、翻译任务和已接受译文存储，不重写已有模型提供商适配。
 
+后续选型补充：上述是 M2 起步范围，不是候选准入限制。[选型 v1.1](../research/tool-selection-v1.1.md)纳入 DSH 和其他 Cordis 软件的插件；需要 settings、storage、session、workspace 或部分宿主能力的组合也可以采用，按实际节省的工作量与接入代价决定，不以完全独立为前提。
+
 实验使用 DSH 提交 `639ed015397290b3745d163aafe02ffee4aa3f84` 中配套的 vendor Cordis；不把上游 Cordis HEAD 与这套内部模块随意混装。M2 先固定已验证版本，源代码接入／打包方式沿用实验最小依赖闭包，再按真实需求缩小接口。
 
 ## 证据与取舍
