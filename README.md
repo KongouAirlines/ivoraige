@@ -15,6 +15,7 @@
 - [M1 技术验证结论](docs/plans/m1-completion-report.md)
 - [M2 文本闭环与插件关系规划](docs/plans/m2-text-workflow.md)
 - [M2 工程验收与真实本地小样](docs/plans/m2-completion-report.md)
+- [M2 真实业务验收与质量问题](docs/plans/m2-real-acceptance.md)
 - [Cordis 与 DeepSeek Harness 模块复用实验](docs/research/cordis-harness.md)
 - [PDF 已有译文注入实验](docs/research/pdf-translation-injection.md)
 

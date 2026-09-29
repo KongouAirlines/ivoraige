@@ -184,6 +184,16 @@ test('explicit model network gate and missing selected terms fail without HTTP',
   assert.throws(() => withoutTerms.task.start(doc.id), /require ivoraige.terms/); assert.equal(requests.length, 0)
 })
 
+test('explicit DSH reasoning profile disables DeepSeek-style thinking; invalid candidate preserves diagnostic without writes', async t => {
+  const { store, config, requests } = await setup(t, { model: false, responder: () => ({ text: '[{"en":"spin wave","zh":["自旋波"],"sense":"magnetic excitation","context":[],"quote":"spin wave"}]' }) })
+  const roles = Object.fromEntries(Object.entries(config.roles).map(([role, value]) => [role, { ...value, reasoningEfforts: { off: null, low: 'low' }, compat: { thinkingFormat: 'deepseek' } }]))
+  const app = await createApp({ store: `${store}-reasoning`, model: { network: false, roles } }); t.after(() => app.dispose())
+  await app.terms.createLibrary('invalid')
+  await assert.rejects(app.termBuilder.build('invalid', 'A spin wave propagates.', 'original'), error => /Invalid candidate field types/.test(error.message) && error.output.text.includes('自旋波'))
+  assert.equal(app.terms.exportLibrary('invalid').entries.length, 0)
+  assert.deepEqual(requests[0].body.thinking, { type: 'disabled' })
+})
+
 test('CLI import/show/terms/export commands do not mount invalid model config; explicit revision is required', async t => {
   const { root, store } = await setup(t, { model: false })
   const input = join(root, 'input.txt'), config = join(root, 'config.json'); await writeFile(input, original); await writeFile(config, JSON.stringify({ store: `${store}-cli`, model: { roles: { invalid: {} } } }))

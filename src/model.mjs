@@ -78,7 +78,7 @@ export class Model extends Service {
     const started = Date.now()
     const profile = this.config.roles[role]
     const call = {
-      provenance: { role, provider: profile?.provider ?? null, model: profile?.model ?? null, promptVersion: 'm2-2' },
+      provenance: { role, provider: profile?.provider ?? null, model: profile?.model ?? null, promptVersion: 'm2-3' },
       status: 'running', finish: null,
       startedAt: new Date(started).toISOString(), elapsedMs: null,
       usage: { status: 'unknown', inputTokens: null, outputTokens: null, totalTokens: null },
@@ -145,7 +145,7 @@ export class Model extends Service {
       // pi-ai fills absent provider usage with zero; its normalized stream
       // does not establish provenance. Never record that as known zero cost.
       usage: { status: 'unknown', inputTokens: null, outputTokens: null, totalTokens: null },
-      provenance: { role, provider: profile.provider, model: profile.model, promptVersion: 'm2-2' },
+      provenance: { role, provider: profile.provider, model: profile.model, promptVersion: 'm2-3' },
     }
   }
 }
@@ -166,7 +166,7 @@ export async function mountModel(ctx, config) {
     }
     const existing = provider.models.find(model => model.id === profile.model)
     if (existing) existing.maxTokens = Math.max(existing.maxTokens, profile.maxTokens ?? 4096)
-    else provider.models.push({ id: profile.model, name: profile.model, contextWindow: 65536, maxTokens: profile.maxTokens ?? 4096 })
+    else provider.models.push({ id: profile.model, name: profile.model, contextWindow: 65536, maxTokens: profile.maxTokens ?? 4096, ...(profile.reasoningEfforts === undefined ? {} : { reasoningEfforts: profile.reasoningEfforts }), ...(profile.compat === undefined ? {} : { compat: profile.compat }) })
   }
   const fibers = []
   try {

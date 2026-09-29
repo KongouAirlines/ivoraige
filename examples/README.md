@@ -27,6 +27,8 @@ node src/cli.mjs translate sample --config examples/model.local.json
 
 第二次翻译应返回 reused 且调用增量为零。更改源文、目标或所选词库后先 `check` 查看适用性；导出只读取当前适用的已接受修订，不自动复核或翻译。中译英导入时使用 `--source zh --target en`。可选审校须在 model.roles 中显式配置 review，然后使用 `translate --review`。运行中 Ctrl-C 取消在途请求并停止后续单位派发；未完成任务不在重启后自动恢复。
 
+`model.hy-deepseek.json` 展示已实际验证的角色组合：已有本机 HY-MT2 正文，DeepSeek 建库与审校；联网明确开启，DeepSeek 采用官方 `deepseek-flash` 端点，禁推理通过 DSH 的 `reasoningEfforts`／`compat` 配置传递。配置仅保存凭据变量名，不保存值。审校会产生草稿，仍须显式确认。该配置涉及远程请求，使用前应确认输入在已授权的发送范围内。
+
 ## 可选 DeepSeek 配置
 
 `model.deepseek.json` 使用用户指定的 `DeepSeek_API_TOKEN` 引用，显式开启联网。端点与 `deepseek-flash` 名称依据 2026-09-29 查阅的[官方接入说明](https://api-docs.deepseek.com/guides/harness)；本轮没有执行该远程配置，实际兼容性与用量另行验证。只有在命令中显式选择这份配置时才使用，不作为本地失败后的自动兜底。

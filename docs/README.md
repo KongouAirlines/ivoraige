@@ -29,6 +29,7 @@
 - [M1 技术验证结论](plans/m1-completion-report.md)：模块复用与 PDF 译文回放已验证。
 - [M2 文本闭环与插件关系规划](plans/m2-text-workflow.md)：插件职责、服务依赖、复用流程与分步验收。
 - [M2 工程验收与真实本地小样](plans/m2-completion-report.md)：CLI、11 项工程检查与原创双向翻译，持久复用及双出口新增请求为零。
+- [M2 真实业务验收](plans/m2-real-acceptance.md)：6 dev＋2 原创、DeepSeek 建库／审校、HY 正文词库对照与明确代理修订；自动质量及专业签认分开记录。
 - [Cordis／Harness 调研](research/cordis-harness.md)：固定源码与真实模块接入实验，10 项检查通过。
 - [PDF 译文注入实验](research/pdf-translation-injection.md)：两页原创样本、7 条记录、三出口与重跑复用。
 - [ADR-0001 运行时选择](decisions/0001-runtime-selection.md)：M2 采用 Cordis＋DSH 模型模块。

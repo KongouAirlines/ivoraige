@@ -1,6 +1,6 @@
 # M2 文本闭环工程验收记录
 
-日期：2026-09-29｜状态：M2 基本文本闭环与模拟端点工程检查通过；真实本地双向控制句通过，科学质量完整验收待执行。
+日期：2026-09-29｜状态：M2 工程及真实业务闭环通过；自动科学质量仍需修订，用户专业签认未完成。后续真实验收见 [6 dev＋2 原创业务记录](m2-real-acceptance.md)。
 
 依据：[M2 规划](m2-text-workflow.md)与 [运行时 ADR](../decisions/0001-runtime-selection.md)。实现复用固定 DSH vendor Cordis、storage/storage-domain/storage-json、llm/llm-pi-ai；项目业务服务为 records、terms、model、translation、textTask、termBuilder、textExport。没有引入完整 DSH agent/session、jobs、workflow 或 Web 产品壳。
 
@@ -79,7 +79,7 @@ node src/cli.mjs export live-zh --store evaluation/runs/m2-live/store --md evalu
 
 ## 剩余验收与限制
 
-继续按 M0 开发集验证科学含义、术语约束与真实建库／审校角色；留出答案不进入翻译或建库输入。科学含义和关键术语仍需用户专业复核，本轮未把代理工程接受写成人工确认。真实建库和审校未运行，不宣称 M0 科研质量标准已全部满足。
+已追加 6 个 M0 开发集与 2 个原创中译英单位的真实建库、词库对照和审校验收：17 次本地正文、10 次 DeepSeek 请求；候选出处、项目优先、修订保护、相关／无关术语复用及双出口通过。原模型必要修订为 6/8、4/8、4/8，最终 5 单位经代理手工修订；不是模型自动全过，也不是用户专业签认。具体对照和后续问题见 [真实验收](m2-real-acceptance.md)。留出答案未读，M0 完整科学质量验收仍未完成。
 
 首版为单进程文本与单个 JSON domain 存储，修改会保留历史修订；没有跨文件备份迁移、持久任务恢复、复杂翻译记忆检索或外部语料自动建库。术语处理是显式义项／语境约束，不是语义消歧模型。未知用量保持 unknown，不能据 SDK 补零报零费用。
 
