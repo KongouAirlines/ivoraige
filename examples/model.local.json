@@ -1,0 +1,10 @@
+{
+  "store": "evaluation/runs/m2/manual/store",
+  "model": {
+    "network": false,
+    "roles": {
+      "translation": { "provider": "local", "model": "replace-with-installed-model", "baseURL": "http://127.0.0.1:1234/v1", "apiKeyEnv": "LM_API_TOKEN", "maxTokens": 2048 },
+      "builder": { "provider": "local", "model": "replace-with-installed-model", "baseURL": "http://127.0.0.1:1234/v1", "apiKeyEnv": "LM_API_TOKEN", "maxTokens": 2048 }
+    }
+  }
+}

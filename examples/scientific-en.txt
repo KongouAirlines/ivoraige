@@ -1,0 +1,3 @@
+The spin wave propagates through the magnetic film. Its amplitude decreases near the boundary.
+
+The numerical model preserves the direction of magnetization. We compare the final state with the initial configuration.

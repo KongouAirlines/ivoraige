@@ -15,3 +15,14 @@
 /experiments/**/node_modules/
 /experiments/**/.venv/
 /experiments/**/__pycache__/
+
+# M2 pinned upstream source, dependencies, generated bundle and local records.
+/vendor/
+/node_modules/
+/dist/
+/.ivoraige/
+
+# Local credentials; only intentionally public templates may be committed.
+.env
+.env.*
+!.env.example

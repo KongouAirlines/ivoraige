@@ -1,6 +1,6 @@
 # M2：文本闭环与插件关系规划
 
-日期：2026-09-29｜状态：实施前规划；本文件不代表插件已实现或真实模型验收通过。
+日期：2026-09-29｜状态：M2 基本文本闭环已实施；真实本地原创双向小样通过，科研质量完整验收待后续。交付记录见 [M2 报告](m2-completion-report.md)。
 
 依据：[启动计划](mvp-startup.md)、[ADR-0001](../decisions/0001-runtime-selection.md)、[选型 v1.1](../research/tool-selection-v1.1.md)及 [DSH 候选明细](../research/dsh-plugin-candidates.md)。采用已验证的 DSH vendor Cordis 与模型组合，在一个仓库内实现逻辑插件；先不拆 npm 包、不定义完整 SDK，也不先做通用工作流框架。
 
@@ -139,5 +139,7 @@ M2 退出条件是上述文本闭环可运行、持久复用与双出口无补�
 - CLI 的确认／修订交互形式，以及是否确需 jobs-local；先有可用命令与取消行为，再决定宿主组合收益。
 - 真实模型端点、建库／正文／审校角色配置及调用预算；未指定前用模拟端点完成工程检查。
 - 首版需检查译文的展示与重新确认方式。它影响复用资格和出口缺项处理，但不要求先做完整精翻工作台。
+
+本轮实际记录小样已选 DSH storage＋domain＋JSON。一个 `workspace` 记录保存小文档与词库，domain 的一次 durable update 同时更新术语与需检查标记；不依赖未提供的跨表事务。真实 JSON 小样导入、关闭及重新打开通过，暂不实现第二后端。运行句柄采用业务插件内 AbortController，不引入 jobs／agent／session。首版所有归一化 SDK usage 都记 unknown，因为无法证明 provider 原始存在性。
 
 这些选择不改变上面的插件方向、独立建库或接受译文作为正式输出来源的边界。需要完整 DSH／Koishi 界面或工作流时再更新 ADR 与相应阶段计划。

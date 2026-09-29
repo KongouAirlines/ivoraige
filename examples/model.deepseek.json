@@ -1,0 +1,10 @@
+{
+  "store": "evaluation/runs/m2/manual/store",
+  "model": {
+    "network": true,
+    "roles": {
+      "translation": { "provider": "deepseek", "model": "deepseek-flash", "baseURL": "https://api.deepseek.com", "apiKeyEnv": "DeepSeek_API_TOKEN", "maxTokens": 2048 },
+      "builder": { "provider": "deepseek", "model": "deepseek-flash", "baseURL": "https://api.deepseek.com", "apiKeyEnv": "DeepSeek_API_TOKEN", "maxTokens": 2048 }
+    }
+  }
+}

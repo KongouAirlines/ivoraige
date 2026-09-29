@@ -1,0 +1,8 @@
+// Resolved by scripts/build.mjs against the pinned DSH source tree.
+export { Context, Service } from '@deepseek-ai/cordis'
+export { default as LlmRuntime, createUserMessage, BlockAssembler } from '@deepseek-ai/dsh-llm'
+export * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
+export { Storage } from '@deepseek-ai/dsh-storage'
+export * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
+export * as StorageJson from '@deepseek-ai/dsh-storage-json'
+export { z } from 'zod'
