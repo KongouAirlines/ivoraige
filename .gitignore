@@ -9,3 +9,9 @@
 /*.azw
 /*.azw3
 /*.djvu
+
+# M1 upstream checkouts and local experiment dependencies.
+/experiments/vendor/
+/experiments/**/node_modules/
+/experiments/**/.venv/
+/experiments/**/__pycache__/

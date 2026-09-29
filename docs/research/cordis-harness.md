@@ -1,57 +1,86 @@
-# Cordis 与 DeepSeek Harness 调研提纲
+# Cordis 与 DeepSeek Harness 定向调研和 M1 实验
 
-日期：2026-09-29｜状态：已做官方资料初查，未运行实验。
+日期：2026-09-29｜状态：官方源码核验；真实DSH模块接入本地HTTP实验10项通过；未调用真实模型。最终运行时选择由ADR记录。
 
-## 已核实的资料关系
+## 结论
 
-用户准备从 DeepSeek Harness 文档学习 Cordis 的安排合理：Cordis 官方仓库当前直接将其文档入口指向 Harness 的 Cordis primer，并说明独立官方文档仍在建设中。仓库也提示 API 尚未稳定。[Cordis 官方仓库](https://github.com/cordiverse/cordis)
+可以采用 **DSH所带Cordis + LLM注册服务 + 通用pi-ai模型插件**，由项目实现翻译单位、术语组合、接受译文存储与输出。这个组合已实际请求本地OpenAI-compatible SSE端点，不要求采用完整Harness agent、会话产品或界面。应将模块复用作为真实路线，不再仅比较“独立Cordis后全部接入重写”和“完整DSH”。
 
-Harness 的 primer 说明其 Cordis 是以 vendor 方式引入的框架；核心关注点是上下文、服务依赖、事件与可清理的注册。[Cordis 入门](https://deepseek-harness.github.io/deepseek-harness/reference/cordis-primer)
+本结论只覆盖模型接入与生命周期。持久任务、复用键、断点恢复和译文PDF不由此获得证明。官方仍标注Harness为developer preview并会发生不兼容变化。[官方仓库](https://github.com/deepseek-ai/deepseek-harness)
 
-因此阅读教程时要记录使用的是上游 Cordis 还是 Harness 所带版本，示例的包名与项目依赖必须匹配；不能默认两者任意版本兼容。本次尚未核验版本差异或确定依赖版本。
+## 固定版本和许可证
 
-DeepSeek Harness 是使用 Cordis 的 agent 产品框架，提供模型、工具、会话等能力；官方仍标为 developer preview，并明确存在破坏兼容性的变更。[官方仓库](https://github.com/deepseek-ai/deepseek-harness)
+| 对象 | 固定值 |
+|---|---|
+| DSH源码 | `639ed015397290b3745d163aafe02ffee4aa3f84` |
+| DSH LLM / pi-ai插件包清单 | `0.2.0-rc.2` |
+| DSH所带Cordis | 发布包`@deepseek-ai/cordis@4.0.4`；vendor上游基线`4.0.0-rc.7` / `56b3d4f725681cf4556c1a8695a709cc3b6eed74` |
+| 独立Cordis，仅源码对照 | `f8ea3cd50f1a5724e8e715995bcde131c9c12b2c` / `cordis@4.0.0-rc.10` |
+| pi-ai SDK | npm `@earendil-works/pi-ai@0.87.1` |
+| 实验运行环境 | Windows / PowerShell / Node v26.7.0 |
 
-## 阅读次序与产物
+依据：[DSH固定提交](https://github.com/deepseek-ai/deepseek-harness/tree/639ed015397290b3745d163aafe02ffee4aa3f84)、[vendor清单与本地修改](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/vendor/README.md#manifest)、[上游Cordis清单](https://github.com/cordiverse/cordis/blob/f8ea3cd50f1a5724e8e715995bcde131c9c12b2c/packages/core/package.json)。DSH、Cordis vendor和pi-ai包清单均为MIT；vendor保留上游LICENSE。分发应保留MIT通知；传递依赖通知按实际发布闭包处理，不能笼统称全部依赖为同一许可证。
 
-| 顺序 | 资料 | 只需回答的问题 | 产物 |
-|---|---|---|---|
-| 1 | [Cordis 入门](https://deepseek-harness.github.io/deepseek-harness/reference/cordis-primer) | 业务能力如何声明、依赖和释放？ | 用本项目模型／术语／输出能力画一张依赖草图 |
-| 2 | [Cordis 教程](https://deepseek-harness.github.io/deepseek-harness/develop/cordis-tutorial/) | 插件、生命周期、服务、事件、配置如何组合？ | 一个可运行的翻译相关小例子 |
-| 3 | [Harness 架构](https://deepseek-harness.github.io/deepseek-harness/en/reference/) | 哪些产品能力可复用？哪些会引入与翻译无关的约束？ | Cordis 单独使用与完整 Harness 的对照 |
-| 4 | [vendor 说明入口](https://github.com/deepseek-ai/deepseek-harness/blob/master/vendor/README.md)与选定版本源码 | 包来源、同步方式与本例适用 API 是否一致？ | 固定版本／提交及环境记录；此项仍待细读核验 |
+实验只用DSH vendor Context/Service，不混用上游身份。DSH已有生命周期修补和scope重命名，数字版本不可按上游直接互换；独立Cordis未运行同一实验，兼容性未获验证。
 
-教程提供无需 API 密钥的示例，适合首先验证框架机制。[教程说明](https://deepseek-harness.github.io/deepseek-harness/develop/cordis-tutorial/)
+## 可复用模块与代价
 
-不必先读完所有子系统。优先读完与首个实验有关的内容，遇到实际问题再查完整 API。
-
-## 要验证的实验
-
-以下均为本项目拟议实验，未声明为框架已保证的业务行为。
-
-| 实验 | 方法 | 通过条件 |
+| 模块 | 获得能力 | 成本与边界 |
 |---|---|---|
-| 服务依赖 | 翻译调用方依赖模拟模型与术语服务，故意缺失一个依赖 | 可观察等待或失败原因，无静默错误执行 |
-| 可替换模型 | 在不修改翻译逻辑的情况下换模拟实现 | 输入输出约定保持一致，调用落到新实现 |
-| 释放与重复加载 | 注册监听器并卸载／重新加载插件 | 无重复监听、残留定时器或意外重复任务 |
-| 取消传播 | 在模型请求进行中发出取消 | 业务明确区分不再派发、请求中断与结果保存 |
-| Python 后端接入 | 仅在选定解析器需要时，比较子进程与 HTTP | 输入输出可定位，超时和退出有清晰处理 |
-| 配置边界 | 模型、术语、联网及输出配置分别切换 | 用户配置实际生效，不因默认插件偷偷改变路线 |
+| `@deepseek-ai/cordis` | Context、服务注入、事件、随fiber清理的effect | vendor Cosmokit；框架身份统一 |
+| `dsh-llm` | 注册、模型解析、流协议、错误、调用冻结、BlockAssembler | Cordis、Typert协议基类、Schemastery、brand/values/crypto/timeout |
+| `dsh-llm-pi-ai` | catalog多provider、自声明兼容端点、凭据解析、流转换和取消 | pi-ai SDK及配置/auth/catalog/discovery；强制inject仅llm |
+| `dsh-llm-deepseek`及API-key/account提供方 | DeepSeek Messages transport与认证分离 | 专有能力需要时可复用；仅核验源码/README，未实跑 |
+| `dsh-credentials` / `credentials-local` | 凭据接口及本地存储 | 实验用环境解析，未测持久化；不是操作系统keyring |
+| settings / model UI | 模型配置、目录与发现 | 按需调查；M2 CLI无须提前引入完整客户端；未实跑 |
 
-每个实验记录：依赖版本／提交、环境、执行命令、输入、预期、实际输出、日志、限制、结论。无模型密钥也可以完成前几个实验。
+本次局部bundle含58个真实上游文件，npm安装91个包；pi-ai自身依赖OpenAI、Anthropic、Google、AWS等SDK。没有安装整个DSH工作区或构建全部应用。闭包比手写单一HTTP调用大，但复用了配置、注册、流规范化和取消；不是零成本插件。
 
-## 选型时比较三条路线
+依据：[插件inject](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/llm/llm-pi-ai/src/index.ts#L93)、[依赖清单](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/llm/llm-pi-ai/package.json)、[注册的effect归属](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/llm/llm/src/index.ts#L396)。
 
-| 路线 | 本项目可能获得的价值（待验证） | 需要证明的代价 | 采用条件 |
-|---|---|---|---|
-| Cordis + 自己的翻译业务层 | 可替换服务与依赖生命周期管理 | 打包、调试、任务取消及升级维护 | 小实验显示明显收益，业务逻辑与运行时可分开 |
-| 完整 Harness + 翻译插件 | 可能复用模型、设置、界面或会话等已有模块 | 产品交互是否适合文档任务，是否引入过多 agent 概念 | 需要的模块确实减少工程量，且升级影响可控 |
-| 普通模块化程序 | 显式组合，启动与调试路径较短 | 生命周期和依赖管理是否开始重复实现 | Cordis 收益尚不足时可作为基准或初期实现 |
+## Provider、配置与凭据
 
-倾向先验证第一条，并用第三条作成本基准；完整 Harness 是否值得采用，等实际复用点清楚后决定。这是本次工程建议，不是已完成的选型结论。
+`providers`字典可以继承安装的catalog，也可完整声明私有/本地网关。手工协议覆盖目前限`openai-completions`、`openai-responses`、`anthropic-messages`；catalog路由保留provider自己的协议与认证能力。手工表不等于Azure/Bedrock/Vertex/OAuth全部配置能力。[协议表及边界](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/llm/llm-pi-ai/src/provider.ts#L41)
 
-## 调研完成标准
+实跑路由`local`，协议`openai-completions`，`baseURL=http://127.0.0.1:<动态端口>/v1`；`mock-translator`模型与128输出预算进入`/v1/chat/completions`。服务器返回固定术语译文；未证明任何真实本地模型的推理方言或模型名正确。
 
-能够说明“用了什么、解决什么、增加什么成本”，提供一个可重跑例子，并填写[运行时决策记录](../decisions/0001-runtime-selection.md)。同时完成 MVP 计划中的 PDF 译文注入实验，防止框架选定后才发现核心输出路线不可行。
+`apiKeyEnv`实际为凭据引用：有credentials服务时经它解析，无该服务时读launch environment。命名引用缺失产生MISSING_CREDENTIAL，无HTTP且不偷偷用别的ambient key；省略引用才允许provider ambient发现。配置保存引用而非secret。无密钥兼容端点可能仍需SDK接受的dummy key，不默认所有协议可空认证。[解析逻辑](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/llm/llm-pi-ai/src/index.ts#L183)、[自声明认证](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/llm/llm-pi-ai/src/provider.ts#L65)
 
-本次资料核查仅覆盖上述官方页面，不代表重新验证原有 83 个候选。在线文档会更新；真正实施时固定依赖和相应文档版本。
+源码按调用捕获不可变snapshot，在途沿用旧配置；下次请求取新配置，route set或注册捕获的retry policy变更会重注册。本实验实际验证插件卸载与端点换装，没有验证settings热更新或在途配置冻结。[snapshot路径](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/llm/llm-pi-ai/src/adapter.ts#L318)
+
+联网关闭、阶段模型分工和后续单位派发属于本项目业务设置，框架不会自行推断。
+
+## 流、取消、用量与错误
+
+caller signal与消费者signal合并，idle watchdog控制超时；停止消费时abort SDK并return内部iterator。LLM服务将adapter选择/派发/迭代失败转换为terminal finish，取消为aborted，其余为error；middleware、清理或消费者异常仍可能throw。调用方应检查finish并捕获异常。[取消路径](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/llm/llm-pi-ai/src/adapter.ts#L351)、[终止映射](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/llm/llm/src/index.ts#L1153)
+
+pi-ai部分错误只保留message，DSH按文本分类AUTH/RATE_LIMIT/TIMEOUT/TRANSPORT等；不能承诺完整HTTP cause/request-id/Retry-After。SDK调用设置maxRetries=0，可见重试归另外的恢复层，本次未装llm-retry。[错误分类限制](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/llm/llm-pi-ai/src/stream.ts#L33)、[SDK单次调用](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/llm/llm-pi-ai/src/adapter.ts#L136)
+
+**用量缺失是实测缺口**：mock省略usage，SDK仍交付0/0/0。局部pi-ai `dist/api/openai-completions.js:162`初始化零值，`:362`只有存在usage才更新；DSH [stream.ts:24](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/llm/llm-pi-ai/src/stream.ts#L24)直接映射且没有来源标志。M2应将未确认计数标未知，不能填实测零；精确区分要另保留wire证据/适配来源标志，仅公共计数字段不足。
+
+Cordis清理服务/effect不等于持久任务取消。实跑信号关闭在途HTTP；下一单位未派发由业务guard保证，部分输出保存、接受状态与进程恢复仍属翻译业务。[fiber状态](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/vendor/cordis/src/fiber.ts#L142)、[服务生命周期](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/vendor/cordis/src/service.ts#L31)
+
+## 实跑与重跑
+
+见[实验README](../../experiments/cordis-dsh/README.md)与[run.mjs](../../experiments/cordis-dsh/run.mjs)。最终`node run.mjs`退出0，10项检查通过：
+
+| 检查 | 结果 |
+|---|---|
+| LLM→pi-ai→HTTP→BlockAssembler | 译文、路径、模型、128预算及3/2/5用量吻合 |
+| 卸载/重载B端点 | NO_ADAPTER后B译文，A无新增请求 |
+| 命名凭据缺失 | MISSING_CREDENTIAL，无HTTP |
+| 401 | terminal error / AUTH |
+| 省略usage | 补零，记录为缺口 |
+| caller取消 | ABORTED，服务端关闭连接，下一单位不派发 |
+| iterator.return | 服务端关闭连接 |
+| 40ms流空闲超时 | TIMEOUT，连接关闭 |
+| terms缺失 | consumer PENDING、apply未执行 |
+| 依赖卸载重载 | 活跃计数归0，无重复/残留监听 |
+
+完整`results.json`、`build-evidence.json`和bundle在实验目录忽略，可重跑生成。构建仅保留attribution原module URL以正确读取上游package版本，vendor源码未改。初次沙箱spawnSync git EPERM经本地构建升级通过；npm默认离线ENOTCACHED通过官方registry与局部cache解决，是本机配置阻碍而非DSH失败。
+
+## M2建议与未验证项
+
+建议以此组合做M2骨架，CLI显式配置模型和步骤，逐步接term/store/export业务模块。首次发布应解决固定包/源码闭包构建与许可证通知，用薄项目调用边界隔离SDK细节；不要为了复用模型先搬完整agent/session产品。
+
+未选择最终发布形式；未跑独立Cordis或完整DSH，未测OAuth、credentials-local持久化、settings热更新、真实模型、图片或tool-call。PDF注入为另一独立实验。此调研只证明小闭包可行性，不等于全库兼容性或完整MVP通过。

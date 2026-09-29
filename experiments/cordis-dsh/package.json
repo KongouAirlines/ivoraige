@@ -1,0 +1,13 @@
+{
+  "name": "ivoraige-cordis-dsh-experiment",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "node build.mjs", "test": "node build.mjs && node run.mjs" },
+  "dependencies": {
+    "@earendil-works/pi-ai": "0.87.1",
+    "@standard-schema/spec": "1.1.0",
+    "esbuild": "0.28.0",
+    "js-yaml": "4.2.0",
+    "zod": "4.4.3"
+  }
+}
