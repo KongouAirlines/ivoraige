@@ -15,6 +15,7 @@
 - [M0 交付报告](docs/plans/m0-completion-report.md)：002已落实用户反馈，001出版摘录快照保留。
 - [M1 技术验证结论](docs/plans/m1-completion-report.md)
 - [M2 文本闭环与插件关系规划](docs/plans/m2-text-workflow.md)
+- [M3 PDF 闭环与注入维护规划](docs/plans/m3-pdf-workflow.md)
 - [M2 工程验收与真实本地小样](docs/plans/m2-completion-report.md)
 - [M2 真实业务验收与质量问题](docs/plans/m2-real-acceptance.md)
 - [Cordis 与 DeepSeek Harness 模块复用实验](docs/research/cordis-harness.md)

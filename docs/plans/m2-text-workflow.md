@@ -1,6 +1,6 @@
 # M2：文本闭环与插件关系规划
 
-后续补齐：按[需求补充 01](../requirements/amendments/0001-term-applicability.md)实现 M2.1 术语分类与条目适用范围。现有共享／项目库和语境词匹配不足以隔离书内约定；先完成范围过滤与复用回归，再进入 M3。
+后续需求：按[需求补充 01](../requirements/amendments/0001-term-applicability.md)保留术语分类与适用范围；待建库和库结构明确后实施。当前不执行 M2.1、不迁移词库，也不阻塞 M3 规划。
 
 日期：2026-09-29｜状态：M2 工程与真实业务修订闭环已验收；自动科学质量未全过，用户专业签认待后续。见 [M2 报告](m2-completion-report.md)与[真实验收](m2-real-acceptance.md)。
 

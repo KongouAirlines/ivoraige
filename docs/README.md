@@ -15,7 +15,7 @@
 
 - [代理协作规则](../AGENTS.md)：轻量子代理优先、任务边界、模型升级与私有语料处理。
 - [功能需求概览 v1.0](requirements/v1.0/01_功能需求概览_v1.0.md)：44 项需求及当前优先级。
-- [需求补充 01：术语分类与适用范围](requirements/amendments/0001-term-applicability.md)：补充 F-14／F-15／F-17，M2.1 先补齐通用与专用范围，再进入 M3。
+- [需求补充 01：术语分类与适用范围](requirements/amendments/0001-term-applicability.md)：补充 F-14／F-15／F-17，待库结构明确后实施，不作为 M3 前置。
 - [候选工具与初步选型 v1.0](requirements/v1.0/02_候选工具与初步选型_v1.0.md)：16 组、83 个候选条目，非最终选型。
 - [当前选型 v1.1](research/tool-selection-v1.1.md)：承接原候选池，补充 DSH／Cordis 生态插件、组件依赖与接入顺序；需求版本仍为 v1.0。
 - [v1.0 更新记录](requirements/v1.0/CHANGELOG.v1.0.md)。
@@ -29,6 +29,7 @@
 - [评估材料与原创控制样本](../evaluation/README.md)：六个原创例子与运行评审模板，尚未执行。
 - [M1 技术验证结论](plans/m1-completion-report.md)：模块复用与 PDF 译文回放已验证。
 - [M2 文本闭环与插件关系规划](plans/m2-text-workflow.md)：插件职责、服务依赖、复用流程与分步验收。
+- [M3 PDF 闭环与注入维护规划](plans/m3-pdf-workflow.md)：插件关系、BabelDOC 适配边界、代表页验收及上游接口路径；当前仅规划。
 - [M2 工程验收与真实本地小样](plans/m2-completion-report.md)：CLI、11 项工程检查与原创双向翻译，持久复用及双出口新增请求为零。
 - [M2 真实业务验收](plans/m2-real-acceptance.md)：6 dev＋2 原创、DeepSeek 建库／审校、HY 正文词库对照与明确代理修订；自动质量及专业签认分开记录。
 - [Cordis／Harness 调研](research/cordis-harness.md)：固定源码与真实模块接入实验，10 项检查通过。
