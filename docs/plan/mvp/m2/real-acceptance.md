@@ -54,7 +54,7 @@
 
 ## 复跑与用户审阅入口
 
-轻量脚本：[scripts/m2-acceptance.mjs](../../../scripts/m2-acceptance.mjs)。模型／端点示例：[model.hy-deepseek.json](../../../examples/model.hy-deepseek.json)。运行数据在忽略目录 `evaluation/runs/m2-acceptance/`；脚本固定六 dev 白名单，只拷贝源文与定位，生成步骤不载入参考。
+轻量脚本：[scripts/m2-acceptance.mjs](../../../../scripts/m2-acceptance.mjs)。模型／端点示例：[model.hy-deepseek.json](../../../../examples/model.hy-deepseek.json)。运行数据在忽略目录 `evaluation/runs/m2-acceptance/`；脚本固定六 dev 白名单，只拷贝源文与定位，生成步骤不载入参考。
 
 ```powershell
 node scripts/m2-acceptance.mjs prepare

@@ -9,7 +9,7 @@
 - [功能需求与优先级 v1.0](docs/requirements/v1.0/01_功能需求概览_v1.0.md)
 - [术语分类与适用范围需求补充](docs/requirements/amendments/0001-term-applicability.md)
 - [当前工具与插件选型 v1.1](docs/research/tool-selection-v1.1.md)
-- [项目启动与 MVP 计划（建议稿）](docs/mvp/plan.md)
+- [项目启动与 MVP 计划（建议稿）](docs/plan/mvp/plan.md)
 
 需求版本 v1.0 不等于软件版本或首批交付范围。后续实施以需求基线为依据，通过小规模验证收敛技术方案。
 

@@ -1,9 +1,9 @@
 # M0 评估材料
 
-本目录是评估准备，不是已经执行的翻译测试结果。M0工程准备已交付，用户反馈已落实为002；见[M0交付报告](../docs/mvp/m0/completion.md)。
+本目录是评估准备，不是已经执行的翻译测试结果。M0工程准备已交付，用户反馈已落实为002；见[M0交付报告](../docs/plan/mvp/m0/completion.md)。
 
-- [M0 范围与验收](../docs/mvp/m0/plan.md)
-- [真实材料目录](../docs/mvp/m0/sample-catalog.md)
+- [M0 范围与验收](../docs/plan/mvp/m0/plan.md)
+- [真实材料目录](../docs/plan/mvp/m0/sample-catalog.md)
 - [原创工程控制样本](synthetic-cases.json)：6 个由本项目本次编写的例子，附期望；不是出版译文、人工认证金标准或模型运行结果。
 - [评审记录模板](review-template.md)：运行与人工评审后填写。
 

@@ -5,11 +5,11 @@
 | 目录 | 用途 | 当前内容 |
 |---|---|---|
 | `requirements/v1.0/` | 已有需求与候选工具的版本基线 | 四份原始 Markdown、归档说明和校验清单 |
-| `mvp/` | MVP 总计划及 M0～M4 分阶段规划与记录 | 按阶段独立组织 |
+| `plan/mvp/` | MVP 总计划及 M0～M4 分阶段规划与记录 | 按阶段独立组织 |
 | `research/` | 跨阶段技术调查与候选池 | 当前选型、DSH 插件候选、Cordis 生态候选 |
 | `decisions/` | 重要架构决策及理由 | M2 运行时选择决策记录 |
 
-阅读顺序：需求基线 → [MVP 分阶段规划](mvp/README.md) → 跨阶段调研与决策。原始文件保持原样；后续范围建议写入计划，技术结论写入决策记录。
+阅读顺序：需求基线 → [MVP 分阶段规划](plan/mvp/README.md) → 跨阶段调研与决策。原始文件保持原样；后续范围建议写入计划，技术结论写入决策记录。
 
 ## 当前规划
 
@@ -21,5 +21,5 @@
 - [v1.0 更新记录](requirements/v1.0/CHANGELOG.v1.0.md)。
 - [历史来源记录](requirements/v1.0/sources.v1.0.md)：其中能力结论仍以原查阅日期为准。
 - [归档来源与完整性](requirements/v1.0/IMPORT.md)。
-- [MVP 分阶段规划与记录](mvp/README.md)：M0～M4 独立目录、总计划与阶段记录。
+- [MVP 分阶段规划与记录](plan/mvp/README.md)：M0～M4 独立目录、总计划与阶段记录。
 - [ADR-0001 运行时选择](decisions/0001-runtime-selection.md)：M2 采用 Cordis＋DSH 模型模块。

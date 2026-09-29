@@ -1,10 +1,10 @@
 # M2：文本闭环与插件关系规划
 
-后续需求：按[需求补充 01](../../requirements/amendments/0001-term-applicability.md)保留术语分类与适用范围；待建库和库结构明确后实施。当前不执行 M2.1、不迁移词库，也不阻塞 M3 规划。
+后续需求：按[需求补充 01](../../../requirements/amendments/0001-term-applicability.md)保留术语分类与适用范围；待建库和库结构明确后实施。当前不执行 M2.1、不迁移词库，也不阻塞 M3 规划。
 
 日期：2026-09-29｜状态：M2 工程与真实业务修订闭环已验收；自动科学质量未全过，用户专业签认待后续。见 [M2 报告](completion.md)与[真实验收](real-acceptance.md)。
 
-依据：[启动计划](../plan.md)、[ADR-0001](../../decisions/0001-runtime-selection.md)、[选型 v1.1](../../research/tool-selection-v1.1.md)及 [DSH 候选明细](../../research/dsh-plugin-candidates.md)。采用已验证的 DSH vendor Cordis 与模型组合，在一个仓库内实现逻辑插件；先不拆 npm 包、不定义完整 SDK，也不先做通用工作流框架。
+依据：[启动计划](../plan.md)、[ADR-0001](../../../decisions/0001-runtime-selection.md)、[选型 v1.1](../../../research/tool-selection-v1.1.md)及 [DSH 候选明细](../../../research/dsh-plugin-candidates.md)。采用已验证的 DSH vendor Cordis 与模型组合，在一个仓库内实现逻辑插件；先不拆 npm 包、不定义完整 SDK，也不先做通用工作流框架。
 
 ## 1. 本阶段交付什么
 

@@ -2,7 +2,7 @@
 
 日期：2026-09-29｜状态：M0、M1 与 M2 文本业务修订闭环已完成。M2 工程检查与 6 dev＋2 原创真实建库／翻译／审校／修订／复用验收通过，自动质量未全过，用户专业签认待继续；PDF 闭环留在 M3。详见 [M2 真实验收](m2/real-acceptance.md)、[M2 交付](m2/completion.md)与[M1 结论](m1/completion.md)。
 
-依据：[需求基线 v1.0](../requirements/v1.0/01_功能需求概览_v1.0.md)。以下是实施拆分建议，不重新调整需求优先级。MVP 指首个可用闭环；M0～M4 为本计划里程碑，与需求版本号无关。
+依据：[需求基线 v1.0](../../requirements/v1.0/01_功能需求概览_v1.0.md)。以下是实施拆分建议，不重新调整需求优先级。MVP 指首个可用闭环；M0～M4 为本计划里程碑，与需求版本号无关。
 
 ## 1. 建议的启动顺序
 
@@ -91,7 +91,7 @@ M3 是本建议中首个满足核心目标的 MVP 交付点。M2 的复用要求
 
 ## 7. 下一次可直接开始的工作
 
-M2 真实流程证据见[验收记录](m2/real-acceptance.md)，运行时继续按 [ADR-0001](../decisions/0001-runtime-selection.md)实施。当前先完成 [M3 规划](m3/plan.md)。[术语范围需求](../requirements/amendments/0001-term-applicability.md)保留，待建库和库结构明确后实施，不先改库、不作为 M3 前置。
+M2 真实流程证据见[验收记录](m2/real-acceptance.md)，运行时继续按 [ADR-0001](../../decisions/0001-runtime-selection.md)实施。当前先完成 [M3 规划](m3/plan.md)。[术语范围需求](../../requirements/amendments/0001-term-applicability.md)保留，待建库和库结构明确后实施，不先改库、不作为 M3 前置。
 
 1. 明确 PDF 插件与现有文本记录、翻译和输出服务的边界，以及所维护的最小适配代码。
 2. 将代表页的实际可译块接入 M2 记录，先解决来源对应和公式占位符，再复用现有翻译与接受流程。

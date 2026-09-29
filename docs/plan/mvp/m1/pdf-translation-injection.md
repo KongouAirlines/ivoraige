@@ -34,7 +34,7 @@
 
 ## 可复跑产物与证据
 
-脚本与命令在 [experiments/pdf-injection/README.md](../../../experiments/pdf-injection/README.md)，实现为 [run.py](../../../experiments/pdf-injection/run.py)。所有输入与运行输出在已忽略的 `evaluation/runs/m1-pdf-injection/`，无版权原件新增、无全文重解析或通用哈希关卡。
+脚本与命令在 [experiments/pdf-injection/README.md](../../../../experiments/pdf-injection/README.md)，实现为 [run.py](../../../../experiments/pdf-injection/run.py)。所有输入与运行输出在已忽略的 `evaluation/runs/m1-pdf-injection/`，无版权原件新增、无全文重解析或通用哈希关卡。
 
 | 产物 | 作用 |
 |---|---|

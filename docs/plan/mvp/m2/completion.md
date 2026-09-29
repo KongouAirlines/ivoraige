@@ -2,7 +2,7 @@
 
 日期：2026-09-29｜状态：M2 工程及真实业务闭环通过；自动科学质量仍需修订，用户专业签认未完成。后续真实验收见 [6 dev＋2 原创业务记录](real-acceptance.md)。
 
-依据：[M2 规划](plan.md)与 [运行时 ADR](../../decisions/0001-runtime-selection.md)。实现复用固定 DSH vendor Cordis、storage/storage-domain/storage-json、llm/llm-pi-ai；项目业务服务为 records、terms、model、translation、textTask、termBuilder、textExport。没有引入完整 DSH agent/session、jobs、workflow 或 Web 产品壳。
+依据：[M2 规划](plan.md)与 [运行时 ADR](../../../decisions/0001-runtime-selection.md)。实现复用固定 DSH vendor Cordis、storage/storage-domain/storage-json、llm/llm-pi-ai；项目业务服务为 records、terms、model、translation、textTask、termBuilder、textExport。没有引入完整 DSH agent/session、jobs、workflow 或 Web 产品壳。
 
 ## 可运行产物
 
@@ -51,7 +51,7 @@ node src/cli.mjs export sample --store evaluation/runs/m2/manual/store --md eval
 node src/cli.mjs translate sample --config examples/model.local.json
 ```
 
-第二次翻译已适用接受结果应返回 reused，calls 为空。`check` 只核对适用性，不生成新翻译；export 不触发 check 或模型。运行中 Ctrl-C 取消并等待运行句柄结束。完整术语和双向示例见 [examples README](../../../examples/README.md)。
+第二次翻译已适用接受结果应返回 reused，calls 为空。`check` 只核对适用性，不生成新翻译；export 不触发 check 或模型。运行中 Ctrl-C 取消并等待运行句柄结束。完整术语和双向示例见 [examples README](../../../../examples/README.md)。
 
 ## 真实 LM Studio 控制句
 

@@ -1,6 +1,6 @@
 # DSH 插件复用候选：v1.1 选型补充
 
-日期：2026-09-29。核验对象是本地 `experiments/vendor/deepseek-harness/`，固定提交 [`639ed015397290b3745d163aafe02ffee4aa3f84`](https://github.com/deepseek-ai/deepseek-harness/tree/639ed015397290b3745d163aafe02ffee4aa3f84)，所列 DSH 包清单版本为 `0.2.0-rc.2`。本轮阅读包清单、入口源码与对应 README；没有安装插件、运行新增实验或调用模型。既有模型实验结果沿用 [Cordis 与 DSH 调研](../mvp/m1/cordis-harness.md)。
+日期：2026-09-29。核验对象是本地 `experiments/vendor/deepseek-harness/`，固定提交 [`639ed015397290b3745d163aafe02ffee4aa3f84`](https://github.com/deepseek-ai/deepseek-harness/tree/639ed015397290b3745d163aafe02ffee4aa3f84)，所列 DSH 包清单版本为 `0.2.0-rc.2`。本轮阅读包清单、入口源码与对应 README；没有安装插件、运行新增实验或调用模型。既有模型实验结果沿用 [Cordis 与 DSH 调研](../plan/mvp/m1/cordis-harness.md)。
 
 本表精选 14 个组件或组合，服务当前翻译、术语和译文复用，以及后续任务、界面和外部接口。**允许一并复用 DSH 的 agent、session、workspace 和客户端组件**；依赖这些组件不会自动淘汰候选，是否值得引入取决于它们是否同时解决本项目实际需要。P0/P1/P2 对应 v1.0 功能优先级，不代表这些包已经纳入实施承诺。
 

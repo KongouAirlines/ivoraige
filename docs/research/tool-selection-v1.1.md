@@ -42,7 +42,7 @@ DSH 表中 `dsh-*` 均为 `@deepseek-ai/` 命名空间，完整名称及入口�
 | 本地推理／模型（1.2、2.1） | 保留 Ollama、LM Studio、llama.cpp 及翻译模型／服务等候选；DSH 负责接入，它不取代模型或本地运行器 |
 | 自动调度／工作流（2.2、2.3） | 加入 DSH workflow／retry／schedule 的适用范围；原路由与工作流工具仍可比较 |
 | 术语／精翻／词典（2.4～2.6） | 原候选保留；数据库、MCP、HTTP 或向量检索能提供基础能力，术语含义、确认状态与冲突规则仍需翻译业务层 |
-| 解析／OCR／PDF（3.1～3.3） | MinerU 保留解析候选；BabelDOC 已验证已有译文回放，pdf2zh-next 提供上层集成参考；补 DSH 附件及 Office→PDF。详见 [M1 PDF 证据](../mvp/m1/pdf-translation-injection.md) |
+| 解析／OCR／PDF（3.1～3.3） | MinerU 保留解析候选；BabelDOC 已验证已有译文回放，pdf2zh-next 提供上层集成参考；补 DSH 附件及 Office→PDF。详见 [M1 PDF 证据](../plan/mvp/m1/pdf-translation-injection.md) |
 | 场景、客户端、文献协同（3.4～3.7） | 原候选保留，本轮未重新调研，不因增加插件池改变需求先后 |
 | MCP／兼容入口（3.8） | 区分 DSH 消费外部 MCP 与本项目对外提供接口；HTTP server 不自动具备 OpenAI 或 MCP 协议 |
 

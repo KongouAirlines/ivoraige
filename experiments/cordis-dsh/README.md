@@ -40,4 +40,4 @@ npm test
 | consumer缺terms | PENDING，apply未执行 |
 | 依赖卸载重载 | 活跃计数回0；无重复或残留事件监听 |
 
-未测真实模型、计费、OAuth、凭据文件、settings热更新、图像、tool-call或真实LLM部署。取消下一单位、保存部分流和重启恢复属于业务层；用量未知必须另标unknown。详细模块依赖与源码证据见[研究记录](../../docs/mvp/m1/cordis-harness.md)。
+未测真实模型、计费、OAuth、凭据文件、settings热更新、图像、tool-call或真实LLM部署。取消下一单位、保存部分流和重启恢复属于业务层；用量未知必须另标unknown。详细模块依赖与源码证据见[研究记录](../../docs/plan/mvp/m1/cordis-harness.md)。
