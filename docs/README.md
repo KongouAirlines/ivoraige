@@ -5,11 +5,11 @@
 | 目录 | 用途 | 当前内容 |
 |---|---|---|
 | `requirements/v1.0/` | 已有需求与候选工具的版本基线 | 四份原始 Markdown、归档说明和校验清单 |
-| `plans/` | 实施范围、里程碑与验收标准 | MVP 启动建议稿、M0 范围与评审方案 |
-| `research/` | 技术调查、资料入口与实验结果 | Cordis／DSH、PDF 注入实验与 M0 样本来源 |
+| `mvp/` | MVP 总计划及 M0～M4 分阶段规划与记录 | 按阶段独立组织 |
+| `research/` | 跨阶段技术调查与候选池 | 当前选型、DSH 插件候选、Cordis 生态候选 |
 | `decisions/` | 重要架构决策及理由 | M2 运行时选择决策记录 |
 
-阅读顺序：需求基线 → MVP 计划 → 调研与验证 → 架构决策。原始文件保持原样；后续范围建议写入计划，技术结论写入决策记录。
+阅读顺序：需求基线 → [MVP 分阶段规划](mvp/README.md) → 跨阶段调研与决策。原始文件保持原样；后续范围建议写入计划，技术结论写入决策记录。
 
 ## 当前规划
 
@@ -21,17 +21,5 @@
 - [v1.0 更新记录](requirements/v1.0/CHANGELOG.v1.0.md)。
 - [历史来源记录](requirements/v1.0/sources.v1.0.md)：其中能力结论仍以原查阅日期为准。
 - [归档来源与完整性](requirements/v1.0/IMPORT.md)。
-- [启动与 MVP 计划](plans/mvp-startup.md)：本次新增，状态为建议稿。
-- [M0 范围、样本与验收准备](plans/m0-scope-and-evaluation.md)：002已落实用户反馈，001出版摘录快照保留。
-- [M0 交付报告](plans/m0-completion-report.md)：24 个对齐单位、12／12 划分、16 个术语义项及实际 PDF 版面样本。
-- [M0 任务分工与进度](plans/m0-tasks.md)：每项任务的依赖、执行模型、文件所有权和验收要求。
-- [M0 样本目录与来源](research/m0-sample-catalog.md)：核心材料与后备池，分别记录核实／取得状态。
-- [评估材料与原创控制样本](../evaluation/README.md)：六个原创例子与运行评审模板，尚未执行。
-- [M1 技术验证结论](plans/m1-completion-report.md)：模块复用与 PDF 译文回放已验证。
-- [M2 文本闭环与插件关系规划](plans/m2-text-workflow.md)：插件职责、服务依赖、复用流程与分步验收。
-- [M3 PDF 闭环与注入维护规划](plans/m3-pdf-workflow.md)：插件关系、BabelDOC 适配边界、代表页验收及上游接口路径；当前仅规划。
-- [M2 工程验收与真实本地小样](plans/m2-completion-report.md)：CLI、11 项工程检查与原创双向翻译，持久复用及双出口新增请求为零。
-- [M2 真实业务验收](plans/m2-real-acceptance.md)：6 dev＋2 原创、DeepSeek 建库／审校、HY 正文词库对照与明确代理修订；自动质量及专业签认分开记录。
-- [Cordis／Harness 调研](research/cordis-harness.md)：固定源码与真实模块接入实验，10 项检查通过。
-- [PDF 译文注入实验](research/pdf-translation-injection.md)：两页原创样本、7 条记录、三出口与重跑复用。
+- [MVP 分阶段规划与记录](mvp/README.md)：M0～M4 独立目录、总计划与阶段记录。
 - [ADR-0001 运行时选择](decisions/0001-runtime-selection.md)：M2 采用 Cordis＋DSH 模型模块。

@@ -2,7 +2,7 @@
 
 日期：2026-09-29｜结论：**真实模型、术语、代理审阅修订和持久复用闭环通过；自动科学质量未全部通过，用户专业签认未完成。**
 
-本次沿用 [M2 已实现服务](m2-completion-report.md)，没有另写翻译旁路或使用假模型回答。选 `m0-corpus-002` 开发集 R01-001／003／004、R02-D03／D05／D06 六单位，加两段原创中译英控制文本，共 8 个独立单单位文档、3232 个源字符。每单位没有邻段语境；不读取留出参考，也不把开发参考译文放进生成或建库。专业评审先根据源文判断，之后仅读对应六个开发参考进行对照，参考本身的问题另列。
+本次沿用 [M2 已实现服务](completion.md)，没有另写翻译旁路或使用假模型回答。选 `m0-corpus-002` 开发集 R01-001／003／004、R02-D03／D05／D06 六单位，加两段原创中译英控制文本，共 8 个独立单单位文档、3232 个源字符。每单位没有邻段语境；不读取留出参考，也不把开发参考译文放进生成或建库。专业评审先根据源文判断，之后仅读对应六个开发参考进行对照，参考本身的问题另列。
 
 用户明确授权本轮互联网来源测试集（含少量二次加工、不含个人或风险信息）发送至模型服务，并认可少量原创中译英、DeepSeek 建库／审校与本地正文组合。该授权限本次选样及其必要草稿、术语上下文，不扩大为整书或其他私有材料。只在内存读取 `LM_API_TOKEN`、`DeepSeek_API_TOKEN` 两个指定 User 变量；没有输出、保存或提交值。
 
@@ -54,7 +54,7 @@
 
 ## 复跑与用户审阅入口
 
-轻量脚本：[scripts/m2-acceptance.mjs](../../scripts/m2-acceptance.mjs)。模型／端点示例：[model.hy-deepseek.json](../../examples/model.hy-deepseek.json)。运行数据在忽略目录 `evaluation/runs/m2-acceptance/`；脚本固定六 dev 白名单，只拷贝源文与定位，生成步骤不载入参考。
+轻量脚本：[scripts/m2-acceptance.mjs](../../../scripts/m2-acceptance.mjs)。模型／端点示例：[model.hy-deepseek.json](../../../examples/model.hy-deepseek.json)。运行数据在忽略目录 `evaluation/runs/m2-acceptance/`；脚本固定六 dev 白名单，只拷贝源文与定位，生成步骤不载入参考。
 
 ```powershell
 node scripts/m2-acceptance.mjs prepare

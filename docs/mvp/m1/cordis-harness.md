@@ -62,7 +62,7 @@ Cordis清理服务/effect不等于持久任务取消。实跑信号关闭在途H
 
 ## 实跑与重跑
 
-见[实验README](../../experiments/cordis-dsh/README.md)与[run.mjs](../../experiments/cordis-dsh/run.mjs)。最终`node run.mjs`退出0，10项检查通过：
+见[实验README](../../../experiments/cordis-dsh/README.md)与[run.mjs](../../../experiments/cordis-dsh/run.mjs)。最终`node run.mjs`退出0，10项检查通过：
 
 | 检查 | 结果 |
 |---|---|

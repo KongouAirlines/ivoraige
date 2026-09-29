@@ -19,4 +19,4 @@ $pdfPython = 'D:/Program Files/zotero-pdf2zh/server/zotero-pdf2zh-next-venv/Scri
 
 脚本禁用缓存、关闭自动术语提取和 OCR，拒绝 LLM 能力探测；非环回 socket 连接会被阻断。Windows asyncio 的本机环回 socket pair 保留，实验无 HTTP 模型客户。`adapter_requests` 是消费已保存译文的回调次数，不是模型请求次数。`real_model_requests=0` 的依据是纯记录适配器、无模型客户端、无 LLM 路线及网络拦截，不能把回调次数也填成零。
 
-产物与完整研究结论见 `evaluation/runs/m1-pdf-injection/` 及 `docs/research/pdf-translation-injection.md`。这不是跨解析器对齐方案，也未完成真实科研代表页验收。
+产物与完整研究结论见 `evaluation/runs/m1-pdf-injection/` 及 `docs/mvp/m1/pdf-translation-injection.md`。这不是跨解析器对齐方案，也未完成真实科研代表页验收。

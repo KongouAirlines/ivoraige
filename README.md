@@ -9,17 +9,7 @@
 - [功能需求与优先级 v1.0](docs/requirements/v1.0/01_功能需求概览_v1.0.md)
 - [术语分类与适用范围需求补充](docs/requirements/amendments/0001-term-applicability.md)
 - [当前工具与插件选型 v1.1](docs/research/tool-selection-v1.1.md)
-- [项目启动与 MVP 计划（建议稿）](docs/plans/mvp-startup.md)
-- [M0：范围、样本与验收准备](docs/plans/m0-scope-and-evaluation.md)
-- [M0 任务分工与进度](docs/plans/m0-tasks.md)
-- [M0 交付报告](docs/plans/m0-completion-report.md)：002已落实用户反馈，001出版摘录快照保留。
-- [M1 技术验证结论](docs/plans/m1-completion-report.md)
-- [M2 文本闭环与插件关系规划](docs/plans/m2-text-workflow.md)
-- [M3 PDF 闭环与注入维护规划](docs/plans/m3-pdf-workflow.md)
-- [M2 工程验收与真实本地小样](docs/plans/m2-completion-report.md)
-- [M2 真实业务验收与质量问题](docs/plans/m2-real-acceptance.md)
-- [Cordis 与 DeepSeek Harness 模块复用实验](docs/research/cordis-harness.md)
-- [PDF 已有译文注入实验](docs/research/pdf-translation-injection.md)
+- [项目启动与 MVP 计划（建议稿）](docs/mvp/plan.md)
 
 需求版本 v1.0 不等于软件版本或首批交付范围。后续实施以需求基线为依据，通过小规模验证收敛技术方案。
 

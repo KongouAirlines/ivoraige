@@ -2,7 +2,7 @@
 
 日期：2026-09-29｜范围：DSH 以外的 Cordis 官方、Koishi、Satori、ChatLuna 组件｜状态：官方文档／源码定向核实，未安装、未运行新实验。
 
-本表补充早期选型；候选可以依赖宿主的数据库、配置、控制台或模型服务。完全独立不是准入条件。阶段沿用 [MVP 计划](../plans/mvp-startup.md)：M2 文本闭环、M3 PDF 闭环、M4 个人使用完善。现有 [ADR-0001](../decisions/0001-runtime-selection.md) 中已验证的 DSH 模型路线继续作为起点。
+本表补充早期选型；候选可以依赖宿主的数据库、配置、控制台或模型服务。完全独立不是准入条件。阶段沿用 [MVP 计划](../mvp/plan.md)：M2 文本闭环、M3 PDF 闭环、M4 个人使用完善。现有 [ADR-0001](../decisions/0001-runtime-selection.md) 中已验证的 DSH 模型路线继续作为起点。
 
 ## 推荐
 

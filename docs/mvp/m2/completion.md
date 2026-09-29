@@ -1,8 +1,8 @@
 # M2 文本闭环工程验收记录
 
-日期：2026-09-29｜状态：M2 工程及真实业务闭环通过；自动科学质量仍需修订，用户专业签认未完成。后续真实验收见 [6 dev＋2 原创业务记录](m2-real-acceptance.md)。
+日期：2026-09-29｜状态：M2 工程及真实业务闭环通过；自动科学质量仍需修订，用户专业签认未完成。后续真实验收见 [6 dev＋2 原创业务记录](real-acceptance.md)。
 
-依据：[M2 规划](m2-text-workflow.md)与 [运行时 ADR](../decisions/0001-runtime-selection.md)。实现复用固定 DSH vendor Cordis、storage/storage-domain/storage-json、llm/llm-pi-ai；项目业务服务为 records、terms、model、translation、textTask、termBuilder、textExport。没有引入完整 DSH agent/session、jobs、workflow 或 Web 产品壳。
+依据：[M2 规划](plan.md)与 [运行时 ADR](../../decisions/0001-runtime-selection.md)。实现复用固定 DSH vendor Cordis、storage/storage-domain/storage-json、llm/llm-pi-ai；项目业务服务为 records、terms、model、translation、textTask、termBuilder、textExport。没有引入完整 DSH agent/session、jobs、workflow 或 Web 产品壳。
 
 ## 可运行产物
 
@@ -51,7 +51,7 @@ node src/cli.mjs export sample --store evaluation/runs/m2/manual/store --md eval
 node src/cli.mjs translate sample --config examples/model.local.json
 ```
 
-第二次翻译已适用接受结果应返回 reused，calls 为空。`check` 只核对适用性，不生成新翻译；export 不触发 check 或模型。运行中 Ctrl-C 取消并等待运行句柄结束。完整术语和双向示例见 [examples README](../../examples/README.md)。
+第二次翻译已适用接受结果应返回 reused，calls 为空。`check` 只核对适用性，不生成新翻译；export 不触发 check 或模型。运行中 Ctrl-C 取消并等待运行句柄结束。完整术语和双向示例见 [examples README](../../../examples/README.md)。
 
 ## 真实 LM Studio 控制句
 
@@ -79,7 +79,7 @@ node src/cli.mjs export live-zh --store evaluation/runs/m2-live/store --md evalu
 
 ## 剩余验收与限制
 
-已追加 6 个 M0 开发集与 2 个原创中译英单位的真实建库、词库对照和审校验收：17 次本地正文、10 次 DeepSeek 请求；候选出处、项目优先、修订保护、相关／无关术语复用及双出口通过。原模型必要修订为 6/8、4/8、4/8，最终 5 单位经代理手工修订；不是模型自动全过，也不是用户专业签认。具体对照和后续问题见 [真实验收](m2-real-acceptance.md)。留出答案未读，M0 完整科学质量验收仍未完成。
+已追加 6 个 M0 开发集与 2 个原创中译英单位的真实建库、词库对照和审校验收：17 次本地正文、10 次 DeepSeek 请求；候选出处、项目优先、修订保护、相关／无关术语复用及双出口通过。原模型必要修订为 6/8、4/8、4/8，最终 5 单位经代理手工修订；不是模型自动全过，也不是用户专业签认。具体对照和后续问题见 [真实验收](real-acceptance.md)。留出答案未读，M0 完整科学质量验收仍未完成。
 
 首版为单进程文本与单个 JSON domain 存储，修改会保留历史修订；没有跨文件备份迁移、持久任务恢复、复杂翻译记忆检索或外部语料自动建库。术语处理是显式义项／语境约束，不是语义消歧模型。未知用量保持 unknown，不能据 SDK 补零报零费用。
 
