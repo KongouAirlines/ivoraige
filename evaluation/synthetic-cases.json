@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "provenance": "Project-original examples authored on 2026-09-29; not quotations, published translations, human-approved gold data, or executed results.",
+  "status": "prepared_not_executed",
+  "cases": [
+    {
+      "id": "S01",
+      "purpose": "Preserve negation, scope and uncertainty",
+      "source_language": "en",
+      "target_language": "zh",
+      "source": "No increase in the signal was observed within the tested range. This does not rule out a change outside that range.",
+      "suggested_reference": "在所测试的范围内未观察到信号增强。这并不排除该范围之外发生变化的可能性。",
+      "checks": ["保留两个否定关系", "不得扩大为所有条件下均无变化", "允许含义一致的其他措辞"]
+    },
+    {
+      "id": "S02",
+      "purpose": "Preserve formula, quantities and units",
+      "source_language": "zh",
+      "target_language": "en",
+      "source": "我们定义 r = A/B，并在 B ≠ 0 时计算该比值。样品厚度为 12 nm，测试温度为 300 K。",
+      "suggested_reference": "We define r = A/B and calculate this ratio when B ≠ 0. The sample thickness is 12 nm, and the measurement temperature is 300 K.",
+      "protected_spans": ["r = A/B", "B ≠ 0", "12 nm", "300 K"],
+      "checks": ["不得改变除数非零条件", "量纲、数值和符号保持语义等价", "允许排版层面的数学标记变换"]
+    },
+    {
+      "id": "S03",
+      "purpose": "Distinguish the physical quantity from the process",
+      "source_language": "en",
+      "target_language": "zh",
+      "source": "The magnetization M was recorded after the magnetization process had ended.",
+      "suggested_reference": "磁化过程结束后，记录了磁化强度 M。",
+      "term_rules": [
+        {"term": "magnetization M", "preferred": "磁化强度 M", "context": "physical quantity"},
+        {"term": "magnetization process", "preferred": "磁化过程", "context": "process"}
+      ],
+      "checks": ["同一词根按语境处理", "不得把过程称作物理量或反之"]
+    },
+    {
+      "id": "S04",
+      "purpose": "Preserve identifiers and cross-references",
+      "source_language": "en",
+      "target_language": "zh",
+      "source": "Figure 2 shows the normalized signal. The variable sample_id and the expression x >= 0 must remain unchanged.",
+      "suggested_reference": "图 2 显示了归一化信号。变量 sample_id 和表达式 x >= 0 必须保持不变。",
+      "protected_spans": ["sample_id", "x >= 0"],
+      "checks": ["图号 2 保留关联", "代码标识符不翻译", "代码表达式原样保留"]
+    },
+    {
+      "id": "S05",
+      "purpose": "Reuse an accepted translation across exporters",
+      "source_language": "en",
+      "target_language": "zh",
+      "source": "The signal was measured twice.",
+      "accepted_translation": "该信号测量了两次。",
+      "accepted_revision": "synthetic-rev-1",
+      "setup": "Seed the accepted translation with matching source and translation goal; use a model adapter that records invocations.",
+      "actions": ["export_markdown", "export_json", "export_pdf", "repeat_unchanged_job"],
+      "checks": ["所有出口使用 synthetic-rev-1", "正文翻译调用增量为 0", "PDF 部分需真实导出实现就绪后执行"]
+    },
+    {
+      "id": "S06",
+      "purpose": "Preserve manual edits and reject stale reuse after source changes",
+      "source_language": "en",
+      "target_language": "zh",
+      "source": "The signal was measured twice.",
+      "accepted_translation": "我们对该信号进行了两次测量。",
+      "accepted_revision": "synthetic-manual-rev-2",
+      "changed_source": "The signal was measured three times.",
+      "checks": ["原文未变时重导出保留人工修订", "原文改为 three times 后不得把旧译文标成当前有效结果", "旧人工修订作为历史保留", "不要求实现自动增量重译的最优策略"]
+    }
+  ]
+}

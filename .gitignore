@@ -1,0 +1,11 @@
+# Local evaluation originals, reference translations and generated run artifacts.
+/evaluation/private/
+/evaluation/runs/
+
+# Staged source documents: keep accidental root-level copies out of Git too.
+/*.pdf
+/*.epub
+/*.mobi
+/*.azw
+/*.azw3
+/*.djvu
