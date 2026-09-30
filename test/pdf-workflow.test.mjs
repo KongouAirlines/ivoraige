@@ -33,3 +33,13 @@ test('PDF accepts one revision for readable and engine projections, then rejects
     assert.throws(() => projectPdfText('场 <b1', snapshot.units[0].placeholders), /placeholder mismatch|Malformed/)
   } finally { await app.dispose(); await rm(store, { recursive: true, force: true }) }
 })
+
+test('source-justified placeholder reorder keeps token identity and readable symbols', () => {
+  const placeholders = [
+    { placeholder: '<b1>', formula_chars: 'γ' },
+    { placeholder: '<b2>', formula_chars: '矢量 ' },
+  ]
+  assert.throws(() => projectPdfText('先 <b2>B，后 <b1>', placeholders), /placeholder mismatch/)
+  assert.equal(projectPdfText('先 <b2>B，后 <b1>', placeholders, ['γ_LL', '矢量 '], ['<b2>', '<b1>']), '先 矢量 B，后 γ_LL')
+  assert.throws(() => projectPdfText('先 <b2>B，后 <b1>', placeholders, ['γ', '矢量 '], ['<b2>', '<b2>']), /Invalid PDF placeholder order/)
+})

@@ -35,7 +35,9 @@ def main():
     parser.add_argument("--assets", type=Path, default=Path.home() / ".cache/babeldoc")
     parser.add_argument("--pages", help="One-based PDF page selection, e.g. 1 or 1,2,4")
     parser.add_argument("--min-text-length", type=int, default=5)
+    parser.add_argument("--cancel-file", type=Path, help="If present, stop accepting later callbacks and do not publish")
     args = parser.parse_args()
+    cancel_file = args.cancel_file.resolve() if args.cancel_file else None
     if args.mode == "replay" and not args.records:
         parser.error("replay requires --records")
     run_dir = args.run_dir.resolve()
@@ -100,15 +102,24 @@ def main():
             expected = [token for item in placeholders for token in re.findall(r"</?b\d+>", item["placeholder"])]
             actual = re.findall(r"</?b\d+>", unit["engineProjection"])
             display = unit["placeholderDisplay"]
-            if actual != expected or len(display) != len(expected) or any(not isinstance(value, str) or not value for value in display):
+            approved = unit.get("placeholderOrder") or expected
+            if sorted(approved) != sorted(expected) or actual != approved or len(display) != len(expected) or any(not isinstance(value, str) or not value for value in display):
                 raise ValueError(f"Invalid accepted placeholders: {unit['unitId']}")
-            iterator = iter(display)
+            if approved != expected and not unit.get("placeholderOrderReason"):
+                raise ValueError(f"Unexplained PDF placeholder correction: {unit['unitId']}")
+            by_token = dict(zip(expected, display))
             suffix = unit.get("pdfUncalledSuffix") or {}
             if suffix and not all(isinstance(suffix.get(field), str) and suffix[field] for field in ("fragment", "key", "reason")):
                 raise ValueError(f"Invalid PDF uncalled suffix binding: {unit['unitId']}")
-            readable = re.sub(r"</?b\d+>", lambda _: next(iterator), unit["engineProjection"]) + suffix.get("fragment", "")
+            readable = re.sub(r"</?b\d+>", lambda match: by_token[match.group()], unit["engineProjection"]) + suffix.get("fragment", "")
             if readable != unit["text"]:
                 raise ValueError(f"Accepted readable projection differs: {unit['unitId']}")
+            if unit.get("pdfSourceRegionRestoration") and unit["engineProjection"] != unit["source"]:
+                raise ValueError(f"Source region restoration requires original target: {unit['unitId']}")
+            field = unit.get("pdfFieldLabel")
+            if field and (unit.get("kind") != "field_list_item" or not field.get("text") or
+                          not field.get("reason") or field["text"] not in unit["text"]):
+                raise ValueError(f"Invalid translated PDF field label: {unit['unitId']}")
         records = [{"page": unit["location"]["pdfPage"] - 1,
                     "box": dict(zip(("x", "y", "x2", "y2"), unit["sourceBinding"]["box_pdf_bottom_left_xyxy"])),
                     "key": unit["sourceBinding"]["key"], "request_text": unit["source"],
@@ -175,6 +186,9 @@ def main():
             return f"</b{placeholder_id}>", f"</b{placeholder_id}>"
 
         def do_translate(self, text, rate_limit_params=None):
+            if cancel_file and cancel_file.exists():
+                self.errors.append({"reason": "cancelled"})
+                raise RuntimeError("PDF replay cancelled")
             position = getattr(local, "location", None)
             if position is None:
                 self.errors.append({"reason": "missing location", "request_text": text})
@@ -221,9 +235,12 @@ def main():
         (run_dir / "capture.json").write_text(json.dumps(engine.calls, ensure_ascii=False, indent=2), encoding="utf-8")
         return
 
+    if cancel_file and cancel_file.exists():
+        raise RuntimeError("PDF replay cancelled; accepted records remain intact")
     missing = sorted(by_key.keys() - engine.used)
     if engine.errors or missing or len(engine.calls) != len(records):
         raise RuntimeError(f"Replay incomplete: {len(engine.errors)} callback errors, {len(missing)} unused records")
+    field_checks = {}
     if isinstance(manifest, dict):
         for unit in manifest["units"]:
             suffix = unit.get("pdfUncalledSuffix")
@@ -234,10 +251,83 @@ def main():
                            item["source_unicode"] == suffix["fragment"]]
                 if len(matches) != 1 or suffix["key"] in {call["key"] for call in engine.calls}:
                     raise RuntimeError(f"PDF uncalled suffix changed: {unit['unitId']}")
+        restored = [unit for unit in manifest["units"] if unit.get("pdfUncalledSuffix") or unit.get("pdfSourceRegionRestoration") or unit.get("pdfFieldLabel")]
+        if restored:
+            # BabelDOC reflows the callback and leaves the single-letter tail
+            # at its original coordinate, separating an email address. Restore
+            # that exact source region as a structural, non-model correction.
+            repaired = Path(result.mono_pdf_path).with_name("paired-footnote.pdf")
+            with pymupdf.open(result.mono_pdf_path) as output, pymupdf.open(input_pdf) as source_pdf:
+                for unit in restored:
+                    page_index = unit["location"]["pdfPage"] - 1
+                    page = output[page_index]
+                    box = unit["sourceBinding"]["box_pdf_bottom_left_xyxy"]
+                    if unit.get("pdfUncalledSuffix"):
+                        tail = [float(value) for value in unit["pdfUncalledSuffix"]["key"].split(":", 1)[1].split(",")]
+                        rect = pymupdf.Rect(min(box[0], tail[0]) - 2, page.rect.height - max(box[3], tail[3]) - 2,
+                                            max(box[2], tail[2]) + 2, page.rect.height - min(box[1], tail[1]) + 2)
+                    else:
+                        rect = pymupdf.Rect(box[0] - 2, page.rect.height - box[3] - 2,
+                                            box[2] + 2, page.rect.height - box[1] + 2)
+                    page.add_redact_annot(rect, fill=(1, 1, 1))
+                    page.apply_redactions()
+                    if unit.get("pdfFieldLabel"):
+                        spans = [span for block in source_pdf[page_index].get_text("dict")["blocks"]
+                                 for line in block.get("lines", []) for span in line["spans"]
+                                 if pymupdf.Rect(span["bbox"]).intersects(rect)]
+                        arrows = [span for span in spans if "⃗" in span["text"]]
+                        if len(arrows) != 1:
+                            raise RuntimeError(f"Expected one source vector arrow in field row: {unit['unitId']}")
+                        formula_x = arrows[0]["bbox"][0] - 2
+                        bullet = pymupdf.Rect(rect.x0, rect.y0, 76, rect.y1)
+                        formula = pymupdf.Rect(formula_x, rect.y0, rect.x1, rect.y1)
+                        field_checks[unit["unitId"]] = {"page": page_index, "rect": formula,
+                                                       "source_formula": normalize_pdf_text(source_pdf[page_index].get_text(clip=formula)),
+                                                       "label": unit["pdfFieldLabel"]["text"]}
+                        page.show_pdf_page(bullet, source_pdf, page_index, clip=bullet, overlay=True)
+                        page.show_pdf_page(formula, source_pdf, page_index, clip=formula, overlay=True)
+                        label = unit["pdfFieldLabel"]["text"]
+                        source_line = next((span for span in spans if span["bbox"][0] >= 74 and span["bbox"][0] < formula_x and "ﬁeld" in span["text"]), None)
+                        if source_line is None:
+                            raise RuntimeError(f"Missing source field label baseline: {unit['unitId']}")
+                        font = pymupdf.Font("china-s")
+                        size = min(10, 0.95 * (formula_x - 78) / font.text_length(label, fontsize=1))
+                        if size < 7:
+                            raise RuntimeError(f"Translated field label does not fit: {unit['unitId']}")
+                        page.insert_text((77, source_line["origin"][1]), label, fontname="china-s", fontsize=size)
+                    else:
+                        page.show_pdf_page(rect, source_pdf, page_index, clip=rect, overlay=True)
+                output.save(repaired)
+            os.replace(repaired, result.mono_pdf_path)
     with pymupdf.open(result.mono_pdf_path) as pdf:
-        checks = [{"record_id": record["record_id"], "page": record["page"],
-                   "present": normalize_pdf_text(record["target"]) in normalize_pdf_text(pdf[record["page"]].get_text())}
-                  for record in records]
+        checks = []
+        for record in records:
+            page_text = normalize_pdf_text(pdf[record["page"]].get_text())
+            if record["record_id"] in field_checks:
+                field = field_checks[record["record_id"]]
+                formula_text = normalize_pdf_text(pdf[field["page"]].get_text(clip=field["rect"]))
+                present = (normalize_pdf_text(field["label"]) in page_text and
+                           field["source_formula"] and formula_text == field["source_formula"])
+                check_kind = "translated_label_and_exact_source_formula_region"
+            elif isinstance(manifest, dict) and re.search(r"</?b\d+>", record["replay_target"]):
+                # PDF glyph extraction may flatten a faithfully preserved
+                # superscript/subscript differently from the readable export.
+                parts = [normalize_pdf_text(part) for part in re.split(r"</?b\d+>", record["replay_target"])]
+                anchors = [part for part in parts if part]
+                cursor = 0
+                present = bool(anchors)
+                for part in anchors:
+                    found = page_text.find(part, cursor)
+                    if found < 0:
+                        present = False
+                        break
+                    cursor = found + len(part)
+                check_kind = "ordered_literal_segments_around_structural_placeholders"
+            else:
+                present = normalize_pdf_text(record["target"]) in page_text
+                check_kind = "complete_text"
+            checks.append({"record_id": record["record_id"], "page": record["page"],
+                           "present": present, "check_kind": check_kind})
     if not all(check["present"] for check in checks):
         raise RuntimeError(f"Accepted text absent from output PDF: {checks}")
     if isinstance(manifest, dict):

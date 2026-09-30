@@ -6,6 +6,7 @@ param(
     [string]$Records = 'evaluation/runs/m1-pdf-injection/accepted.json',
     [string]$Pages,
     [int]$MinTextLength = 5,
+    [string]$CancelFile,
     [string]$RunDir
 )
 
@@ -21,6 +22,7 @@ if ($Mode -eq 'setup') {
 if (-not $RunDir) { throw 'Capture and replay require -RunDir (a new directory under this project).' }
 $arguments = @((Join-Path $PSScriptRoot 'adapter.py'), $Mode, '--input', $InputPdf, '--run-dir', $RunDir)
 if ($Pages) { $arguments += @('--pages', $Pages) }
+if ($CancelFile) { $arguments += @('--cancel-file', $CancelFile) }
 $arguments += @('--min-text-length', [string]$MinTextLength)
 if ($Mode -eq 'replay') { $arguments += @('--records', $Records) }
 & $python @arguments
