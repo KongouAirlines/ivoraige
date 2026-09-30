@@ -1,6 +1,6 @@
 # M3：已有译文回填 PDF 实施与验收规划
 
-日期：2026-09-30｜状态：M3-1 已完成，见[固定环境与适配边界记录](m3-1-completion.md)；M3-2 来源清点完成，见[代表页捕获记录](m3-2-completion.md)；M3-3 第 1 页同源回填通过工程闭环，见[完成记录](m3-3-completion.md)；M3-4 代表页科研内容与版面代理验收通过，见[完成记录](m3-4-completion.md)；M3-5 待实施。未建立 fork 或向上游提交 issue／PR。
+日期：2026-09-30｜状态：M3-1～M3-5 工程验收完成，见[固定环境](m3-1-completion.md)、[来源覆盖](m3-2-completion.md)、[同源回填](m3-3-completion.md)、[内容与版面](m3-4-completion.md)及[失败／取消](m3-5-completion.md)。范围为 R03 实际第 1／2／4 页，科研专业签认未完成；未建立 fork 或向上游提交 issue／PR。
 
 依据：[PDF 注入 M1 证据](../m1/pdf-translation-injection.md)、[M2 完成记录](../m2/completion.md)、[M0 范围与验收](../m0/plan.md)。M3 把真实科研 PDF 的可译内容接入现有接受译文记录，再用同一组接受修订生成 PDF、Markdown 和 JSON。**建库过程、库结构与术语适用范围分类仍需另行澄清；本轮只记为后续需求，不修改它们，也不把它们作为 M3 前置。** 既有词库可以使用，未选词库时仍能完成 PDF 翻译。
 

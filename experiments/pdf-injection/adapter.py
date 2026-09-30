@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import sys
 import threading
+import time
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -36,7 +37,10 @@ def main():
     parser.add_argument("--pages", help="One-based PDF page selection, e.g. 1 or 1,2,4")
     parser.add_argument("--min-text-length", type=int, default=5)
     parser.add_argument("--cancel-file", type=Path, help="If present, stop accepting later callbacks and do not publish")
+    parser.add_argument("--callback-pause-ms", type=int, default=0, help="Diagnostic pause used to exercise cancellation during replay")
     args = parser.parse_args()
+    if args.callback_pause_ms < 0 or args.callback_pause_ms > 5000:
+        parser.error("--callback-pause-ms must be between 0 and 5000")
     cancel_file = args.cancel_file.resolve() if args.cancel_file else None
     if args.mode == "replay" and not args.records:
         parser.error("replay requires --records")
@@ -76,10 +80,13 @@ def main():
     os.environ["TIKTOKEN_CACHE_DIR"] = str(assets / "tiktoken")
 
     import pymupdf
+    if sys.version_info[:2] != (3, 13) or pymupdf.VersionBind != "1.26.7":
+        raise RuntimeError("Fixed Python 3.13 / PyMuPDF 1.26.7 environment required")
     from babeldoc.docvision.doclayout import OnnxModel
     from babeldoc.format.pdf.document_il.midend.il_translator import ILTranslator
-    from babeldoc.format.pdf.high_level import translate
+    from babeldoc.format.pdf.high_level import translate, do_translate as run_pipeline, get_translation_stage
     from babeldoc.format.pdf.translation_config import TranslationConfig, WatermarkOutputMode
+    from babeldoc.progress_monitor import ProgressMonitor
     from babeldoc.translator.translator import BaseTranslator
 
     manifest = json.loads(args.records.read_text(encoding="utf-8")) if args.records else None
@@ -196,6 +203,13 @@ def main():
             key = location_key(position["page"], position["box"])
             call = dict(position, key=key, request_text=text)
             self.calls.append(call)
+            if cancel_file:
+                (run_dir / "live-callback-count.txt").write_text(str(len(self.calls)), encoding="ascii")
+            if args.callback_pause_ms:
+                time.sleep(args.callback_pause_ms / 1000)
+            if cancel_file and cancel_file.exists():
+                self.errors.append({"reason": "cancelled during callback", **call})
+                raise RuntimeError("PDF replay cancelled")
             if args.mode == "capture":
                 return text
             record = by_key.get(key)
@@ -219,7 +233,27 @@ def main():
             pool_max_workers=1, qps=100, min_text_length=args.min_text_length,
             pages=args.pages,
         )
-        result = translate(config)
+        if cancel_file:
+            cancel_event = threading.Event()
+            watcher_done = threading.Event()
+
+            def watch_cancel():
+                while not watcher_done.wait(0.25):
+                    if cancel_file.exists():
+                        cancel_event.set()
+                        return
+
+            watcher = threading.Thread(target=watch_cancel, daemon=True)
+            watcher.start()
+            try:
+                with ProgressMonitor(get_translation_stage(config), cancel_event=cancel_event,
+                                     finish_callback=lambda **_event: None) as progress:
+                    result = run_pipeline(progress, config)
+            finally:
+                watcher_done.set()
+                watcher.join(timeout=1)
+        else:
+            result = translate(config)
     finally:
         ILTranslator.translate_paragraph = original
         (run_dir / "calls.json").write_text(json.dumps(engine.calls, ensure_ascii=False, indent=2), encoding="utf-8")

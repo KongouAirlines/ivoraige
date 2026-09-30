@@ -7,6 +7,7 @@ param(
     [string]$Pages,
     [int]$MinTextLength = 5,
     [string]$CancelFile,
+    [int]$CallbackPauseMs = 0,
     [string]$RunDir
 )
 
@@ -23,6 +24,7 @@ if (-not $RunDir) { throw 'Capture and replay require -RunDir (a new directory u
 $arguments = @((Join-Path $PSScriptRoot 'adapter.py'), $Mode, '--input', $InputPdf, '--run-dir', $RunDir)
 if ($Pages) { $arguments += @('--pages', $Pages) }
 if ($CancelFile) { $arguments += @('--cancel-file', $CancelFile) }
+$arguments += @('--callback-pause-ms', [string]$CallbackPauseMs)
 $arguments += @('--min-text-length', [string]$MinTextLength)
 if ($Mode -eq 'replay') { $arguments += @('--records', $Records) }
 & $python @arguments
