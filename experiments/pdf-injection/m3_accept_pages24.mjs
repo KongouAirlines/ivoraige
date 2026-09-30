@@ -1,7 +1,7 @@
 // Engineering acceptance of source-checked R03 pages 2 and 4.
 import { readFile, writeFile } from 'node:fs/promises'
 import { createApp } from '../../src/app.mjs'
-import { projectPdfText } from '../../src/records.mjs'
+import { projectBabeldocText as projectPdfText } from '../../src/adapters/babeldoc-source.mjs'
 import { resolveBasis } from '../../src/terms.mjs'
 
 const root = new URL('../../', import.meta.url)
@@ -58,7 +58,7 @@ try {
     const reason = number === 11
       ? 'Dzyaloshinskii–Moriya is abbreviated DMI to fit before the original B_dm vector glyph and reference.'
       : 'Keep the original B vector arrow, subscript and reference at their source positions; translate the label at left.'
-    await app.records.setPdfFieldLabel('R03-p4', unitId, label, reason)
+    await app.records.correctSourceBinding('R03-p4', unitId, 'field', { label, reason })
     await revise(unitId, text, reason)
   }
   for (const [page, docId] of [[2, 'R03-p2'], [4, 'R03-p4']]) {

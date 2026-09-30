@@ -9,18 +9,6 @@ const spec = StorageDomain.defineDomain({ name: 'ivoraige', version: 1, tables: 
 const initial = () => ({ version: 1, documents: {}, libraries: {} })
 export const contextOf = (doc, index) => ({ previous: doc.units[index - 1]?.text ?? '', next: doc.units[index + 1]?.text ?? '' })
 export const basisFor = (doc, unit, constraints, libraryVersions) => ({ sourceRevision: unit.sourceRevision, direction: `${doc.sourceLanguage}-${doc.target.language}`, target: copy(doc.target), context: contextOf(doc, doc.units.findIndex(u => u.id === unit.id)), libraries: [...doc.libraries], constraints: copy(constraints), libraryVersions: copy(libraryVersions) })
-const tokens = text => text.match(/<\/?b\d+>/g) ?? []
-export function projectPdfText(text, placeholders = [], display = placeholders.map(item => item.formula_chars), order) {
-  const expected = placeholders.flatMap(item => tokens(item.placeholder))
-  const approved = order ?? expected
-  if (approved.length !== expected.length || [...approved].sort().join('\0') !== [...expected].sort().join('\0')) throw new Error('Invalid PDF placeholder order correction')
-  const actual = tokens(text)
-  if (JSON.stringify(actual) !== JSON.stringify(approved)) throw new Error(`PDF placeholder mismatch: expected ${approved.join(' ')}; got ${actual.join(' ')}`)
-  if (/<\/?b/.test(text.replace(/<\/?b\d+>/g, ''))) throw new Error('Malformed PDF placeholder')
-  if (display.length !== expected.length || display.some(value => typeof value !== 'string' || !value.length)) throw new Error('Missing PDF placeholder display text')
-  const byToken = new Map(expected.map((token, index) => [token, display[index]]))
-  return text.replace(/<\/?b\d+>/g, token => byToken.get(token))
-}
 export function compatible(a, b) {
   if (!a) return false
   const relevant = v => { const { libraryVersions, ...rest } = v; return rest }
@@ -28,8 +16,8 @@ export function compatible(a, b) {
 }
 
 export class Records extends Service {
-  static inject = ['storageDomain']
-  constructor(ctx) { super(ctx, 'ivoraige.records'); this.ready = ctx.storageDomain.open(spec).then(async domain => { this.domain = domain; this.table = domain.table('workspace'); if (!this.table.get('main')) await this.table.put('main', initial()) }); ctx.effect(() => () => this.close()) }
+  static inject = ['storageDomain', 'ivoraige.sources']
+  constructor(ctx) { super(ctx, 'ivoraige.records'); this.sources = ctx.get('ivoraige.sources'); this.ready = ctx.storageDomain.open(spec).then(async domain => { this.domain = domain; this.table = domain.table('workspace'); if (!this.table.get('main')) await this.table.put('main', initial()) }); ctx.effect(() => () => this.close()) }
   async close() { try { await this.ready } finally { if (this.domain) await this.domain.close() } }
   snapshot() { return copy(this.table.get('main') ?? initial()) }
   getDocument(documentId) { const doc = this.snapshot().documents[documentId]; if (!doc) throw new Error(`Unknown document: ${documentId}`); return doc }
@@ -54,56 +42,43 @@ export class Records extends Service {
       state.documents[doc.id] = doc; return doc
     })
   }
-  async importPdfSnapshot(snapshot, { documentId, pages, title = 'PDF translation', libraries = [] } = {}) {
-    if (!snapshot?.snapshot_id || !Array.isArray(snapshot.units) || !Array.isArray(pages) || !pages.length) throw new Error('PDF snapshot and selected pages are required')
-    const selected = snapshot.units.filter(unit => pages.includes(unit.pdf_page))
-    if (!selected.length || selected.some(unit => !unit.unit_id || !unit.request_text || !unit.source_binding?.key)) throw new Error('PDF snapshot has no valid selected units')
-    for (const unit of selected) projectPdfText(unit.request_text, unit.placeholders)
+  async importDocument({ id: documentId, title = 'Untitled', sourceLanguage = 'en', targetLanguage = 'zh', libraries = [], sourceBinding, units }) {
+    if (!Array.isArray(units) || !units.length || units.some(unit => !unit.id || !unit.text?.trim())) throw new Error('Document requires nonempty identified units')
+    if (new Set(units.map(unit => unit.id)).size !== units.length) throw new Error('Document unit IDs must be unique')
+    if (!['en', 'zh'].includes(sourceLanguage) || !['en', 'zh'].includes(targetLanguage) || sourceLanguage === targetLanguage) throw new Error('Only en→zh or zh→en is supported')
+    const input = { sourceBinding }; const provider = this.sources.get(input)
+    if (provider) for (const unit of units) provider.project(unit, unit.text)
     return this.mutate(state => {
-      const name = documentId ?? `${snapshot.document_id}-${pages.join('-')}`
-      if (state.documents[name]) throw new Error('PDF document already exists; use the existing record')
-      const doc = { id: name, title, revision: 1, sourceLanguage: 'en', target: { id: id('target'), revision: 1, language: 'zh', purpose: 'scientific translation', style: 'precise academic prose' }, libraries,
-        pdfSource: { snapshotId: snapshot.snapshot_id, sourcePdf: snapshot.source_pdf, sourceSha256: snapshot.source_sha256_from_import_manifest, sourceRevision: snapshot.source_revision, captureConfig: copy(snapshot.capture_config), pages: [...pages] },
-        units: selected.map((unit, index) => ({ id: unit.unit_id, index, location: { pdfPage: unit.pdf_page, key: unit.source_binding.key }, text: unit.request_text, requestText: unit.request_text, sourceUnicode: unit.source_unicode, sourceRevision: snapshot.source_revision, sourceBinding: copy(unit.source_binding), placeholders: copy(unit.placeholders), placeholderDisplay: unit.placeholders.map(item => item.formula_chars), kind: unit.kind, revisions: [], acceptedId: null, checkedBasis: null, needsCheck: true })) }
+      const name = documentId ?? id('doc')
+      if (state.documents[name]) throw new Error('Document already exists; use the existing record')
+      const doc = { id: name, title, revision: 1, sourceLanguage, target: { id: id('target'), revision: 1, language: targetLanguage, purpose: 'scientific translation', style: 'precise academic prose' }, libraries,
+        ...(sourceBinding ? { sourceBinding: copy(sourceBinding) } : {}),
+        units: units.map((unit, index) => ({ ...copy(unit), index, sourceRevision: unit.sourceRevision ?? 1, revisions: [], acceptedId: null, checkedBasis: null, needsCheck: true })) }
       state.documents[name] = doc; return doc
     })
   }
   async updateSource(documentId, unitId, text) {
     if (!text.trim()) throw new Error('Source text is empty')
-    return this.mutate(state => { const doc = state.documents[documentId]; const i = doc?.units.findIndex(u => u.id === unitId); if (i == null || i < 0) throw new Error('Unknown unit'); if (doc.pdfSource) projectPdfText(text, doc.units[i].placeholders, doc.units[i].placeholderDisplay ?? doc.units[i].placeholders.map(item => item.formula_chars), doc.units[i].placeholderOrder); doc.units[i].text = text; doc.units[i].sourceRevision++; doc.revision++; for (const u of doc.units.slice(Math.max(0, i - 1), i + 2)) u.needsCheck = true; return doc })
+    return this.mutate(state => { const doc = state.documents[documentId]; const i = doc?.units.findIndex(u => u.id === unitId); if (i == null || i < 0) throw new Error('Unknown unit'); this.sources.get(doc)?.project(doc.units[i], text); doc.units[i].text = text; doc.units[i].sourceRevision++; doc.revision++; for (const u of doc.units.slice(Math.max(0, i - 1), i + 2)) u.needsCheck = true; return doc })
   }
-  async correctPdfPlaceholderDisplay(documentId, unitId, display) {
-    return this.mutate(state => { const doc = state.documents[documentId]; const unit = doc?.units.find(u => u.id === unitId); if (!doc?.pdfSource || !unit) throw new Error('Unknown PDF unit'); projectPdfText(unit.text, unit.placeholders, display, unit.placeholderOrder); unit.placeholderDisplay = copy(display); unit.sourceRevision++; doc.revision++; unit.needsCheck = true; return unit })
-  }
-  async correctPdfPlaceholderOrder(documentId, unitId, { sourceText, order, reason }) {
-    if (!reason?.trim()) throw new Error('PDF placeholder order correction needs a source reason')
-    return this.mutate(state => { const doc = state.documents[documentId]; const unit = doc?.units.find(u => u.id === unitId); if (!doc?.pdfSource || !unit) throw new Error('Unknown PDF unit'); projectPdfText(sourceText, unit.placeholders, unit.placeholderDisplay ?? unit.placeholders.map(item => item.formula_chars), order); unit.text = sourceText; unit.placeholderOrder = copy(order); unit.placeholderOrderReason = reason; unit.sourceRevision++; doc.revision++; unit.needsCheck = true; return unit })
-  }
-  async pairPdfUncalledSuffix(documentId, unitId, { fragment, key, reason }) {
-    if (typeof fragment !== 'string' || !fragment || typeof key !== 'string' || !key || typeof reason !== 'string' || !reason) throw new Error('PDF suffix pairing requires fragment, source key and reason')
-    return this.mutate(state => { const doc = state.documents[documentId]; const unit = doc?.units.find(u => u.id === unitId); if (!doc?.pdfSource || !unit) throw new Error('Unknown PDF unit'); unit.pdfUncalledSuffix = { fragment, key, reason }; unit.sourceRevision++; doc.revision++; unit.needsCheck = true; return unit })
-  }
-  async restorePdfSourceRegion(documentId, unitId, reason) {
-    if (!reason?.trim()) throw new Error('PDF source region restoration needs a reason')
-    return this.mutate(state => { const doc = state.documents[documentId]; const unit = doc?.units.find(u => u.id === unitId); if (!doc?.pdfSource || !unit) throw new Error('Unknown PDF unit'); unit.pdfSourceRegionRestoration = reason; unit.sourceRevision++; doc.revision++; unit.needsCheck = true; return unit })
-  }
-  async setPdfFieldLabel(documentId, unitId, label, reason) {
-    if (!label?.trim() || !reason?.trim()) throw new Error('PDF field label needs translated text and a reason')
-    return this.mutate(state => { const doc = state.documents[documentId]; const unit = doc?.units.find(u => u.id === unitId); if (!doc?.pdfSource || unit?.kind !== 'field_list_item') throw new Error('Unknown PDF field item'); unit.pdfFieldLabel = { text: label, reason }; unit.pdfSourceRegionRestoration = null; unit.sourceRevision++; doc.revision++; unit.needsCheck = true; return unit })
+  async correctSourceBinding(documentId, unitId, action, payload) {
+    return this.mutate(state => { const doc = state.documents[documentId]; const unit = doc?.units.find(u => u.id === unitId); if (!unit) throw new Error('Unknown unit'); const provider = this.sources.get(doc); if (!provider?.correct) throw new Error('Source provider does not support corrections'); provider.correct(unit, action, payload); unit.sourceRevision++; doc.revision++; unit.needsCheck = true; return unit })
   }
   async updateTarget(documentId, changes) { return this.mutate(state => { const doc = state.documents[documentId]; if (!doc) throw new Error('Unknown document'); if (changes.language && changes.language !== (doc.sourceLanguage === 'en' ? 'zh' : 'en')) throw new Error('Invalid target language'); doc.target = { ...doc.target, ...changes, revision: doc.target.revision + 1 }; doc.revision++; doc.units.forEach(u => u.needsCheck = true); return doc }) }
   async selectLibraries(documentId, libraries) { return this.mutate(state => { const doc = state.documents[documentId]; if (!doc) throw new Error('Unknown document'); for (const name of libraries) if (!state.libraries[name]) throw new Error(`Unknown library: ${name}`); doc.libraries = libraries; doc.revision++; doc.units.forEach(u => u.needsCheck = true); return doc }) }
   async saveDraft(documentId, unitId, { text, basis, provenance, usage, finish, cancelled = false }) {
     if (!text?.trim() || finish?.kind && finish.kind !== 'stop') throw new Error('Cannot save empty or incomplete translation')
-    return this.mutate(state => { const doc = state.documents[documentId]; const unit = doc?.units.find(u => u.id === unitId); if (!unit || !compatible(basis, basisFor(doc, unit, basis.constraints, basis.libraryVersions))) throw new Error('Source, context or target changed during generation'); if (doc.pdfSource) projectPdfText(text, unit.placeholders, unit.placeholderDisplay ?? unit.placeholders.map(item => item.formula_chars), unit.placeholderOrder); const revision = { id: id('rev'), text, basis, provenance, usage, finish, cancelled, status: 'draft', createdAt: new Date().toISOString() }; unit.revisions.push(revision); return revision })
+    return this.mutate(state => { const doc = state.documents[documentId]; const unit = doc?.units.find(u => u.id === unitId); if (!unit || !compatible(basis, basisFor(doc, unit, basis.constraints, basis.libraryVersions))) throw new Error('Source, context or target changed during generation'); this.sources.get(doc)?.project(unit, text); const revision = { id: id('rev'), text, basis, provenance, usage, finish, cancelled, status: 'draft', createdAt: new Date().toISOString() }; unit.revisions.push(revision); return revision })
   }
   async recordCheck(documentId, unitId, basis) { return this.mutate(state => { const doc = state.documents[documentId]; const unit = doc.units.find(u => u.id === unitId); const accepted = unit.revisions.find(r => r.id === unit.acceptedId); if (compatible(accepted?.basis, basis) && unit.sourceRevision === basis.sourceRevision) { unit.checkedBasis = basis; unit.needsCheck = false; return { reusable: true, revisionId: accepted.id } } unit.needsCheck = true; return { reusable: false, reason: accepted ? 'Source, target, context or applicable terms changed; review required' : 'No accepted revision' } }) }
   async accept(documentId, unitId, revisionId, basis, { expectedAcceptedId, actor = 'user', text } = {}) {
-    return this.mutate(state => { const doc = state.documents[documentId]; const unit = doc?.units.find(u => u.id === unitId); if (!unit) throw new Error('Unknown unit'); if (unit.acceptedId !== expectedAcceptedId) throw new Error('Accepted revision changed; refresh before accepting'); if (!compatible(basis, basisFor(doc, unit, basis.constraints, basis.libraryVersions))) throw new Error('Constraints changed; refresh before accepting'); for (const [key, rev] of Object.entries(basis.libraryVersions)) if (state.libraries[key]?.revision !== rev) throw new Error('Terms changed; refresh before accepting'); let revision = unit.revisions.find(r => r.id === revisionId); if (!revision) throw new Error('Unknown revision'); if (text !== undefined || !compatible(revision.basis, basis)) { revision = { ...copy(revision), id: id('rev'), text: text ?? revision.text, basis, provenance: { kind: actor.startsWith('agent-') ? (text !== undefined ? 'agent-edit' : 'agent-reconfirmation') : (text !== undefined ? 'human' : 'human-reconfirmation'), actor, parentRevisionId: revisionId }, createdAt: new Date().toISOString(), status: 'draft' }; unit.revisions.push(revision) } if (!revision.text.trim() || revision.cancelled) throw new Error('Cannot accept empty or cancelled draft'); if (doc.pdfSource) projectPdfText(revision.text, unit.placeholders, unit.placeholderDisplay ?? unit.placeholders.map(item => item.formula_chars), unit.placeholderOrder); for (const old of unit.revisions) if (old.status === 'accepted') old.status = 'superseded'; revision.status = 'accepted'; revision.acceptedBy = actor; unit.acceptedId = revision.id; unit.checkedBasis = basis; unit.needsCheck = false; return revision })
+    return this.mutate(state => { const doc = state.documents[documentId]; const unit = doc?.units.find(u => u.id === unitId); if (!unit) throw new Error('Unknown unit'); if (unit.acceptedId !== expectedAcceptedId) throw new Error('Accepted revision changed; refresh before accepting'); if (!compatible(basis, basisFor(doc, unit, basis.constraints, basis.libraryVersions))) throw new Error('Constraints changed; refresh before accepting'); for (const [key, rev] of Object.entries(basis.libraryVersions)) if (state.libraries[key]?.revision !== rev) throw new Error('Terms changed; refresh before accepting'); let revision = unit.revisions.find(r => r.id === revisionId); if (!revision) throw new Error('Unknown revision'); if (text !== undefined || !compatible(revision.basis, basis)) { revision = { ...copy(revision), id: id('rev'), text: text ?? revision.text, basis, provenance: { kind: actor.startsWith('agent-') ? (text !== undefined ? 'agent-edit' : 'agent-reconfirmation') : (text !== undefined ? 'human' : 'human-reconfirmation'), actor, parentRevisionId: revisionId }, createdAt: new Date().toISOString(), status: 'draft' }; unit.revisions.push(revision) } if (!revision.text.trim() || revision.cancelled) throw new Error('Cannot accept empty or cancelled draft'); this.sources.get(doc)?.project(unit, revision.text); for (const old of unit.revisions) if (old.status === 'accepted') old.status = 'superseded'; revision.status = 'accepted'; revision.acceptedBy = actor; unit.acceptedId = revision.id; unit.checkedBasis = basis; unit.needsCheck = false; return revision })
   }
   manifest(documentId) {
     const state = this.snapshot(); const doc = state.documents[documentId]; if (!doc) throw new Error('Unknown document')
-    const units = doc.units.map(unit => { const revision = unit.revisions.find(r => r.id === unit.acceptedId); const checked = unit.checkedBasis; const staleLibrary = Object.entries(checked?.libraryVersions ?? {}).some(([key, rev]) => state.libraries[key]?.revision !== rev); if (unit.needsCheck || !revision || staleLibrary || !compatible(checked, basisFor(doc, unit, checked?.constraints ?? [], checked?.libraryVersions ?? {}))) throw new Error(`Missing applicable accepted revision: ${unit.id}`); const pdf = !!doc.pdfSource; const text = pdf ? projectPdfText(revision.text, unit.placeholders, (unit.placeholderDisplay ?? unit.placeholders.map(item => item.formula_chars)), unit.placeholderOrder) + (unit.pdfUncalledSuffix?.fragment ?? '') : revision.text; return { unitId: unit.id, sourceRevision: unit.sourceRevision, revisionId: revision.id, source: pdf ? unit.requestText : unit.text, text, ...(pdf ? { correctedSource: unit.text, engineProjection: revision.text, placeholderDisplay: unit.placeholderDisplay ?? unit.placeholders.map(item => item.formula_chars), placeholderOrder: unit.placeholderOrder, placeholderOrderReason: unit.placeholderOrderReason, placeholders: unit.placeholders, pdfUncalledSuffix: unit.pdfUncalledSuffix, pdfSourceRegionRestoration: unit.pdfSourceRegionRestoration, pdfFieldLabel: unit.pdfFieldLabel, sourceUnicode: unit.sourceUnicode, sourceBinding: unit.sourceBinding, kind: unit.kind } : {}), location: unit.location } })
-    return { schemaVersion: 1, documentId: doc.id, documentRevision: doc.revision, title: doc.title, sourceLanguage: doc.sourceLanguage, target: doc.target, ...(doc.pdfSource ? { pdfSource: doc.pdfSource } : {}), units }
+    const provider = this.sources.get(doc)
+    const units = doc.units.map(unit => { const revision = unit.revisions.find(r => r.id === unit.acceptedId); const checked = unit.checkedBasis; const staleLibrary = Object.entries(checked?.libraryVersions ?? {}).some(([key, rev]) => state.libraries[key]?.revision !== rev); if (unit.needsCheck || !revision || staleLibrary || !compatible(checked, basisFor(doc, unit, checked?.constraints ?? [], checked?.libraryVersions ?? {}))) throw new Error(`Missing applicable accepted revision: ${unit.id}`); return { unitId: unit.id, sourceRevision: unit.sourceRevision, revisionId: revision.id, source: unit.text, text: provider ? provider.readable(unit, revision) : revision.text, ...(unit.sourceBinding ? { sourceBinding: unit.sourceBinding } : {}), ...(provider?.manifestUnit?.(unit, revision) ?? {}), location: unit.location } })
+    const sourceBinding = this.sources.binding(doc)
+    return { schemaVersion: 1, documentId: doc.id, documentRevision: doc.revision, title: doc.title, sourceLanguage: doc.sourceLanguage, target: doc.target, ...(sourceBinding ? { sourceBinding, ...(provider?.manifestDocument?.(doc, sourceBinding) ?? {}) } : {}), units }
   }
 }

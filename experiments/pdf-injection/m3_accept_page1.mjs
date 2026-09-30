@@ -2,7 +2,7 @@
 // This is an agent engineering review, not human scientific sign-off.
 import { readFile, writeFile } from 'node:fs/promises'
 import { createApp } from '../../src/app.mjs'
-import { projectPdfText } from '../../src/records.mjs'
+import { projectBabeldocText as projectPdfText } from '../../src/adapters/babeldoc-source.mjs'
 import { resolveBasis } from '../../src/terms.mjs'
 
 const root = new URL('../../', import.meta.url)
@@ -14,7 +14,7 @@ if (!suffix) throw new Error('Expected source-bound email suffix is absent')
 const app = await createApp({ store: new URL('evaluation/runs/m3-3/store', root).pathname.replace(/^\/(?=[A-Z]:)/, '') })
 try {
   const documentId = 'R03-p1'
-  await app.records.pairPdfUncalledSuffix(documentId, 'R03-M3-2-p01-u011', {
+  await app.records.correctSourceBinding(documentId, 'R03-M3-2-p01-u011', 'suffix', {
     fragment: 'e', key: suffix.key,
     reason: 'Original email final letter is a separate, uncalled BabelDOC paragraph; preserve both fragments.',
   })

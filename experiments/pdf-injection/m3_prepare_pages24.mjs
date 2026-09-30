@@ -12,8 +12,8 @@ try {
     ...[9, 10, 11, 12, 13].map(n => ['R03-p4', `R03-M3-2-p04-u${String(n).padStart(3, '0')}`, ['•', '矢量 ']]),
     ['R03-p4', 'R03-M3-2-p04-u017', ['矢量 ', '= M_sat 矢量 ', 'M_sat']],
   ]
-  for (const [doc, unit, values] of display) await app.records.correctPdfPlaceholderDisplay(doc, unit, values)
-  await app.records.correctPdfPlaceholderOrder('R03-p4', 'R03-M3-2-p04-u007', {
+  for (const [doc, unit, values] of display) await app.records.correctSourceBinding(doc, unit, 'display', values)
+  await app.records.correctSourceBinding('R03-p4', 'R03-M3-2-p04-u007', 'order', {
     sourceText: 'with<b1>the gyromagnetic ratio (rad/(T·s)), <b2>the dimensionless damping parameter and <b3>B<b4>the effective field (T). The default value for <b6> can be overridden by the user. <b5>B<b7> has the following contributions:',
     order: ['<b1>', '<b2>', '<b3>', '<b4>', '<b6>', '<b5>', '<b7>'],
     reason: 'Original page places the orphan vector arrow on B_eff in the second sentence, after gamma_LL.',

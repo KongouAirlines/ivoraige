@@ -38,12 +38,17 @@ def main():
     parser.add_argument("--min-text-length", type=int, default=5)
     parser.add_argument("--cancel-file", type=Path, help="If present, stop accepting later callbacks and do not publish")
     parser.add_argument("--callback-pause-ms", type=int, default=0, help="Diagnostic pause used to exercise cancellation during replay")
+    parser.add_argument("--experimental-r03-repairs", action="store_true", help="Enable M3 sample-specific source-region and field drawing")
+    parser.add_argument("--md-source", type=Path, help="Pre-rendered accepted Markdown from the text export service")
+    parser.add_argument("--json-source", type=Path, help="Pre-rendered accepted JSON from the text export service")
     args = parser.parse_args()
     if args.callback_pause_ms < 0 or args.callback_pause_ms > 5000:
         parser.error("--callback-pause-ms must be between 0 and 5000")
     cancel_file = args.cancel_file.resolve() if args.cancel_file else None
     if args.mode == "replay" and not args.records:
         parser.error("replay requires --records")
+    if bool(args.md_source) != bool(args.json_source):
+        parser.error("--md-source and --json-source must be provided together")
     run_dir = args.run_dir.resolve()
     if ROOT not in run_dir.parents:
         parser.error("--run-dir must be inside this project")
@@ -275,64 +280,9 @@ def main():
     if engine.errors or missing or len(engine.calls) != len(records):
         raise RuntimeError(f"Replay incomplete: {len(engine.errors)} callback errors, {len(missing)} unused records")
     field_checks = {}
-    if isinstance(manifest, dict):
-        for unit in manifest["units"]:
-            suffix = unit.get("pdfUncalledSuffix")
-            if suffix:
-                matches = [item for item in paragraphs_seen
-                           if item["key"] == suffix["key"] and
-                           item.get("prepared_input") == suffix["fragment"] and
-                           item["source_unicode"] == suffix["fragment"]]
-                if len(matches) != 1 or suffix["key"] in {call["key"] for call in engine.calls}:
-                    raise RuntimeError(f"PDF uncalled suffix changed: {unit['unitId']}")
-        restored = [unit for unit in manifest["units"] if unit.get("pdfUncalledSuffix") or unit.get("pdfSourceRegionRestoration") or unit.get("pdfFieldLabel")]
-        if restored:
-            # BabelDOC reflows the callback and leaves the single-letter tail
-            # at its original coordinate, separating an email address. Restore
-            # that exact source region as a structural, non-model correction.
-            repaired = Path(result.mono_pdf_path).with_name("paired-footnote.pdf")
-            with pymupdf.open(result.mono_pdf_path) as output, pymupdf.open(input_pdf) as source_pdf:
-                for unit in restored:
-                    page_index = unit["location"]["pdfPage"] - 1
-                    page = output[page_index]
-                    box = unit["sourceBinding"]["box_pdf_bottom_left_xyxy"]
-                    if unit.get("pdfUncalledSuffix"):
-                        tail = [float(value) for value in unit["pdfUncalledSuffix"]["key"].split(":", 1)[1].split(",")]
-                        rect = pymupdf.Rect(min(box[0], tail[0]) - 2, page.rect.height - max(box[3], tail[3]) - 2,
-                                            max(box[2], tail[2]) + 2, page.rect.height - min(box[1], tail[1]) + 2)
-                    else:
-                        rect = pymupdf.Rect(box[0] - 2, page.rect.height - box[3] - 2,
-                                            box[2] + 2, page.rect.height - box[1] + 2)
-                    page.add_redact_annot(rect, fill=(1, 1, 1))
-                    page.apply_redactions()
-                    if unit.get("pdfFieldLabel"):
-                        spans = [span for block in source_pdf[page_index].get_text("dict")["blocks"]
-                                 for line in block.get("lines", []) for span in line["spans"]
-                                 if pymupdf.Rect(span["bbox"]).intersects(rect)]
-                        arrows = [span for span in spans if "⃗" in span["text"]]
-                        if len(arrows) != 1:
-                            raise RuntimeError(f"Expected one source vector arrow in field row: {unit['unitId']}")
-                        formula_x = arrows[0]["bbox"][0] - 2
-                        bullet = pymupdf.Rect(rect.x0, rect.y0, 76, rect.y1)
-                        formula = pymupdf.Rect(formula_x, rect.y0, rect.x1, rect.y1)
-                        field_checks[unit["unitId"]] = {"page": page_index, "rect": formula,
-                                                       "source_formula": normalize_pdf_text(source_pdf[page_index].get_text(clip=formula)),
-                                                       "label": unit["pdfFieldLabel"]["text"]}
-                        page.show_pdf_page(bullet, source_pdf, page_index, clip=bullet, overlay=True)
-                        page.show_pdf_page(formula, source_pdf, page_index, clip=formula, overlay=True)
-                        label = unit["pdfFieldLabel"]["text"]
-                        source_line = next((span for span in spans if span["bbox"][0] >= 74 and span["bbox"][0] < formula_x and "ﬁeld" in span["text"]), None)
-                        if source_line is None:
-                            raise RuntimeError(f"Missing source field label baseline: {unit['unitId']}")
-                        font = pymupdf.Font("china-s")
-                        size = min(10, 0.95 * (formula_x - 78) / font.text_length(label, fontsize=1))
-                        if size < 7:
-                            raise RuntimeError(f"Translated field label does not fit: {unit['unitId']}")
-                        page.insert_text((77, source_line["origin"][1]), label, fontname="china-s", fontsize=size)
-                    else:
-                        page.show_pdf_page(rect, source_pdf, page_index, clip=rect, overlay=True)
-                output.save(repaired)
-            os.replace(repaired, result.mono_pdf_path)
+    if args.experimental_r03_repairs:
+        from r03_repairs import apply_r03_repairs
+        field_checks = apply_r03_repairs(manifest, paragraphs_seen, engine.calls, result, input_pdf, pymupdf, normalize_pdf_text)
     with pymupdf.open(result.mono_pdf_path) as pdf:
         checks = []
         for record in records:
@@ -364,7 +314,10 @@ def main():
                            "present": present, "check_kind": check_kind})
     if not all(check["present"] for check in checks):
         raise RuntimeError(f"Accepted text absent from output PDF: {checks}")
-    if isinstance(manifest, dict):
+    if args.md_source and args.json_source:
+        (staging / "translations.json").write_bytes(args.json_source.read_bytes())
+        (staging / "translations.md").write_bytes(args.md_source.read_bytes())
+    elif isinstance(manifest, dict):
         (staging / "translations.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         (staging / "translations.md").write_text(
             f"# {manifest['title']}\n\n<!-- document:{manifest['documentId']} revision:{manifest['documentRevision']} -->\n\n" +

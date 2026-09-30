@@ -23,7 +23,8 @@ export class TextTask extends Service {
             item.status = 'translating'; onProgress(item)
             const callStart = this.translation.model.calls.length
             let generated
-            try { generated = await this.translation.translate(unit, basis, controller.signal, { review }) }
+            const structureHint = this.records.sources.get(current)?.structureHint?.(unit) ?? ''
+            try { generated = await this.translation.translate({ ...unit, structureHint }, basis, controller.signal, { review }) }
             finally { run.calls.push(...this.translation.model.calls.slice(callStart).map(call => ({ ...structuredClone(call), unitId: unit.id }))) }
             if (controller.signal.aborted) { item.status = 'cancelled'; onProgress(item); break }
             const draft = await this.records.saveDraft(documentId, unit.id, generated); item.status = 'draft'; item.revisionId = draft.id; onProgress(item)
