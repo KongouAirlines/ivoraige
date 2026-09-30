@@ -18,6 +18,7 @@
 - [需求补充 01：术语分类与适用范围](requirements/amendments/0001-term-applicability.md)：补充 F-14／F-15／F-17，待库结构明确后实施，不作为 M3 前置。
 - [候选工具与初步选型 v1.0](requirements/v1.0/02_候选工具与初步选型_v1.0.md)：16 组、83 个候选条目，非最终选型。
 - [当前选型 v1.1](research/tool-selection-v1.1.md)：承接原候选池，补充 DSH／Cordis 生态插件、组件依赖与接入顺序；需求版本仍为 v1.0。
+- [pdf2zh-next 固定版本实现参考](research/pdf2zh-next-mvp-reference.md)：为 MVP 后的翻译接口与排版改进保留源码依据。
 - [v1.0 更新记录](requirements/v1.0/CHANGELOG.v1.0.md)。
 - [历史来源记录](requirements/v1.0/sources.v1.0.md)：其中能力结论仍以原查阅日期为准。
 - [归档来源与完整性](requirements/v1.0/IMPORT.md)。
