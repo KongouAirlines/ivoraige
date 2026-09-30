@@ -91,7 +91,7 @@ M3 是本建议中首个满足核心目标的 MVP 交付点。M2 的复用要求
 
 ## 7. 下一次可直接开始的工作
 
-M2 真实流程证据见[验收记录](m2/real-acceptance.md)，运行时继续按 [ADR-0001](../../decisions/0001-runtime-selection.md)实施。[M3-1 固定环境与适配边界](m3/m3-1-completion.md)已完成，下一步按 [M3 计划](m3/plan.md)执行 M3-2 真实代表页捕获与覆盖核查。[术语范围需求](../../requirements/amendments/0001-term-applicability.md)保留，待建库和库结构明确后实施，不先改库、不作为 M3 前置。
+M2 真实流程证据见[验收记录](m2/real-acceptance.md)，运行时继续按 [ADR-0001](../../decisions/0001-runtime-selection.md)实施。M3-1 固定环境与 [M3-2 来源清点](m3/m3-2-completion.md)已完成，下一步处理已列来源缺项，再按 [M3 计划](m3/plan.md)推进 M3-3 接受译文与同源回填。[术语范围需求](../../requirements/amendments/0001-term-applicability.md)保留，待建库和库结构明确后实施，不先改库、不作为 M3 前置。
 
 1. 明确 PDF 插件与现有文本记录、翻译和输出服务的边界，以及所维护的最小适配代码。
 2. 将代表页的实际可译块接入 M2 记录，先解决来源对应和公式占位符，再复用现有翻译与接受流程。

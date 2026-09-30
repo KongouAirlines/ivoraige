@@ -32,6 +32,8 @@ def main():
     parser.add_argument("--run-dir", type=Path, required=True)
     parser.add_argument("--records", type=Path)
     parser.add_argument("--assets", type=Path, default=Path.home() / ".cache/babeldoc")
+    parser.add_argument("--pages", help="One-based PDF page selection, e.g. 1 or 1,2,4")
+    parser.add_argument("--min-text-length", type=int, default=5)
     args = parser.parse_args()
     if args.mode == "replay" and not args.records:
         parser.error("replay requires --records")
@@ -88,6 +90,7 @@ def main():
         by_key[key] = record
 
     local = threading.local()
+    paragraphs_seen = []
     original = ILTranslator.translate_paragraph
 
     def located(self, paragraph, page, *positional, **keyword):
@@ -98,9 +101,16 @@ def main():
             "source_unicode": paragraph.unicode,
             "paragraph_id": paragraph.debug_id,  # diagnostic only; random across runs
         }
+        seen = {**local.location, "key": location_key(page.page_number, asdict(paragraph.box)),
+                "layout_label": paragraph.layout_label}
+        paragraphs_seen.append(seen)
         try:
             return original(self, paragraph, page, *positional, **keyword)
         finally:
+            tracker = keyword.get("tracker") or (positional[1] if len(positional) > 1 else None)
+            if tracker is not None:
+                seen["prepared_input"] = getattr(tracker, "input", None)
+                seen["placeholders"] = [item.to_dict() for item in getattr(tracker, "placeholders", [])]
             local.location = previous
 
     class AcceptedTranslator(BaseTranslator):
@@ -153,13 +163,18 @@ def main():
             no_dual=True, watermark_output_mode=WatermarkOutputMode.NoWatermark,
             auto_extract_glossary=False, auto_enable_ocr_workaround=False,
             skip_scanned_detection=True, disable_rich_text_translate=True,
-            pool_max_workers=1, qps=100, min_text_length=5,
+            pool_max_workers=1, qps=100, min_text_length=args.min_text_length,
+            pages=args.pages,
         )
         result = translate(config)
     finally:
         ILTranslator.translate_paragraph = original
         (run_dir / "calls.json").write_text(json.dumps(engine.calls, ensure_ascii=False, indent=2), encoding="utf-8")
         (run_dir / "errors.json").write_text(json.dumps(engine.errors, ensure_ascii=False, indent=2), encoding="utf-8")
+        called = {call["key"] for call in engine.calls}
+        (run_dir / "paragraphs.json").write_text(json.dumps([
+            {**item, "callback": item["key"] in called} for item in paragraphs_seen
+        ], ensure_ascii=False, indent=2), encoding="utf-8")
 
     if args.mode == "capture":
         if engine.errors or not engine.calls or len({call["key"] for call in engine.calls}) != len(engine.calls):

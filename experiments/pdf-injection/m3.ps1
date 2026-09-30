@@ -4,6 +4,8 @@ param(
     [string]$Mode,
     [string]$InputPdf = 'evaluation/runs/m1-pdf-injection/original-control.pdf',
     [string]$Records = 'evaluation/runs/m1-pdf-injection/accepted.json',
+    [string]$Pages,
+    [int]$MinTextLength = 5,
     [string]$RunDir
 )
 
@@ -18,6 +20,8 @@ if ($Mode -eq 'setup') {
 }
 if (-not $RunDir) { throw 'Capture and replay require -RunDir (a new directory under this project).' }
 $arguments = @((Join-Path $PSScriptRoot 'adapter.py'), $Mode, '--input', $InputPdf, '--run-dir', $RunDir)
+if ($Pages) { $arguments += @('--pages', $Pages) }
+$arguments += @('--min-text-length', [string]$MinTextLength)
 if ($Mode -eq 'replay') { $arguments += @('--records', $Records) }
 & $python @arguments
 exit $LASTEXITCODE
