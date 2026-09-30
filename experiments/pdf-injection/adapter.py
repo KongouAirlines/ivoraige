@@ -9,6 +9,7 @@ from dataclasses import asdict
 import json
 import os
 from pathlib import Path
+import re
 import sys
 import threading
 
@@ -79,7 +80,43 @@ def main():
     from babeldoc.format.pdf.translation_config import TranslationConfig, WatermarkOutputMode
     from babeldoc.translator.translator import BaseTranslator
 
-    records = json.loads(args.records.read_text(encoding="utf-8")) if args.records else []
+    manifest = json.loads(args.records.read_text(encoding="utf-8")) if args.records else None
+    if isinstance(manifest, dict):
+        source = manifest.get("pdfSource") or {}
+        if Path(source.get("sourcePdf", "")).resolve() != input_pdf:
+            raise ValueError("Accepted manifest source PDF differs from input")
+        fixed = source.get("captureConfig", {})
+        required = {"babeldoc": "0.6.4", "python": "3.13", "pymupdf": "1.26.7",
+                    "min_text_length": args.min_text_length,
+                    "layout_model": "doclayout_yolo_docstructbench_imgsz1024.onnx",
+                    "disable_rich_text_translate": True, "auto_extract_glossary": False,
+                    "auto_enable_ocr_workaround": False, "page_mode": "one page per process"}
+        if any(fixed.get(key) != value for key, value in required.items()):
+            raise ValueError("Accepted manifest capture configuration differs from replay")
+        if not args.pages or sorted(source.get("pages", [])) != sorted(int(page) for page in args.pages.split(",")):
+            raise ValueError("Accepted manifest pages differ from replay")
+        for unit in manifest["units"]:
+            placeholders = unit["placeholders"]
+            expected = [token for item in placeholders for token in re.findall(r"</?b\d+>", item["placeholder"])]
+            actual = re.findall(r"</?b\d+>", unit["engineProjection"])
+            display = unit["placeholderDisplay"]
+            if actual != expected or len(display) != len(expected) or any(not isinstance(value, str) or not value for value in display):
+                raise ValueError(f"Invalid accepted placeholders: {unit['unitId']}")
+            iterator = iter(display)
+            suffix = unit.get("pdfUncalledSuffix") or {}
+            if suffix and not all(isinstance(suffix.get(field), str) and suffix[field] for field in ("fragment", "key", "reason")):
+                raise ValueError(f"Invalid PDF uncalled suffix binding: {unit['unitId']}")
+            readable = re.sub(r"</?b\d+>", lambda _: next(iterator), unit["engineProjection"]) + suffix.get("fragment", "")
+            if readable != unit["text"]:
+                raise ValueError(f"Accepted readable projection differs: {unit['unitId']}")
+        records = [{"page": unit["location"]["pdfPage"] - 1,
+                    "box": dict(zip(("x", "y", "x2", "y2"), unit["sourceBinding"]["box_pdf_bottom_left_xyxy"])),
+                    "key": unit["sourceBinding"]["key"], "request_text": unit["source"],
+                    "target": unit["text"], "replay_target": unit["engineProjection"],
+                    "record_id": unit["unitId"], "revision": unit["revisionId"],
+                    "status": "accepted"} for unit in manifest["units"]]
+    else:
+        records = manifest or []
     by_key = {}
     for record in records:
         key = location_key(record["page"], record["box"])
@@ -88,6 +125,8 @@ def main():
         if record.get("status") not in ("accepted", "accepted_fixture"):
             raise ValueError(f"Record is not accepted: {key}")
         by_key[key] = record
+    if isinstance(manifest, dict) and len(records) != len({record["record_id"] for record in records}):
+        raise ValueError("Duplicate accepted unit")
 
     local = threading.local()
     paragraphs_seen = []
@@ -185,16 +224,32 @@ def main():
     missing = sorted(by_key.keys() - engine.used)
     if engine.errors or missing or len(engine.calls) != len(records):
         raise RuntimeError(f"Replay incomplete: {len(engine.errors)} callback errors, {len(missing)} unused records")
+    if isinstance(manifest, dict):
+        for unit in manifest["units"]:
+            suffix = unit.get("pdfUncalledSuffix")
+            if suffix:
+                matches = [item for item in paragraphs_seen
+                           if item["key"] == suffix["key"] and
+                           item.get("prepared_input") == suffix["fragment"] and
+                           item["source_unicode"] == suffix["fragment"]]
+                if len(matches) != 1 or suffix["key"] in {call["key"] for call in engine.calls}:
+                    raise RuntimeError(f"PDF uncalled suffix changed: {unit['unitId']}")
     with pymupdf.open(result.mono_pdf_path) as pdf:
         checks = [{"record_id": record["record_id"], "page": record["page"],
                    "present": normalize_pdf_text(record["target"]) in normalize_pdf_text(pdf[record["page"]].get_text())}
                   for record in records]
     if not all(check["present"] for check in checks):
         raise RuntimeError(f"Accepted text absent from output PDF: {checks}")
-    (staging / "translations.json").write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
-    (staging / "translations.md").write_text("\n\n".join(
-        f"<!-- {record['record_id']} r{record['revision']} {record['key']} -->\n{record['target']}"
-        for record in records), encoding="utf-8")
+    if isinstance(manifest, dict):
+        (staging / "translations.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        (staging / "translations.md").write_text(
+            f"# {manifest['title']}\n\n<!-- document:{manifest['documentId']} revision:{manifest['documentRevision']} -->\n\n" +
+            "\n\n".join(f"<!-- unit:{unit['unitId']} source-revision:{unit['sourceRevision']} revision:{unit['revisionId']} -->\n{unit['text']}" for unit in manifest["units"]) + "\n", encoding="utf-8")
+    else:
+        (staging / "translations.json").write_text(json.dumps(records, ensure_ascii=False, indent=2), encoding="utf-8")
+        (staging / "translations.md").write_text("\n\n".join(
+            f"<!-- {record['record_id']} r{record['revision']} {record['key']} -->\n{record['target']}"
+            for record in records), encoding="utf-8")
     (staging / "evidence.json").write_text(json.dumps({
         "babeldoc_version": const.__version__, "adapter_requests": len(engine.calls),
         "model_requests": 0, "cache_hits": engine.translate_cache_call_count,

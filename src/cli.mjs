@@ -8,6 +8,7 @@ import { resolveBasis } from './terms.mjs'
 const help = `ivoraige M2 text CLI
 node src/cli.mjs <command> [arguments] --store <directory> [--config <JSON>]
 import <text-file> [--id <document>] [--source en|zh] [--target zh|en] [--title <title>]
+import-pdf <source-snapshot-JSON> --pages <one-based-comma-list> [--id <document>] [--title <title>]
 show <document>
 source-edit <document> <unit> <text-file>
 target <document> <changes-JSON-file>
@@ -30,7 +31,7 @@ Only translate/build mount model services. Generated text is a draft until confi
 function parse(argv) {
   const positional = [], flags = {}
   const booleans = new Set(['review', 'force', 'help'])
-  const values = new Set(['store', 'config', 'id', 'source', 'target', 'title', 'scope', 'md', 'json', 'source-ref', 'actor'])
+  const values = new Set(['store', 'config', 'id', 'source', 'target', 'title', 'scope', 'md', 'json', 'source-ref', 'actor', 'pages'])
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index]
     if (!arg.startsWith('--')) { positional.push(arg); continue }
@@ -61,6 +62,12 @@ export async function main(argv = process.argv.slice(2)) {
   try {
     switch (command) {
       case 'import': requireArgs(args, 1, command); result = await app.records.importText({ text: await textFile(args[0]), documentId: flags.id, sourceLanguage: flags.source ?? 'en', targetLanguage: flags.target ?? 'zh', title: flags.title ?? args[0] }); break
+      case 'import-pdf': {
+        requireArgs(args, 1, command)
+        const pages = flags.pages?.split(',').map(Number)
+        if (!pages?.length || pages.some(page => !Number.isSafeInteger(page) || page < 1)) throw new Error('import-pdf requires --pages with one-based page numbers')
+        result = await app.records.importPdfSnapshot(await jsonFile(args[0]), { documentId: flags.id, pages, title: flags.title ?? args[0] }); break
+      }
       case 'show': requireArgs(args, 1, command); result = app.records.getDocument(args[0]); break
       case 'source-edit': requireArgs(args, 3, command); result = await app.records.updateSource(args[0], args[1], await textFile(args[2])); break
       case 'target': requireArgs(args, 2, command); result = await app.records.updateTarget(args[0], await jsonFile(args[1])); break
