@@ -1,5 +1,14 @@
 {
   "store": "evaluation/runs/m2/manual/store",
+  "defaults": {
+    "sourceLanguage": "en",
+    "targetLanguage": "zh",
+    "libraries": [],
+    "outputs": {
+      "md": "evaluation/runs/m2/manual/sample.md",
+      "json": "evaluation/runs/m2/manual/sample.json"
+    }
+  },
   "model": {
     "network": false,
     "roles": {

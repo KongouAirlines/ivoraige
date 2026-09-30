@@ -1,10 +1,12 @@
 # ivoraige
 
-可按需组装的通用翻译中间层，以科研英汉为首个应用。M0～M3 工程阶段已完成：CLI 支持翻译、术语管理、接受译文及 Markdown／JSON 导出；固定 BabelDOC 适配器已在真实 MuMax3 PDF 第 1／2／4 页验证同一接受修订生成 PDF／Markdown／JSON 与零正文模型重导出。PDF 处理限于已核代表页和固定配置，科研译文仍待用户专业签认。
+可按需组装的通用翻译中间层，以科研英汉为首个应用。CLI 支持翻译、术语管理、选择译文版本及 Markdown／JSON 导出；固定 BabelDOC 适配器已在真实 MuMax3 PDF 第 1／2／4 页验证同一接受修订生成 PDF／Markdown／JSON 与零正文模型重导出。M3.1 的另一篇论文快速试译已由用户验收通过；PDF 仍限于固定引擎与配置，尚非任意 PDF 的全自动成品工具。
 
 核心目标：不同输出共用同一份已接受译文，术语知识能够跨任务复用。
 
 后续以[阶段总结与实施原则](docs/plan/mvp/retrospective.md)为准：算法与通用接口优先，不额外降低接入工具的质量，不将人工二次审阅或逐篇版面精修设为默认流程。[M3.1 模块边界整理](docs/plan/mvp/m3.1/README.md)已拆分核心记录、来源处理和 PDF 输出适配，R03 专用修复默认关闭。当前仍需显式接受修订，自动版本选定及第二个真实解析器接入尚待实现。
+
+按用户选择，跳过拟议的 M3.2，[M4 已完成](docs/plan/mvp/m4/completion.md)：新增 `list`／`status`、`accept-drafts` 批量版本选择及配置默认值，以简化 CLI 和使用说明收尾 MVP。自动质量策略、占位符合理重排、排版、Web UI 和外部词典保留为后续改进；[pdf2zh-next 实现参考](docs/research/pdf2zh-next-mvp-reference.md)已保存。
 
 - [文档导航](docs/README.md)
 - [代理协作与模型分工规则](AGENTS.md)

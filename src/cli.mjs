@@ -4,10 +4,13 @@ import { dirname, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { createApp } from './app.mjs'
 import { resolveBasis } from './terms.mjs'
+import { compatible } from './records.mjs'
 
 const help = `ivoraige CLI
 node src/cli.mjs <command> [arguments] --store <directory> [--config <JSON>]
 import <text-file> [--id <document>] [--source en|zh] [--target zh|en] [--title <title>]
+list
+status <document>
 import-pdf <source-snapshot-JSON> --pages <one-based-comma-list> [--id <document>] [--title <title>]
 export-pdf <document> --run-dir <new-directory> [--input <PDF>] [--experimental-r03-repairs]
 show <document>
@@ -17,6 +20,7 @@ libraries <document> <library-id>...
 translate <document> [--review] [--force]
 check <document> [<unit>]
 confirm <document> <unit> <revision> [--actor <name>]
+accept-drafts <document> [--actor <name>]
 edit <document> <unit> <revision> <translation-file> [--actor <name>]
 export <document> [--md <file>] [--json <file>]
 terms create <library> [--scope shared|project]
@@ -27,7 +31,8 @@ terms merge <library> <keep-entry> <remove-entry>
 terms import <library-JSON-file>
 terms export <library> <file>
 build <library> <source-text-file> [--source-ref <description>]
-Only translate/build mount model services. Generated text is a draft until confirm/edit.
+Only translate/build mount model services. Generated text is a draft until confirm/edit/accept-drafts.
+Config defaults: sourceLanguage, targetLanguage, libraries, outputs.md, outputs.json.
 `
 function parse(argv) {
   const positional = [], flags = {}
@@ -50,6 +55,23 @@ const jsonFile = async path => JSON.parse(await textFile(path))
 function requireArgs(args, count, command) { if (args.length < count) throw new Error(`Missing arguments for ${command}; use --help`) }
 async function saveJson(path, data) { await mkdir(dirname(resolve(path)), { recursive: true }); await writeFile(path, JSON.stringify(data, null, 2) + '\n', 'utf8'); return { path: resolve(path) } }
 
+function documentStatus(app, doc) {
+  const libraries = app.records.snapshot().libraries
+  const units = doc.units.map(unit => {
+    const accepted = unit.revisions.find(revision => revision.id === unit.acceptedId)
+    const drafts = unit.revisions.filter(revision => revision.status === 'draft')
+    let exportable = false, issue
+    try {
+      const { basis } = resolveBasis(app.records, app.terms, doc.id, unit.id)
+      const checked = unit.checkedBasis
+      const staleLibrary = Object.entries(checked?.libraryVersions ?? {}).some(([id, revision]) => libraries[id]?.revision !== revision)
+      exportable = !!accepted && !unit.needsCheck && !staleLibrary && compatible(checked, basis)
+    } catch (error) { issue = error.message }
+    return { unitId: unit.id, acceptedId: unit.acceptedId, latestDraftId: drafts.at(-1)?.id ?? null, exportable, ...(issue ? { issue } : {}) }
+  })
+  return { id: doc.id, title: doc.title, direction: `${doc.sourceLanguage}→${doc.target.language}`, units: units.length, accepted: units.filter(unit => unit.acceptedId).length, drafts: units.filter(unit => unit.latestDraftId).length, exportable: units.every(unit => unit.exportable), details: units }
+}
+
 export async function main(argv = process.argv.slice(2)) {
   const { positional: [command, ...args], flags } = parse(argv)
   if (!command || flags.help) { process.stdout.write(help); return }
@@ -62,7 +84,16 @@ export async function main(argv = process.argv.slice(2)) {
   let result
   try {
     switch (command) {
-      case 'import': requireArgs(args, 1, command); result = await app.records.importText({ text: await textFile(args[0]), documentId: flags.id, sourceLanguage: flags.source ?? 'en', targetLanguage: flags.target ?? 'zh', title: flags.title ?? args[0] }); break
+      case 'import': {
+        requireArgs(args, 1, command)
+        const libraries = config.defaults?.libraries ?? []
+        if (!Array.isArray(libraries) || libraries.some(id => typeof id !== 'string')) throw new Error('config.defaults.libraries must be an array of library IDs')
+        for (const id of libraries) if (!app.records.snapshot().libraries[id]) throw new Error(`Unknown library: ${id}`)
+        result = await app.records.importText({ text: await textFile(args[0]), documentId: flags.id, sourceLanguage: flags.source ?? config.defaults?.sourceLanguage ?? 'en', targetLanguage: flags.target ?? config.defaults?.targetLanguage ?? 'zh', title: flags.title ?? args[0], libraries })
+        break
+      }
+      case 'list': result = Object.values(app.records.snapshot().documents).map(doc => { const { details, ...summary } = documentStatus(app, doc); return summary }); break
+      case 'status': requireArgs(args, 1, command); result = documentStatus(app, app.records.getDocument(args[0])); break
       case 'import-pdf': {
         requireArgs(args, 1, command)
         const pages = flags.pages?.split(',').map(Number)
@@ -106,9 +137,24 @@ export async function main(argv = process.argv.slice(2)) {
         result = await app.records.accept(docId, unitId, revisionId, basis, { expectedAcceptedId: unit.acceptedId, actor: flags.actor ?? 'user', ...(command === 'edit' ? { text: await textFile(args[3]) } : {}) })
         break
       }
+      case 'accept-drafts': {
+        requireArgs(args, 1, command)
+        const doc = app.records.getDocument(args[0]); result = { documentId: doc.id, accepted: [], skipped: [] }
+        for (const unit of doc.units) {
+          if (unit.acceptedId) { result.skipped.push({ unitId: unit.id, reason: 'Accepted revision exists; use confirm or edit for explicit replacement' }); continue }
+          let basis
+          try { ({ basis } = resolveBasis(app.records, app.terms, doc.id, unit.id)) }
+          catch (error) { result.skipped.push({ unitId: unit.id, reason: error.message }); continue }
+          const draft = unit.revisions.filter(revision => revision.status === 'draft' && !revision.cancelled && compatible(revision.basis, basis)).at(-1)
+          if (!draft) { result.skipped.push({ unitId: unit.id, reason: 'No current draft' }); continue }
+          const accepted = await app.records.accept(doc.id, unit.id, draft.id, basis, { expectedAcceptedId: null, actor: flags.actor ?? 'user' })
+          result.accepted.push({ unitId: unit.id, revisionId: accepted.id })
+        }
+        break
+      }
       case 'export': {
         requireArgs(args, 1, command)
-        const outputs = ['md', 'json'].filter(format => flags[format]).map(format => ({ format, path: resolve(flags[format]) }))
+        const outputs = ['md', 'json'].filter(format => flags[format] ?? config.defaults?.outputs?.[format]).map(format => ({ format, path: resolve(flags[format] ?? config.defaults.outputs[format]) }))
         if (!outputs.length) throw new Error('export requires --md or --json')
         result = await app.exporter.write(args[0], outputs); break
       }
