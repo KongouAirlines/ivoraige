@@ -2,6 +2,8 @@
 
 状态：M3-1～M3-5 已完成 R03 第 1／2／4 页工程闭环；科研译文未获用户专业签认，支持范围限于已核代表页与固定配置。
 
+后续方向以 [M0–M3 总结](../retrospective.md)为准：专业签认不是继续开发或日常导出的默认前置，优先算法处理与不额外降质，隔离样本专用修复并拆分通用文档／PDF接口和工具适配。
+
 可直接查看已发布的 [第 1 页](../../../../evaluation/runs/m3-4/replay-page1-footnote/published/)、[第 2 页](../../../../evaluation/runs/m3-4/replay-page2-final/published/)与[第 4 页](../../../../evaluation/runs/m3-4/replay-page4-dmi/published/) PDF／Markdown／JSON。复现实验固定于 Python 3.13、BabelDOC 0.6.4 和 PyMuPDF 1.26.7；换原件、页范围或解析环境需重新核来源覆盖与版面。
 
 - [实施计划与验收](plan.md)

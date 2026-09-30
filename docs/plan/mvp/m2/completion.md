@@ -1,5 +1,7 @@
 # M2 文本闭环工程验收记录
 
+后续建议（2026-09-30）：保留接受修订和确定性复用，但将“接受版本”与“人工审阅”分离。模型审校当前默认关闭，软件仍需显式接受；后续增加算法检查后的可配置自动选定策略，只对异常局部修复。历史质量问题和未签认说明不构成后续阶段的默认人工前置。参见[M0–M3 总结](../retrospective.md)。
+
 日期：2026-09-29｜状态：M2 工程及真实业务闭环通过；自动科学质量仍需修订，用户专业签认未完成。后续真实验收见 [6 dev＋2 原创业务记录](real-acceptance.md)。
 
 依据：[M2 规划](plan.md)与 [运行时 ADR](../../../decisions/0001-runtime-selection.md)。实现复用固定 DSH vendor Cordis、storage/storage-domain/storage-json、llm/llm-pi-ai；项目业务服务为 records、terms、model、translation、textTask、termBuilder、textExport。没有引入完整 DSH agent/session、jobs、workflow 或 Web 产品壳。
