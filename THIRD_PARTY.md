@@ -5,6 +5,11 @@ license handling below are retained. The old M2 business model service and CLI
 are removed; their integration details in the final paragraph are historical
 reference (archive `v0.0.0`), not capabilities of the restarted kernel.
 
+The restarted records service now mounts the same pinned DSH storage hub,
+storage-domain and storage-sqlite plugins. SQLite comes from Node's built-in
+`node:sqlite`; business code never accesses that backend directly. The npm
+tarball includes the generated DSH bundle and both generated license notices.
+
 M2 builds the real Cordis, LLM runtime, pi-ai adapter and storage modules from
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) at commit
 `639ed015397290b3745d163aafe02ffee4aa3f84`. The DSH source is MIT licensed,

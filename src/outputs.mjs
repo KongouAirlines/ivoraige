@@ -23,4 +23,12 @@ export class Outputs extends Service {
   availableFor(sourceBinding) {
     return [...this.adapters.values()].filter(adapter => adapter.supports(sourceBinding)).map(adapter => adapter.id)
   }
+
+  get(format) {
+    const adapter = this.adapters.get(format)
+    if (!adapter) throw new KernelError('INVALID_ARGUMENT', `Output format is not installed: ${format}`, {
+      availableFormats: [...this.adapters.keys()],
+    })
+    return adapter
+  }
 }
