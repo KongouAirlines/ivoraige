@@ -68,6 +68,7 @@ Node >= 24. Type "module" (ESM). Do not downgrade the engines field without veri
 
 - After completing a stage and its verification, create one local commit directly; no need to ask. Review the staged diff before committing; report the commit hash.
 - Push only when the user instructs. PR work happens on a feature branch (e.g. `docs/v2.0-design`), never by committing to `main` first.
+- Every user-visible change (features, fixes, protocol or design-doc changes) must add an entry to `CHANGELOG.md` under `Unreleased`, following Keep a Changelog categories (`Added`/`Changed`/`Fixed`/`Removed`). Commit the changelog entry in the same change.
 - Keep `evaluation/private/` and `evaluation/runs/` out of commits per existing ignore rules; check staged content once when adding new locations.
 
 ## Subagents and model selection
