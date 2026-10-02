@@ -1,6 +1,6 @@
 # ivoraige API 协议规格 v2.0
 
-版本：v2.0｜2026-10-02｜状态：协议基线，三入口（CLI/MCP/WebUI）与外部插件（Zotero）共同遵守。
+版本：v2.0｜2026-10-03 审阅修订｜状态：协议设计，三入口（CLI/MCP/WebUI）与外部插件（Zotero）共同遵守；不代表已实现。
 
 上位文档：[01_设计与验收基线 v2.0](01_design_v2.0.md)（下称《设计》）。本文只定义协议：端点、schema、错误码、SSE 事件、sidecar 协议、认证与安全。业务规则以《设计》为准；词库字段随词库结构研判调整，本文术语部分只锁定传输形状。
 
@@ -45,8 +45,8 @@
 
 ### 1.4 并发与写冲突规则（落实《设计》遗留缺口）
 
-- **修订乐观锁**：所有写译文/接受/回退的请求必须带 `baseRevisionId`（客户端当前看到的修订 id）。服务端比对当前最新修订，不一致返回 `409 CONFLICT`，details 携带最新修订全文，由调用方决定合并或重试。WebUI 工作台收到 409 时提示"该段已被其他入口修改"并展示两个版本。
-- **accepted 翻转**：同一 (unitId, targetLang) 的 accept 操作是同一乐观锁域；两个入口同时 accept 不同修订，后到者 409。
+- **修订乐观锁**：写新译文带 `baseRevisionId: Id | null`，指该 `(unitId, targetLang)` 当前最新修订，无修订时为 null；不一致返回 `409 CONFLICT`，details 携带最新修订，由调用方决定合并或重试。
+- **accepted 翻转**：接受／回退／取消接受带 `expectedAcceptedRevisionId: Id | null`，与当前 accepted 比较；要接受的版本由 URL 的 revisionId 指定，不能与乐观锁字段混用。两个入口同时改变同一 `(unitId, targetLang)` 的接受版本，后到者 409。接受旧修订仍须检查当前来源、上下文及目标约束，失效时返回 412，不因它曾被接受就绕过适用性检查。
 - **同类任务互斥**：同一 docId 上 `translate`/`export`/`rag` 各允许一个在跑任务；重复提交返回 `409 CONFLICT`，details 含在跑 taskId，调用方可选择 `attach`（订阅已有任务）或取消后重提。
 - **import 幂等**：`sourceId + 内容指纹` 命中已有 Document 时返回既有 docId 并置 `deduplicated: true`，不新建。
 
@@ -63,7 +63,7 @@ interface Document {
   title: string; origin: "manual" | "zotero" | "cli" | "mcp";
   externalRef?: string;                 // Zotero item key 等
   unitCount: number; translatableCount: number;
-  availableOutputs: string[];           // 由适配器 rebuild 能力决定
+  availableOutputs: string[];           // 已装输出实现与来源绑定共同决定
   importedAt: ISODate;
 }
 
@@ -73,6 +73,7 @@ interface Unit {
   sourceText: string; context?: string;
   locator?: Record<string, unknown>;    // 适配器自定义：{page, block} / {spinePath, elementIndex} ...
   translatable: boolean;
+  targetLang: string;                   // 本次查询的译文视图，不是原文属性
   acceptedRevisionId?: Id; draftRevisionId?: Id;
 }
 
@@ -88,7 +89,7 @@ type TaskKind = "import" | "parse" | "translate" | "export" | "rag";
 type TaskState = "queued" | "running" | "paused" | "succeeded" | "failed" | "canceled";
 
 interface Task {
-  id: Id; kind: TaskKind; docId?: Id; state: TaskState;
+  id: Id; kind: TaskKind; docId?: Id; targetLang?: string; state: TaskState;
   progress: { stage: string; done: number; total: number };
   cursor?: unknown;                     // 断点位置，种类自定义
   error?: { stage: string; unitId?: Id; message: string };
@@ -100,12 +101,12 @@ interface Task {
 interface TaskStats {
   stageDurationsMs: Record<string, number>;
   llmCalls: number; reusedUnits: number; reuseRatio: number;   // reuseRatio = reused/(reused+llmCalls 对应单位数)
-  tokens: Record<string, { input: number | null; output: number | null }>; // 按模型角色分；未知为 null，序列化为 "unknown"
+  tokens: Record<string, { input: number | null; output: number | null }>; // 按模型角色分；未知在线上传输为 null
 }
 
 interface Artifact {
-  id: Id; docId: Id; format: string; path: string;
-  revisionSetHash: string; createdAt: ISODate;
+  id: Id; docId: Id; targetLang: string; format: string; path: string;
+  snapshotId: Id; revisionSetHash: string; createdAt: ISODate;
 }
 
 interface RagChunk {
@@ -117,7 +118,8 @@ interface RagChunk {
 
 字段级规则：
 
-- `tokens.*` 为 `null` 时序列化为字符串 `"unknown"`，**绝不填 0**（沿用 ADR-0001 边界）。
+- `tokens.*` 未知时 JSON 保留 `null`，界面显示“未知”，**绝不填 0**（沿用 ADR-0001 边界）。
+- 单位查询与翻译／编辑／导出明确传 `targetLang`；accepted/draft ID 仅属于该语言视图，不在其他语言之间共用。按 revisionId 操作时从修订记录取得语言。快照引用不可变来源／译文清单，Artifact 的摘要不与任务结束时的最新记录比较。
 - `locator` 是适配器自定义对象，但**必须**至少能回答"第几页/第几段"；协议不约束内部字段。
 - 列表端点统一分页：`?cursor=<opaque>&limit=<n≤500>`，响应 `{ items: [], nextCursor?: string }`。万级 unit 列表不依赖全量拉取。
 
@@ -130,28 +132,33 @@ interface RagChunk {
 | POST | `/api/documents/import` | `{ path?: string, contentBase64?: string, format?: string, sourceId?: string, externalRef?: string }`（path 与 contentBase64 二选一） | `{ document: Document, taskId: Id, deduplicated: boolean, warnings: string[] }`；解析为异步任务 |
 | GET | `/api/documents` | `?origin=&format=&cursor=&limit=` | 分页 Document[] |
 | GET | `/api/documents/{docId}` | — | `{ document: Document }` |
-| GET | `/api/documents/{docId}/units` | `?filter=all\|untranslated\|draft\|accepted&cursor=&limit=` | 分页 Unit[]（含 accepted/draft 修订 id，不内嵌全文） |
-| GET | `/api/units/{unitId}` | — | `{ unit: Unit, accepted?: Revision, draft?: Revision }` |
-| GET | `/api/units/{unitId}/revisions` | — | Revision[]（版本翻看数据源） |
+| GET | `/api/documents/{docId}/units` | `?targetLang=<必填>&filter=all\|untranslated\|draft\|accepted&cursor=&limit=` | 分页 Unit[]（含该语言 accepted/draft 修订 id，不内嵌全文） |
+| GET | `/api/units/{unitId}` | `?targetLang=<必填>` | `{ unit: Unit, accepted?: Revision, draft?: Revision }` |
+| GET | `/api/units/{unitId}/revisions` | `?targetLang=<必填>` | 该语言 Revision[]（版本翻看数据源） |
 
 ### 3.2 翻译与编辑
 
 | 方法 | 路径 | 请求 | 响应 |
 |---|---|---|---|
-| POST | `/api/documents/{docId}/translate` | `{ profileId?: string, unitIds?: Id[], mode?: "fast" \| "careful" }`；unitIds 缺省=全部 translatable | `{ taskId: Id }` |
-| POST | `/api/translate-text` | `{ text: string, sourceLang?: "auto" \| string, targetLang: string, profileId?: string }` | `{ revision: Revision, regenerated?: false }`（文本翻译页首轮） |
-| POST | `/api/translate-text/regenerate` | `{ originalText: string, targetLang: string, profileId?: string, previousRevisionId: Id }` | `{ revision: Revision }`（重新生成，写新 Revision 不改旧） |
-| PATCH | `/api/units/{unitId}` | `{ baseRevisionId: Id, text?: string, action?: "accept" \| "unaccept" }`；text 存在即写 human 修订 | `{ revision: Revision }`；baseRevisionId 过期→409 |
-| POST | `/api/revisions/{revisionId}/accept` | `{ baseRevisionId: Id }`（当前 accepted 的 id；无 accepted 时传 null） | `{ accepted: Revision }` |
+| POST | `/api/documents/{docId}/translate` | `{ targetLang: string, profileId?: string, unitIds?: Id[], mode?: "fast" \| "careful" }`；unitIds 缺省=全部 translatable | `{ taskId: Id }` |
+| POST | `/api/translate-text` | `{ text: string, sourceLang?: "auto" \| string, targetLang: string, profileId?: string }` | `{ documentId: Id, unitId: Id, revision: Revision }`（文本翻译页首轮） |
+| POST | `/api/translate-text/regenerate` | `{ unitId: Id, targetLang: string, profileId?: string, previousRevisionId: Id }` | `{ documentId: Id, unitId: Id, revision: Revision }`（同一原文生成新修订，不改旧） |
+| PATCH | `/api/units/{unitId}` | `{ targetLang: string, baseRevisionId: Id \| null, text: string }`；写 human 草稿修订，不自动接受 | `{ revision: Revision }`；baseRevisionId 过期→409 |
+| POST | `/api/revisions/{revisionId}/accept` | `{ expectedAcceptedRevisionId: Id \| null }`（无 accepted 时为 null） | `{ accepted: Revision }` |
+| POST | `/api/units/{unitId}/unaccept` | `{ targetLang: string, expectedAcceptedRevisionId: Id \| null }` | `{ accepted: null }`；保留修订历史 |
+
+文本入口首轮即建立持久 Document 和一个承载当前输入的 Unit，修订引用该 unitId；语言检测先解析为实际语言再落库。重新生成从已有 Unit 取原文，校验 previousRevisionId 属于该单位／语言；输入原文改变时走新的文本导入，不把不同原文混入同一版本组。版本翻看、接受和进入工作台复用上表接口及 documentId，无需二次搬迁临时状态。
 
 ### 3.3 输出与 RAG
 
 | 方法 | 路径 | 请求 | 响应 |
 |---|---|---|---|
-| POST | `/api/documents/{docId}/export` | `{ format: string, out?: string, onMissingAccepted?: "fail" \| "skip" }`（默认 fail，《设计》§3.3） | `{ taskId: Id }`；任务产物在 Task.artifacts |
+| POST | `/api/documents/{docId}/export` | `{ targetLang: string, outputs: { format: string, out?: string }[], snapshotId?: Id, onMissingAccepted?: "fail" \| "skip" }`（默认 fail，《设计》§3.3） | `{ taskId: Id, snapshotId: Id }`；任务产物在 Task.artifacts |
 | GET | `/api/documents/{docId}/artifacts` | — | Artifact[] |
 | POST | `/api/documents/{docId}/rag/build` | `{ chunker?: string, embedModel?: string }` | `{ taskId: Id }` |
 | POST | `/api/documents/{docId}/rag/query` | `{ q: string, k?: number ≤ 50 }` | `{ chunks: RagChunk[], degraded: boolean }`（degraded=向量扩展不可用走退化路线） |
+
+首次导出在受理时生成冻结清单，outputs 内所有格式共用它；单格式也是长度为 1 的 outputs。传 snapshotId 时复用原清单，并检查它属于该 docId／targetLang；缺项策略沿用该清单，不允许覆盖。省略 snapshotId 则按当前适用版本创建新清单。清单保存来源绑定、原文与资源版本以及各 unit 的选定 revision／保留原文决定，之后编辑不会改变它。
 
 ### 3.4 任务
 
@@ -176,7 +183,7 @@ interface RagChunk {
 
 | 方法 | 路径 | 行为 |
 |---|---|---|
-| POST | `/api/zotero/translate` | `{ zoteroItemKey, pdfPath, mode?, bilingual? }` → import(externalRef=zoteroItemKey) → translate → export；`{ taskId }` |
+| POST | `/api/zotero/translate` | `{ zoteroItemKey, pdfPath, targetLang, mode?, bilingual? }` → import(externalRef=zoteroItemKey) → translate → export；`{ taskId }` |
 | POST | `/api/zotero/rag` | 同上前缀 → rag build → **额外产出两个可附文件**：`<title>.rag-manifest.json`（chunk 清单：文本、locator、嵌入模型、向量维度、构建时间；**不含向量本体**）与 `<title>.rag-report.md`（人类可读摘要：文档结构、chunk 数、检索入口说明）。RAG 索引本体留在内核存储，附件是"索引的可搬运描述"。 |
 | POST | `/api/zotero/rag-translate` | rag 与 translate 并行，汇合后 export；附件 = manifest + report + 译文文件 |
 | GET | `/api/zotero/task/{taskId}` | `{ task: Task, attachments: { path: string, suggestedName: string }[] }`（Zotero 插件按此挂附件） |
@@ -216,10 +223,11 @@ tools 与 REST 一一对应，schema 共用；长任务型 tool 一律返回 `{ 
 | `ivoraige_rag_build` / `ivoraige_rag_query` | §3.3 | — |
 | `ivoraige_task_status` / `ivoraige_task_cancel` / `ivoraige_task_pause` / `ivoraige_task_resume` | §3.4 | status 支持 `waitSeconds` 长轮询 |
 | `ivoraige_unit_update` | PATCH /units/{id} | 必须传 baseRevisionId；AI 客户端收到 409 应重读再改 |
+| `ivoraige_revision_accept` / `ivoraige_unit_unaccept` | §3.2 接受／取消接受 | 使用 expectedAcceptedRevisionId，语言规则同 REST |
 | `ivoraige_units_list` / `ivoraige_revisions_list` | §3.1 | — |
 | `ivoraige_terms_list` / `ivoraige_terms_confirm` / `ivoraige_terms_edit` | §3.5 | — |
 
-resources：`ivoraige://docs/{docId}`、`ivoraige://docs/{docId}/units/{unitId}`、`ivoraige://tasks/{taskId}`，内容为对应 JSON 的人类可读渲染（Markdown）。
+resources：`ivoraige://docs/{docId}`、`ivoraige://docs/{docId}/units/{unitId}?targetLang={language}`、`ivoraige://tasks/{taskId}`，内容为对应 JSON 的人类可读渲染（Markdown）。
 
 ## 7. Python sidecar 协议
 
@@ -248,15 +256,15 @@ sidecar 常驻复用（不每任务重启）；崩溃后内核重启 sidecar 一
 
 ### 7.2 与内核 IR 的对齐
 
-`parse` 返回的 ParsedDoc 与内核 IR 同构（Unit + locator）；内核保留最终解释权：sidecar 只产候选结构，写库前内核做校验（unit 非空、order 单调、locator 齐备）。
+`parse` 返回的 ParsedDoc 包含通用原文单位、locator 与适配器私有来源绑定；API Unit 中的 targetLang 和译文 ID 是内核查询时附加的视图，不由解析器生成。核心校验通用结构，工具专用字段交来源适配器校验。`rebuild` 的 docRef／revisionsRef 必须来自同一冻结清单；MinerU 块不能直接当作 BabelDOC 回放绑定，跨引擎关联未实现时只开放该来源实际可用的出口。
 
-## 8. 模型权重资产管理（照搬 DSH attachment 方案）
+## 8. 模型权重资产管理（复用边界）
 
-复用 `dsh-attachment` + `dsh-attachment-local` 的内容寻址存储作为权重资产库，不自写下载器：
+`dsh-attachment` + `dsh-attachment-local` 可复用文件存储能力，但固定版本未提供 HTTP 下载／Range 续传管理器，也不自动产出工具需要的权重目录树。下载优先选已有实现，目录装配作为具体工具适配；本节是待验证方案，不声称已能直接照搬完整能力。
 
 1. **资产清单**：内核内置 `assets.json`（随版本发布），每项 `{ name, urls[], sha256, sizeBytes, requiredFor }`（如 `mineru-layout`、`mineru-ocr`、`doclayout-yolo`）。
-2. **下载**：`POST /api/assets/{name}/pull` 建任务（复用任务系统，进度=字节数），下载落 attachment-local（按 sha256 内容寻址），校验 digest 一致才标记可用；不一致自动清残并 failed。断点续传用 HTTP Range。
-3. **注入 sidecar**：任务启动时内核从 attachment 存储解析出目录路径，经 `configure` 注入；sidecar 路径不含权重时返回 `-32002` → `COMPONENT_MISSING`，details 给 `ivoraige assets pull <name>` 命令。
+2. **下载**：`POST /api/assets/{name}/pull` 建任务（复用任务系统，进度=字节数），由所选下载实现处理 HTTP／Range，完成时校验 digest 后标记可用；不一致清理该次残留并 failed。内容寻址入库可复用附件组件，不将下载能力归给它。
+3. **注入 sidecar**：适配器将资产装配为引擎需要的目录，并经 `configure` 注入。普通任务复用已就绪路径与已有校验结果，不逐次重新读取／哈希整个权重；附件组件的读取接口有 digest 校验，不能机械地放到每次模型加载的热路径。缺少权重时返回 `-32002` → `COMPONENT_MISSING`，提示 `ivoraige assets pull <name>`。
 4. **CLI/界面**：`ivoraige assets list`（名称、大小、已就绪/缺失）、`assets pull/remove`；WebUI 设置页"组件与模型"区块展示同一清单，PDF 处理设置区对缺失权重直接给"下载"按钮。
 5. 用户自备权重：资产清单允许 `path` 覆盖（settings 中配置），跳过下载与校验。
 
@@ -267,3 +275,4 @@ sidecar 常驻复用（不每任务重启）；崩溃后内核重启 sidecar 一
 3. SSE 断线重连后任务页进度与服务端一致（快照对齐测试）。
 4. sidecar 握手版本不匹配、权重缺失、进程崩溃三类故障各映射为规定的错误码与提示。
 5. 权重下载任务：断网中断后 Range 续传完成，digest 校验失败有明确 failed 状态。
+6. 导出期间接受新译文，已有多格式任务仍输出同一 snapshotId 的内容；显式复用该快照增加格式不调用模型。上下文、同名风格预设或相关术语变更后，不得仅凭旧 reuseKey 复用不适用译文。

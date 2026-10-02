@@ -2,6 +2,8 @@
 
 版本：v2.0｜2026-10-02｜状态：设计方案，承接需求基线 v1.0 与 MVP（M0～M4）已完成实现。
 
+审阅修订：2026-10-03。保留产品方向，补齐复用适用性、解析／重建边界与冻结导出契约；本文新增能力仍是设计，不追认为 MVP 已实现。
+
 ## 0. 文档定位与依据
 
 本文是 ivoraige 的**设计与验收文档**：在 [需求基线 v1.0](../v1.0/01_功能需求概览_v1.0.md)（44 项功能期望，不改编号、不改优先级）之上，落实用户本次给出的产品形态约束与验收口径，并结合以下既有成果：
@@ -22,7 +24,7 @@
 | C5 | 三条主用例：Zotero 右键四模式；手动导入按格式输出；精翻工作台逐段／范围／全文翻译并双语对照。 |
 | C6 | API 与安全部分照搬 DeepSeek Harness（DSH），按对应模块以插件复用。 |
 | C7 | 词库（术语库结构）后续研判，本文不锁定。 |
-| C8 | AI 基础设施（模型接入、凭据、设置、存储、任务等）直接照搬 DSH 插件，按对应模块插件化复用，不自写；架构相同且 MVP 已验证复用可行。 |
+| C8 | AI 基础设施（模型接入、凭据、设置、存储、任务等）按对应 DSH 模块插件化复用，不另写已有能力的平行实现；MVP 已验证的具体范围见 §2.2，不等于全部候选均已接入。 |
 
 ---
 
@@ -67,15 +69,15 @@ flowchart TB
 | 组成部分 | 平台无关性方案 |
 |---|---|
 | Node 内核 | 按平台打包**单文件可执行**。Node v25.5+ 已内置 `node --build-sea`，无需 postject 手工流程；每平台产出 `ivoraige-linux-x64` / `ivoraige-win-x64.exe` / `ivoraige-macos-arm64` 等。Bun `--compile --target` 跨编译作为备选路线，但与 DSH vendor 的兼容性未验证，**不作为默认**。 |
-| Python 侧车（BabelDOC／MinerU） | PyInstaller `--onefile` 按平台构建 `ivoraige-pdf-<platform>` 单文件，随对应平台的发行包附带。内核通过子进程 + JSON-RPC over stdio 调用；检测不到 sidecar 时 PDF 类功能明确报“组件缺失”，其余功能不受影响。 |
+| Python 侧车（BabelDOC／MinerU） | PyInstaller 按平台构建可选组件，单文件形式待实际依赖闭包验证。内核通过子进程 + JSON-RPC over stdio 调用；仅所选实现需要对应 sidecar，纯文本使用无需安装 Python 组件。 |
 | 原生依赖 | `node:sqlite` 为 Node 内置，无原生编译负担；其余依赖选纯 JS 实现。这是选 storage-sqlite / node:sqlite 而非 better-sqlite3 的原因。 |
 
 macOS 分发需代码签名与公证，否则 Gatekeeper 拦截；签名属发布流程事项，在 CI 中完成，见 §10 里程碑。
 
 ### 1.3 分发形态（两种，同一构建产物）
 
-1. **npm 部署**：`npm install -g ivoraige`。包本体为纯 JS（内含全部内核代码与 WebUI 静态资源）；`postinstall` 按 `process.platform`/`arch` 从发布仓库下载对应的 Python sidecar 二进制。Node 版本要求 `>=22`（`node:sqlite` 稳定可用）。用户已有 Node 环境时用此路径。
-2. **独立发行包**：每平台一个压缩包，含单文件内核 + sidecar + 默认配置，解压即用。用户没有任何环境时用此路径。
+1. **npm 部署**：`npm install -g ivoraige`。包本体为 JS（内核与可选 WebUI 资源）；默认安装不自动下载 Python sidecar 或模型权重，用户启用对应组件时再按平台安装。沿用当前 Node `>=24` 要求，降低最低版本需另行验证所选依赖，不仅依据 `node:sqlite` 是否存在。用户已有 Node 环境时用此路径。
+2. **独立发行包**：每平台提供内核与默认配置；PDF 完整包可附带对应 sidecar，组件也可单独安装。纯文本最小组合不依赖 PDF／MinerU，完整包解压后无需用户手动配置语言运行时。
 
 两种形态运行同一份代码，行为一致性由同一构建管线保证（构建一次，分别封装）。
 
@@ -115,25 +117,25 @@ macOS 分发需代码签名与公证，否则 Gatekeeper 拦截；签名属发�
 3. **Python 只通过 sidecar 协议接触**：内核不 import 任何 Python 库；sidecar 协议版本化，输入为 IR + 已接受译文，输出为重建文件。
 4. **模型调用只走 DSH LLM 层**：任何模块不直接 `fetch` 模型端点。凭据、取消、超时、流式、usage 记录全部沿用已验证路径。
 
-   **AI 基础设施整体照搬 DSH 插件（C8）**：模型接入、凭据、设置、存储、任务等基础设施能力一律挂载对应 DSH 插件，本项目只为翻译业务（术语装配、译文复用、同源输出、来源关联）写代码，不为任何基础设施能力自写平行实现。架构与 DSH 相同，MVP 已验证此复用路径。
+   **AI 基础设施复用 DSH 插件（C8）**：按所需能力挂载对应插件，不自写已有能力的平行实现。MVP 已验证模型与 JSON/domain 存储组合；credentials-local、settings、jobs、SQLite 等仍需在各自接入阶段验证。插件未提供的能力应明确缺口并优先寻找可复用实现，不能因为名称相近就标为已具备；业务 checkpoint、来源关联等仍由本项目负责。
 5. **存储只走 storage-domain**：业务 schema 用 zod/Schemastery 定义在 domain 层，后端默认 SQLite medium（`node:sqlite`），JSON medium 保留给小规模配置。已知限制（无跨表事务、无二级索引）按 §3 的建模方式规避。
 
 ### 2.3 技术选型汇总
 
 | 层 | 选定 | 依据 |
 |---|---|---|
-| 运行时 | Node.js ≥22，TypeScript | ADR-0001；`node:sqlite` 内置免原生依赖 |
+| 运行时 | Node.js ≥24，TypeScript | 沿用当前工程最低版本；独立包的 SEA 构建版本单独固定 |
 | 插件框架 | DSH vendor Cordis（固定提交） | 已验证；不与上游 Cordis 4 RC 混装 |
 | 模型接入 | `dsh-llm` + `dsh-llm-pi-ai`；OpenAI 兼容端点覆盖 Ollama/LM Studio | M1 十项检查通过 |
 | 凭据 | `dsh-credentials` + `dsh-credentials-local` | C6：照搬 DSH |
-| 存储 | `dsh-storage-domain` + `dsh-storage-sqlite` | M2 已采用方向；免原生编译 |
+| 存储 | `dsh-storage-domain` + `dsh-storage-sqlite` | MVP 已验证 domain + JSON；SQLite 是后续替换方案，尚未实跑 |
 | 任务 | `dsh-jobs` + `dsh-jobs-local` + 业务落库 | 进程内任务 + 自写持久状态（§8.3 说明组合边界） |
 | HTTP/WebUI | `@cordisjs/plugin-server` + 静态 SPA（构建期打包进单文件） | 调研候选；同源服务 CLI/MCP/WebUI |
 | MCP server | `@modelcontextprotocol/sdk`（官方 TS SDK） | DSH 只有消费端；server 需自建 |
 | PDF | BabelDOC（Python sidecar，沿用 M1/M3 回放路线） | 已验证译文注入 |
 | 解析（富格式） | MinerU（Python sidecar 第二入口，按需） | v1.0 主候选 |
 | EPUB | JS 适配器（zip + XHTML 解析，详见 §4.3） | 免新增运行时；Okapi 留作备选 |
-| 嵌入/向量 | 嵌入走 `dsh-llm` 兼容端点；向量存 SQLite + `sqlite-vec` 扩展，不可用时退化 JSONL + JS 余弦 | sqlite-vec 为预编译扩展，随 sidecar 资源分发；小规模语料下退化路线足够 |
+| 嵌入/向量 | 嵌入优先复用 DSH 生态现成能力，具体接口待 M8 核验；向量候选为 SQLite + `sqlite-vec`，不可用时可用 JSONL + JS 余弦 | 当前固定 `dsh-llm` 已验证的是生成接口，不能据此视为已支持 embeddings；扩展分发与小规模退化路线均待验证 |
 
 **明确不引入**：Electron/Tauri（§1.4）、LiteLLM（模型层已由 DSH 覆盖）、vLLM/Xinference（个人部署过重）、LangGraph/Dify（不另造编排层）。
 
@@ -152,18 +154,22 @@ macOS 分发需代码签名与公证，否则 Gatekeeper 拦截；签名属发�
 | `Revision` | `id`、`unitId`、`targetLang`、`text`、`origin`（machine/human/imported）、`status`（draft/accepted/superseded）、`modelId`、`promptVersion`、`reuseKey`、`createdAt` | 译文修订；一个 unit 同一目标语言下多条修订，只有一条 `accepted` |
 | `TermEntry` / `TermSense` | 沿用 MVP 与 amendment 0001：义项、别名、类别（通用/专用）、适用范围、来源、确认状态 | 结构后续研判（§12），现有字段不迁移 |
 | `Task` | `id`、`kind`（parse/translate/export/rag/...）、`docId`、`config`、`state`（queued/running/paused/succeeded/failed/canceled）、`progress`、`cursor`、`error` | `cursor` 记录断点位置供恢复 |
-| `Artifact` | `id`、`docId`、`format`、`path`、`revisionSetHash`、`createdAt` | 输出工件；`revisionSetHash` 标识生成时的译文集合版本 |
+| `Artifact` | `id`、`docId`、`targetLang`、`format`、`path`、`snapshotId`、`revisionSetHash`、`createdAt` | 输出工件；引用本次冻结清单，而非完成时的最新译文集合 |
 | `RagIndex` | `id`、`docId`、`chunker`、`embedModel`、`chunkCount`、`createdAt` | 索引元数据；chunk 本体见 §4.4 |
 
 ### 3.2 译文复用键（F-13 的机制）
 
-MVP 的复用判定升级为显式 `reuseKey`：
+保留 MVP 的适用性检查；`reuseKey` 只作为候选检索索引，不代替检查：
 
 ```
-reuseKey = hash(sourceText_normalized, sourceLang, targetLang, stylePresetId, termConstraintSetId)
+reuseKey = hash(sourceText_normalized, sourceLang, targetLang,
+                effectiveContext, effectiveTarget, termConstraintSetId)
 ```
 
-- `termConstraintSetId`：本次翻译实际装配的术语约束集合的标识，**不是全库哈希**——词库中无关条目的增删不使旧译文失效；约束集合内容变化（相关术语改译名、范围变化）则生成新 id，旧修订保留但新任务不复用。
+- `effectiveContext` 为实际影响翻译的上下文；`effectiveTarget` 包含用途、风格与预设展开后的实际约束，不能只用 `stylePresetId`。前后文变化或同名预设内容变化时重新判断适用性。
+- 命中后仍检查当前来源修订、上下文、目标约束和来源绑定；同文字但不同公式／结构载荷不能直接复用。文本规范化不能抹掉有意义的符号、大小写或结构差异。
+- `termConstraintSetId`：本次翻译实际装配的术语约束集合的稳定标识，**不是全库哈希**——词库中无关条目的增删不使旧译文失效；约束集合内容变化（相关术语改译名、范围变化）则生成新 id，旧修订保留但新任务不复用。先装配当前约束再计算索引。
+- 索引在相关输入变化时计算并保存即可，不为常规文件读取、传递或重导出新增哈希关卡。
 - 术语范围修改后的复核语义沿用 amendment 0001：相关单位需复核，无关单位不重翻。
 - 模型更换**不改变** reuseKey，不触发自动重译；重译是显式操作（`translation.retranslate`，生成新修订，旧 accepted 不受影响直到用户接受新修订）。
 - 存储限制规避：storage-domain 无二级索引，复用查询以 `reuseKey` 作为记录键的一部分（domain 按主键取），不做全表扫描。
@@ -172,9 +178,9 @@ reuseKey = hash(sourceText_normalized, sourceLang, targetLang, stylePresetId, te
 
 `export` 的每个格式适配器必须满足：
 
-1. 输入仅为 `docId` + 输出路径；自行从 `records` 读取 IR 与 accepted 修订。
-2. 发现 unit 无 accepted 修订时，行为二选一并在任务结果中报告：`skip`（保留原文）或 `fail`（默认 fail，防止静默产出半成品）。
-3. 输出完成写 `Artifact`，`revisionSetHash` 与当前 accepted 集合一致才允许标记成功。
+1. 对外请求指定 `docId`、`targetLang` 与输出选项；输出服务启动任务时从 `records` 一次取得适用的 accepted 修订、来源修订／绑定和必要资源引用，保存为冻结清单 `snapshotId`。所有格式适配器消费该清单，不分别读取可变的当前记录，沿用 M3.1 的 manifest 边界。
+2. 可译 unit 缺少适用 accepted 修订时，在冻结清单中按配置记录 `skip`（保留该版本原文）或 `fail`（默认）；`translatable=false` 的内容直接保留，不要求虚构译文修订。
+3. 一次多格式导出共用同一 `snapshotId`；后续增加格式可显式复用它。完成后的 `Artifact` 记录实际清单及其 `revisionSetHash`，摘要仅在创建清单时计算一次。期间新编辑不影响该次输出，也不因“当前 accepted 已变化”否定正常产物。若冻结来源资源已不可用，应明确失败，不能改用最新资源。
 4. **禁止**任何形式调用翻译模型。适配器无法取得 LLM 服务引用（Cordis `inject` 层面不提供），从机制上而非纪律上保证。
 
 ---
@@ -186,28 +192,33 @@ reuseKey = hash(sourceText_normalized, sourceLang, targetLang, stylePresetId, te
 格式适配器接口：
 
 ```ts
-interface FormatAdapter {
+interface SourceAdapter {
   match(file: FileRef): number;              // 0 表示不支持；置信度供多适配器排序
   parse(file: FileRef, ctx): Promise<ParsedDoc>; // 结构化 + 单位化 + locator
-  rebuild?(doc: ParsedDoc, revisions, ctx): Promise<Artifact>; // 有 rebuild 才能出对应格式
+}
+interface OutputAdapter {
+  supports(sourceBinding): boolean;       // 检查所需来源绑定，不假定解析器能重建
+  rebuild(snapshot: ExportSnapshot, options, ctx): Promise<Artifact>;
 }
 ```
 
-`ParsedDoc` = 文档元数据 + 有序 `Unit[]` + 可选章节树 + 资源清单（图片等）。所有格式收敛到这一个 IR，下游（翻译、RAG、双语对照、工作台）只认 IR。
+`ParsedDoc` = 文档元数据 + 有序 `Unit[]` + 可选章节树 + 资源清单（图片等）+ 不透明的来源绑定。下游共享已需要的通用字段，核心保存并传递工具私有结构，不解释其坐标／占位符。解析与输出独立注册，可用输出由已装输出实现与来源绑定共同决定，不要求解析器提供 rebuild。
 
 | 格式 | 解析 | rebuild |
 |---|---|---|
-| PDF | MinerU（sidecar）为主；BabelDOC 自身分段用于回放对齐（沿用 M3 来源位置绑定） | BabelDOC sidecar：译文 PDF、双语 PDF |
+| PDF | 首条路线继续用 BabelDOC 自身捕获与来源绑定；MinerU 为可选解析实现 | BabelDOC sidecar 消费对应的冻结清单；译文 PDF 沿用既有验证，双语 PDF 另验 |
 | Markdown/TXT | 内置 JS 适配器 | 内置：MD、JSON、双语对照 MD |
 | EPUB | 内置 JS：解 zip → 按 spine 遍历 XHTML → 段落级 unit，locator 为 `spine路径#元素序号` | 内置：回填 XHTML 重打包 EPUB |
 | DOCX/PPTX | 第一阶段走 Office→PDF（`dsh-office-to-pdf`）进 PDF 管线出预览；原生回填列 P1 扩展，候选 Okapi | 同左 |
+
+M3 没有验证 MinerU 与 BabelDOC 的跨引擎分段关联。采用 MinerU 解析再用 BabelDOC 重建时，需单独建立并验证多对多来源关联，保留公式／结构绑定；未具备关联能力时不宣称可直接重建 PDF，也不让该路线成为已有 BabelDOC 路线的前置。
 
 ### 4.2 翻译管线
 
 ```
 for unit in doc.units where translatable:
-  1. if records.accepted(unit, reuseKey) exists → 记录 reused，跳过
-  2. terms.assemble(doc.sourceId, unit)        // 先范围筛选，再词形匹配
+  1. terms.assemble(doc.sourceId, unit)        // 先范围筛选，再词形匹配
+  2. 计算当前 basis/reuseKey；accepted 命中且适用性检查通过 → reused，跳过
   3. llm.stream(prompt(unit, terms, context))  // 取消信号贯穿
   4. records.writeRevision(status: draft | accepted)
 ```
@@ -219,7 +230,7 @@ for unit in doc.units where translatable:
 
 ### 4.3 同源输出
 
-`ivoraige export <docId> --format pdf|md|json|epub|bilingual-pdf`。
+`ivoraige export <docId> --target <language> --format pdf|md|json|epub|bilingual-pdf`。可重复指定格式或一次传输出列表；`--snapshot <id>` 对应 API 的 snapshotId，用于从同一清单增加出口。
 
 - PDF 回放沿用 M3 验证的 BabelDOC 注入路线；占位符规则沿用本项目严格顺序校验 + 记录原因的顺序修正，不照搬上游的异常放行（见 [pdf2zh-next 参考](../../research/pdf2zh-next-mvp-reference.md)）。
 - 新增输出格式 = 新增 export 适配器，**不新增翻译路径**。
@@ -243,8 +254,8 @@ RAG 构建：`IR → chunker（按章节/段落，保留 unit locator 作为引�
 ```
 ivoraige serve [--port N] [--no-open]          # 启动内核 + WebUI + MCP HTTP
 ivoraige import <file> [--source-id X]         # 解析 → 返回 docId
-ivoraige translate <docId> [--profile P] [--range 1.2-1.4|unitIds] [--mode fast|careful]
-ivoraige export <docId> --format pdf [--out path]
+ivoraige translate <docId> --target zh [--profile P] [--range 1.2-1.4|unitIds] [--mode fast|careful]
+ivoraige export <docId> --target zh --format pdf [--out path] [--snapshot id]
 ivoraige rag build <docId> / query <docId> "..."
 ivoraige terms list|confirm|edit ...           # 沿用 MVP
 ivoraige task list|show|cancel|pause|resume
@@ -270,7 +281,7 @@ tools 与内核服务一一对应（命名 `ivoraige_<verb>`）：
 |---|---|---|
 | `ivoraige_import` | 文件路径或 base64 + format 提示 | `docId`、unit 统计、警告 |
 | `ivoraige_translate` | docId、profile、range、mode | taskId（长任务异步） |
-| `ivoraige_export` | docId、format、输出路径 | artifact 路径、revisionSetHash |
+| `ivoraige_export` | docId、targetLang、输出格式／路径、可选 snapshotId | taskId；产物携带 snapshotId、revisionSetHash |
 | `ivoraige_task_status` / `ivoraige_task_cancel` | taskId | 状态、进度、cursor |
 | `ivoraige_rag_build` / `ivoraige_rag_query` | docId / 查询 | taskId / chunk+locator 列表 |
 | `ivoraige_terms_*` | 列表/确认/编辑 | 沿用 MVP 术语操作 |
@@ -313,7 +324,7 @@ MCP 层不实现第二套权限：能连上 server 即拥有内核能力，鉴�
 
 ### 6.2 手动导入按格式输出
 
-`import` 时 `parse` 注册表按 `match` 置信度选适配器；任务结果返回该格式**可用的输出清单**（由其适配器是否实现 `rebuild` 决定）。用户随后 `export --format <其一>`。跨入口一致：WebUI 文档页的导出按钮、CLI 的 `export`、MCP 的 `ivoraige_export` 读同一份可用清单。
+`import` 时 `parse` 注册表按 `match` 置信度选适配器；任务结果返回**可用的输出清单**（由已注册输出实现与该文档来源绑定共同决定）。用户随后 `export --format <其一>`，多格式请求共用冻结清单。跨入口一致：WebUI 文档页的导出按钮、CLI 的 `export`、MCP 的 `ivoraige_export` 读同一份可用清单。
 
 未识别格式：明确报错并列出已注册适配器，不做静默降级。
 
@@ -322,8 +333,8 @@ MCP 层不实现第二套权限：能连上 server 即拥有内核能力，鉴�
 流程：`import`（解析入库）→ WebUI 打开工作台 → 三种翻译粒度（单段/框选范围/全文）→ 逐段双语对照 → 编辑、接受、回退 → 导出。
 
 - 粒度实现统一为 `translation.translate(docId, unitIds[])`；全文 = 全部 translatable unit 的列表。三个按钮一个服务方法。
-- 对照视图的数据源是 `records` 的 unit + 当前 accepted/draft 修订，不是导出文件；编辑直接写修订（`origin: human`），因此**工作台修改与任何后续导出自动一致**，无需“保存到 PDF”之类的二次同步。
-- 回退：修订历史全保留，accept 旧修订即回退。
+- 对照视图的数据源是 `records` 的 unit + 所选目标语言的 accepted/draft 修订，不是导出文件；编辑写 human 草稿，接受后纳入下次新建的导出清单，无需“保存到 PDF”之类的二次同步。已经启动或显式复用旧快照的输出保留原版本。
+- 回退：修订历史全保留，选择仍适用的旧修订并 accept 即回退；接受状态的乐观锁与草稿编辑锁分开，见 [API 协议](03_API-protocol_v2.0.md)。
 
 ### 6.4 其他格式链路
 
@@ -419,7 +430,7 @@ MCP 层不实现第二套权限：能连上 server 即拥有内核能力，鉴�
 | 三粒度 | 单段、框选范围、全文三种触发各自只翻译对应 unit；任务进度与取消均可用 |
 | 双语对照 | 按段显示原文/译文；编辑后写 human 修订且立即反映到对照视图 |
 | 回退 | accept 旧修订后对照视图与后续导出均为旧译文 |
-| 一致性 | 工作台编辑后导出 PDF/MD，内容与新 accepted 修订一致，且全程无翻译模型调用 |
+| 一致性 | 工作台编辑并接受后，新建清单导出 PDF/MD，内容与新 accepted 一致；已在运行的多出口任务仍对应原清单，两种导出均无翻译模型调用 |
 
 ### 9.3 承接 v1.0 的 P0 验收（沿用 MVP 口径并扩展入口维度）
 
@@ -435,9 +446,9 @@ F-01/03/05/06/07/11/13/14/15/17、F-27(P0 部分)、F-30(P0 部分) 的 MVP 验�
 
 | 阶段 | 内容 | 退出条件 |
 |---|---|---|
-| M5 服务化骨架 | serve（HTTP+静态页）、textTask 持久化改造、CLI 迁移到新内核服务层；npm 打包管线（含 sidecar postinstall） | 用例 2 的 MD/TXT 路径在 CLI 与 HTTP 双通；npm 包装出三端产物 |
+| M5 服务化骨架 | serve（HTTP+静态页）、textTask 持久化改造、CLI 迁移到新内核服务层；最小 npm 打包管线，sidecar 按需安装 | 用例 2 的 MD/TXT 路径在 CLI 与 HTTP 双通；npm 包装出三端产物 |
 | M6 工作台与 MCP | WebUI 工作台页 + 任务页；MCP stdio/HTTP 双 transport | 用例 3 全部验收点；MCP 在至少一个真实 harness 中跑通 import→translate→export |
-| M7 PDF/EPUB 与 Zotero | MinerU+BabelDOC sidecar 打包、EPUB 适配器、Zotero 插件 | 用例 1、2 全量验收；三端独立包冒烟 |
+| M7 PDF/EPUB 与 Zotero | BabelDOC sidecar 打包、可选 MinerU 解析组件、EPUB 适配器、Zotero 插件；跨引擎关联未验证时沿用 BabelDOC 自身来源 | 用例 1 的翻译／双语部分及用例 2 验收；RAG 部分留 M8；三端独立包冒烟 |
 | M8 RAG | rag 模块、sqlite-vec 与退化路线、四模式汇合 | 用例 1 的 RAG 相关验收点；性能口径 §8.1 记录首个基线 |
 
 发布工程（代码签名、公证、CI 矩阵构建）从 M5 起并行建设，M7 前必须可用——三端冒烟依赖它。
@@ -469,6 +480,6 @@ F-01/03/05/06/07/11/13/14/15/17、F-27(P0 部分)、F-30(P0 部分) 的 MVP 验�
 
 ## 附：与既有文档的关系
 
-- 本文不修改 v1.0 需求基线编号与优先级；C1–C7 是用户给定约束的登记，不是新功能编号。
+- 本文不修改 v1.0 需求基线编号与优先级；C1–C8 是用户给定约束的登记，不是新功能编号。
 - MVP（M0～M4）产物与验收记录继续有效；本文 M5～M8 直接承接。
 - 与本文冲突的旧表述以本文为准的范围仅限：产品形态（三端三入口）、分发（npm + 独立包）、RAG 管线边界。其余未提及内容沿用原状。
