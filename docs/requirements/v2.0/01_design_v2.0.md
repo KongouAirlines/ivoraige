@@ -155,6 +155,7 @@ macOS 分发需代码签名与公证，否则 Gatekeeper 拦截；签名属发�
 | `TermEntry` / `TermSense` | 沿用 MVP 与 amendment 0001：义项、别名、类别（通用/专用）、适用范围、来源、确认状态 | 结构后续研判（§12），现有字段不迁移 |
 | `Task` | `id`、`kind`（parse/translate/export/rag/...）、`docId`、`config`、`state`（queued/running/paused/succeeded/failed/canceled）、`progress`、`cursor`、`error` | `cursor` 记录断点位置供恢复 |
 | `Artifact` | `id`、`docId`、`targetLang`、`format`、`path`、`snapshotId`、`revisionSetHash`、`createdAt` | 输出工件；引用本次冻结清单，而非完成时的最新译文集合 |
+| `ExportSnapshot` | `id`、`docId`、`targetLang`、`sourceBindingRef`、`resourceVersions`、`items`（逐 unit 的 revisionId/skip/keepOriginal 决定）、`revisionSetHash`、`createdAt` | 冻结清单；只存引用与决定，不复制译文与资源正文；schema 见 [API 协议 §2](03_API-protocol_v2.0.md) |
 | `RagIndex` | `id`、`docId`、`chunker`、`embedModel`、`chunkCount`、`createdAt` | 索引元数据；chunk 本体见 §4.4 |
 
 ### 3.2 译文复用键（F-13 的机制）
@@ -182,6 +183,7 @@ reuseKey = hash(sourceText_normalized, sourceLang, targetLang,
 2. 可译 unit 缺少适用 accepted 修订时，在冻结清单中按配置记录 `skip`（保留该版本原文）或 `fail`（默认）；`translatable=false` 的内容直接保留，不要求虚构译文修订。
 3. 一次多格式导出共用同一 `snapshotId`；后续增加格式可显式复用它。完成后的 `Artifact` 记录实际清单及其 `revisionSetHash`，摘要仅在创建清单时计算一次。期间新编辑不影响该次输出，也不因“当前 accepted 已变化”否定正常产物。若冻结来源资源已不可用，应明确失败，不能改用最新资源。
 4. **禁止**任何形式调用翻译模型。适配器无法取得 LLM 服务引用（Cordis `inject` 层面不提供），从机制上而非纪律上保证。
+5. **快照生命周期**：快照只存引用与逐 unit 决定，体积小，默认永久保留；来源资源由 import 记录钉住，快照不复制资源。删除经 `DELETE /api/documents/{docId}/snapshots/{snapshotId}`：无任何 Artifact 引用时允许；有引用返回 `409 CONFLICT` 并列出引用方，须先删除对应 Artifact 记录。不提供自动过期清理。
 
 ---
 
@@ -280,7 +282,7 @@ tools 与内核服务一一对应（命名 `ivoraige_<verb>`）：
 | tool | 参数要点 | 返回 |
 |---|---|---|
 | `ivoraige_import` | 文件路径或 base64 + format 提示 | `docId`、unit 统计、警告 |
-| `ivoraige_translate` | docId、profile、range、mode | taskId（长任务异步） |
+| `ivoraige_translate` | docId、targetLang、profile、range、mode | taskId（长任务异步） |
 | `ivoraige_export` | docId、targetLang、输出格式／路径、可选 snapshotId | taskId；产物携带 snapshotId、revisionSetHash |
 | `ivoraige_task_status` / `ivoraige_task_cancel` | taskId | 状态、进度、cursor |
 | `ivoraige_rag_build` / `ivoraige_rag_query` | docId / 查询 | taskId / chunk+locator 列表 |
@@ -315,9 +317,9 @@ MCP 层不实现第二套权限：能连上 server 即拥有内核能力，鉴�
 
 | 端点 | 行为 |
 |---|---|
-| `POST /zotero/translate` | import → translate(mode 由参数) → export pdf/bilingual-pdf；返回 taskId |
+| `POST /zotero/translate` | 参数含 `targetLang`；import → translate(mode 由参数) → export pdf/bilingual-pdf；返回 taskId |
 | `POST /zotero/rag` | import → rag build；返回 taskId |
-| `POST /zotero/rag-translate` | import → rag build → translate → export；翻译不依赖 RAG 结果，二者并行后汇合 |
+| `POST /zotero/rag-translate` | 参数含 `targetLang`；import → rag build → translate → export；翻译不依赖 RAG 结果，二者并行后汇合 |
 | `GET /zotero/task/{id}` | 状态、进度、产物路径列表 |
 
 `externalRef` 记录 Zotero item key：同一文献再次触发时命中已有 `Document` 与已接受译文，四模式任意组合重跑均不重复初译（F-13 在此用例的直接兑现）。

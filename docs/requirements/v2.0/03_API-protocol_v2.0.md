@@ -109,6 +109,15 @@ interface Artifact {
   snapshotId: Id; revisionSetHash: string; createdAt: ISODate;
 }
 
+interface ExportSnapshot {
+  id: Id; docId: Id; targetLang: string;
+  sourceBindingRef: string;             // 来源绑定标识（适配器私有）
+  resourceVersions: Record<string, string>; // 输出所需资源的版本引用
+  items: { unitId: Id; decision: { type: "revision"; revisionId: Id } | { type: "skip" | "keepOriginal" } }[];
+  revisionSetHash: string;              // 创建时计算一次
+  createdAt: ISODate;
+}
+
 interface RagChunk {
   id: Id; docId: Id; order: number; text: string;
   locator?: Record<string, unknown>;    // 与 Unit.locator 同形状，供"跳到原文"
@@ -155,10 +164,15 @@ interface RagChunk {
 |---|---|---|---|
 | POST | `/api/documents/{docId}/export` | `{ targetLang: string, outputs: { format: string, out?: string }[], snapshotId?: Id, onMissingAccepted?: "fail" \| "skip" }`（默认 fail，《设计》§3.3） | `{ taskId: Id, snapshotId: Id }`；任务产物在 Task.artifacts |
 | GET | `/api/documents/{docId}/artifacts` | — | Artifact[] |
+| GET | `/api/documents/{docId}/snapshots` | `?targetLang=` | ExportSnapshot[]（发现可用快照；CLI `--snapshot` 的 id 来源） |
+| GET | `/api/documents/{docId}/snapshots/{snapshotId}` | — | `{ snapshot: ExportSnapshot }` |
+| DELETE | `/api/documents/{docId}/snapshots/{snapshotId}` | — | 无引用时 200；有引用 409 |
 | POST | `/api/documents/{docId}/rag/build` | `{ chunker?: string, embedModel?: string }` | `{ taskId: Id }` |
 | POST | `/api/documents/{docId}/rag/query` | `{ q: string, k?: number ≤ 50 }` | `{ chunks: RagChunk[], degraded: boolean }`（degraded=向量扩展不可用走退化路线） |
 
 首次导出在受理时生成冻结清单，outputs 内所有格式共用它；单格式也是长度为 1 的 outputs。传 snapshotId 时复用原清单，并检查它属于该 docId／targetLang；缺项策略沿用该清单，不允许覆盖。省略 snapshotId 则按当前适用版本创建新清单。清单保存来源绑定、原文与资源版本以及各 unit 的选定 revision／保留原文决定，之后编辑不会改变它。
+
+快照生命周期：只存引用与逐 unit 决定，默认永久保留，不自动过期。删除语义：`DELETE /api/documents/{docId}/snapshots/{snapshotId}` 在无 Artifact 引用时允许；有引用返回 `409 CONFLICT`，details 列出引用方 artifactId。来源资源由 import 记录钉住，快照删除不影响资源存续。
 
 ### 3.4 任务
 
@@ -196,7 +210,7 @@ interface RagChunk {
 |---|---|---|
 | `task.queued` / `task.started` | `{ taskId, kind }` | 入队/开跑 |
 | `task.progress` | `{ taskId, stage, done, total }` | 节流至 ≤2 次/秒；阶段切换必发 |
-| `unit.completed` | `{ taskId, unitId, reused: boolean }` | 每单位；工作台实时刷新对照视图 |
+| `unit.completed` | `{ taskId, unitId, targetLang, reused: boolean }` | 每单位；工作台实时刷新对照视图 |
 | `task.paused` / `task.resumed` | `{ taskId, cursor? }` | — |
 | `task.failed` | `{ taskId, stage, unitId?, message }` | 失败即终态 |
 | `task.canceled` | `{ taskId }` | — |
