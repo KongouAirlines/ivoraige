@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Restarted kernel: DSH domain/SQLite persistence, idempotent TXT import, language-scoped revisions with optimistic locks and applicability checks, frozen snapshot lifecycle, and MD/JSON exports from the same pinned revisions. Export adapters receive frozen data without model services.
-- A runnable text-records example and isolated npm package smoke; CI matrix for Node 24 on Windows, Linux and macOS (platform support awaits those runs).
+- A runnable text-records example and isolated npm package smoke; CI matrix for Node 24 on Windows, Linux and macOS; build, 17 tests and isolated package persistence/export smoke passed on all three platforms for commit `1f7e627`.
 
 - v2.0 design baseline in `docs/requirements/v2.0/`:
   - `01_design_v2.0.md` — single-kernel three-entry architecture (CLI / MCP / WebUI), three-OS single-file distribution (Node SEA + PyInstaller sidecars + npm), data model with explicit `reuseKey` and frozen `ExportSnapshot` contracts, Zotero four-mode use case, fine-translation workbench walkthrough, acceptance matrix, milestones M5–M8, risk register; registered constraints C1–C8.

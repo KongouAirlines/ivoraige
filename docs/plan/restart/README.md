@@ -24,8 +24,8 @@
 |---|---|---|
 | R0 更新与重启 | 获取最新主线，创建新分支，移除旧业务路径，保留方法与资料 | 已完成；固定 DSH 构建及新测试通过 |
 | M5 起步 | 最小 Cordis 装配、解析注册表、TXT → 通用 IR、未安装能力如实反映 | 已完成；段落定位、未知格式、通用 IR 校验、输出能力及释放检查通过；不等于 M5 完成 |
-| M5 数据闭环 | DSH domain＋SQLite、TXT 导入、修订与适用性、冻结快照及 MD／JSON 导出 | 已完成；17 项测试通过，Windows 临时安装包验证通过；三端 CI 已配置 |
-| M5 后续 | 固定 DSH 对应插件接入模型／任务／设置／凭据；MD 解析与 TXT/MD 的 CLI＋HTTP 路径 | 待实施；按设计 §10 验证真实翻译与双入口闭环；核对三端 CI 结果 |
+| M5 数据闭环 | DSH domain＋SQLite、TXT 导入、修订与适用性、冻结快照及 MD／JSON 导出 | 已完成；17 项测试通过；Windows/Linux/macOS 的 Node 24 构建、测试与临时安装包验证均通过 |
+| M5 后续 | 固定 DSH 对应插件接入模型／任务／设置／凭据；MD 解析与 TXT/MD 的 CLI＋HTTP 路径 | 待实施；按设计 §10 验证真实翻译与双入口闭环；后续按改动维护三端 CI |
 | M6 | 工作台、任务页与 MCP 双 transport | 待实施；工作台验收及真实 harness 闭环 |
 | M7～M8 | 依 v2.0 §10 接入其余主用例与分发验收 | 待实施；不提前宣称 PDF、RAG、Zotero 或三端交付 |
 
@@ -50,4 +50,4 @@
 - 缺少适用接受译文默认失败，显式 skip 保留原文；不可译单位保留原文。产物引用或在途导出阻止删除快照；删除产物记录不删除实际文件。输出文件以独占创建方式写入，已有文件不覆盖；多格式中途失败时，已成功的产物继续可查询。
 - 内核方法直接异步执行，本阶段尚无 Task/HTTP/CLI 协议封装。示例 `node examples/text-records.mjs` 使用原创短文本和录入译文，产物位于 `evaluation/runs/text-records/`；没有模型调用或私有材料读取。
 
-验证：Windows／Node v26.7.0，完整 `npm test` **17/17**；`npm run smoke:package` 从 tarball 临时安装后完成纯解析、SQLite 导入／接受／JSON 导出与重启读回。固定 DSH 构建闭包为 745 个源码输入，保留第三方许可。新增 Node 24 的 Windows/Linux/macOS CI 矩阵，远端执行结果另行核对；未宣称三端均已通过。
+验证：Windows／Node v26.7.0，完整 `npm test` **17/17**；`npm run smoke:package` 从 tarball 临时安装后完成纯解析、SQLite 导入／接受／JSON 导出与重启读回。固定 DSH 构建闭包为 745 个源码输入，保留第三方许可。Node 24 的 Windows/Linux/macOS CI 矩阵已全部通过构建、17 项测试和临时安装包验证；对应代码提交 `1f7e627`，[运行记录](https://github.com/KongouAirlines/ivaraige/actions/runs/37045467951)。这是当前文本内核 npm 包的验证，不代表模型、三入口、Python sidecar 或独立可执行发行包已交付。
