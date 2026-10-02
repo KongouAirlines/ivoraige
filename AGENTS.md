@@ -1,5 +1,7 @@
 # AGENTS.md — ivoraige
 
+This is the retired MVP archive, version `0.0.0`, branch `codex/archive-mvp-0.0.0`. Keep the implementation as historical reference. New development belongs on `codex/restart-v2`; the guidance and capability descriptions below document the old snapshot.
+
 Guidance for AI coding agents working in this repository. Human-facing documentation lives in `README.md` and `docs/`; this file is the operational contract for agents.
 
 ## What this project is

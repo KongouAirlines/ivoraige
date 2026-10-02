@@ -5,7 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## Archive metadata — 2026-10-03
+
+Retired MVP retained on `codex/archive-mvp-0.0.0` as version `0.0.0` (local tag `v0.0.0`). The previous `0.2.0` designation is superseded; history is preserved. New implementation continues on `codex/restart-v2`.
+
+## Design documents retained with the archive
 
 ### Added
 
@@ -20,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Export contract: all formats in one task share one frozen `ExportSnapshot`; in-flight outputs are immune to concurrent edits; snapshots are discoverable and deletable only when unreferenced.
 - Concurrency model: revision writes use `baseRevisionId`, accept/unaccept uses `expectedAcceptedRevisionId`; stale writes return `409 CONFLICT`.
 
-## [0.2.0] - 2026-09-30
+## 0.0.0 — MVP completed 2026-09-30
 
 MVP (M0–M4) completed.
 
@@ -40,6 +44,3 @@ MVP (M0–M4) completed.
 - PDF path limited to the fixed engine and configuration; not a general-purpose arbitrary-PDF tool.
 - Explicit revision acceptance required; automatic version selection and a second parser integration pending.
 - No Web UI, no external dictionary integration yet.
-
-[Unreleased]: https://github.com/KongouAirlines/ivaraige/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/KongouAirlines/ivaraige/releases/tag/v0.2.0
