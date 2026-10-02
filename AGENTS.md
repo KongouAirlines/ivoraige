@@ -11,7 +11,7 @@ ivoraige is a composable translation middleware. First application: English↔Ch
 
 ## Current state
 
-- MVP (M0–M4) is complete: text translation loop, term candidate building, accepted-revision storage, BabelDOC replay producing PDF/Markdown/JSON from one accepted revision set, simplified CLI. Tests: `test/*.test.mjs`, all passing.
+- MVP (M0–M4) is historical evidence. At the user's explicit request, `codex/restart-v2` starts the business kernel again from the v2.0 baseline at `12b8f37`; old business services/CLI/tests are removed. Retain the verified DSH bridge/build method and read-only experiments. Track current capabilities and tests in `docs/plan/restart/README.md`; do not count old acceptance results as new implementation progress.
 - Active design baseline is **v2.0** in `docs/requirements/v2.0/`:
   - `01_design_v2.0.md` — architecture, data model, reuse key, frozen export snapshots, milestones M5–M8.
   - `02_UI-design_v2.0.md` — WebUI (shell layout, theming, per-plugin pages, PDF page, DeepL-style text page, workbench).
@@ -33,7 +33,7 @@ ivoraige is a composable translation middleware. First application: English↔Ch
 
 ## Repository layout
 
-- `src/` — kernel: `app.mjs` (composition), `cli.mjs`, `records.mjs` (documents/units/revisions), `translation.mjs`, `terms.mjs`, `task.mjs`, `export.mjs`, `pdf-output.mjs`, `source-providers.mjs`, `adapters/` (BabelDOC binding), `dsh-bridge.ts` (DSH vendored runtime).
+- `src/` — restarted kernel composition, parsing services/adapters, and retained `dsh-bridge.ts`. Only installed and tested capabilities are available; rebuild business services in stages.
 - `test/` — `node --test` suites; must stay green.
 - `experiments/` — verification rigs (`cordis-dsh`, `pdf-injection`); read-only reference, not production code.
 - `evaluation/private/` — copyrighted originals, extracted text, alignment data. Git-ignored by convention; work directly inside it, do not commit its contents.
@@ -46,14 +46,14 @@ ivoraige is a composable translation middleware. First application: English↔Ch
 ```bash
 npm run setup:dsh   # vendor the pinned DSH runtime (first setup / refresh)
 npm test            # build + run all tests
-node --test test/text-workflow.test.mjs   # single suite
+node --test test/*.test.mjs              # current foundation suites after build
 ```
 
 Node >= 24. Type "module" (ESM). Do not downgrade the engines field without verifying the dependency closure.
 
 ## Conventions
 
-- **Match existing patterns.** `src/*.mjs` modules with a thin `dsh-bridge.ts`; extend, don't restructure. The v2.0 docs describe the target architecture; migrate incrementally, keep tests green at every step.
+- **Follow the restart decision.** The user requested a fresh business implementation, overriding the earlier incremental migration advice. Keep a thin DSH bridge and small Cordis services; implement the v2.0 target in working stages, without restoring the old business layer by default. Keep the current suites green at every stage.
 - **Boring over clever.** Reuse existing components (DSH plugins, verified OSS) before writing new code. No speculative abstractions, no frameworks for hypothetical needs.
 - **Evidence over assertion.** Never write "verified" for code you didn't run; never claim a capability from a name or README. Distinguish observed results from inference. MVP evidence lives in `docs/plan/mvp/`.
 - **Proportionate verification.** After a change, verify the affected path (run the suite or a smoke command). Do not re-verify untouched artifacts, re-scan the whole corpus, or add hash gates to routine file passing. Existing import hashes are reused as-is.

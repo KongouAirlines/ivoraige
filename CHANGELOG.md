@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Restarted the business kernel from the v2.0 design on `codex/restart-v2`; removed the old CLI, business services and their test suites. Retained the pinned DSH bridge/build method, historical experiments, requirements and evaluation materials. The new foundation does not yet implement the MVP translation/export capabilities.
+
 - Export contract: all formats in one task share one frozen `ExportSnapshot`; in-flight outputs are immune to concurrent edits; snapshots are discoverable and deletable only when unreferenced.
 - Concurrency model: revision writes use `baseRevisionId`, accept/unaccept uses `expectedAcceptedRevisionId`; stale writes return `409 CONFLICT`.
 

@@ -1,5 +1,10 @@
 # Third-party runtime sources
 
+On `codex/restart-v2`, the verified source bridge, dependency lock and build
+license handling below are retained. The old M2 business model service and CLI
+are removed; their integration details in the final paragraph are historical
+reference (Git `12b8f37`), not capabilities of the restarted kernel.
+
 M2 builds the real Cordis, LLM runtime, pi-ai adapter and storage modules from
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) at commit
 `639ed015397290b3745d163aafe02ffee4aa3f84`. The DSH source is MIT licensed,
