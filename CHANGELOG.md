@@ -17,14 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Restarted the business kernel from the v2.0 design on `codex/restart-v2`; removed the old CLI, business services and their test suites. Retained the pinned DSH bridge/build method, historical experiments, requirements and evaluation materials. The new foundation does not yet implement the MVP translation/export capabilities.
+- Archived the retired MVP as `0.0.0` on an independent branch and local tag. Removed legacy experiment code and CLI configuration examples from the restart branch; its development version is now `0.1.0-dev.0`.
+
+- Restarted the business kernel from the v2.0 design on `codex/restart-v2`; removed the old CLI, business services and their test suites. Retained the pinned DSH bridge/build method, requirements and evaluation materials; historical experiment code is now on the archive branch. The new foundation does not yet implement the MVP translation/export capabilities.
 
 - Export contract: all formats in one task share one frozen `ExportSnapshot`; in-flight outputs are immune to concurrent edits; snapshots are discoverable and deletable only when unreferenced.
 - Concurrency model: revision writes use `baseRevisionId`, accept/unaccept uses `expectedAcceptedRevisionId`; stale writes return `409 CONFLICT`.
 
-## [0.2.0] - 2026-09-30
+## [0.0.0] - 2026-09-30
 
-MVP (M0–M4) completed.
+MVP (M0–M4) completed; retired on 2026-10-03 and archived as `0.0.0` on `codex/archive-mvp-0.0.0`. This supersedes the former `0.2.0` designation without rewriting history. The restart is currently `0.1.0-dev.0` (unreleased).
 
 ### Added
 
@@ -43,5 +45,5 @@ MVP (M0–M4) completed.
 - Explicit revision acceptance required; automatic version selection and a second parser integration pending.
 - No Web UI, no external dictionary integration yet.
 
-[Unreleased]: https://github.com/KongouAirlines/ivaraige/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/KongouAirlines/ivaraige/releases/tag/v0.2.0
+[Unreleased]: https://github.com/KongouAirlines/ivaraige/compare/v0.0.0...HEAD
+[0.0.0]: https://github.com/KongouAirlines/ivaraige/tree/v0.0.0

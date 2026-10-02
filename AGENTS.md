@@ -11,7 +11,7 @@ ivoraige is a composable translation middleware. First application: English↔Ch
 
 ## Current state
 
-- MVP (M0–M4) is historical evidence. At the user's explicit request, `codex/restart-v2` starts the business kernel again from the v2.0 baseline at `12b8f37`; old business services/CLI/tests are removed. Retain the verified DSH bridge/build method and read-only experiments. Track current capabilities and tests in `docs/plan/restart/README.md`; do not count old acceptance results as new implementation progress.
+- MVP (M0–M4) is historical evidence. At the user's explicit request, `codex/restart-v2` starts the business kernel again from the v2.0 baseline at `12b8f37`; old business services/CLI/tests are removed. The retired MVP is version `0.0.0` on independent branch `codex/archive-mvp-0.0.0` (local tag `v0.0.0`, commit `27eec14`). Retain the verified DSH bridge/build method; legacy experiments live only on the archive branch. The current software is `0.1.0-dev.0` (unreleased), independent of the v2.0 design document version. Track current capabilities and tests in `docs/plan/restart/README.md`; do not count old acceptance results as new implementation progress.
 - Active design baseline is **v2.0** in `docs/requirements/v2.0/`:
   - `01_design_v2.0.md` — architecture, data model, reuse key, frozen export snapshots, milestones M5–M8.
   - `02_UI-design_v2.0.md` — WebUI (shell layout, theming, per-plugin pages, PDF page, DeepL-style text page, workbench).
@@ -35,7 +35,7 @@ ivoraige is a composable translation middleware. First application: English↔Ch
 
 - `src/` — restarted kernel composition, parsing services/adapters, and retained `dsh-bridge.ts`. Only installed and tested capabilities are available; rebuild business services in stages.
 - `test/` — `node --test` suites; must stay green.
-- `experiments/` — verification rigs (`cordis-dsh`, `pdf-injection`); read-only reference, not production code.
+- `experiments/` — archive pointer only; old verification rigs are on `v0.0.0`. Ignored local vendor/dependency caches may remain here.
 - `evaluation/private/` — copyrighted originals, extracted text, alignment data. Git-ignored by convention; work directly inside it, do not commit its contents.
 - `evaluation/runs/` — run outputs.
 - `docs/requirements/` (v1.0 frozen, v2.0 active design, amendments), `docs/research/` (tool selection evidence), `docs/plan/mvp/` (milestone records), `docs/decisions/` (ADRs).
@@ -55,7 +55,7 @@ Node >= 24. Type "module" (ESM). Do not downgrade the engines field without veri
 
 - **Follow the restart decision.** The user requested a fresh business implementation, overriding the earlier incremental migration advice. Keep a thin DSH bridge and small Cordis services; implement the v2.0 target in working stages, without restoring the old business layer by default. Keep the current suites green at every stage.
 - **Boring over clever.** Reuse existing components (DSH plugins, verified OSS) before writing new code. No speculative abstractions, no frameworks for hypothetical needs.
-- **Evidence over assertion.** Never write "verified" for code you didn't run; never claim a capability from a name or README. Distinguish observed results from inference. MVP evidence lives in `docs/plan/mvp/`.
+- **Evidence over assertion.** Never write "verified" for code you didn't run; never claim a capability from a name or README. Distinguish observed results from inference. MVP evidence in `docs/plan/mvp/` is retired reference; old source links are resolved on `v0.0.0`, not the current implementation.
 - **Proportionate verification.** After a change, verify the affected path (run the suite or a smoke command). Do not re-verify untouched artifacts, re-scan the whole corpus, or add hash gates to routine file passing. Existing import hashes are reused as-is.
 - **Originals are read-only.** Modify derived data, never the copyrighted originals in `evaluation/private/`.
 - **No scope creep.** Do the requested task. Surface additional issues once, at the end; do not fold them into the change.
