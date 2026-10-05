@@ -25,6 +25,9 @@ const taskSchema = z.object({
   artifacts: z.array(z.unknown()), createdAt: z.string(), updatedAt: z.string(),
   profileId: z.string().optional(), error: z.object({ stage: z.string(), unitId: z.string().optional(), message: z.string() }).optional(),
 })
+const operationTaskSchema = taskSchema.omit({ mode: true, unitIds: true, checkpoints: true, profileId: true })
+  .extend({ kind: z.enum(['import', 'export']), targetLang: z.string().optional(),
+    snapshotId: z.string().optional(), outputs: z.array(z.object({ format: z.string(), out: z.string().optional() })).optional() })
 const defaultConstraints = (units, index) => ({
   effectiveContext: { before: units[index - 1]?.sourceText ?? null, after: units[index + 1]?.sourceText ?? null },
   effectiveTarget: { purpose: 'scientific translation', style: 'faithful' },
@@ -47,7 +50,7 @@ function assertJson(value, path = '$', seen = new Set()) {
 }
 const generic = z.record(z.string(), z.unknown())
 const recordSchema = z.object({
-  document: z.object({ id: z.string(), sourceId: z.string(), format: z.literal('txt'), language: z.string(),
+  document: z.object({ id: z.string(), sourceId: z.string(), format: z.enum(['txt', 'md']), language: z.string(),
     title: z.string(), origin: z.enum(['manual', 'zotero', 'cli', 'mcp']), externalRef: z.string().optional(), unitCount: z.number(),
     translatableCount: z.number(), availableOutputs: z.array(z.string()), importedAt: z.string() }),
   fingerprint: z.string(), sourceBinding: generic, sourceBindingRef: z.string(),
@@ -65,8 +68,10 @@ const recordSchema = z.object({
       z.object({ type: z.literal('skip') }), z.object({ type: z.literal('keepOriginal') }),
     ]) })), revisionSetHash: z.string(), createdAt: z.string() })),
   artifacts: z.array(z.object({ id: z.string(), docId: z.string(), targetLang: z.string(), format: z.string(),
-    path: z.string(), snapshotId: z.string(), revisionSetHash: z.string(), createdAt: z.string() })),
+    path: z.string(), snapshotId: z.string(), revisionSetHash: z.string(), createdAt: z.string(),
+    taskId: z.string().optional(), outputIndex: z.number().optional() })),
   tasks: z.array(taskSchema).optional(),
+  operationTasks: z.array(operationTaskSchema).optional(),
 })
 const spec = StorageDomain.defineDomain({ name: 'ivoraige_records', version: 1, layout: 'per-record',
   tables: { documents: StorageDomain.domainTable(recordSchema) } })
@@ -154,8 +159,8 @@ export class Records extends Service {
     required(sourceId === undefined || (typeof sourceId === 'string' && sourceId.trim()), 'sourceId must be nonempty')
     required(externalRef === undefined || typeof externalRef === 'string', 'externalRef must be a string')
     const parsed = await this.parse.parse(file)
-    required(parsed.format === 'txt' && (!parsed.resources || parsed.resources.length === 0),
-      'Persistent import currently supports TXT without external resources')
+    required(['txt', 'md'].includes(parsed.format) && (!parsed.resources || parsed.resources.length === 0),
+      'Persistent import supports TXT and Markdown without bundled external resources')
     assertJson(parsed)
     const businessSourceId = sourceId ?? (file.path ? `path:${file.path}` : `manual:${id()}`)
     const fingerprint = digest({ format: parsed.format, language: sourceLang, units: parsed.units,
@@ -270,12 +275,36 @@ export class Records extends Service {
   }
   getTask(taskId) {
     const docId = typeof taskId === 'string' ? taskId.split('.')[0] : ''
-    return clone((this.record(docId).tasks ?? []).find(task => task.id === taskId) ?? missing('taskId', taskId))
+    const record = this.record(docId)
+    return clone([...(record.tasks ?? []), ...(record.operationTasks ?? [])].find(task => task.id === taskId) ?? missing('taskId', taskId))
   }
   listTasks({ docId } = {}) {
     this.requireReady()
-    if (docId !== undefined) return clone(this.record(docId).tasks ?? [])
-    return clone([...this.table.entries()].flatMap(([, record]) => record.tasks ?? []))
+    const records = docId === undefined ? [...this.table.entries()].map(([, record]) => record) : [this.record(docId)]
+    return clone(records.flatMap(record => [...(record.tasks ?? []), ...(record.operationTasks ?? [])]))
+  }
+  async createOperationTask(docId, { kind, targetLang, snapshotId, outputs, durationMs = 0 }) {
+    required(['import', 'export'].includes(kind), 'Unsupported operation task')
+    let task
+    await this.update(docId, current => {
+      const tasks = current.operationTasks ?? []
+      const conflict = tasks.find(task => task.kind === kind && activeTask(task.state))
+      if (conflict) throw new KernelError('CONFLICT', 'Operation already active', { taskId: conflict.id })
+      if (kind === 'export') {
+        required(language(targetLang) && Array.isArray(outputs) && outputs.length > 0, 'Export parameters required')
+        const snapshot = current.snapshots.find(item => item.id === snapshotId)
+        required(snapshot && snapshot.targetLang === targetLang, 'Matching export snapshot required')
+      }
+      const stamp = now()
+      task = { id: `${docId}.${id()}`, kind, docId, state: kind === 'import' ? 'succeeded' : 'queued',
+        ...(targetLang ? { targetLang } : {}), ...(snapshotId ? { snapshotId, outputs: clone(outputs) } : {}),
+        progress: { stage: kind === 'import' ? 'complete' : 'export', done: kind === 'import' ? 1 : 0,
+          total: kind === 'import' ? 1 : outputs.length }, cursor: kind === 'import' ? 1 : 0,
+        stats: { stageDurationsMs: kind === 'import' ? { import: durationMs } : {}, llmCalls: 0,
+          reusedUnits: 0, reuseRatio: 0, tokens: {} }, artifacts: [], createdAt: stamp, updatedAt: stamp }
+      return { ...current, operationTasks: [...tasks, task] }
+    })
+    return clone(task)
   }
   validateTaskCheckpoints(taskId) {
     const task = this.getTask(taskId)
@@ -297,6 +326,18 @@ export class Records extends Service {
     const docId = typeof taskId === 'string' ? taskId.split('.')[0] : ''
     let updated
     await this.update(docId, current => {
+      const operation = (current.operationTasks ?? []).find(task => task.id === taskId)
+      if (operation) {
+        updated = transform(clone(operation))
+        for (const key of ['id', 'docId', 'kind', 'targetLang', 'snapshotId', 'outputs', 'cursor', 'artifacts']) {
+          required(JSON.stringify(updated[key]) === JSON.stringify(operation[key]), 'Operation identity and checkpoints are immutable')
+        }
+        updated.updatedAt = now()
+        const conflict = (current.operationTasks ?? []).find(task => task.id !== taskId &&
+          task.kind === operation.kind && activeTask(task.state))
+        if (activeTask(updated.state) && conflict) throw new KernelError('CONFLICT', 'Operation already active', { taskId: conflict.id })
+        return { ...current, operationTasks: current.operationTasks.map(task => task.id === taskId ? updated : task) }
+      }
       const tasks = current.tasks ?? []
       const index = tasks.findIndex(task => task.id === taskId)
       if (index < 0) missing('taskId', taskId)
@@ -554,6 +595,9 @@ export class Records extends Service {
     try { await this.update(docId, current => {
       if (!current.snapshots.some(s => s.id === snapshotId)) missing('snapshotId', snapshotId)
       const artifactIds = current.artifacts.filter(a => a.snapshotId === snapshotId).map(a => a.id)
+      const taskIds = (current.operationTasks ?? []).filter(task => task.snapshotId === snapshotId &&
+        ['queued', 'running', 'paused', 'failed'].includes(task.state)).map(task => task.id)
+      if (taskIds.length) throw new KernelError('CONFLICT', 'Snapshot is retained by a resumable task', { snapshotId, taskIds })
       if (artifactIds.length) throw new KernelError('CONFLICT', 'Snapshot is in use',
         { snapshotId, artifactIds, inUse: false })
       return { ...current, snapshots: current.snapshots.filter(s => s.id !== snapshotId) }
@@ -578,7 +622,7 @@ export class Records extends Service {
     })
     return clone({ snapshot, document: record.document, sourceBinding: record.sourceBinding, units })
   }
-  async addArtifact(docId, { snapshotId, targetLang, format, path } = {}) {
+  async addArtifact(docId, { snapshotId, targetLang, format, path, taskId, outputIndex } = {}) {
     await this.ready
     required(language(targetLang) && typeof format === 'string' && format &&
       typeof path === 'string' && path, 'Artifact requires targetLang, format and path')
@@ -587,8 +631,18 @@ export class Records extends Service {
       const snapshot = current.snapshots.find(s => s.id === snapshotId) ?? missing('snapshotId', snapshotId)
       required(snapshot.targetLang === targetLang, 'Snapshot targetLang mismatch')
       artifact = { id: `${docId}.${id()}`, docId, targetLang, format, path, snapshotId,
-        revisionSetHash: snapshot.revisionSetHash, createdAt: now() }
-      return { ...current, artifacts: [...current.artifacts, artifact] }
+        revisionSetHash: snapshot.revisionSetHash, createdAt: now(), ...(taskId ? { taskId, outputIndex } : {}) }
+      let operationTasks = current.operationTasks
+      if (taskId) {
+        const task = operationTasks?.find(item => item.id === taskId)
+        required(task && task.kind === 'export' && task.snapshotId === snapshotId && task.targetLang === targetLang,
+          'Artifact must match its export task')
+        if (task.state !== 'running' || task.cursor !== outputIndex) throw new KernelError('CONFLICT', 'Export checkpoint changed')
+        operationTasks = operationTasks.map(item => item.id === taskId ? { ...item,
+          cursor: item.cursor + 1, progress: { ...item.progress, done: item.cursor + 1 },
+          artifacts: [...item.artifacts, artifact], updatedAt: now() } : item)
+      }
+      return { ...current, artifacts: [...current.artifacts, artifact], ...(operationTasks ? { operationTasks } : {}) }
     })
     return clone(artifact)
   }

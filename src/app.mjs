@@ -10,14 +10,23 @@ import { TextOutputs } from './adapters/text-output.mjs'
 import { KernelError } from './errors.mjs'
 import { TranslationModel } from './translation-model.mjs'
 import { Tasks } from './tasks.mjs'
+import { Operations } from './operations.mjs'
+import { MarkdownSource } from './adapters/markdown-source.mjs'
+import { bootModelSettings } from './model-settings.mjs'
 
 // Composition only: business capabilities live in Cordis services.
-export async function createApp({ store, exportDir, translation } = {}) {
+export async function createApp({ store, exportDir, translation, settingsDir } = {}) {
   if (store !== undefined && (typeof store !== 'string' || !store.trim())) {
     throw new KernelError('INVALID_ARGUMENT', 'store must be an explicit SQLite file path')
   }
   if (exportDir !== undefined && (typeof exportDir !== 'string' || !exportDir.trim())) {
     throw new KernelError('INVALID_ARGUMENT', 'exportDir must be a nonempty directory path')
+  }
+  if (settingsDir !== undefined && (typeof settingsDir !== 'string' || !settingsDir.trim())) {
+    throw new KernelError('INVALID_ARGUMENT', 'settingsDir must be a nonempty directory path')
+  }
+  if (settingsDir !== undefined && (!store || translation !== undefined)) {
+    throw new KernelError('INVALID_ARGUMENT', 'settingsDir requires store and cannot be combined with translation')
   }
   if (translation !== undefined) {
     if (!store || !translation || typeof translation !== 'object' || Array.isArray(translation) ||
@@ -31,11 +40,13 @@ export async function createApp({ store, exportDir, translation } = {}) {
       throw new KernelError('INVALID_ARGUMENT', 'credentialsPath must be a nonempty path')
     }
   }
-  const ctx = new Context()
+  const ctx = settingsDir === undefined ? new Context() :
+    (await bootModelSettings({ directory: settingsDir })).ctx
   try {
     await ctx.plugin(Outputs)
     await ctx.plugin(Parse)
     await ctx.plugin(TxtSource)
+    await ctx.plugin(MarkdownSource)
     if (store !== undefined) {
       await ctx.plugin(Storage)
       await ctx.plugin(StorageSqlite, { path: store })
@@ -54,10 +65,13 @@ export async function createApp({ store, exportDir, translation } = {}) {
           provider: translation.provider, model: translation.model,
           ...(translation.timeoutMs === undefined ? {} : { timeoutMs: translation.timeoutMs }),
         })
-        await ctx.plugin(JobsLocal, { maxConcurrentJobsPerOwner: 1 })
-        await ctx.plugin(Tasks)
-        await ctx.get('ivoraige.tasks').ready
+      } else if (settingsDir !== undefined) {
+        await ctx.plugin(TranslationModel, { select: () => ctx.get('ivoraige.modelSettings')?.resolve() })
       }
+      await ctx.plugin(JobsLocal, { maxConcurrentJobsPerOwner: 1 })
+      await ctx.plugin(Tasks)
+      await ctx.get('ivoraige.tasks').ready
+      await ctx.plugin(Operations)
     }
     return {
       ctx,
@@ -66,6 +80,8 @@ export async function createApp({ store, exportDir, translation } = {}) {
       records: ctx.get('ivoraige.records'),
       exporter: ctx.get('ivoraige.export'),
       tasks: ctx.get('ivoraige.tasks'),
+      operations: ctx.get('ivoraige.operations'),
+      settings: ctx.get('ivoraige.modelSettings'),
       dispose: async () => {
         try { await ctx.get('ivoraige.tasks')?.close() }
         finally { await ctx.fiber.dispose() }

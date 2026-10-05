@@ -37,7 +37,7 @@ test('unknown formats and invalid TXT input fail with protocol error code', asyn
   t.after(() => app.dispose())
   await assert.rejects(app.parse.parse({ format: 'pdf', content: 'text' }), error => {
     assert.equal(error.code, 'INVALID_ARGUMENT')
-    assert.deepEqual(error.details.registeredAdapters, ['txt'])
+    assert.deepEqual(error.details.registeredAdapters, ['txt', 'markdown'])
     return true
   })
   await assert.rejects(app.parse.parse({ format: 'txt', content: '\n \n' }), { code: 'INVALID_ARGUMENT' })
@@ -68,12 +68,12 @@ test('parse registry rejects malformed common IR from an adapter', async t => {
   })
   await assert.rejects(app.parse.parse({ format: 'broken', content: 'x' }), { code: 'INTERNAL' })
   unregister()
-  assert.deepEqual(app.parse.listAdapters(), ['txt'])
+  assert.deepEqual(app.parse.listAdapters(), ['txt', 'markdown'])
 })
 
 test('Cordis plugin lifecycle releases TXT and no legacy business services are loaded', async () => {
   const app = await createApp()
-  assert.deepEqual(app.parse.listAdapters(), ['txt'])
+  assert.deepEqual(app.parse.listAdapters(), ['txt', 'markdown'])
   for (const service of ['ivoraige.records', 'ivoraige.translation', 'ivoraige.textTask', 'ivoraige.textExport', 'ivoraige.model']) {
     assert.equal(app.ctx.get(service), undefined)
   }

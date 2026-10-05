@@ -1,0 +1,234 @@
+#!/usr/bin/env node
+import { pathToFileURL } from 'node:url'
+import { dirname, join, resolve } from 'node:path'
+import { homedir } from 'node:os'
+import { mkdir, stat } from 'node:fs/promises'
+import { createApp } from './app.mjs'
+import { serve } from './http.mjs'
+import { serialize, errorEnvelope } from './protocol.mjs'
+import { KernelError } from './errors.mjs'
+
+const usage = `ivoraige [--url URL | --store FILE] [--json] COMMAND [arguments] [options]
+Commands: import, documents, units, unit, revisions, edit, accept, unaccept,
+  translate, export, snapshots, artifacts, tasks, task, pause, resume, cancel,
+  settings, serve, help
+Common options: --target-lang LANG, --json, --json-events, --url URL, --store FILE
+`
+
+function parse(argv) {
+  const positional = [], options = {}
+  const boolean = new Set(['json', 'json-events', 'help', 'no-wait'])
+  const known = new Set([...boolean, 'url', 'store', 'export-dir', 'settings-dir', 'host', 'port', 'static-dir',
+    'path', 'format', 'source-id', 'external-ref', 'source-lang', 'title', 'target-lang', 'cursor',
+    'limit', 'origin', 'filter', 'text', 'base-revision', 'expected-accepted', 'mode', 'profile',
+    'units', 'out', 'snapshot', 'on-missing-accepted', 'state', 'kind', 'set', 'ref', 'value'])
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i]
+    if (!token.startsWith('--')) { positional.push(token); continue }
+    const name = token.slice(2)
+    if (!known.has(name)) throw new KernelError('INVALID_ARGUMENT', `Unknown option --${name}`)
+    if (boolean.has(name)) { options[name] = true; continue }
+    if (!argv[i + 1] || argv[i + 1].startsWith('--'))
+      throw new KernelError('INVALID_ARGUMENT', `Missing value for --${name}`)
+    options[name] = argv[++i]
+  }
+  return { positional, options }
+}
+function required(value, label) {
+  if (!value) throw new KernelError('INVALID_ARGUMENT', `Missing ${label}`)
+  return value
+}
+function route(command, args, o) {
+  const docId = args[0], unitId = args[0], taskId = args[0]
+  const targetLang = o['target-lang']
+  const paging = { cursor: o.cursor, limit: o.limit === undefined ? undefined : Number(o.limit) }
+  switch (command) {
+    case 'import': return ['importDocument', { path: o.path ?? required(args[0], 'file path'),
+      format: o.format, sourceId: o['source-id'], externalRef: o['external-ref'],
+      language: required(o['source-lang'], '--source-lang'), title: o.title, origin: 'cli' }, 'POST', '/api/documents/import']
+    case 'documents': return args[0] ? ['getDocument', { docId }, 'GET', `/api/documents/${docId}`] :
+      ['listDocuments', { ...paging, origin: o.origin, format: o.format }, 'GET', '/api/documents']
+    case 'units': return ['listUnits', { docId: required(docId, 'document ID'), targetLang: required(targetLang, '--target-lang'),
+      filter: o.filter, ...paging }, 'GET', `/api/documents/${docId}/units`]
+    case 'unit': return ['getUnit', { unitId: required(unitId, 'unit ID'), targetLang: required(targetLang, '--target-lang') },
+      'GET', `/api/units/${unitId}`]
+    case 'revisions': return ['listRevisions', { unitId: required(unitId, 'unit ID'), targetLang: required(targetLang, '--target-lang') },
+      'GET', `/api/units/${unitId}/revisions`]
+    case 'edit': return ['writeRevision', { unitId: required(unitId, 'unit ID'), targetLang: required(targetLang, '--target-lang'),
+      text: required(o.text, '--text'), baseRevisionId: o['base-revision'] ?? null }, 'PATCH', `/api/units/${unitId}`]
+    case 'accept': return ['acceptRevision', { revisionId: required(args[0], 'revision ID'),
+      expectedAcceptedRevisionId: o['expected-accepted'] ?? null }, 'POST', `/api/revisions/${args[0]}/accept`]
+    case 'unaccept': return ['unaccept', { unitId: required(unitId, 'unit ID'), targetLang: required(targetLang, '--target-lang'),
+      expectedAcceptedRevisionId: o['expected-accepted'] ?? null }, 'POST', `/api/units/${unitId}/unaccept`]
+    case 'translate': return ['translate', { docId: required(docId, 'document ID'), targetLang: required(targetLang, '--target-lang'),
+      mode: o.mode, profileId: o.profile, unitIds: o.units?.split(',') }, 'POST', `/api/documents/${docId}/translate`]
+    case 'export': return ['exportDocument', { docId: required(docId, 'document ID'), targetLang: required(targetLang, '--target-lang'),
+      outputs: required(o.format, '--format').split(',').map(format => ({ format, ...(o.out ? { out: o.out } : {}) })),
+      snapshotId: o.snapshot, onMissingAccepted: o['on-missing-accepted'] }, 'POST', `/api/documents/${docId}/export`]
+    case 'snapshots': return args[1] === 'delete' ? ['deleteSnapshot',
+      { docId: required(docId, 'document ID'), snapshotId: required(args[2], 'snapshot ID') },
+      'DELETE', `/api/documents/${docId}/snapshots/${args[2]}`] : args[1] ? ['getSnapshot', { docId: required(docId, 'document ID'), snapshotId: args[1] },
+      'GET', `/api/documents/${docId}/snapshots/${args[1]}`] :
+      ['listSnapshots', { docId: required(docId, 'document ID'), targetLang }, 'GET', `/api/documents/${docId}/snapshots`]
+    case 'artifacts': return ['listArtifacts', { docId: required(docId, 'document ID') }, 'GET', `/api/documents/${docId}/artifacts`]
+    case 'tasks': return ['listTasks', { ...paging, state: o.state, kind: o.kind }, 'GET', '/api/tasks']
+    case 'task': return ['getTask', { taskId: required(taskId, 'task ID') }, 'GET', `/api/tasks/${taskId}`]
+    case 'pause': case 'resume': case 'cancel': return [`${command}Task`, { taskId: required(taskId, 'task ID') },
+      'POST', `/api/tasks/${taskId}/${command}`]
+    case 'settings': return args[0] === 'credential' ? ['setCredential',
+      { ref: required(o.ref, '--ref'), value: required(o.value, '--value') }, 'PUT', '/api/settings/credentials'] :
+      o.set ? ['updateSettings', JSON.parse(o.set), 'PATCH', '/api/settings/modelconfig'] :
+      ['getSettings', {}, 'GET', '/api/settings/modelconfig']
+    case 'capabilities': return ['capabilities', {}, 'GET', '/api/capabilities']
+    default: throw new KernelError('INVALID_ARGUMENT', `Unknown command: ${command}`)
+  }
+}
+function clean(value) { return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) }
+function storePath(options) {
+  if (options.store ?? process.env.IVORAIGE_STORE) return options.store ?? process.env.IVORAIGE_STORE
+  const root = process.platform === 'win32' ?
+    (process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local')) :
+    (process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'))
+  return join(root, 'ivoraige', 'store.sqlite')
+}
+async function webDirectory() {
+  const path = resolve(import.meta.dirname, '../dist/web')
+  try { return (await stat(join(path, 'index.html'))).isFile() ? path : undefined } catch { return undefined }
+}
+async function invokeRemote(base, method, path, params) {
+  const url = new URL(path, base)
+  const keys = method === 'GET' ? Object.keys(params).filter(key => params[key] !== undefined &&
+    !['docId', 'unitId', 'taskId', 'snapshotId'].includes(key)) : []
+  for (const key of keys) url.searchParams.set(key, String(params[key]))
+  const response = await fetch(url, { method, headers: method === 'GET' ? {} : { 'Content-Type': 'application/json' },
+    body: method === 'GET' ? undefined : JSON.stringify(clean(params)) })
+  const body = await response.json()
+  if (!response.ok) {
+    const error = new KernelError(body.error?.code ?? 'INTERNAL', body.error?.message ?? response.statusText,
+      body.error?.details)
+    throw error
+  }
+  return body
+}
+async function waitForTask(invoke, taskId) {
+  while (true) {
+    const body = await invoke('getTask', { taskId }, 'GET', `/api/tasks/${taskId}`)
+    const task = body.task
+    if (!task) return body
+    if (['succeeded', 'failed', 'canceled', 'paused'].includes(task.state)) return body
+    await new Promise(resolveWait => setTimeout(resolveWait, 200))
+  }
+}
+
+async function observeEvents(app, base, stdout) {
+  let taskId
+  let terminal = false
+  let wakeTerminal
+  const buffer = []
+  const handle = event => {
+    if (!taskId) { buffer.push(event); return }
+    if (event?.data?.taskId === taskId) {
+      stdout.write(`${serialize(event)}\n`)
+      if (['task.succeeded', 'task.failed', 'task.canceled', 'task.paused'].includes(event.type)) {
+        terminal = true; wakeTerminal?.()
+      }
+    }
+  }
+  const waitForTerminal = () => terminal ? Promise.resolve() : new Promise(resolveWait => {
+    const timer = setTimeout(resolveWait, 1000)
+    wakeTerminal = () => { clearTimeout(timer); resolveWait() }
+  })
+  if (app) {
+    const unsubscribe = app.operations.subscribe(handle)
+    return { setTaskId(id) { taskId = id; buffer.splice(0).forEach(handle) }, waitForTerminal, close: unsubscribe }
+  }
+  const controller = new AbortController()
+  const response = await fetch(new URL('/api/events', base), { signal: controller.signal })
+  if (!response.ok) throw new KernelError('UPSTREAM_FAILURE', 'Could not subscribe to task events')
+  const reader = response.body.getReader()
+  const consume = (async () => {
+    let pending = ''
+    let eventType
+    try {
+      while (true) {
+        const { value, done } = await reader.read()
+        if (done) break
+        pending += new TextDecoder().decode(value, { stream: true })
+        let split
+        while ((split = pending.indexOf('\n')) !== -1) {
+          const line = pending.slice(0, split).replace(/\r$/, '')
+          pending = pending.slice(split + 1)
+          if (line.startsWith('event: ')) eventType = line.slice(7)
+          else if (line.startsWith('data: ') && eventType) {
+            try { handle({ type: eventType, data: JSON.parse(line.slice(6)) }) } catch { /* malformed event */ }
+            eventType = undefined
+          }
+        }
+      }
+    } catch (error) { if (!controller.signal.aborted) throw error }
+  })()
+  consume.catch(() => {})
+  return { setTaskId(id) { taskId = id; buffer.splice(0).forEach(handle) },
+    waitForTerminal, close() { controller.abort(); reader.cancel().catch(() => {}) } }
+}
+
+export async function runCli(argv = process.argv.slice(2), { stdout = process.stdout, stderr = process.stderr } = {}) {
+  let app, server, observer
+  try {
+    const { positional, options: o } = parse(argv)
+    const command = positional.shift() ?? 'help'
+    if (command === 'help' || o.help) { stdout.write(usage); return 0 }
+    if (command === 'serve') {
+      if (o.url) throw new KernelError('INVALID_ARGUMENT', 'serve requires a local store')
+      const store = storePath(o)
+      await mkdir(dirname(store), { recursive: true })
+      app = await createApp({ store, exportDir: o['export-dir'],
+        settingsDir: o['settings-dir'] ?? join(dirname(store), 'settings') })
+      server = await serve(app, { host: o.host ?? '127.0.0.1', port: o.port ? Number(o.port) : 8787,
+        staticDir: o['static-dir'] ?? await webDirectory() })
+      stdout.write(`${server.url}\n`)
+      await new Promise(resolveStop => { process.once('SIGINT', resolveStop); process.once('SIGTERM', resolveStop) })
+      return 0
+    }
+    const [name, params, method, path] = route(command, positional, o)
+    const remote = !!o.url
+    if (!remote && o['no-wait'] && ['translate', 'export', 'import'].includes(command))
+      throw new KernelError('INVALID_ARGUMENT', '--no-wait requires --url so the live server owns the task')
+    if (!remote) {
+      const store = storePath(o)
+      await mkdir(dirname(store), { recursive: true })
+      app = await createApp({ store, exportDir: o['export-dir'],
+        settingsDir: o['settings-dir'] ?? join(dirname(store), 'settings') })
+    }
+    const invoke = remote ? (_name, p, m, url) => invokeRemote(o.url, m, url, p) :
+      (operation, p) => app.operations.invoke(operation, clean(p))
+    if (o['json-events'] && ['translate', 'export', 'import'].includes(command))
+      observer = await observeEvents(app, o.url, stdout)
+    const result = await invoke(name, params, method, path)
+    observer?.setTaskId(result.taskId)
+    if (o['json-events'] && result.taskId) {
+      const final = await waitForTask(invoke, result.taskId)
+      await observer?.waitForTerminal()
+      if (final.task?.state === 'failed' || final.task?.state === 'canceled') return 4
+    } else {
+      stdout.write(`${serialize(result)}\n`)
+      if (result.taskId && !o['no-wait'] && !remote) {
+        const final = await waitForTask(invoke, result.taskId)
+        if (final.task?.state === 'failed' || final.task?.state === 'canceled') return 4
+      }
+    }
+    return 0
+  } catch (error) {
+    const mapped = errorEnvelope(error)
+    if (argv.includes('--json')) stdout.write(`${serialize(mapped.body)}\n`)
+    stderr.write(`${mapped.body.error.message}\n`)
+    return mapped.exitCode
+  } finally {
+    observer?.close()
+    await server?.close()
+    await app?.dispose()
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href)
+  process.exitCode = await runCli()

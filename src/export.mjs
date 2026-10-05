@@ -23,7 +23,7 @@ export class Exporter extends Service {
   }
 
   // Kernel primitive: the later jobs/entry layer will wrap this in a Task.
-  async exportDocument(docId, { targetLang, outputs, snapshotId, onMissingAccepted } = {}) {
+  async exportDocument(docId, { targetLang, outputs, snapshotId, onMissingAccepted, taskId, outputIndex } = {}) {
     if (typeof targetLang !== 'string' || !targetLang.trim() ||
         !Array.isArray(outputs) || !outputs.length || outputs.some(output =>
           !output || typeof output.format !== 'string' || !/^[a-z][a-z0-9-]*$/.test(output.format) ||
@@ -75,6 +75,7 @@ export class Exporter extends Service {
         try {
           artifacts.push(await this.records.addArtifact(docId, {
             snapshotId: snapshot.id, targetLang, format: outputs[index].format, path: paths[index],
+            ...(taskId ? { taskId, outputIndex: outputIndex + index } : {}),
           }))
         } catch (error) {
           await unlink(paths[index]).catch(() => {})

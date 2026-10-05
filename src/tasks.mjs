@@ -1,14 +1,15 @@
 import { Service } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
+import { resolve } from 'node:path'
 
 const terminal = new Set(['succeeded', 'failed', 'canceled'])
 const active = new Set(['queued', 'running'])
 const safeMessage = error => error instanceof KernelError &&
-  ['CONFLICT', 'PRECONDITION_FAILED', 'INVALID_ARGUMENT', 'NOT_FOUND'].includes(error.code)
+  ['CONFLICT', 'PRECONDITION_FAILED', 'INVALID_ARGUMENT', 'NOT_FOUND', 'COMPONENT_MISSING'].includes(error.code)
   ? error.message : 'Translation failed; check the configured model and retry'
 
 export class Tasks extends Service {
-  static inject = ['ivoraige.records', 'ivoraige.translationModel', 'jobs']
+  static inject = ['ivoraige.records', 'jobs']
 
   constructor(ctx) {
     super(ctx, 'ivoraige.tasks')
@@ -74,6 +75,52 @@ export class Tasks extends Service {
   async get(taskId) { await this.ready; return this.records.getTask(taskId) }
   async list(filter = {}) { await this.ready; return this.records.listTasks(filter) }
 
+  async importDocument(file, metadata) {
+    await this.ready
+    if (this.closing) throw new KernelError('PRECONDITION_FAILED', 'Task service is closing')
+    const admission = (async () => {
+      const start = Date.now()
+      const result = await this.records.importDocument(file, metadata)
+      const task = await this.records.createOperationTask(result.document.id, { kind: 'import', durationMs: Date.now() - start })
+      this.emit('task.succeeded', { taskId: task.id, artifacts: [], stats: task.stats })
+      return { ...result, taskId: task.id, warnings: [] }
+    })()
+    this.admissions.add(admission)
+    try { return await admission } finally { this.admissions.delete(admission) }
+  }
+
+  async exportDocument(docId, options) {
+    await this.ready
+    if (this.closing) throw new KernelError('PRECONDITION_FAILED', 'Task service is closing')
+    const { targetLang, outputs, snapshotId, onMissingAccepted } = structuredClone(options)
+    if (!Array.isArray(outputs) || !outputs.length || outputs.some(item => !item || typeof item.format !== 'string')) {
+      throw new KernelError('INVALID_ARGUMENT', 'outputs must contain requested formats')
+    }
+    if (snapshotId !== undefined && onMissingAccepted !== undefined) throw new KernelError('INVALID_ARGUMENT', 'Snapshot decisions are already frozen')
+    const available = this.records.getDocument(docId).availableOutputs
+    if (outputs.some(item => !available.includes(item.format))) throw new KernelError('INVALID_ARGUMENT', 'Unsupported output format')
+    const paths = outputs.filter(item => item.out !== undefined).map(item => {
+      if (typeof item.out !== 'string' || !item.out.trim()) throw new KernelError('INVALID_ARGUMENT', 'Output path must be nonempty')
+      const path = resolve(item.out)
+      return process.platform === 'win32' ? path.toLowerCase() : path
+    })
+    if (new Set(paths).size !== paths.length) throw new KernelError('INVALID_ARGUMENT', 'Output paths must be distinct')
+    const admission = (async () => {
+      const snapshot = snapshotId ? this.records.getSnapshot(docId, snapshotId) :
+        await this.records.createSnapshot(docId, { targetLang, onMissingAccepted: onMissingAccepted ?? 'fail' })
+      const release = this.records.retainSnapshot(docId, snapshot.id)
+      try {
+        const task = await this.records.createOperationTask(docId,
+          { kind: 'export', targetLang, snapshotId: snapshot.id, outputs })
+        if (this.closing) await this.records.updateTask(task.id, current => ({ ...current, state: 'paused' }))
+        else { this.queue.push(task.id); this.emit('task.queued', { taskId: task.id, kind: 'export' }); this.schedule() }
+        return { taskId: task.id, snapshotId: snapshot.id }
+      } finally { release() }
+    })()
+    this.admissions.add(admission)
+    try { return await admission } finally { this.admissions.delete(admission) }
+  }
+
   async wait(taskId) {
     await this.ready
     const task = this.records.getTask(taskId)
@@ -113,12 +160,12 @@ export class Tasks extends Service {
       try {
         const taskStarted = await this.records.updateTask(taskId, current => {
           if (current.state !== 'queued') throw new KernelError('CONFLICT', 'Task left queue')
-          return { ...current, state: 'running', progress: { ...current.progress, stage: 'translate' },
+          return { ...current, state: 'running', progress: { ...current.progress, stage: current.kind },
             updatedAt: new Date().toISOString() }
         })
-        this.emit('task.started', { taskId, kind: 'translate' })
+        this.emit('task.started', { taskId, kind: task.kind })
         this.progress(taskStarted, true)
-        live.jobId = this.jobs.start({ kind: 'translate', label: `Translate ${task.docId}`,
+        live.jobId = this.jobs.start({ kind: task.kind, label: `${task.kind} ${task.docId}`,
           run: job => ({ cancel: () => controller.abort(), done: this.execute(live, job) }) })
         live.markStarted()
         if (live.cancel) this.jobs.kill(live.jobId, undefined, 'canceled')
@@ -146,7 +193,7 @@ export class Tasks extends Service {
     const elapsed = Math.max(0, Date.now() - live.runStarted)
     return { ...current, stats: { ...current.stats, stageDurationsMs: {
       ...current.stats.stageDurationsMs,
-      translate: (current.stats.stageDurationsMs.translate ?? 0) + elapsed,
+      [current.kind]: (current.stats.stageDurationsMs[current.kind] ?? 0) + elapsed,
     } } }
   }
 
@@ -154,9 +201,17 @@ export class Tasks extends Service {
     const { taskId, controller } = live
     try {
       let task = this.records.getTask(taskId)
-      for (let index = task.cursor; index < task.unitIds.length; index++) {
+      for (let index = task.cursor; index < task.progress.total; index++) {
         if (live.cancel || controller.signal.aborted) break
         if (live.pause || this.closing) break
+        if (task.kind === 'export') {
+          await this.ctx.get('ivoraige.export').exportDocument(task.docId, { targetLang: task.targetLang,
+            snapshotId: task.snapshotId, outputs: [task.outputs[index]], taskId, outputIndex: index })
+          task = this.records.getTask(taskId)
+          job.updateProgress(`${task.progress.done}/${task.progress.total}`)
+          this.progress(task)
+          continue
+        }
         const unitId = task.unitIds[index]
         const view = this.records.getUnit(unitId, { targetLang: task.targetLang })
         const basis = this.records.getBasis(unitId, { targetLang: task.targetLang })
@@ -168,6 +223,7 @@ export class Tasks extends Service {
           outcome = await this.records.commitTaskUnit(taskId, { unitId, expectedBasis: basis,
             baseRevisionId, expectedAcceptedRevisionId, reusedRevisionId: reusable.id })
         } else {
+          if (!this.model) throw new KernelError('COMPONENT_MISSING', 'Configure a translation model before translating')
           await this.records.incrementTaskCall(taskId)
           const result = await this.model.translate({ basis, signal: controller.signal })
           if (live.cancel || controller.signal.aborted) break
@@ -218,7 +274,7 @@ export class Tasks extends Service {
     const message = safeMessage(error)
     const task = await this.records.updateTask(taskId, current => ({
       ...(this.running?.taskId === taskId ? this.withDuration(this.running, current) : current), state: 'failed',
-      error: { stage: 'translate', ...(current.unitIds[current.cursor] ?
+      error: { stage: current.kind, ...(current.unitIds?.[current.cursor] ?
         { unitId: current.unitIds[current.cursor] } : {}), message },
       updatedAt: new Date().toISOString() }))
     this.emit('task.failed', { taskId, ...task.error })
@@ -285,14 +341,16 @@ export class Tasks extends Service {
     const admission = (async () => {
       const queued = await this.records.updateTask(taskId, current => {
         if (!['paused', 'failed'].includes(current.state)) throw new KernelError('CONFLICT', 'Task state changed')
-        this.records.validateTaskCheckpoints(taskId)
+        if (current.kind === 'translate') this.records.validateTaskCheckpoints(taskId)
+        else if (current.kind === 'export') this.records.getSnapshot(current.docId, current.snapshotId)
+        else throw new KernelError('PRECONDITION_FAILED', 'Import tasks cannot be resumed')
         const { error, ...rest } = current
         return { ...rest, state: 'queued' }
       })
       if (this.closing) return this.records.updateTask(taskId, current => ({ ...current, state: 'paused' }))
       this.queue.push(taskId)
       this.emit('task.resumed', { taskId, cursor: queued.cursor })
-      this.emit('task.queued', { taskId, kind: 'translate' })
+      this.emit('task.queued', { taskId, kind: queued.kind })
       this.schedule()
       return queued
     })()

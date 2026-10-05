@@ -24,10 +24,17 @@ function upstreamFailure(canceled = false, reason = 'Model translation failed') 
 export class TranslationModel extends Service {
   static inject = ['llm']
 
-  constructor(ctx, { provider, model, timeoutMs = 120_000 } = {}) {
+  constructor(ctx, { provider, model, timeoutMs = 120_000, select } = {}) {
     super(ctx, 'ivoraige.translationModel')
-    this.provider = requiredString(provider, 'provider')
-    this.model = requiredString(model, 'model')
+    if (select !== undefined && typeof select !== 'function') {
+      throw new KernelError('INVALID_ARGUMENT', 'select must be a function')
+    }
+    if (select !== undefined && (provider !== undefined || model !== undefined)) {
+      throw new KernelError('INVALID_ARGUMENT', 'select cannot be combined with provider or model')
+    }
+    this.select = select
+    this.provider = select ? null : requiredString(provider, 'provider')
+    this.model = select ? null : requiredString(model, 'model')
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
       throw new KernelError('INVALID_ARGUMENT', 'timeoutMs must be a positive integer')
     }
@@ -53,14 +60,23 @@ export class TranslationModel extends Service {
     }
     if (signal?.aborted) throw upstreamFailure(true, 'Model translation canceled')
 
-    const timeout = AbortSignal.timeout(this.timeoutMs)
+    const selection = this.select?.() ?? (this.select ? null :
+      { provider: this.provider, model: this.model, timeoutMs: this.timeoutMs })
+    if (!selection) throw new KernelError('COMPONENT_MISSING', 'No translation model configured')
+    const provider = requiredString(selection.provider, 'provider')
+    const model = requiredString(selection.model, 'model')
+    const timeoutMs = selection.timeoutMs ?? this.timeoutMs
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+      throw new KernelError('INVALID_ARGUMENT', 'timeoutMs must be a positive integer')
+    }
+    const timeout = AbortSignal.timeout(timeoutMs)
     const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout
     const assembler = new BlockAssembler()
     let finished = false
     try {
       for await (const chunk of this.ctx.llm.stream({
-        provider: this.provider,
-        model: this.model,
+        provider,
+        model,
         system: SYSTEM_PROMPT,
         messages: [{ role: 'user', content: [{ type: 'text', text: JSON.stringify({
           sourceLang, targetLang, effectiveContext, effectiveTarget, sourceText,
@@ -88,7 +104,7 @@ export class TranslationModel extends Service {
     if (!text.trim()) throw upstreamFailure(false, 'Model returned empty translation')
     return {
       text,
-      modelId: `${this.provider}/${this.model}`,
+      modelId: `${provider}/${model}`,
       promptVersion: PROMPT_VERSION,
       tokens: { input: count(assembler.usage?.inputTokens), output: count(assembler.usage?.outputTokens) },
     }

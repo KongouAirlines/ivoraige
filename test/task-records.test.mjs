@@ -31,6 +31,10 @@ test('task checkpoint, accepted revision and cursor persist together across rest
   assert.equal(first.revision.status, 'accepted')
   await f.restart()
   assert.equal(f.records.getTask(task.id).cursor, 1)
+  assert.equal(f.records.getTask(task.id).state, 'paused')
+  // The mounted task service recovers interrupted work; this record-level test
+  // explicitly re-enters execution before exercising the atomic commit API.
+  await f.records.updateTask(task.id, task => ({ ...task, state: 'running' }))
   assert.equal(f.records.getTask(task.id).checkpoints[0].revisionId, first.revision.id)
   assert.equal(f.records.getUnit(units[0].id, { targetLang: 'zh' }).accepted.text, '第一。')
   await assert.rejects(f.records.commitTaskUnit(task.id, { unitId: units[0].id,

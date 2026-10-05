@@ -1,10 +1,13 @@
 // Renderers receive only resolved frozen data, never a Cordis context or service.
-const supports = binding => binding?.adapterId === 'txt'
+import { renderMarkdown } from './markdown-output.mjs'
+const supports = binding => ['txt', 'markdown'].includes(binding?.adapterId)
 
 export const markdown = {
   id: 'md',
   supports,
-  rebuild({ snapshot, document, units }) {
+  rebuild(data) {
+    if (data.sourceBinding.adapterId === 'markdown') return renderMarkdown(data)
+    const { snapshot, document, units } = data
     const title = document.title.replace(/[\r\n]+/g, ' ')
     return `<!-- ivoraige snapshot:${snapshot.id} revisions:${snapshot.revisionSetHash} -->\n\n` +
       `# ${title}\n\n` + units.map(item => item.text).join('\n\n') + '\n'
