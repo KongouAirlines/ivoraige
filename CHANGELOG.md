@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- TXT/Markdown translation workbench with shared CLI/HTTP operations, SSE, React document/revision/task/settings pages, DSH model profiles and credentials, durable translation/export checkpoints, and same-snapshot MD/JSON output. The preview supports manual acceptance and rollback, with bounded Markdown syntax and explicit unsupported cases.
+- Real DeepSeek workbench acceptance and Node 24 checks on Windows/Linux/macOS: 63 tests and the installed-package workflow passed for `c28c583`; the user must review the preview before merging.
 - Restarted kernel: DSH domain/SQLite persistence, idempotent TXT import, language-scoped revisions with optimistic locks and applicability checks, frozen snapshot lifecycle, and MD/JSON exports from the same pinned revisions. Export adapters receive frozen data without model services.
 - A runnable text-records example and isolated npm package smoke; CI matrix for Node 24 on Windows, Linux and macOS; build, 17 tests and isolated package persistence/export smoke passed on all three platforms for commit `1f7e627`.
 
@@ -22,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Archived the retired MVP as `0.0.0` on an independent branch and local tag. Removed legacy experiment code and CLI configuration examples from the restart branch; its development version is now `0.1.0-dev.0`.
 
-- Restarted the business kernel from the v2.0 design on `codex/restart-v2`; removed the old CLI, business services and their test suites. Retained the pinned DSH bridge/build method, requirements and evaluation materials; historical experiment code is now on the archive branch. The new foundation does not yet implement the MVP translation/export capabilities.
+- Restarted the business kernel from the v2.0 design on `codex/restart-v2`; removed the old CLI, business services and their test suites. Retained the pinned DSH bridge/build method, requirements and evaluation materials; historical experiment code is now on the archive branch. The new text workflow is rebuilt independently of the retired MVP.
 
 - Export contract: all formats in one task share one frozen `ExportSnapshot`; in-flight outputs are immune to concurrent edits; snapshots are discoverable and deletable only when unreferenced.
 - Concurrency model: revision writes use `baseRevisionId`, accept/unaccept uses `expectedAcceptedRevisionId`; stale writes return `409 CONFLICT`.

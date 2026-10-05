@@ -75,10 +75,10 @@
 
 本地结果：`evaluation/runs/deepseek-restart/report.json`，SQLite 与 4 个产物同目录，全部按既有规则忽略。可在启动环境提供凭据后运行 `node scripts/smoke-deepseek.mjs [输出目录]`；已有接受版本会复用，指定新目录才会重新请求。仅增加配置、测试脚本和记录，未修改生产内核。
 
-## TXT／Markdown 工作台集成（2026-10-05，验收进行中）
+## TXT／Markdown 工作台集成（2026-10-05，首次体验验收完成）
 
 本阶段在上述内核上装配 Markdown 来源绑定、DSH profile/settings/config-editor 持久模型配置、命名凭据、导入／导出任务，以及共用一套 kernel operations 的 CLI、HTTP/SSE 和 React WebUI。浏览器现有文档列表、双语工作台、任务页、设置页与明暗主题；文本导入、精翻草稿、人工编辑／接受、冻结 MD／JSON 导出走同一持久记录。Markdown 明确支持的子集和拒绝边界见 [阶段记录](markdown.md)；操作方法见 [工作台指南](workbench-guide.md)。MCP、PDF、RAG、Zotero 与词库结构不在本阶段交付范围。
 
-本机 `npm test` **61/61** 通过；独立安装包冒烟已在临时目录验证 CLI、WebUI、设置、导出及重启读取。依赖锁更新到 esbuild 0.28.2、js-yaml 4.3.2、React 18.3.1／React DOM 18.3.1，加入 DSH profile boot 所需依赖；本阶段 npm audit 为 0 条告警。构建把浏览器资源与 React 许可清单放入 `dist/web/`。这些是本机结果，本轮 Windows/Linux/macOS 的 Node 24 CI 尚无新运行记录。
+本机初轮 `npm test` **61/61** 通过；独立安装包冒烟在临时目录验证 CLI、WebUI、设置、导出及重启读取。首轮 macOS CI 发现 CLI 符号链接路径判断问题，修复提交 `c28c583` 后，Windows/Linux/macOS 的 Node 24 均 **63/63** 测试及 29 文件安装包冒烟通过，见 [CI 记录](https://github.com/KongouAirlines/ivaraige/actions/runs/37314672867)。依赖锁更新到 esbuild 0.28.2、js-yaml 4.3.2、React 18.3.1／React DOM 18.3.1，加入 DSH profile boot 所需依赖；本阶段 npm audit 为 0 条告警。构建把浏览器资源与 React 许可清单放入 `dist/web/`。
 
-真实浏览器进度记录在 [首次合并目标](workbench-goal.md)：用原创 Markdown 样本经 DeepSeek 精翻 4 个可译片段，4 次请求输入 368／输出 13 token；代码段未调用模型。随后已在浏览器完成草稿人工编辑、接受、历史版本回退与恢复；快速重提同 4 个单位新增模型调用为 0，人工接受版本保持不变。MD 与 JSON 导出成功并共用冻结快照，导出新增模型调用为 0，产物保留原文代码和数学。重启后浏览器从“正在重连”恢复“已连接”，同一数据库与 DSH 模型设置读回，单单位再提交复用且新增模型调用为 0。短片段翻译仍需人工审校：一次 “The value of” 被译为“值”，已人工补成“参数”的正确上下文。三系统 CI 与完整科学质量验收仍待完成；本节不把进行中的体验目标记为交付完成。
+真实浏览器记录在 [首次合并目标](workbench-goal.md)：用原创 Markdown 样本经 DeepSeek 精翻 4 个可译片段，4 次请求输入 368／输出 13 token；代码段未调用模型。随后在浏览器完成草稿人工编辑、接受、历史版本回退与恢复；快速重提同 4 个单位新增模型调用为 0，人工接受版本保持不变。MD 与 JSON 导出成功并共用冻结快照，导出新增模型调用为 0，产物保留原文代码和数学。重启后浏览器从“正在重连”恢复“已连接”，同一数据库与 DSH 模型设置读回，单单位再提交复用且新增模型调用为 0。短片段翻译仍需人工审校：一次 “The value of” 被译为“值”，已人工补成“参数”的正确上下文。完整科学质量验收仍待后续阶段；本次体验目标已通过，见 [PR #4](https://github.com/KongouAirlines/ivaraige/pull/4)，实际 Merge 等用户体验确认。
