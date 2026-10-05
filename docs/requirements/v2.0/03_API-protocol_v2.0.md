@@ -181,9 +181,11 @@ interface RagChunk {
 | GET | `/api/tasks?state=&kind=&cursor=` | 分页 Task[] |
 | GET | `/api/tasks/{taskId}` | `{ task: Task }` |
 | POST | `/api/tasks/{taskId}/cancel` | 取消信号贯穿到在途模型调用 |
-| POST | `/api/tasks/{taskId}/pause` / `/resume` | 暂停在 unit 边界生效；恢复从 cursor 续跑，已完成 unit 靠复用检查跳过 |
+| POST | `/api/tasks/{taskId}/pause` / `/resume` | 暂停在 unit 边界生效；恢复从 cursor 续跑，校验持久化完成记录的适用性后跳过（包括尚未接受的精翻草稿）；未完成 unit 再做复用检查 |
 | GET | `/api/tasks/{taskId}/events` | SSE，事件见 §4 |
 | GET | `/api/events` | 全局 SSE（任务列表页用），事件同 §4 |
+
+翻译修订、接受指针（快速模式）与 unit 完成记录／cursor 必须原子提交。启动恢复将遗留 `queued`／`running` 任务转为 `paused`，由用户显式续跑；`failed` 任务也可从已提交断点重试。完成记录失去当前适用性时，恢复返回 `PRECONDITION_FAILED`，不静默重译已完成段落。仅已提交结果具备不重复调用保证；请求已被供应商执行但本地尚未落库时崩溃，恢复可能再次请求该 unit。模型调用计数在调用前持久化，表示内核已登记的调用尝试；重试或未完成请求无法确认的 token 用量继续为 `null`。
 
 ### 3.5 术语（形状锁定，字段随词库研判扩展）
 

@@ -16,7 +16,7 @@ ivoraige is a composable translation middleware. First application: English↔Ch
   - `01_design_v2.0.md` — architecture, data model, reuse key, frozen export snapshots, milestones M5–M8.
   - `02_UI-design_v2.0.md` — WebUI (shell layout, theming, per-plugin pages, PDF page, DeepL-style text page, workbench).
   - `03_API-protocol_v2.0.md` — REST/SSE/MCP/CLI protocol, error codes, Python sidecar JSON-RPC, asset management, concurrency locks.
-- Current new capabilities: TXT import, DSH domain/SQLite persistence, language-scoped revisions/acceptance and applicability checks, frozen snapshots, MD/JSON export. `createApp({store})` enables them; without a store it remains parse-only. Model translation, tasks and three entry layers are not implemented yet. No migration from the retired MVP store.
+- Current new capabilities: TXT import, DSH domain/SQLite persistence, language-scoped revisions/acceptance and applicability checks, frozen snapshots, MD/JSON export. `createApp({store})` enables them; without a store it remains parse-only. Explicit `translation` configuration additionally mounts DSH model/credentials/jobs and a durable translation queue with fast acceptance, careful drafts, pause/resume/cancel. Tests use a local mock provider; real-model quality, settings/profile integration and three entry layers remain pending. No migration from the retired MVP store.
 - Requirements v1.0 (`docs/requirements/v1.0/`) is the frozen feature baseline (44 items, F-01–F-44). Do not renumber or reprioritize.
 - Design constraints C1–C8 are registered in `01_design_v2.0.md` §0. They are decided, not open: three OS targets; CLI + MCP + WebUI on one kernel; single-deployment packaging; DSH plugin reuse for AI infrastructure (C8); term-base schema deferred (C7).
 
@@ -36,6 +36,7 @@ ivoraige is a composable translation middleware. First application: English↔Ch
 
 - `src/` — restarted kernel composition, parsing services/adapters, and retained `dsh-bridge.ts`. Only installed and tested capabilities are available; rebuild business services in stages.
 - `src/records.mjs` / `basis.mjs` — per-document atomic records and reuse applicability; one kernel owns each SQLite file. `src/export.mjs` renders only resolved frozen snapshots. Output adapters receive data, never the Cordis context.
+- `src/tasks.mjs` / `translation-model.mjs` — document translation orchestration over DSH jobs and llm. Revisions and unit checkpoints commit together; startup pauses unfinished tasks for explicit resume. Close tasks before disposing the storage context. Unsupported term assembly must fail explicitly.
 - `test/` — `node --test` suites; must stay green.
 - `experiments/` — archive pointer only; old verification rigs are on `v0.0.0`. Ignored local vendor/dependency caches may remain here.
 - `evaluation/private/` — copyrighted originals, extracted text, alignment data. Git-ignored by convention; work directly inside it, do not commit its contents.

@@ -10,6 +10,14 @@ storage-domain and storage-sqlite plugins. SQLite comes from Node's built-in
 `node:sqlite`; business code never accesses that backend directly. The npm
 tarball includes the generated DSH bundle and both generated license notices.
 
+The translation stage also mounts the pinned `dsh-llm`, `dsh-llm-pi-ai`,
+`dsh-credentials-local`, and `dsh-jobs-local` plugins. The business layer in
+`src/translation-model.mjs` assembles translation requests; `src/tasks.mjs`
+adds the durable document queue and checkpoints. It does not implement a
+provider HTTP client or a second credentials backend. Credentials use DSH's
+named environment references or its managed YAML file. Provider routes are
+explicit startup configuration; settings/profile UI integration remains pending.
+
 M2 builds the real Cordis, LLM runtime, pi-ai adapter and storage modules from
 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) at commit
 `639ed015397290b3745d163aafe02ffee4aa3f84`. The DSH source is MIT licensed,
@@ -24,7 +32,8 @@ With the M1 experiment dependencies already present, the build can reuse
 `experiments/cordis-dsh/node_modules` without reinstalling them.
 
 The dependency lockfile fixes `@earendil-works/pi-ai` 0.87.1,
-`@standard-schema/spec` 1.1.0, `esbuild` 0.28.0, `js-yaml` 4.2.0 and
+`@standard-schema/spec` 1.1.0, `chokidar` 4.0.3, `esbuild` 0.28.0,
+`js-yaml` 4.2.0, `yaml` 2.9.0 and
 `zod` 4.4.3, plus their transitive dependencies. esbuild bundles the reachable
 runtime dependency closure into `dist/dsh.mjs`. The output includes
 `DSH-LICENSE.txt`, `THIRD_PARTY_LICENSES.txt` with the actual bundled package

@@ -11,6 +11,20 @@ const language = value => typeof value === 'string' && value !== 'auto' &&
 const required = (condition, message) => { if (!condition) throw new KernelError('INVALID_ARGUMENT', message) }
 const missing = (kind, value) => { throw new KernelError('NOT_FOUND', `${kind} not found`, { [kind]: value }) }
 const keyFor = (unitId, targetLang) => `${unitId}\u0000${targetLang}`
+const activeTask = state => ['queued', 'running', 'paused'].includes(state)
+const taskSchema = z.object({
+  id: z.string(), kind: z.literal('translate'), docId: z.string(), targetLang: z.string(),
+  mode: z.enum(['fast', 'careful']), unitIds: z.array(z.string()),
+  state: z.enum(['queued', 'running', 'paused', 'succeeded', 'failed', 'canceled']),
+  progress: z.object({ stage: z.string(), done: z.number(), total: z.number() }),
+  cursor: z.number(), checkpoints: z.array(z.object({ unitId: z.string(), revisionId: z.string(), reused: z.boolean(),
+    tokens: z.object({ input: z.number().nullable(), output: z.number().nullable() }).optional() })),
+  stats: z.object({ stageDurationsMs: z.record(z.string(), z.number()), llmCalls: z.number(),
+    reusedUnits: z.number(), reuseRatio: z.number(), tokens: z.record(z.string(),
+      z.object({ input: z.number().nullable(), output: z.number().nullable() })) }),
+  artifacts: z.array(z.unknown()), createdAt: z.string(), updatedAt: z.string(),
+  profileId: z.string().optional(), error: z.object({ stage: z.string(), unitId: z.string().optional(), message: z.string() }).optional(),
+})
 const defaultConstraints = (units, index) => ({
   effectiveContext: { before: units[index - 1]?.sourceText ?? null, after: units[index + 1]?.sourceText ?? null },
   effectiveTarget: { purpose: 'scientific translation', style: 'faithful' },
@@ -52,6 +66,7 @@ const recordSchema = z.object({
     ]) })), revisionSetHash: z.string(), createdAt: z.string() })),
   artifacts: z.array(z.object({ id: z.string(), docId: z.string(), targetLang: z.string(), format: z.string(),
     path: z.string(), snapshotId: z.string(), revisionSetHash: z.string(), createdAt: z.string() })),
+  tasks: z.array(taskSchema).optional(),
 })
 const spec = StorageDomain.defineDomain({ name: 'ivoraige_records', version: 1, layout: 'per-record',
   tables: { documents: StorageDomain.domainTable(recordSchema) } })
@@ -167,7 +182,7 @@ export class Records extends Service {
       availableOutputs: clone(parsed.availableOutputs), importedAt: now() }
     const record = { document, fingerprint, sourceBinding: clone(parsed.sourceBinding),
       sourceBindingRef: digest({ docId, fingerprint, binding: parsed.sourceBinding }), resourceVersions: {}, units, revisions: [],
-      latest: {}, accepted: {}, constraints: {}, snapshots: [], artifacts: [] }
+      latest: {}, accepted: {}, constraints: {}, snapshots: [], artifacts: [], tasks: [] }
     assertJson(record)
     recordSchema.parse(record)
     await this.table.put(docId, record)
@@ -207,14 +222,197 @@ export class Records extends Service {
   }
   findReusable(unitId, { targetLang } = {}) {
     const basis = this.getBasis(unitId, { targetLang })
+    const { record: local, unit } = this.locateUnit(unitId)
+    const localAccepted = local.revisions.find(revision =>
+      revision.id === local.accepted[keyFor(unitId, targetLang)])
+    if (localAccepted && sameBasis(localAccepted.basis, basis) &&
+      this.applicable(local, unit, localAccepted)) return this.viewRevision(local, localAccepted)
     const candidates = this.reuse.get(basis.reuseKey) ?? []
     for (const { docId, revisionId } of candidates) {
       const record = this.table.get(docId)
       const revision = record?.revisions.find(r => r.id === revisionId)
-      if (revision && record.accepted[keyFor(revision.unitId, revision.targetLang)] === revisionId &&
-          sameBasis(revision.basis, basis)) return this.viewRevision(record, revision)
+      const sourceUnit = record?.units.find(item => item.id === revision?.unitId)
+      if (revision && sourceUnit && record.accepted[keyFor(revision.unitId, revision.targetLang)] === revisionId &&
+          sameBasis(revision.basis, basis) && this.applicable(record, sourceUnit, revision)) {
+        return this.viewRevision(record, revision)
+      }
     }
     return null
+  }
+
+  async createTranslationTask(docId, { targetLang, unitIds, mode = 'fast', profileId } = {}) {
+    await this.ready
+    required(language(targetLang), 'targetLang must be a real BCP-47 tag')
+    required(['fast', 'careful'].includes(mode), 'Invalid translation mode')
+    required(profileId === undefined || (typeof profileId === 'string' && profileId), 'Invalid profileId')
+    required(unitIds === undefined || (Array.isArray(unitIds) &&
+      unitIds.every(unitId => typeof unitId === 'string') && new Set(unitIds).size === unitIds.length),
+    'unitIds must be a unique string array')
+    let created
+    await this.update(docId, current => {
+      const existing = (current.tasks ?? []).find(task => task.kind === 'translate' && activeTask(task.state))
+      if (existing) throw new KernelError('CONFLICT', 'Translation task already active', { taskId: existing.id })
+      const selected = unitIds ?? current.units.filter(unit => unit.translatable).map(unit => unit.id)
+      required(selected.every(unitId => current.units.some(unit => unit.id === unitId && unit.translatable)),
+        'unitIds must identify translatable units in the document')
+      // Source order makes a cursor meaningful even when callers supply an unordered subset.
+      const ordered = current.units.filter(unit => selected.includes(unit.id)).map(unit => unit.id)
+      const timestamp = now()
+      created = { id: `${docId}.${id()}`, kind: 'translate', docId, targetLang, mode,
+        ...(profileId ? { profileId } : {}), unitIds: ordered, state: 'queued',
+        progress: { stage: 'translate', done: 0, total: ordered.length }, cursor: 0,
+        checkpoints: [], stats: { stageDurationsMs: {}, llmCalls: 0, reusedUnits: 0,
+          reuseRatio: 0, tokens: { translation: { input: null, output: null } } },
+        artifacts: [], createdAt: timestamp, updatedAt: timestamp }
+      return { ...current, tasks: [...(current.tasks ?? []), created] }
+    })
+    return clone(created)
+  }
+  getTask(taskId) {
+    const docId = typeof taskId === 'string' ? taskId.split('.')[0] : ''
+    return clone((this.record(docId).tasks ?? []).find(task => task.id === taskId) ?? missing('taskId', taskId))
+  }
+  listTasks({ docId } = {}) {
+    this.requireReady()
+    if (docId !== undefined) return clone(this.record(docId).tasks ?? [])
+    return clone([...this.table.entries()].flatMap(([, record]) => record.tasks ?? []))
+  }
+  validateTaskCheckpoints(taskId) {
+    const task = this.getTask(taskId)
+    const record = this.record(task.docId)
+    for (const checkpoint of task.checkpoints) {
+      const unit = record.units.find(item => item.id === checkpoint.unitId)
+      const revision = record.revisions.find(item => item.id === checkpoint.revisionId)
+      if (!unit || !revision || revision.unitId !== checkpoint.unitId ||
+        revision.targetLang !== task.targetLang || !this.applicable(record, unit, revision)) {
+        throw new KernelError('PRECONDITION_FAILED', 'Completed task unit is no longer applicable',
+          { taskId, unitId: checkpoint.unitId, revisionId: checkpoint.revisionId })
+      }
+    }
+    return true
+  }
+  async updateTask(taskId, transform) {
+    await this.ready
+    required(typeof transform === 'function', 'Task transform must be a function')
+    const docId = typeof taskId === 'string' ? taskId.split('.')[0] : ''
+    let updated
+    await this.update(docId, current => {
+      const tasks = current.tasks ?? []
+      const index = tasks.findIndex(task => task.id === taskId)
+      if (index < 0) missing('taskId', taskId)
+      updated = transform(clone(tasks[index]))
+      required(updated && updated.id === taskId && updated.docId === docId &&
+        updated.kind === 'translate' && updated.targetLang === tasks[index].targetLang &&
+        updated.mode === tasks[index].mode && updated.profileId === tasks[index].profileId &&
+        updated.cursor === tasks[index].cursor &&
+        updated.unitIds.length === tasks[index].unitIds.length &&
+        updated.unitIds.every((value, i) => value === tasks[index].unitIds[i]) &&
+        JSON.stringify(updated.checkpoints) === JSON.stringify(tasks[index].checkpoints) &&
+        updated.progress.done === tasks[index].cursor,
+      'Task identity and cursor are immutable outside commitTaskUnit')
+      if (activeTask(updated.state) && tasks.some((task, i) => i !== index && activeTask(task.state))) {
+        throw new KernelError('CONFLICT', 'Translation task already active',
+          { taskId: tasks.find((task, i) => i !== index && activeTask(task.state)).id })
+      }
+      updated.updatedAt = now()
+      return { ...current, tasks: tasks.map((task, i) => i === index ? updated : task) }
+    })
+    return clone(updated)
+  }
+  async incrementTaskCall(taskId) {
+    return this.updateTask(taskId, task => {
+      if (task.state !== 'running') throw new KernelError('CONFLICT', 'Task is not running', { taskId })
+      const llmCalls = task.stats.llmCalls + 1
+      return { ...task, stats: { ...task.stats, llmCalls,
+        reuseRatio: task.stats.reusedUnits / (task.stats.reusedUnits + llmCalls),
+        tokens: { ...task.stats.tokens, translation: { input: null, output: null } } } }
+    })
+  }
+  async commitTaskUnit(taskId, { unitId, expectedBasis, baseRevisionId, expectedAcceptedRevisionId,
+    result, reusedRevisionId } = {}) {
+    await this.ready
+    required((result === undefined) !== (reusedRevisionId === undefined),
+      'Exactly one of result or reusedRevisionId is required')
+    required(baseRevisionId === null || typeof baseRevisionId === 'string', 'baseRevisionId is required')
+    required(expectedAcceptedRevisionId === null || typeof expectedAcceptedRevisionId === 'string',
+      'expectedAcceptedRevisionId is required')
+    required(expectedBasis && typeof expectedBasis === 'object', 'expectedBasis is required')
+    if (result !== undefined) {
+      required(result && typeof result.text === 'string' && result.text.trim(), 'Translation text must be nonempty')
+      required(result.modelId === undefined || typeof result.modelId === 'string', 'Invalid modelId')
+      required(result.promptVersion === undefined || typeof result.promptVersion === 'string', 'Invalid promptVersion')
+      if (result.tokens !== undefined) required(result.tokens &&
+        ['input', 'output'].every(key => result.tokens[key] === null ||
+          (Number.isSafeInteger(result.tokens[key]) && result.tokens[key] >= 0)), 'Invalid token usage')
+    }
+    const docId = typeof taskId === 'string' ? taskId.split('.')[0] : ''
+    let committed, revision
+    const next = await this.update(docId, current => {
+      const tasks = current.tasks ?? []
+      const taskIndex = tasks.findIndex(task => task.id === taskId)
+      if (taskIndex < 0) missing('taskId', taskId)
+      const task = tasks[taskIndex]
+      if (task.state !== 'running') throw new KernelError('CONFLICT', 'Task is not running', { taskId })
+      if (task.unitIds[task.cursor] !== unitId) throw new KernelError('CONFLICT', 'Task cursor changed',
+        { taskId, cursor: task.cursor })
+      const unit = current.units.find(item => item.id === unitId) ?? missing('unitId', unitId)
+      const basis = this.basis(current, unit, task.targetLang)
+      if (!sameBasis(expectedBasis, basis)) throw new KernelError('PRECONDITION_FAILED',
+        'Translation basis changed', { unitId })
+      const key = keyFor(unitId, task.targetLang)
+      const latestId = current.latest[key] ?? null
+      const acceptedId = current.accepted[key] ?? null
+      if (latestId !== baseRevisionId || acceptedId !== expectedAcceptedRevisionId) {
+        throw new KernelError('CONFLICT', 'Revision changed during translation',
+          { latestRevisionId: latestId, acceptedRevisionId: acceptedId })
+      }
+      let textValue, origin = 'machine', modelId, promptVersion, reused = false, sameUnit = false
+      if (result) ({ text: textValue, modelId, promptVersion } = result)
+      else {
+        const sourceDocId = reusedRevisionId.split('.')[0]
+        const sourceRecord = sourceDocId === docId ? current : this.table.get(sourceDocId)
+        const candidate = sourceRecord?.revisions.find(item => item.id === reusedRevisionId)
+        if (!candidate || sourceRecord.accepted[keyFor(candidate.unitId, candidate.targetLang)] !== candidate.id ||
+          !sameBasis(candidate.basis, basis) || !this.applicable(sourceRecord,
+            sourceRecord.units.find(item => item.id === candidate.unitId), candidate)) {
+          throw new KernelError('PRECONDITION_FAILED', 'Reusable revision is no longer applicable',
+            { revisionId: reusedRevisionId })
+        }
+        textValue = candidate.text; origin = candidate.origin; modelId = candidate.modelId
+        promptVersion = candidate.promptVersion; reused = true
+        sameUnit = sourceDocId === docId && candidate.unitId === unitId
+      }
+      revision = sameUnit ? current.revisions.find(item => item.id === reusedRevisionId) :
+        { id: `${docId}.${unit.order.toString(36)}.${id()}`, unitId, targetLang: task.targetLang,
+        text: textValue, origin, ...(modelId ? { modelId } : {}),
+        ...(promptVersion ? { promptVersion } : {}), reuseKey: basis.reuseKey, basis, createdAt: now() }
+      const stats = clone(task.stats)
+      if (reused) stats.reusedUnits++
+      else {
+        const usage = result.tokens ?? { input: null, output: null }
+        const successfulCallsBefore = task.checkpoints.filter(checkpoint => !checkpoint.reused).length
+        const unaccountedAttempt = stats.llmCalls !== successfulCallsBefore + 1
+        for (const token of ['input', 'output']) {
+          const prior = task.checkpoints.filter(checkpoint => !checkpoint.reused)
+            .map(checkpoint => checkpoint.tokens?.[token] ?? null)
+          stats.tokens.translation[token] = unaccountedAttempt || usage[token] === null ||
+            prior.some(value => value === null) ? null : prior.reduce((sum, value) => sum + value, usage[token])
+        }
+      }
+      stats.reuseRatio = stats.reusedUnits / (stats.reusedUnits + stats.llmCalls) || 0
+      committed = { ...task, cursor: task.cursor + 1,
+        progress: { ...task.progress, done: task.cursor + 1 },
+        checkpoints: [...task.checkpoints, { unitId, revisionId: revision.id, reused,
+          ...(!reused ? { tokens: result.tokens ?? { input: null, output: null } } : {}) }],
+        stats, updatedAt: now() }
+      return { ...current, revisions: sameUnit ? current.revisions : [...current.revisions, revision],
+        latest: sameUnit ? current.latest : { ...current.latest, [key]: revision.id },
+        accepted: sameUnit || task.mode !== 'fast' ? current.accepted :
+          { ...current.accepted, [key]: revision.id },
+        tasks: tasks.map((item, index) => index === taskIndex ? committed : item) }
+    })
+    if (committed.mode === 'fast') this.indexAccepted(docId, next)
+    return { task: clone(committed), revision: this.viewRevision(next, revision), reused: committed.checkpoints.at(-1).reused }
   }
 
   async writeRevision(unitId, { targetLang, text, baseRevisionId, origin = 'human', modelId, promptVersion } = {}) {

@@ -2,6 +2,8 @@
 export { Context, Service } from '@deepseek-ai/cordis'
 export { default as LlmRuntime, createUserMessage, BlockAssembler } from '@deepseek-ai/dsh-llm'
 export * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
+export { default as LocalCredentialProvider } from '@deepseek-ai/dsh-credentials-local'
+export { default as JobsLocal } from '@deepseek-ai/dsh-jobs-local'
 export { Storage } from '@deepseek-ai/dsh-storage'
 export * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 export * as StorageJson from '@deepseek-ai/dsh-storage-json'

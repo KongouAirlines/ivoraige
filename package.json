@@ -3,9 +3,21 @@
   "version": "0.1.0-dev.0",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/app.mjs", "./src/app.mjs": "./src/app.mjs" },
-  "files": ["src/", "dist/dsh.mjs", "dist/DSH-LICENSE.txt", "dist/THIRD_PARTY_LICENSES.txt", "README.md", "THIRD_PARTY.md"],
-  "engines": { "node": ">=24" },
+  "exports": {
+    ".": "./src/app.mjs",
+    "./src/app.mjs": "./src/app.mjs"
+  },
+  "files": [
+    "src/",
+    "dist/dsh.mjs",
+    "dist/DSH-LICENSE.txt",
+    "dist/THIRD_PARTY_LICENSES.txt",
+    "README.md",
+    "THIRD_PARTY.md"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "setup:dsh": "node scripts/setup-dsh.mjs",
     "build": "node scripts/build.mjs",
@@ -15,8 +27,10 @@
   "dependencies": {
     "@earendil-works/pi-ai": "0.87.1",
     "@standard-schema/spec": "1.1.0",
+    "chokidar": "4.0.3",
     "esbuild": "0.28.0",
     "js-yaml": "4.2.0",
+    "yaml": "2.9.0",
     "zod": "4.4.3"
   }
 }
