@@ -2,9 +2,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { request } from 'node:http'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { serve } from '../src/http.mjs'
 import { KernelError } from '../src/errors.mjs'
 import { runCli } from '../src/cli.mjs'
@@ -161,6 +162,58 @@ test('CLI --json-events forwards actual SSE task events as NDJSON', async t => {
   assert.equal(code, 0, err)
   const events = out.trim().split('\n').map(JSON.parse)
   assert.deepEqual(events.map(event => event.type), ['task.queued', 'unit.completed', 'task.succeeded'])
+})
+
+test('CLI returns exit code 5 when an observed task is canceled', async t => {
+  const listeners = new Set()
+  const app = { operations: {
+    subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener) },
+    async invoke(name) {
+      if (name === 'translate') {
+        for (const listener of listeners) listener({ type: 'task.canceled', data: { taskId: 'task_1' } })
+        return { apiVersion: '2.0', taskId: 'task_1' }
+      }
+      return { apiVersion: '2.0', task: { state: 'canceled' } }
+    },
+  } }
+  const server = await serve(app, { port: 0 })
+  t.after(() => server.close())
+  let out = '', err = ''
+  const code = await runCli(['--url', server.url, '--json-events', 'translate', 'doc_1', '--target-lang', 'zh-CN'],
+    { stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
+  assert.equal(code, 5, err)
+  assert.equal(JSON.parse(out.trim()).type, 'task.canceled')
+})
+
+test('CLI executes through a symlinked directory path', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-cli-alias-'))
+  const alias = join(directory, 'checkout')
+  const root = resolve(fileURLToPath(new URL('..', import.meta.url)))
+  try { await symlink(root, alias, process.platform === 'win32' ? 'junction' : 'dir') }
+  catch (error) {
+    await rm(directory, { recursive: true, force: true })
+    if (error.code === 'EPERM') { t.skip('Directory symlinks are blocked by this sandbox'); return }
+    throw error
+  }
+  t.after(async () => { await unlink(alias); await rm(directory, { recursive: true, force: true }) })
+  let child
+  try {
+    child = spawn(process.execPath, [join(alias, 'src', 'cli.mjs'), 'help'],
+      { stdio: ['ignore', 'pipe', 'pipe'] })
+  } catch (error) {
+    if (error.code === 'EPERM') { t.skip('Process spawning is blocked by this sandbox'); return }
+    throw error
+  }
+  let out = '', err = ''
+  child.stdout.on('data', chunk => { out += chunk })
+  child.stderr.on('data', chunk => { err += chunk })
+  const result = await new Promise((resolveResult, rejectResult) => {
+    child.once('error', error => error.code === 'EPERM' ? resolveResult({ blocked: true }) : rejectResult(error))
+    child.once('close', code => resolveResult({ code }))
+  })
+  if (result.blocked) { t.skip('Process spawning is blocked by this sandbox'); return }
+  assert.equal(result.code, 0, err)
+  assert.match(out, /Commands: import, documents/)
 })
 
 test('CLI subprocess serializes the HTTP envelope when process spawning is permitted', async t => {

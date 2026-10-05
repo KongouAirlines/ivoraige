@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import { pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import { dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import { mkdir, stat } from 'node:fs/promises'
+import { realpathSync } from 'node:fs'
 import { createApp } from './app.mjs'
 import { serve } from './http.mjs'
 import { serialize, errorEnvelope } from './protocol.mjs'
@@ -209,12 +210,14 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
     if (o['json-events'] && result.taskId) {
       const final = await waitForTask(invoke, result.taskId)
       await observer?.waitForTerminal()
-      if (final.task?.state === 'failed' || final.task?.state === 'canceled') return 4
+      if (final.task?.state === 'canceled') return 5
+      if (final.task?.state === 'failed') return 4
     } else {
       stdout.write(`${serialize(result)}\n`)
       if (result.taskId && !o['no-wait'] && !remote) {
         const final = await waitForTask(invoke, result.taskId)
-        if (final.task?.state === 'failed' || final.task?.state === 'canceled') return 4
+        if (final.task?.state === 'canceled') return 5
+        if (final.task?.state === 'failed') return 4
       }
     }
     return 0
@@ -230,5 +233,11 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href)
+function invokedAsCli() {
+  if (!process.argv[1]) return false
+  try { return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(resolve(process.argv[1])) }
+  catch { return false }
+}
+
+if (invokedAsCli())
   process.exitCode = await runCli()
