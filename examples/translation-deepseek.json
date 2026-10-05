@@ -1,0 +1,22 @@
+{
+  "provider": "deepseek-translation",
+  "model": "deepseek-flash",
+  "timeoutMs": 120000,
+  "providers": {
+    "deepseek-translation": {
+      "apiKeyEnv": "DeepSeek_API_TOKEN",
+      "api": "openai-completions",
+      "baseURL": "https://api.deepseek.com",
+      "reasoning": "off",
+      "compat": { "thinkingFormat": "deepseek" },
+      "models": [
+        {
+          "id": "deepseek-flash",
+          "contextWindow": 8192,
+          "maxTokens": 2048,
+          "reasoningEfforts": { "off": null, "low": "low" }
+        }
+      ]
+    }
+  }
+}

@@ -25,7 +25,7 @@
 | R0 更新与重启 | 获取最新主线，创建新分支，移除旧业务路径，保留方法与资料 | 已完成；固定 DSH 构建及新测试通过 |
 | M5 起步 | 最小 Cordis 装配、解析注册表、TXT → 通用 IR、未安装能力如实反映 | 已完成；段落定位、未知格式、通用 IR 校验、输出能力及释放检查通过；不等于 M5 完成 |
 | M5 数据闭环 | DSH domain＋SQLite、TXT 导入、修订与适用性、冻结快照及 MD／JSON 导出 | 已完成；17 项测试通过；Windows/Linux/macOS 的 Node 24 构建、测试与临时安装包验证均通过 |
-| M5 翻译任务 | 固定 DSH 模型／凭据／jobs，业务队列与持久化断点，快速接受与精翻草稿 | 已实现；本地模拟供应商完成协议与同源导出验证；真实模型质量尚未验收 |
+| M5 翻译任务 | 固定 DSH 模型／凭据／jobs，业务队列与持久化断点，快速接受与精翻草稿 | 已实现；模拟协议测试和 DeepSeek 原创双向小样通过；完整科学质量验收待完成 |
 | M5 后续 | DSH 设置／profile；MD 解析与 TXT/MD 的 CLI＋HTTP 路径 | 待实施；按设计 §10 验证真实翻译与双入口闭环；后续按改动维护三端 CI |
 | M6 | 工作台、任务页与 MCP 双 transport | 待实施；工作台验收及真实 harness 闭环 |
 | M7～M8 | 依 v2.0 §10 接入其余主用例与分发验收 | 待实施；不提前宣称 PDF、RAG、Zotero 或三端交付 |
@@ -63,3 +63,14 @@
 - 新示例 `examples/translate-text.mjs` 可使用显式配置运行／恢复任务并导出 MD／JSON；它是内核示例，不代表正式 CLI 已完成。当前只实现翻译 Task，导入与导出仍为直接异步内核方法；DSH 设置页、profile 管理、MD 解析和各入口留待后续阶段。
 
 验证：本机完整构建与套件、临时 tarball 安装验证通过；固定 DSH 闭包为 833 个源码输入。最终套件共 39 项，Windows/Linux/macOS 的 Node 24 CI 均通过完整构建、测试和临时安装包验证；代码提交 `f1c4a0e`，[运行记录](https://github.com/KongouAirlines/ivaraige/actions/runs/37300377753)。模型集成测试只访问本地模拟 HTTP 供应商，已覆盖真实 DSH 适配、凭据引用、错误／取消／超时／截断、译文导出、重启与零追加请求复用，未使用私有材料或外部付费模型。
+
+## DeepSeek 真实小样（2026-10-05）
+
+用户授权使用 DeepSeek 测试后，通过已有 `DeepSeek_API_TOKEN` 用户环境变量向官方 `https://api.deepseek.com` 调用 `deepseek-flash`。模型名与端点核对 [官方文档](https://api-docs.deepseek.com/)。密钥只在启动进程内传递，DSH 通过凭据引用解析，未输出或落盘。`examples/translation-deepseek.json` 是无密钥配置，`scripts/smoke-deepseek.mjs` 是显式运行的真实调用测试，不加入默认测试或 CI。
+
+- 原创英译中 2 段、中译英 1 段；不读取私有材料或旧实验参考译文。经新内核 TXT 导入、Task、DSH llm/pi-ai、快速接受，再导出 MD／JSON。
+- 初次翻译 3 次模型调用，供应商经 DSH 返回的用量合计输入 **462**、输出 **140** tokens。两个翻译任务的阶段耗时合计 2577 ms，不含完整进程启动、导出与重启。
+- 两个文档分别生成同一冻结快照上的 MD／JSON，共 4 个产物。导出未调用模型；关闭并重开 SQLite 后，两个新任务复用全部 3 段，新增模型调用 **0**。
+- 对照检查保留了 300 K、10/20 mT、0.12/0.18、`y = a x + b`、`1.5 ± 0.2`、标准差与 95% 置信区间的区别，以及网格收敛结论的适用限制。未发现明显误译；仅是代理对原创短文本的逐句检查，不是独立专家签认或完整科学语料验收。
+
+本地结果：`evaluation/runs/deepseek-restart/report.json`，SQLite 与 4 个产物同目录，全部按既有规则忽略。可在启动环境提供凭据后运行 `node scripts/smoke-deepseek.mjs [输出目录]`；已有接受版本会复用，指定新目录才会重新请求。仅增加配置、测试脚本和记录，未修改生产内核。

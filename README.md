@@ -36,7 +36,9 @@ const task = await app.tasks.wait(taskId)
 
 `fast` 自动接受新译文；`careful` 保存草稿供人工接受。已接受且仍适用的译文直接复用。任务按文档互斥，当前队列串行执行；`pause` 在段落边界暂停，`cancel` 中止在途模型请求，`resume` 续跑暂停或失败任务。重启后未完成任务进入暂停状态，需显式恢复；已落库的完成段落（含精翻草稿）不再调用模型。请求已发送但结果尚未提交时发生崩溃，无法保证供应商未执行该请求。模型超时默认 120 秒，可用 `timeoutMs` 调整；重试策略沿用 DSH 配置。
 
-可运行 `node examples/translate-text.mjs <config.json> <source.txt>`，默认输出到 `evaluation/runs/translation/`，支持恢复任务并导出 MD／JSON。这是内核调用示例，正式 CLI 协议仍待实现。当前自动翻译仅支持无术语集合（`none`）；有术语约束时明确失败。测试使用本地模拟模型接口，尚未据此确认真实模型的科研翻译质量；无法确认的 token 用量保留 `null`。
+可运行 `node examples/translate-text.mjs <config.json> <source.txt>`，默认输出到 `evaluation/runs/translation/`，支持恢复任务并导出 MD／JSON。这是内核调用示例，正式 CLI 协议仍待实现。当前自动翻译仅支持无术语集合（`none`）；有术语约束时明确失败。无法确认的 token 用量保留 `null`。
+
+默认测试使用本地模拟接口。另已通过 DeepSeek 原创英汉双向小样、导出与重启复用检查，完整科学质量验收仍待完成。真实调用配置见 [DeepSeek 示例](examples/translation-deepseek.json)；启动环境提供 `DeepSeek_API_TOKEN` 后可显式运行 `node scripts/smoke-deepseek.mjs`，不会随默认测试或 CI 自动调用付费接口。
 
 安装包冒烟会在临时目录安装本地 tarball，并验证运行时文件及第三方许可齐全；不发布 npm 包。三端 Node 24 的 CI 矩阵见 `.github/workflows/kernel-smoke.yml`，结果以实际 CI 运行为准。
 
