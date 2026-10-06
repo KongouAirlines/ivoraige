@@ -6,9 +6,10 @@ import { root, upstream, DSH_COMMIT, verifySource } from './setup-dsh.mjs'
 
 if (!existsSync(upstream)) throw new Error('DSH source missing. Run npm run setup:dsh first.')
 verifySource()
-// Reuse M1 dependencies when present. Clean checkouts use npm ci at the root.
-const dependencies = existsSync(join(root, 'node_modules/esbuild/package.json'))
-  ? join(root, 'node_modules') : join(root, 'experiments/cordis-dsh/node_modules')
+const dependencies = join(root, 'node_modules')
+if (!existsSync(join(dependencies, 'esbuild/package.json'))) {
+  throw new Error('Project dependencies missing. Run npm ci at the repository root first.')
+}
 const require = createRequire(join(dependencies, '..', 'package.json'))
 const { build } = require('esbuild')
 const aliases = new Map()
