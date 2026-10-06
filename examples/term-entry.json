@@ -1,8 +1,0 @@
-{
-  "en": "spin wave",
-  "zh": "自旋波",
-  "sense": "magnetic excitation",
-  "aliases": { "en": ["spin waves"], "zh": [] },
-  "context": ["magnetic", "磁性"],
-  "sources": [{ "source": "examples/scientific-en.txt", "quote": "The spin wave propagates through the magnetic film." }]
-}

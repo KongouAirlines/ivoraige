@@ -9,9 +9,12 @@
 | `research/` | 跨阶段技术调查与候选池 | 当前选型、DSH 插件候选、Cordis 生态候选 |
 | `decisions/` | 重要架构决策及理由 | M2 运行时选择决策记录 |
 
-阅读顺序：需求基线 → [MVP 分阶段规划](plan/mvp/README.md) → 跨阶段调研与决策。原始文件保持原样；后续范围建议写入计划，技术结论写入决策记录。
+当前阅读顺序：[v2.0 设计](requirements/v2.0/01_design_v2.0.md) → [0.1.0 实施记录](plan/0.1.0/README.md) → 按任务读取历史调研。M0～M4 为历史验证；本分支从头重建，不把历史功能视为新内核已完成能力。
 
 ## 当前规划
+
+- [0.1.0 实施记录](plan/0.1.0/README.md)：保留范围、从头重建与阶段进度；v2.0 是设计文档版本。
+- [v2.0 后端设计](requirements/v2.0/01_design_v2.0.md)、[UI 设计](requirements/v2.0/02_UI-design_v2.0.md)、[API 协议](requirements/v2.0/03_API-protocol_v2.0.md)：当前设计基线。
 
 - [代理协作规则](../AGENTS.md)：轻量子代理优先、任务边界、模型升级与私有语料处理。
 - [功能需求概览 v1.0](requirements/v1.0/01_功能需求概览_v1.0.md)：44 项需求及当前优先级。

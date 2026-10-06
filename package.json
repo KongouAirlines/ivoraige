@@ -1,19 +1,46 @@
 {
   "name": "ivoraige",
-  "version": "0.2.0",
+  "version": "0.1.0-dev.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=24" },
+  "bin": {
+    "ivoraige": "./src/cli.mjs"
+  },
+  "exports": {
+    ".": "./src/app.mjs",
+    "./src/app.mjs": "./src/app.mjs"
+  },
+  "files": [
+    "src/",
+    "dist/dsh.mjs",
+    "dist/web/",
+    "dist/DSH-LICENSE.txt",
+    "dist/THIRD_PARTY_LICENSES.txt",
+    "README.md",
+    "THIRD_PARTY.md"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "setup:dsh": "node scripts/setup-dsh.mjs",
-    "build": "node scripts/build.mjs",
-    "test": "npm run build && node --test test/*.test.mjs"
+    "build": "node scripts/build.mjs && node scripts/build-web.mjs",
+    "test": "npm run build && node --test test/*.test.mjs",
+    "smoke:package": "node scripts/smoke-package.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.87.1",
+    "@eslint-community/regexpp": "4.12.2",
     "@standard-schema/spec": "1.1.0",
-    "esbuild": "0.28.0",
-    "js-yaml": "4.2.0",
+    "ajv": "8.20.0",
+    "chokidar": "4.0.3",
+    "esbuild": "0.28.2",
+    "js-yaml": "4.3.2",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "resolve.exports": "2.0.3",
+    "semver": "7.8.5",
+    "yaml": "2.9.0",
     "zod": "4.4.3"
   }
 }

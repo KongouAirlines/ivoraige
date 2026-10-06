@@ -4,6 +4,10 @@
 
 上位文档：[01_设计与验收基线 v2.0](01_design_v2.0.md)（下称《设计》）。本文只定义协议：端点、schema、错误码、SSE 事件、sidecar 协议、认证与安全。业务规则以《设计》为准；词库字段随词库结构研判调整，本文术语部分只锁定传输形状。
 
+当前 TXT/Markdown 工作台只实现本文的一部分；下文明确标注“当前实现”的规则为该阶段的线上协议，其余仍是后续目标，不因当前尚未装配而删除。当前入口为 CLI、HTTP 与 WebUI；MCP、PDF/EPUB、RAG、Zotero 桥及非回环认证仍待实现。
+
+**0.1.0 实现边界**：翻译入口当前从 DSH 已保存的模型选择取路由，不接受请求级 `profileId`；§3.2 中携带 `profileId` 的字段属于后续协议。非 `none` 的术语约束集合没有可用的词库写入或组装 API；内部 `setConstraints` 只支持保存约束标识并做修订适用性检查，尚未实现按术语 scope 筛选、匹配和组装。下文完整术语 schema 与算法仍是 v2.0 设计目标。
+
 ## 1. 总约定
 
 ### 1.1 传输与版本
@@ -20,6 +24,8 @@
 - **DNS rebinding 防护**：校验 `Host` 头，只接受 `127.0.0.1`、`localhost`、`[::1]` 或显式配置的主机名；不匹配返回 `403`。
 - **CORS**：默认 `Access-Control-Allow-Origin` 不下发（即拒绝一切跨域页面调用）；仅当用户显式配置允许来源时才输出对应白名单。
 - SSE 走同一认证；`EventSource` 不支持自定义头，故 SSE 端点额外接受 `?token=` 查询参数（仅非回环模式需要）。
+
+**当前实现限制**：`serve` 只允许回环地址，传入非回环 `--host` 直接返回 `INVALID_ARGUMENT`；命名 token、`/api/auth/bootstrap` 与非回环 SSE 认证尚未装配。当前 HTTP 校验 Host 与同源 Origin，不下发跨域许可。上面的非回环规则保留为目标协议，不能据此宣称当前可安全对外监听。
 
 ### 1.3 错误信封与错误码
 
@@ -49,6 +55,7 @@
 - **accepted 翻转**：接受／回退／取消接受带 `expectedAcceptedRevisionId: Id | null`，与当前 accepted 比较；要接受的版本由 URL 的 revisionId 指定，不能与乐观锁字段混用。两个入口同时改变同一 `(unitId, targetLang)` 的接受版本，后到者 409。接受旧修订仍须检查当前来源、上下文及目标约束，失效时返回 412，不因它曾被接受就绕过适用性检查。
 - **同类任务互斥**：同一 docId 上 `translate`/`export`/`rag` 各允许一个在跑任务；重复提交返回 `409 CONFLICT`，details 含在跑 taskId，调用方可选择 `attach`（订阅已有任务）或取消后重提。
 - **import 幂等**：`sourceId + 内容指纹` 命中已有 Document 时返回既有 docId 并置 `deduplicated: true`，不新建。
+- **当前模型设置写入互斥**：有 `queued`／`running` 翻译任务时，模型路由／选择或命名凭据写入返回 `409 CONFLICT`；先暂停任务，再修改设置。翻译任务的提交／恢复与设置写入经过同一入场串行化，避免任务开始期间切换模型。
 
 ## 2. 核心 schema（zod 逻辑定义，字段名为线上形状）
 
@@ -131,6 +138,7 @@ interface RagChunk {
 - 单位查询与翻译／编辑／导出明确传 `targetLang`；accepted/draft ID 仅属于该语言视图，不在其他语言之间共用。按 revisionId 操作时从修订记录取得语言。快照引用不可变来源／译文清单，Artifact 的摘要不与任务结束时的最新记录比较。
 - `locator` 是适配器自定义对象，但**必须**至少能回答"第几页/第几段"；协议不约束内部字段。
 - 列表端点统一分页：`?cursor=<opaque>&limit=<n≤500>`，响应 `{ items: [], nextCursor?: string }`。万级 unit 列表不依赖全量拉取。
+- 当前 HTTP 与 CLI 的列表响应在顶层另含 `apiVersion`，即 `{ apiVersion: "2.0", items: [], nextCursor?: string }`；适用于文档、单位、修订、任务、产物及快照列表。`nextCursor` 省略表示列表结束。
 
 ## 3. REST 端点
 
@@ -138,12 +146,14 @@ interface RagChunk {
 
 | 方法 | 路径 | 请求 | 响应 |
 |---|---|---|---|
-| POST | `/api/documents/import` | `{ path?: string, contentBase64?: string, format?: string, sourceId?: string, externalRef?: string }`（path 与 contentBase64 二选一） | `{ document: Document, taskId: Id, deduplicated: boolean, warnings: string[] }`；解析为异步任务 |
+| POST | `/api/documents/import` | `{ path?: string, contentBase64?: string, format?: string, language: string, sourceId?: string, externalRef?: string, title?: string, origin?: string }`（path 与 contentBase64 二选一；当前 `language` 必填且不得为 `auto`） | `{ document: Document, taskId: Id, deduplicated: boolean, warnings: string[] }`；当前 TXT/MD 解析与持久化在响应前完成，返回的 import Task 已是 `succeeded` |
 | GET | `/api/documents` | `?origin=&format=&cursor=&limit=` | 分页 Document[] |
 | GET | `/api/documents/{docId}` | — | `{ document: Document }` |
 | GET | `/api/documents/{docId}/units` | `?targetLang=<必填>&filter=all\|untranslated\|draft\|accepted&cursor=&limit=` | 分页 Unit[]（含该语言 accepted/draft 修订 id，不内嵌全文） |
 | GET | `/api/units/{unitId}` | `?targetLang=<必填>` | `{ unit: Unit, accepted?: Revision, draft?: Revision }` |
 | GET | `/api/units/{unitId}/revisions` | `?targetLang=<必填>` | 该语言 Revision[]（版本翻看数据源） |
+
+当前导入只接受 UTF-8 TXT／Markdown（`format: "txt" | "md"`，或由路径识别）；`contentBase64` 是 UTF-8 字节的 Base64，HTTP 请求体最多 10 MiB。TXT/MD 有界解析在请求内完成，成功后才响应并返回已持久化的完成态 import Task；后续大文档／sidecar 解析仍可按异步任务扩展。调用方须明确原文语言，当前没有自动检测。`path` 是服务端可访问的路径；浏览器上传使用 `contentBase64`。
 
 ### 3.2 翻译与编辑
 
@@ -155,6 +165,8 @@ interface RagChunk {
 | PATCH | `/api/units/{unitId}` | `{ targetLang: string, baseRevisionId: Id \| null, text: string }`；写 human 草稿修订，不自动接受 | `{ revision: Revision }`；baseRevisionId 过期→409 |
 | POST | `/api/revisions/{revisionId}/accept` | `{ expectedAcceptedRevisionId: Id \| null }`（无 accepted 时为 null） | `{ accepted: Revision }` |
 | POST | `/api/units/{unitId}/unaccept` | `{ targetLang: string, expectedAcceptedRevisionId: Id \| null }` | `{ accepted: null }`；保留修订历史 |
+
+**当前实现**：只有 `/api/documents/{docId}/translate` 已作为翻译入口装配，使用请求中的 `targetLang`、`unitIds`、`mode`；请求级 `profileId` 尚未装配。`/api/translate-text` 及其 regenerate 路径是后续文本翻译页目标。当前自动翻译遇到非 `none` 术语约束集合会显式失败，不能把约束标识的存储与适用性检查解释为术语装配能力。
 
 文本入口首轮即建立持久 Document 和一个承载当前输入的 Unit，修订引用该 unitId；语言检测先解析为实际语言再落库。重新生成从已有 Unit 取原文，校验 previousRevisionId 属于该单位／语言；输入原文改变时走新的文本导入，不把不同原文混入同一版本组。版本翻看、接受和进入工作台复用上表接口及 documentId，无需二次搬迁临时状态。
 
@@ -181,9 +193,11 @@ interface RagChunk {
 | GET | `/api/tasks?state=&kind=&cursor=` | 分页 Task[] |
 | GET | `/api/tasks/{taskId}` | `{ task: Task }` |
 | POST | `/api/tasks/{taskId}/cancel` | 取消信号贯穿到在途模型调用 |
-| POST | `/api/tasks/{taskId}/pause` / `/resume` | 暂停在 unit 边界生效；恢复从 cursor 续跑，已完成 unit 靠复用检查跳过 |
+| POST | `/api/tasks/{taskId}/pause` / `/resume` | 暂停在 unit 边界生效；恢复从 cursor 续跑，校验持久化完成记录的适用性后跳过（包括尚未接受的精翻草稿）；未完成 unit 再做复用检查 |
 | GET | `/api/tasks/{taskId}/events` | SSE，事件见 §4 |
 | GET | `/api/events` | 全局 SSE（任务列表页用），事件同 §4 |
+
+翻译修订、接受指针（快速模式）与 unit 完成记录／cursor 必须原子提交。启动恢复将遗留 `queued`／`running` 任务转为 `paused`，由用户显式续跑；`failed` 任务也可从已提交断点重试。完成记录失去当前适用性时，恢复返回 `PRECONDITION_FAILED`，不静默重译已完成段落。仅已提交结果具备不重复调用保证；请求已被供应商执行但本地尚未落库时崩溃，恢复可能再次请求该 unit。模型调用计数在调用前持久化，表示内核已登记的调用尝试；重试或未完成请求无法确认的 token 用量继续为 `null`。
 
 ### 3.5 术语（形状锁定，字段随词库研判扩展）
 
@@ -201,6 +215,22 @@ interface RagChunk {
 | POST | `/api/zotero/rag` | 同上前缀 → rag build → **额外产出两个可附文件**：`<title>.rag-manifest.json`（chunk 清单：文本、locator、嵌入模型、向量维度、构建时间；**不含向量本体**）与 `<title>.rag-report.md`（人类可读摘要：文档结构、chunk 数、检索入口说明）。RAG 索引本体留在内核存储，附件是"索引的可搬运描述"。 |
 | POST | `/api/zotero/rag-translate` | rag 与 translate 并行，汇合后 export；附件 = manifest + report + 译文文件 |
 | GET | `/api/zotero/task/{taskId}` | `{ task: Task, attachments: { path: string, suggestedName: string }[] }`（Zotero 插件按此挂附件） |
+
+### 3.7 当前工作台能力与模型设置
+
+下列端点已用于 TXT/Markdown 工作台，返回 JSON 时均遵循 §1 的 `apiVersion`／错误信封。它们补充当前实施子集，不改变后续 profile、词库及资产管理的目标协议。
+
+| 方法 | 路径 | 请求 | 响应 |
+|---|---|---|---|
+| GET | `/api/capabilities` | — | `{ features: string[], inputFormats: string[], outputFormats: string[] }`；按已装配能力返回，当前文本工作台有 documents/workbench/tasks/settings、TXT/MD 输入及 MD/JSON 输出 |
+| GET | `/api/settings/modelconfig` | — | `{ settings: { selected: { provider, model, timeoutMs } \| null, routes, credentials, revisions: { routes, selected } } }`；凭据只返回状态，不返回值 |
+| PATCH | `/api/settings/modelconfig` | `{ provider, model, api?, baseURL?, credentialRef?, contextWindow?, maxTokens?, reasoning?, compat?, reasoningEfforts?, timeoutMs?, routesRevision?, selectedRevision? }` | `{ settings: ... }`；DSH schema 校验模型路由与选择，显式 revision 过期返回 409 |
+| PUT | `/api/settings/credentials` | `{ ref, value }` | `{ configured, source?, writable }` 等 DSH 凭据状态字段；秘密仅写入 `dsh-credentials-local`，响应不回显 `value` |
+| GET | `/api/artifacts/{artifactId}/download` | — | 产物文件流；文件下载是 §1.1 JSON 规则的二进制例外 |
+
+初次启动可无模型配置，`selected` 为 `null`；若发起翻译时仍无选择，`POST /translate` 仍先返回 taskId，执行时模型服务抛出 `COMPONENT_MISSING`，任务随后记为失败。模型配置只存命名凭据引用，例如 `DeepSeek_API_TOKEN`；密钥值走凭据端点。`GET` 的 `credentials` 以提供商路由名为键，值是 DSH 的存在性与可写性描述，不是密钥。
+
+路由与当前模型选择分别属于 DSH 的两个可编辑插件条目。`PATCH` 先保存路由，再保存选择；每步由 DSH config-editor 持久化并热更新，但这两个条目之间不是一个跨条目原子事务。若第二步失败，已成功的路由写入仍保留，客户端应重新 `GET` 后修正。`routesRevision` 与 `selectedRevision` 在写前检查，不能把两次写误写为单次原子提交。设置和凭据更新遵守 §1.4 的运行任务互斥。
 
 ## 4. SSE 事件类型
 

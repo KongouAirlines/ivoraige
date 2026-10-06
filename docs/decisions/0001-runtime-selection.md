@@ -12,7 +12,7 @@
 
 ## 证据与取舍
 
-真实的 Cordis、DSH 模型运行时和 pi-ai 插件已连接本地模拟 HTTP/SSE 服务。实验验证流式结果、模型端点替换、凭据缺失、HTTP 401、取消、消费者关闭、超时，以及依赖缺失与卸载后的监听清理。无需真实模型密钥，未启动完整 DSH。命令和详细结果见[实验说明](../../experiments/cordis-dsh/README.md)与[源码研究](../plan/mvp/m1/cordis-harness.md)。
+真实的 Cordis、DSH 模型运行时和 pi-ai 插件已连接本地模拟 HTTP/SSE 服务。实验验证流式结果、模型端点替换、凭据缺失、HTTP 401、取消、消费者关闭、超时，以及依赖缺失与卸载后的监听清理。无需真实模型密钥，未启动完整 DSH。命令和详细结果见归档分支的[实验说明](https://github.com/KongouAirlines/ivaraige/blob/codex/archive-mvp-0.0.0/experiments/cordis-dsh/README.md)与当前保留的[源码研究](../plan/mvp/m1/cordis-harness.md)。归档代码也可用标签 `v0.0.0` 查阅。
 
 | 路线 | 本轮证据 | 安排 |
 |---|---|---|

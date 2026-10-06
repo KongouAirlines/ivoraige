@@ -11,11 +11,12 @@ ivoraige is a composable translation middleware. First application: English↔Ch
 
 ## Current state
 
-- MVP (M0–M4) is complete: text translation loop, term candidate building, accepted-revision storage, BabelDOC replay producing PDF/Markdown/JSON from one accepted revision set, simplified CLI. Tests: `test/*.test.mjs`, all passing.
+- MVP (M0–M4) is historical evidence. At the user's explicit request, `codex/restart-v2` starts the business kernel again from the v2.0 baseline at `12b8f37`; old business services/CLI/tests are removed. The retired MVP is version `0.0.0` on independent branch `codex/archive-mvp-0.0.0` (tag `v0.0.0`, commit `27eec14`). Retain the verified DSH bridge/build method; legacy experiments live only on the archive branch. The current software is `0.1.0-dev.0` (unreleased), independent of the v2.0 design document version. Track current capabilities and tests in `docs/plan/0.1.0/README.md`; do not count old acceptance results as new implementation progress. Name future implementation branches by software version; keep the current PR on `codex/restart-v2`.
 - Active design baseline is **v2.0** in `docs/requirements/v2.0/`:
   - `01_design_v2.0.md` — architecture, data model, reuse key, frozen export snapshots, milestones M5–M8.
   - `02_UI-design_v2.0.md` — WebUI (shell layout, theming, per-plugin pages, PDF page, DeepL-style text page, workbench).
   - `03_API-protocol_v2.0.md` — REST/SSE/MCP/CLI protocol, error codes, Python sidecar JSON-RPC, asset management, concurrency locks.
+- Current new capabilities: TXT/Markdown import, DSH domain/SQLite persistence, language-scoped revisions/acceptance and applicability checks, frozen snapshots, MD/JSON export, and durable import/translation/export tasks. `createApp({store})` enables records; without a store it remains parse-only. `createApp({store,settingsDir})` boots DSH profile/settings/config-editor, credentials, model and jobs; explicit `translation` configuration remains available for examples/tests. CLI, HTTP/SSE and React WebUI now share kernel operations; MCP remains pending. Fast acceptance, careful drafts, pause/resume/cancel and model setting persistence are implemented. Default tests use a local mock provider; an authorized DeepSeek three-unit bilingual smoke and a separate four-call browser workbench run have been observed. Node 24 CI passed 63 tests and package smoke on Windows, Linux and macOS for `c28c583` ([run 37314672867](https://github.com/KongouAirlines/ivaraige/actions/runs/37314672867)). Full scientific quality evaluation, PDF and terminology assembly remain pending. No migration from the retired MVP store.
 - Requirements v1.0 (`docs/requirements/v1.0/`) is the frozen feature baseline (44 items, F-01–F-44). Do not renumber or reprioritize.
 - Design constraints C1–C8 are registered in `01_design_v2.0.md` §0. They are decided, not open: three OS targets; CLI + MCP + WebUI on one kernel; single-deployment packaging; DSH plugin reuse for AI infrastructure (C8); term-base schema deferred (C7).
 
@@ -33,9 +34,11 @@ ivoraige is a composable translation middleware. First application: English↔Ch
 
 ## Repository layout
 
-- `src/` — kernel: `app.mjs` (composition), `cli.mjs`, `records.mjs` (documents/units/revisions), `translation.mjs`, `terms.mjs`, `task.mjs`, `export.mjs`, `pdf-output.mjs`, `source-providers.mjs`, `adapters/` (BabelDOC binding), `dsh-bridge.ts` (DSH vendored runtime).
+- `src/` — restarted kernel composition, parsing services/adapters, and retained `dsh-bridge.ts`. Only installed and tested capabilities are available; rebuild business services in stages.
+- `src/records.mjs` / `basis.mjs` — per-document atomic records and reuse applicability; one kernel owns each SQLite file. `src/export.mjs` renders only resolved frozen snapshots. Output adapters receive data, never the Cordis context.
+- `src/tasks.mjs` / `translation-model.mjs` — document translation orchestration over DSH jobs and llm. Revisions and unit checkpoints commit together; startup pauses unfinished tasks for explicit resume. Close tasks before disposing the storage context. Unsupported term assembly must fail explicitly.
 - `test/` — `node --test` suites; must stay green.
-- `experiments/` — verification rigs (`cordis-dsh`, `pdf-injection`); read-only reference, not production code.
+- `experiments/` — archive pointer only; old verification rigs are on `codex/archive-mvp-0.0.0` and the `v0.0.0` tag. Ignored local vendor/dependency caches may remain here.
 - `evaluation/private/` — copyrighted originals, extracted text, alignment data. Git-ignored by convention; work directly inside it, do not commit its contents.
 - `evaluation/runs/` — run outputs.
 - `docs/requirements/` (v1.0 frozen, v2.0 active design, amendments), `docs/research/` (tool selection evidence), `docs/plan/mvp/` (milestone records), `docs/decisions/` (ADRs).
@@ -46,16 +49,17 @@ ivoraige is a composable translation middleware. First application: English↔Ch
 ```bash
 npm run setup:dsh   # vendor the pinned DSH runtime (first setup / refresh)
 npm test            # build + run all tests
-node --test test/text-workflow.test.mjs   # single suite
+node --test test/*.test.mjs              # current foundation suites after build
+npm run smoke:package                   # after build: isolated tarball install and persistence/export smoke
 ```
 
 Node >= 24. Type "module" (ESM). Do not downgrade the engines field without verifying the dependency closure.
 
 ## Conventions
 
-- **Match existing patterns.** `src/*.mjs` modules with a thin `dsh-bridge.ts`; extend, don't restructure. The v2.0 docs describe the target architecture; migrate incrementally, keep tests green at every step.
+- **Follow the restart decision.** The user requested a fresh business implementation, overriding the earlier incremental migration advice. Keep a thin DSH bridge and small Cordis services; implement the v2.0 target in working stages, without restoring the old business layer by default. Keep the current suites green at every stage.
 - **Boring over clever.** Reuse existing components (DSH plugins, verified OSS) before writing new code. No speculative abstractions, no frameworks for hypothetical needs.
-- **Evidence over assertion.** Never write "verified" for code you didn't run; never claim a capability from a name or README. Distinguish observed results from inference. MVP evidence lives in `docs/plan/mvp/`.
+- **Evidence over assertion.** Never write "verified" for code you didn't run; never claim a capability from a name or README. Distinguish observed results from inference. MVP evidence in `docs/plan/mvp/` is retired reference; old source links are resolved on `codex/archive-mvp-0.0.0` or the `v0.0.0` tag, not the current implementation.
 - **Proportionate verification.** After a change, verify the affected path (run the suite or a smoke command). Do not re-verify untouched artifacts, re-scan the whole corpus, or add hash gates to routine file passing. Existing import hashes are reused as-is.
 - **Originals are read-only.** Modify derived data, never the copyrighted originals in `evaluation/private/`.
 - **No scope creep.** Do the requested task. Surface additional issues once, at the end; do not fold them into the change.

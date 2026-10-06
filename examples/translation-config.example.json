@@ -1,0 +1,15 @@
+{
+  "provider": "translation-gateway",
+  "model": "your-model-id",
+  "timeoutMs": 120000,
+  "providers": {
+    "translation-gateway": {
+      "apiKeyEnv": "IVORAIGE_API_KEY",
+      "api": "openai-completions",
+      "baseURL": "http://127.0.0.1:8080/v1",
+      "models": [
+        { "id": "your-model-id", "contextWindow": 8192, "maxTokens": 2048 }
+      ]
+    }
+  }
+}
