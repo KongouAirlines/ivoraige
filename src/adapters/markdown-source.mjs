@@ -141,7 +141,15 @@ export const markdownSource = {
         }
         continue
       }
-      if (i === 0 && /^---\s*$/.test(value)) invalid('YAML front matter')
+      if (i === 0 && /^\uFEFF?---[ \t]*$/.test(value)) {
+        const start = line.start
+        while (++i < lines.length && !/^(?:---|\.\.\.)[ \t]*$/.test(lines[i].text)) {}
+        if (i === lines.length) invalid('unclosed YAML front matter')
+        // Metadata is opaque: never translate YAML keys, values or directives.
+        // The original binding preserves its bytes, including BOM and newlines.
+        unchanged(start, lines[i].end, 'other')
+        continue
+      }
       const opener = /^ {0,3}(`{3,}|~{3,})/.exec(value)
       if (opener) { fence = { mark: opener[1][0], length: opener[1].length, start: line.start }; continue }
       if (/^\s*\$\$\s*$/.test(value)) { math = { start: line.start }; continue }

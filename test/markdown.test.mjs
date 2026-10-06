@@ -37,9 +37,42 @@ test('accepted text is escaped as prose and cannot create Markdown structure', a
   assert.throws(() => renderMarkdown(resolved(parsed, { Heading: 'line\nnew block' })), { code: 'PRECONDITION_FAILED' })
 })
 
+test('YAML front matter stays opaque while translated body retains original offsets', async () => {
+  for (const newline of ['\n', '\r\n']) {
+    for (const close of ['---', '...']) {
+      const header = ['\uFEFF---', 'title: "A *title*"', 'author:', '  - name: Sample',
+        'abstract: >-', '  Metadata with [@reference], $math$ and https://example.org.',
+        'format:', '  html:', '    toc: true', close].join(newline) + newline
+      const source = header + newline + '# Heading' + newline + 'A sentence.' + newline
+      const parsed = await markdownSource.parse({ format: 'md', content: source })
+      assert.equal(parsed.units[0].kind, 'other')
+      assert.equal(parsed.units[0].translatable, false)
+      assert.deepEqual(parsed.units.filter(unit => unit.translatable).map(unit => unit.sourceText),
+        ['Heading', 'A sentence.'])
+      assert.equal(parsed.units[1].locator.line, 12)
+      assert.equal(parsed.units[1].locator.start, source.indexOf('Heading'))
+      assert.equal(renderMarkdown(resolved(parsed)), source)
+      assert.equal(renderMarkdown(resolved(parsed, { Heading: '标题', 'A sentence.': '一句话。' })),
+        header + newline + '# 标题' + newline + '一句话。' + newline)
+    }
+  }
+})
+
+test('metadata-only Markdown is preserved and unclosed headers fail explicitly', async () => {
+  const source = '---\ntitle: Sample\n---'
+  const parsed = await markdownSource.parse({ format: 'md', content: source })
+  assert.equal(parsed.units.length, 1)
+  assert.equal(parsed.units[0].translatable, false)
+  assert.equal(renderMarkdown(resolved(parsed)), source)
+  for (const content of ['---', '---\ntitle: Sample\n', '---\n  ---\n']) {
+    await assert.rejects(markdownSource.parse({ format: 'md', content }),
+      { code: 'INVALID_ARGUMENT', message: 'Unsupported Markdown: unclosed YAML front matter' })
+  }
+})
+
 test('ambiguous or unsupported Markdown fails before import', async () => {
   for (const source of [
-    '---\na: b\n---', 'Title\n===', 'Title\n--', 'a | b\n- | -', '| a | b |',
+    'Title\n===', 'Title\n--', 'a | b\n- | -', '| a | b |',
     'A <span>unsafe</span>', '[label][id]', 'text $unclosed', '```js\nx',
     'See https://example.org', 'See www.example.org', '- item\n    continuation',
     '- item\n    - nested', 'a_b_c', '*a **b** c*',
