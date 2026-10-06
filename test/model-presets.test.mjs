@@ -63,6 +63,13 @@ test('cleared fields request removal and catalog presets do not override a mixed
   assert.deepEqual(request.compat, {})
 })
 
+test('half-filled capacity pairs are rejected before sending settings requests', () => {
+  for (const values of [{ contextWindow: '8192', maxTokens: '' }, { contextWindow: '', maxTokens: '2048' }]) {
+    assert.throws(() => modelSettingsRequest({ ...presetForm(modelPresets[0]), ...values }, { routes: 1, selected: 1 }),
+      /必须同时填写/)
+  }
+})
+
 test('local presets distinguish serving endpoints from a model family and keep placeholder outside config', () => {
   for (const id of ['ollama', 'llama-cpp', 'lmstudio']) {
     const preset = modelPresets.find(item => item.id === id)

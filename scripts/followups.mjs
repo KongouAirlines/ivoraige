@@ -70,7 +70,8 @@ export function main(cwd = process.cwd(), args = []) {
   for (const snapshot of snapshots) {
     const names = git(cwd, ['ls-tree', '-r', '--name-only', snapshot.commit, '--', directory])
       .split(/\r?\n/)
-      .filter(name => name.startsWith(directory) && /^[^/]+\.md$/.test(name.slice(directory.length)))
+      .filter(name => name.startsWith(directory) && name !== `${directory}README.md` &&
+        /^[^/]+\.md$/.test(name.slice(directory.length)))
       .sort()
     for (const name of names) {
       const source = git(cwd, ['show', `${snapshot.commit}:${name}`])

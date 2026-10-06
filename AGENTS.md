@@ -66,7 +66,7 @@ Node >= 24. Type "module" (ESM). Do not downgrade the engines field without veri
 
 ## Follow-up tracking
 
-- Follow [the follow-up register rules](docs/plan/deferred.md). Each newly discovered out-of-scope issue lives in `docs/plan/follow-ups/<stable-id>.md`; existing milestone capabilities stay in the implementation plan. Recording an item does not authorize implementation.
+- Follow [the follow-up register rules](docs/plan/follow-ups/README.md). Each newly discovered out-of-scope issue lives in `docs/plan/follow-ups/<stable-id>.md`; existing milestone capabilities stay in the implementation plan. Recording an item does not authorize implementation.
 - Before related work, read relevant workspace items and, as needed, compare the local target branch. For stage planning, use `npm run followups -- --refs <target> <participating-branches>`; this reads committed local snapshots, not uncommitted changes or live remote state. Do not scan every branch for routine tasks.
 - Search for duplicates before recording a finding. Include evidence, impact, scope, deferral reason, reassessment trigger, and acceptance conditions. Do not defer a fix required for the current task's acceptance or expand implementation scope merely because a follow-up exists.
 - When taking up an item, check existing implementation branches/PRs and record the branch, scope, and acceptance conditions. Local absence is not proof that no other agent is working on it; coordinate overlapping work. Git records are not a global claim lock.

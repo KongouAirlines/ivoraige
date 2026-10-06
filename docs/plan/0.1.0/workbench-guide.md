@@ -24,4 +24,4 @@ node src/cli.mjs --url http://127.0.0.1:8787 documents --json
 node src/cli.mjs --url http://127.0.0.1:8787 tasks --json
 ```
 
-CLI 若不带 `--url` 会另起内核，不能与运行中的服务同时占用同一 SQLite 文件。当前 Markdown 只支持已明确绑定来源位置的语法子集；表格、YAML front matter、HTML 等会被拒绝，详情见 [Markdown 阶段记录](markdown.md)。PDF、EPUB、RAG、MCP、词库及非回环访问尚未接入这个工作台。
+CLI 若不带 `--url` 会另起内核，不能与运行中的服务同时占用同一 SQLite 文件。当前 Markdown 只支持已明确绑定来源位置的语法子集；文件开头有效的 YAML 映射头部原样保留、不翻译，含头部的文件可正常导入，空头部也可保留。未闭合或无效头部会报导入错误。表格、HTML 等仍会被拒绝，详情见 [Markdown 阶段记录](markdown.md)。后续 QMD 的指定 YAML 字段翻译（如摘要、双语机构名称）见 [后续事项](../follow-ups/quarto-qmd-support.md)。PDF、EPUB、RAG、MCP、词库及非回环访问尚未接入这个工作台。

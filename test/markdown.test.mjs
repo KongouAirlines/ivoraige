@@ -47,6 +47,8 @@ test('YAML front matter stays opaque while translated body retains original offs
       const parsed = await markdownSource.parse({ format: 'md', content: source })
       assert.equal(parsed.units[0].kind, 'other')
       assert.equal(parsed.units[0].translatable, false)
+      assert.equal(parsed.units[0].sourceText, header)
+      assert.equal(source.slice(parsed.units[0].locator.start, parsed.units[0].locator.end), header)
       assert.deepEqual(parsed.units.filter(unit => unit.translatable).map(unit => unit.sourceText),
         ['Heading', 'A sentence.'])
       assert.equal(parsed.units[1].locator.line, 12)
@@ -68,6 +70,16 @@ test('metadata-only Markdown is preserved and unclosed headers fail explicitly',
     await assert.rejects(markdownSource.parse({ format: 'md', content }),
       { code: 'INVALID_ARGUMENT', message: 'Unsupported Markdown: unclosed YAML front matter' })
   }
+})
+
+test('front matter requires mapping metadata and never hides ambiguous prose', async () => {
+  for (const content of ['Hello world.', '- item', 'title: [unclosed', 'title: one\ntitle: two']) {
+    await assert.rejects(markdownSource.parse({ format: 'md', content: `---\n${content}\n---\n\nReal body.\n` }),
+      { code: 'INVALID_ARGUMENT' })
+  }
+  const empty = await markdownSource.parse({ format: 'md', content: '---\n---\n\nReal body.\n' })
+  assert.equal(empty.units[0].translatable, false)
+  assert.equal(empty.units[1].sourceText, 'Real body.')
 })
 
 test('ambiguous or unsupported Markdown fails before import', async () => {

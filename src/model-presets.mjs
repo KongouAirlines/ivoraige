@@ -34,3 +34,7 @@ export const modelPresets = [
   localPreset('llama-cpp', 'llama.cpp（本地）', 'http://127.0.0.1:8080/v1', ''),
   localPreset('lmstudio', 'LM Studio（本地）', 'http://127.0.0.1:1234/v1', ''),
 ].filter(Boolean)
+
+for (const preset of modelPresets.filter(item => ['moonshotai-cn', 'moonshotai'].includes(item.id))) {
+  preset.note += ' 国内与国际预设共用 MOONSHOT_API_KEY 引用，修改其中一个的凭据会影响另一个；不同账号请改用不同凭据引用，已配置状态不代表该密钥可用于两个端点。'
+}

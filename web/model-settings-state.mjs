@@ -21,13 +21,16 @@ export function presetForm(preset) {
 }
 
 export function modelSettingsRequest(form, revisions, select = false) {
+  const hasContext = String(form.contextWindow).trim() !== ''
+  const hasMaxTokens = String(form.maxTokens).trim() !== ''
+  if (hasContext !== hasMaxTokens) throw new Error('上下文窗口与最大 token 必须同时填写，或同时留空。')
   const body = { provider: form.provider, model: form.model, select,
     routesRevision: revisions.routes, selectedRevision: revisions.selected,
     timeoutMs: Number(form.timeoutMs) }
   for (const field of ['api', 'baseURL', 'credentialRef', 'reasoning']) {
     body[field] = form[field] || null
   }
-  if (form.contextWindow || form.maxTokens) {
+  if (hasContext) {
     body.contextWindow = Number(form.contextWindow)
     body.maxTokens = Number(form.maxTokens)
   } else { body.contextWindow = null; body.maxTokens = null }

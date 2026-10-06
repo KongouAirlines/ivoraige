@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
+import { isMap, parseDocument } from 'yaml'
 import { KernelError } from '../errors.mjs'
 
 const invalid = message => { throw new KernelError('INVALID_ARGUMENT', `Unsupported Markdown: ${message}`) }
@@ -118,8 +119,8 @@ export const markdownSource = {
       spans.push({ order, start, end })
     }
     const unchanged = (start, end, kind) => {
-      const sourceText = raw.slice(start, end).trim()
-      if (sourceText) units.push({ order: units.length, kind, sourceText,
+      const sourceText = raw.slice(start, end)
+      if (sourceText.trim()) units.push({ order: units.length, kind, sourceText,
         locator: { line: lines.findIndex(item => item.start === start) + 1, start, end }, translatable: false })
     }
     let fence = null
@@ -145,6 +146,10 @@ export const markdownSource = {
         const start = line.start
         while (++i < lines.length && !/^(?:---|\.\.\.)[ \t]*$/.test(lines[i].text)) {}
         if (i === lines.length) invalid('unclosed YAML front matter')
+        const metadata = parseDocument(raw.slice(line.end, lines[i].start))
+        if (metadata.errors.length || (metadata.contents !== null && !isMap(metadata.contents))) {
+          invalid('YAML front matter must be an empty document or valid mapping')
+        }
         // Metadata is opaque: never translate YAML keys, values or directives.
         // The original binding preserves its bytes, including BOM and newlines.
         unchanged(start, lines[i].end, 'other')

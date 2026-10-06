@@ -23,6 +23,9 @@ export function Settings({ api, useRemote, Button, ErrorBox }) {
   const catalogModel = (preset || providerPreset)?.models?.find(item => item.id === form.model)
   const update = (field, value) => {
     if (['provider', 'credentialRef'].includes(field)) setSecret('')
+    if (['provider', 'model'].includes(field)) setPresetId('')
+    setError('')
+    setMessage('')
     setForm(current => ({ ...current, [field]: value,
       ...(['provider', 'model'].includes(field) ? { reasoningEfforts: null } : {}) }))
   }
@@ -39,6 +42,7 @@ export function Settings({ api, useRemote, Button, ErrorBox }) {
     setPresetId('')
     setSecret('')
     setMessage('')
+    setError('')
   }
   const save = async select => {
     setBusy(select ? 'save-select' : 'save'); setError(''); setMessage('')
@@ -90,7 +94,7 @@ export function Settings({ api, useRemote, Button, ErrorBox }) {
           </div>
         })}
         {!data.value.savedModels?.length && <p className="muted">尚无已保存模型。选择下面的预设或手动添加。</p>}
-        <Button className="secondary" disabled={!!busy} onClick={() => { setForm(emptyModelForm()); setPresetId(''); setSecret(''); setMessage('') }}>添加模型</Button>
+        <Button className="secondary" disabled={!!busy} onClick={() => { setForm(emptyModelForm()); setPresetId(''); setSecret(''); setMessage(''); setError('') }}>添加模型</Button>
       </section>
       <section className="settings-card">
         <div className="settings-heading"><span className="eyebrow">02 / MODEL</span><h2>模型与端点</h2>
