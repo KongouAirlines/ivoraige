@@ -7,14 +7,23 @@ async function canonicalStorePath(store) {
   const absolute = resolve(store)
   try { return await realpath(absolute) }
   catch (error) {
+    if (error.code === 'ENOTDIR') throw new KernelError('INVALID_ARGUMENT',
+      `Store parent is not a directory: ${dirname(absolute)}`, { parent: dirname(absolute) }, { cause: error })
     if (error.code !== 'ENOENT') throw error
     // The database need not exist yet, but its parent must exist before boot.
-    return join(await realpath(dirname(absolute)), basename(absolute))
+    const parent = dirname(absolute)
+    try { return join(await realpath(parent), basename(absolute)) }
+    catch (cause) {
+      if (cause.code === 'ENOENT' || cause.code === 'ENOTDIR') throw new KernelError('INVALID_ARGUMENT',
+        `Store parent directory does not exist or is not a directory: ${parent}`, { parent }, { cause })
+      throw cause
+    }
   }
 }
 
-// SQLite's BEGIN IMMEDIATE is an OS-backed, process-wide lock. A crashed process
-// releases it automatically; no PID file, stale timeout, or takeover race exists.
+// On a local filesystem with working SQLite locks, BEGIN IMMEDIATE provides
+// process ownership and the OS releases it after a crash. Network filesystems
+// (including NFS/SMB) are outside this guarantee; keep stores on local disks.
 // This sidecar is ownership coordination only. DSH owns the application database
 // and all records. Never unlink the sidecar while an owner may still be running.
 export async function acquireStoreLock(store) {
@@ -35,7 +44,10 @@ export async function acquireStoreLock(store) {
     db.exec('BEGIN IMMEDIATE')
   } catch (error) {
     try { db?.close() } catch { /* Preserve the acquisition error. */ }
-    if (error.message?.includes('database is locked')) {
+    // SQLite primary result codes: BUSY=5, LOCKED=6 (extended codes retain low byte).
+    const sqliteCode = Number.isInteger(error.errcode) ? error.errcode & 0xff : undefined
+    if (sqliteCode === 5 || sqliteCode === 6 ||
+        (sqliteCode === undefined && error.message?.includes('database is locked'))) {
       throw new KernelError('CONFLICT',
         `Store is already open by another process: ${path}. Connect to its server with --url URL, or close the owner first.`,
         { store: path })

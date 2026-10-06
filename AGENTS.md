@@ -38,7 +38,7 @@ ivoraige is a composable translation middleware. First application: English↔Ch
 - `src/records.mjs` / `basis.mjs` — per-document atomic records and reuse applicability; one kernel owns each SQLite file. `src/export.mjs` renders only resolved frozen snapshots. Output adapters receive data, never the Cordis context.
 - `src/tasks.mjs` / `translation-model.mjs` — document translation orchestration over DSH jobs and llm. Revisions and unit checkpoints commit together; startup pauses unfinished tasks for explicit resume. Close tasks before disposing the storage context. Unsupported term assembly must fail explicitly.
 - `test/` — `node --test` suites; must stay green.
-- `experiments/` — archive pointer only; old verification rigs are on `codex/archive-mvp-0.0.0` and the local `v0.0.0` tag. Ignored local vendor/dependency caches may remain here.
+- `experiments/` — archive pointer only; old verification rigs are on `codex/archive-mvp-0.0.0` and the `v0.0.0` tag. Ignored local vendor/dependency caches may remain here.
 - `evaluation/private/` — copyrighted originals, extracted text, alignment data. Git-ignored by convention; work directly inside it, do not commit its contents.
 - `evaluation/runs/` — run outputs.
 - `docs/requirements/` (v1.0 frozen, v2.0 active design, amendments), `docs/research/` (tool selection evidence), `docs/plan/mvp/` (milestone records), `docs/decisions/` (ADRs).
@@ -59,7 +59,7 @@ Node >= 24. Type "module" (ESM). Do not downgrade the engines field without veri
 
 - **Follow the restart decision.** The user requested a fresh business implementation, overriding the earlier incremental migration advice. Keep a thin DSH bridge and small Cordis services; implement the v2.0 target in working stages, without restoring the old business layer by default. Keep the current suites green at every stage.
 - **Boring over clever.** Reuse existing components (DSH plugins, verified OSS) before writing new code. No speculative abstractions, no frameworks for hypothetical needs.
-- **Evidence over assertion.** Never write "verified" for code you didn't run; never claim a capability from a name or README. Distinguish observed results from inference. MVP evidence in `docs/plan/mvp/` is retired reference; old source links are resolved on `codex/archive-mvp-0.0.0` or the local `v0.0.0` tag, not the current implementation.
+- **Evidence over assertion.** Never write "verified" for code you didn't run; never claim a capability from a name or README. Distinguish observed results from inference. MVP evidence in `docs/plan/mvp/` is retired reference; old source links are resolved on `codex/archive-mvp-0.0.0` or the `v0.0.0` tag, not the current implementation.
 - **Proportionate verification.** After a change, verify the affected path (run the suite or a smoke command). Do not re-verify untouched artifacts, re-scan the whole corpus, or add hash gates to routine file passing. Existing import hashes are reused as-is.
 - **Originals are read-only.** Modify derived data, never the copyrighted originals in `evaluation/private/`.
 - **No scope creep.** Do the requested task. Surface additional issues once, at the end; do not fold them into the change.

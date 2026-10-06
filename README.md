@@ -53,7 +53,9 @@ const task = await app.tasks.wait(taskId)
 
 默认测试使用本地模拟接口。另已通过 DeepSeek 原创英汉双向小样、导出与重启复用检查，完整科学质量验收仍待完成。真实调用配置见 [DeepSeek 示例](examples/translation-deepseek.json)；启动环境提供 `DeepSeek_API_TOKEN` 后可显式运行 `node scripts/smoke-deepseek.mjs`，不会随默认测试或 CI 自动调用付费接口。
 
-安装包冒烟会在临时目录安装本地 tarball，并验证 CLI、WebUI、设置、导出、重启及许可文件；不发布 npm 包。既有三端 Node 24 CI 结果只覆盖此前内核阶段；本轮文本工作台改动仍需新的三系统 CI 验证。
+安装包冒烟会在临时目录安装本地 tarball，并验证 CLI、WebUI、设置、导出、重启及许可文件；不发布 npm 包。文本工作台已通过 Windows／Linux／macOS Node 24 验证，具体提交和运行记录见 [实施记录](docs/plan/0.1.0/README.md)；后续提交的状态以 PR 检查为准。
+
+SQLite 数据库及其 `.owner.sqlite` 所有权文件须位于支持 SQLite 文件锁的本地文件系统。NFS／SMB 等网络文件系统不在并发安全保证范围内；多入口访问同一服务应使用 CLI 的 `--url`。库调用 `createApp({store})` 前须创建父目录，CLI 会自动创建。
 
 旧实验的查阅方式见 [归档说明](experiments/README.md)。版权材料及既有解析缓存仍放在已忽略的 `evaluation/private/`，输出放在 `evaluation/runs/`，无需重新解析或迁移。第三方版本与许可见 [THIRD_PARTY.md](THIRD_PARTY.md)。
 

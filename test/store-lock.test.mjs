@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os'
 import { join, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { createApp } from '../src/app.mjs'
+import { DatabaseSync } from 'node:sqlite'
+import { errorEnvelope } from '../src/protocol.mjs'
 
 const appUrl = pathToFileURL(resolve(fileURLToPath(new URL('../src/app.mjs', import.meta.url)))).href
 const ownerScript = `
@@ -111,4 +113,31 @@ test('boot failure releases ownership', async t => {
   await assert.rejects(createApp({ store, settingsDir }))
   const app = await createApp({ store })
   await app.dispose()
+})
+
+test('SQLite ownership conflicts use result codes even if diagnostic wording changes', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-lock-code-'))
+  const store = join(directory, 'records.sqlite')
+  const app = await createApp({ store })
+  t.after(async () => { await app.dispose(); await rm(directory, { recursive: true, force: true }) })
+  const exec = DatabaseSync.prototype.exec
+  const mocked = t.mock.method(DatabaseSync.prototype, 'exec', function (...args) {
+    try { return exec.apply(this, args) }
+    catch (error) { error.message = 'different diagnostic wording'; throw error }
+  })
+  try {
+    await assert.rejects(createApp({ store }), error => error.code === 'CONFLICT' && error.message.includes('--url'))
+  } finally { mocked.mock.restore() }
+})
+
+test('a missing store parent is an input error with the directory identified', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-missing-parent-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const parent = join(directory, 'missing')
+  await assert.rejects(createApp({ store: join(parent, 'records.sqlite') }), error => {
+    assert.equal(error.code, 'INVALID_ARGUMENT')
+    assert.equal(error.details.parent, parent)
+    assert.equal(errorEnvelope(error).exitCode, 2)
+    return true
+  })
 })
