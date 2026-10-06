@@ -1,8 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, relative, isAbsolute } from 'node:path'
+import { dirname, join, relative, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Service } from '../dist/dsh.mjs'
 import { createApp } from '../src/app.mjs'
@@ -178,7 +178,8 @@ test('a relative store still records an absolute managed source path', async t =
     (await f.app.records.createSnapshot(completed.docId, { targetLang: 'zh-CN', onMissingAccepted: 'skip' })).id)
     .sourceBinding
   assert.equal(isAbsolute(binding.sourcePath), true)
-  assert.ok(binding.sourcePath.startsWith(f.directory))
+  // macOS resolves /var temporary directories through /private/var.
+  assert.equal(dirname(binding.sourcePath), join(await realpath(f.directory), 'pdf', 'sources'))
   await f.restart()
   assert.equal((await f.app.tasks.get(taskId)).state, 'succeeded')
 })
