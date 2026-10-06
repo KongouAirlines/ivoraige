@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { mkdtemp, mkdir, rm, writeFile, symlink, link } from 'node:fs/promises'
+import { mkdtemp, mkdir, rm, writeFile, symlink, link, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, relative, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -44,8 +44,9 @@ test('another process cannot boot the same store; release permits reopening', as
     await rm(directory, { recursive: true, force: true })
   })
   child = await childOwner(store)
+  const canonicalStore = await realpath(store)
   await assert.rejects(createApp({ store }), error =>
-    error.code === 'CONFLICT' && error.message.includes('--url') && error.details.store === store)
+    error.code === 'CONFLICT' && error.message.includes('--url') && error.details.store === canonicalStore)
   child.stdin.end()
   await exited(child)
   const app = await createApp({ store })
