@@ -17,8 +17,8 @@ function count(value) {
   return Number.isSafeInteger(value) && value > 0 ? value : null
 }
 
-function upstreamFailure(canceled = false, reason = 'Model translation failed') {
-  return new KernelError('UPSTREAM_FAILURE', reason, { stage: 'model', ...(canceled ? { canceled: true } : {}) })
+function upstreamFailure(canceled = false, reason = 'Model translation failed', cause) {
+  return new KernelError('UPSTREAM_FAILURE', reason, { stage: 'model', ...(canceled ? { canceled: true } : {}) }, { cause })
 }
 
 export class TranslationModel extends Service {
@@ -86,9 +86,9 @@ export class TranslationModel extends Service {
         assembler.push(chunk)
         if (chunk.type === 'finish') finished = true
       }
-    } catch {
+    } catch (cause) {
       throw upstreamFailure(requestSignal.aborted && !timeout.aborted, requestSignal.aborted
-        ? 'Model translation canceled or timed out' : 'Model translation failed')
+        ? 'Model translation canceled or timed out' : 'Model translation failed', cause)
     }
     if (!finished) throw upstreamFailure(false, 'Model response ended without a finish event')
     const finish = assembler.finish

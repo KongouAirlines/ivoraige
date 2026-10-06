@@ -22,7 +22,7 @@ export class Exporter extends Service {
     this.root = root
   }
 
-  // Kernel primitive: the later jobs/entry layer will wrap this in a Task.
+  // Kernel rendering primitive used by the durable export task queue.
   async exportDocument(docId, { targetLang, outputs, snapshotId, onMissingAccepted, taskId, outputIndex } = {}) {
     if (typeof targetLang !== 'string' || !targetLang.trim() ||
         !Array.isArray(outputs) || !outputs.length || outputs.some(output =>

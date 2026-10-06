@@ -13,6 +13,7 @@ import { Tasks } from './tasks.mjs'
 import { Operations } from './operations.mjs'
 import { MarkdownSource } from './adapters/markdown-source.mjs'
 import { bootModelSettings } from './model-settings.mjs'
+import { acquireStoreLock } from './store-lock.mjs'
 
 // Composition only: business capabilities live in Cordis services.
 export async function createApp({ store, exportDir, translation, settingsDir } = {}) {
@@ -40,16 +41,18 @@ export async function createApp({ store, exportDir, translation, settingsDir } =
       throw new KernelError('INVALID_ARGUMENT', 'credentialsPath must be a nonempty path')
     }
   }
-  const ctx = settingsDir === undefined ? new Context() :
-    (await bootModelSettings({ directory: settingsDir })).ctx
+  const storeLock = store === undefined ? undefined : await acquireStoreLock(store)
+  let ctx
   try {
+    ctx = settingsDir === undefined ? new Context() :
+      (await bootModelSettings({ directory: settingsDir })).ctx
     await ctx.plugin(Outputs)
     await ctx.plugin(Parse)
     await ctx.plugin(TxtSource)
     await ctx.plugin(MarkdownSource)
     if (store !== undefined) {
       await ctx.plugin(Storage)
-      await ctx.plugin(StorageSqlite, { path: store })
+      await ctx.plugin(StorageSqlite, { path: storeLock.path })
       await ctx.plugin(StorageDomain, { backend: 'sqlite' })
       await ctx.plugin(Records)
       await ctx.get('ivoraige.records').ready
@@ -83,12 +86,16 @@ export async function createApp({ store, exportDir, translation, settingsDir } =
       operations: ctx.get('ivoraige.operations'),
       settings: ctx.get('ivoraige.modelSettings'),
       dispose: async () => {
-        try { await ctx.get('ivoraige.tasks')?.close() }
-        finally { await ctx.fiber.dispose() }
+        let failure
+        try { await ctx.get('ivoraige.tasks')?.close() } catch (error) { failure = error }
+        try { await ctx.fiber.dispose() } catch (error) { failure ??= error }
+        try { storeLock?.release() } catch (error) { failure ??= error }
+        if (failure) throw failure
       },
     }
   } catch (error) {
-    await ctx.fiber.dispose()
+    try { await ctx?.fiber.dispose() } catch { /* Preserve the boot error. */ }
+    try { storeLock?.release() } catch { /* Preserve the boot error. */ }
     throw error
   }
 }

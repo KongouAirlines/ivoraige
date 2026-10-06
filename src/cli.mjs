@@ -12,8 +12,8 @@ import { KernelError } from './errors.mjs'
 const usage = `ivoraige [--url URL | --store FILE] [--json] COMMAND [arguments] [options]
 Commands: import, documents, units, unit, revisions, edit, accept, unaccept,
   translate, export, snapshots, artifacts, tasks, task, pause, resume, cancel,
-  settings, serve, help
-Common options: --target-lang LANG, --json, --json-events, --url URL, --store FILE
+  settings, capabilities, serve, help
+Common options: --target-lang LANG, --json, --json-events, --no-wait, --url URL, --store FILE
 `
 
 function parse(argv) {
@@ -21,7 +21,7 @@ function parse(argv) {
   const boolean = new Set(['json', 'json-events', 'help', 'no-wait'])
   const known = new Set([...boolean, 'url', 'store', 'export-dir', 'settings-dir', 'host', 'port', 'static-dir',
     'path', 'format', 'source-id', 'external-ref', 'source-lang', 'title', 'target-lang', 'cursor',
-    'limit', 'origin', 'filter', 'text', 'base-revision', 'expected-accepted', 'mode', 'profile',
+    'limit', 'origin', 'filter', 'text', 'base-revision', 'expected-accepted', 'mode',
     'units', 'out', 'snapshot', 'on-missing-accepted', 'state', 'kind', 'set', 'ref', 'value'])
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i]
@@ -62,10 +62,15 @@ function route(command, args, o) {
     case 'unaccept': return ['unaccept', { unitId: required(unitId, 'unit ID'), targetLang: required(targetLang, '--target-lang'),
       expectedAcceptedRevisionId: o['expected-accepted'] ?? null }, 'POST', `/api/units/${unitId}/unaccept`]
     case 'translate': return ['translate', { docId: required(docId, 'document ID'), targetLang: required(targetLang, '--target-lang'),
-      mode: o.mode, profileId: o.profile, unitIds: o.units?.split(',') }, 'POST', `/api/documents/${docId}/translate`]
-    case 'export': return ['exportDocument', { docId: required(docId, 'document ID'), targetLang: required(targetLang, '--target-lang'),
-      outputs: required(o.format, '--format').split(',').map(format => ({ format, ...(o.out ? { out: o.out } : {}) })),
+      mode: o.mode, unitIds: o.units?.split(',') }, 'POST', `/api/documents/${docId}/translate`]
+    case 'export': {
+      const formats = required(o.format, '--format').split(',')
+      if (o.out && formats.length !== 1)
+        throw new KernelError('INVALID_ARGUMENT', '--out requires exactly one --format')
+      return ['exportDocument', { docId: required(docId, 'document ID'), targetLang: required(targetLang, '--target-lang'),
+      outputs: formats.map(format => ({ format, ...(o.out ? { out: o.out } : {}) })),
       snapshotId: o.snapshot, onMissingAccepted: o['on-missing-accepted'] }, 'POST', `/api/documents/${docId}/export`]
+    }
     case 'snapshots': return args[1] === 'delete' ? ['deleteSnapshot',
       { docId: required(docId, 'document ID'), snapshotId: required(args[2], 'snapshot ID') },
       'DELETE', `/api/documents/${docId}/snapshots/${args[2]}`] : args[1] ? ['getSnapshot', { docId: required(docId, 'document ID'), snapshotId: args[1] },
@@ -121,10 +126,12 @@ async function waitForTask(invoke, taskId) {
   }
 }
 
-async function observeEvents(app, base, stdout) {
+async function observeEvents(app, base, stdout, stderr) {
   let taskId
   let terminal = false
   let wakeTerminal
+  let streamError = false
+  const diagnostic = message => { if (!streamError) stderr.write(`${message}\n`); streamError = true; wakeTerminal?.() }
   const buffer = []
   const handle = event => {
     if (!taskId) { buffer.push(event); return }
@@ -135,7 +142,7 @@ async function observeEvents(app, base, stdout) {
       }
     }
   }
-  const waitForTerminal = () => terminal ? Promise.resolve() : new Promise(resolveWait => {
+  const waitForTerminal = () => terminal || streamError ? Promise.resolve() : new Promise(resolveWait => {
     const timer = setTimeout(resolveWait, 1000)
     wakeTerminal = () => { clearTimeout(timer); resolveWait() }
   })
@@ -146,7 +153,9 @@ async function observeEvents(app, base, stdout) {
   const controller = new AbortController()
   const response = await fetch(new URL('/api/events', base), { signal: controller.signal })
   if (!response.ok) throw new KernelError('UPSTREAM_FAILURE', 'Could not subscribe to task events')
+  if (!response.body) throw new KernelError('UPSTREAM_FAILURE', 'Task event stream has no body')
   const reader = response.body.getReader()
+  const decoder = new TextDecoder()
   const consume = (async () => {
     let pending = ''
     let eventType
@@ -154,21 +163,23 @@ async function observeEvents(app, base, stdout) {
       while (true) {
         const { value, done } = await reader.read()
         if (done) break
-        pending += new TextDecoder().decode(value, { stream: true })
+        pending += decoder.decode(value, { stream: true })
         let split
         while ((split = pending.indexOf('\n')) !== -1) {
           const line = pending.slice(0, split).replace(/\r$/, '')
           pending = pending.slice(split + 1)
           if (line.startsWith('event: ')) eventType = line.slice(7)
           else if (line.startsWith('data: ') && eventType) {
-            try { handle({ type: eventType, data: JSON.parse(line.slice(6)) }) } catch { /* malformed event */ }
+            try { handle({ type: eventType, data: JSON.parse(line.slice(6)) }) }
+            catch { diagnostic('Malformed task event received; task status will be checked directly') }
             eventType = undefined
           }
         }
       }
-    } catch (error) { if (!controller.signal.aborted) throw error }
+      if (!controller.signal.aborted && !terminal)
+        diagnostic('Task event stream ended; task status will be checked directly')
+    } catch { if (!controller.signal.aborted) diagnostic('Task event stream failed; task status will be checked directly') }
   })()
-  consume.catch(() => {})
   return { setTaskId(id) { taskId = id; buffer.splice(0).forEach(handle) },
     waitForTerminal, close() { controller.abort(); reader.cancel().catch(() => {}) } }
 }
@@ -193,8 +204,11 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
     }
     const [name, params, method, path] = route(command, positional, o)
     const remote = !!o.url
-    if (!remote && o['no-wait'] && ['translate', 'export', 'import'].includes(command))
+    const startsTask = ['translate', 'export', 'import'].includes(command)
+    if (!remote && o['no-wait'] && startsTask)
       throw new KernelError('INVALID_ARGUMENT', '--no-wait requires --url so the live server owns the task')
+    if (o['json-events'] && o['no-wait'] && startsTask)
+      throw new KernelError('INVALID_ARGUMENT', '--json-events cannot be combined with --no-wait')
     if (!remote) {
       const store = storePath(o)
       await mkdir(dirname(store), { recursive: true })
@@ -203,8 +217,8 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
     }
     const invoke = remote ? (_name, p, m, url) => invokeRemote(o.url, m, url, p) :
       (operation, p) => app.operations.invoke(operation, clean(p))
-    if (o['json-events'] && ['translate', 'export', 'import'].includes(command))
-      observer = await observeEvents(app, o.url, stdout)
+    if (o['json-events'] && startsTask)
+      observer = await observeEvents(app, o.url, stdout, stderr)
     const result = await invoke(name, params, method, path)
     observer?.setTaskId(result.taskId)
     if (o['json-events'] && result.taskId) {
@@ -214,7 +228,7 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
       if (final.task?.state === 'failed') return 4
     } else {
       stdout.write(`${serialize(result)}\n`)
-      if (result.taskId && !o['no-wait'] && !remote) {
+      if (result.taskId && !o['no-wait']) {
         const final = await waitForTask(invoke, result.taskId)
         if (final.task?.state === 'canceled') return 5
         if (final.task?.state === 'failed') return 4

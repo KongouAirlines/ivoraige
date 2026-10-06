@@ -36,7 +36,8 @@ export class Operations extends Service {
     const artifact = this.records.listArtifacts(docId).find(item => item.id === artifactId)
     if (!artifact) throw new KernelError('NOT_FOUND', 'Artifact not found', { artifactId })
     return { path: artifact.path, filename: basename(artifact.path),
-      contentType: artifact.format === 'json' ? 'application/json; charset=utf-8' : 'text/markdown; charset=utf-8' }
+      contentType: artifact.format === 'json' ? 'application/json; charset=utf-8' :
+        artifact.format === 'md' ? 'text/markdown; charset=utf-8' : 'application/octet-stream' }
   }
   async waitTask(taskId, seconds) {
     const task = this.records.getTask(taskId)
@@ -57,7 +58,8 @@ export class Operations extends Service {
     switch (name) {
       case 'capabilities': result = { features: ['documents', 'workbench', 'tasks',
         ...(this.ctx.get('ivoraige.modelSettings') ? ['settings'] : [])],
-        inputFormats: this.ctx.get('ivoraige.parse').listAdapters().map(id => id === 'markdown' ? 'md' : id), outputFormats: ['md', 'json'] }; break
+        inputFormats: this.ctx.get('ivoraige.parse').listAdapters().map(id => id === 'markdown' ? 'md' : id),
+        outputFormats: this.ctx.get('ivoraige.outputs').listAdapters() }; break
       case 'importDocument': {
         if ((p.path === undefined) === (p.contentBase64 === undefined)) throw new KernelError('INVALID_ARGUMENT', 'Specify path or contentBase64, exclusively')
         let content

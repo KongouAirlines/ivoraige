@@ -6,6 +6,8 @@
 
 当前 TXT/Markdown 工作台只实现本文的一部分；下文明确标注“当前实现”的规则为该阶段的线上协议，其余仍是后续目标，不因当前尚未装配而删除。当前入口为 CLI、HTTP 与 WebUI；MCP、PDF/EPUB、RAG、Zotero 桥及非回环认证仍待实现。
 
+**0.1.0 实现边界**：翻译入口当前从 DSH 已保存的模型选择取路由，不接受请求级 `profileId`；§3.2 中携带 `profileId` 的字段属于后续协议。非 `none` 的术语约束集合没有可用的词库写入或组装 API；内部 `setConstraints` 只支持保存约束标识并做修订适用性检查，尚未实现按术语 scope 筛选、匹配和组装。下文完整术语 schema 与算法仍是 v2.0 设计目标。
+
 ## 1. 总约定
 
 ### 1.1 传输与版本
@@ -163,6 +165,8 @@ interface RagChunk {
 | PATCH | `/api/units/{unitId}` | `{ targetLang: string, baseRevisionId: Id \| null, text: string }`；写 human 草稿修订，不自动接受 | `{ revision: Revision }`；baseRevisionId 过期→409 |
 | POST | `/api/revisions/{revisionId}/accept` | `{ expectedAcceptedRevisionId: Id \| null }`（无 accepted 时为 null） | `{ accepted: Revision }` |
 | POST | `/api/units/{unitId}/unaccept` | `{ targetLang: string, expectedAcceptedRevisionId: Id \| null }` | `{ accepted: null }`；保留修订历史 |
+
+**当前实现**：只有 `/api/documents/{docId}/translate` 已作为翻译入口装配，使用请求中的 `targetLang`、`unitIds`、`mode`；请求级 `profileId` 尚未装配。`/api/translate-text` 及其 regenerate 路径是后续文本翻译页目标。当前自动翻译遇到非 `none` 术语约束集合会显式失败，不能把约束标识的存储与适用性检查解释为术语装配能力。
 
 文本入口首轮即建立持久 Document 和一个承载当前输入的 Unit，修订引用该 unitId；语言检测先解析为实际语言再落库。重新生成从已有 Unit 取原文，校验 previousRevisionId 属于该单位／语言；输入原文改变时走新的文本导入，不把不同原文混入同一版本组。版本翻看、接受和进入工作台复用上表接口及 documentId，无需二次搬迁临时状态。
 

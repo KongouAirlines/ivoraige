@@ -34,7 +34,7 @@ const status = s => <span className={`status status-${s}`}>{stateNames[s] || s |
 const revisionStatus = s => <span className={`status revision-${s}`}>{({ accepted:'已接受', draft:'草稿', superseded:'历史版本' })[s] || s || '—'}</span>
 const usage = n => n == null ? '未知' : n.toLocaleString()
 const navigate = path => { location.hash = path }
-const route = () => decodeURI(location.hash.replace(/^#/, '') || '/')
+const route = () => { try { return decodeURI(location.hash.replace(/^#/, '') || '/') } catch { return '/' } }
 const targetFor = language => language?.toLowerCase().startsWith('zh') ? 'en' : 'zh'
 
 function useRemote(loader, deps) {
@@ -75,10 +75,10 @@ function TaskCard({ task, refresh }) {
   </article>
 }
 function Dashboard({ epoch, capabilities }) {
-  const docs=useRemote(()=>allPages('/documents'),[epoch]); const tasks=useRemote(()=>allPages('/tasks'),[epoch]); const active=(tasks.value||[]).filter(t=>['queued','running','paused'].includes(t.state))
+  const [taskTick,setTaskTick]=useState(0); const docs=useRemote(()=>allPages('/documents'),[epoch]); const tasks=useRemote(()=>allPages('/tasks'),[epoch,taskTick]); const active=(tasks.value||[]).filter(t=>['queued','running','paused'].includes(t.state))
   return <div className="page"><div className="hero"><div><span className="eyebrow">IVORAIGE / WORKSPACE</span><h1>让每一段译文都有来处</h1><p>导入研究材料，逐段翻译与审校，再从同一份已接受译文生成输出。</p><a className="button" href="#/documents">查看文档 <span>↗</span></a></div><div className="hero-symbol">文<span>↔</span>译</div></div>
     <div className="section-heading"><div><span className="eyebrow">START HERE</span><h2>开始处理</h2></div></div><Upload onDone={r=>navigate(`/workbench/${r.document.id}`)}/>
-    <div className="section-heading"><div><span className="eyebrow">IN PROGRESS</span><h2>进行中的任务</h2></div><a href="#/tasks">所有任务 →</a></div>{tasks.error?<ErrorBox message={tasks.error}/>:active.length?<div className="task-grid">{active.slice(0,3).map(t=><TaskCard key={t.id} task={t} refresh={()=>location.reload()}/>)}</div>:<div className="quiet-panel">目前没有进行中的任务。</div>}
+    <div className="section-heading"><div><span className="eyebrow">IN PROGRESS</span><h2>进行中的任务</h2></div><a href="#/tasks">所有任务 →</a></div>{tasks.error?<ErrorBox message={tasks.error}/>:active.length?<div className="task-grid">{active.slice(0,3).map(t=><TaskCard key={t.id} task={t} refresh={()=>setTaskTick(x=>x+1)}/>)}</div>:<div className="quiet-panel">目前没有进行中的任务。</div>}
     <div className="section-heading"><div><span className="eyebrow">RECENT DOCUMENTS</span><h2>最近文档</h2></div><a href="#/documents">全部文档 →</a></div>{docs.error?<ErrorBox message={docs.error}/>:docs.value?.length?<div className="doc-grid">{docs.value.slice(-4).reverse().map(d=><DocumentCard key={d.id} doc={d}/>)}</div>:<Empty title="还没有文档" detail="拖入一份 TXT 或 Markdown 文件，开始建立可追溯的翻译记录。"/>}</div>
 }
 function DocumentCard({doc}) {return <a className="doc-card" href={`#/workbench/${doc.id}`}><div className="doc-mark">{doc.format?.toUpperCase()}</div><strong>{doc.title}</strong><span className="muted">{doc.language?.toUpperCase()} · {doc.unitCount} 个单位</span><span className="doc-bottom">{fmt(doc.importedAt)} <b>打开工作台 →</b></span></a>}
@@ -130,7 +130,7 @@ function App() {
   useEffect(()=>{const sync=()=>setPath(route());window.addEventListener('hashchange',sync);return()=>window.removeEventListener('hashchange',sync)},[])
   useEffect(()=>{const apply=()=>{document.documentElement.dataset.theme=theme==='system'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):theme};apply();localStorage.setItem('ivoraige.theme',theme);const media=matchMedia('(prefers-color-scheme: dark)');media.addEventListener('change',apply);return()=>media.removeEventListener('change',apply)},[theme])
   useEffect(()=>{localStorage.setItem('ivoraige.sidebar',collapsed?'collapsed':'expanded')},[collapsed])
-  useEffect(()=>{let es,timer,delay=1000,stopped=false;function connect(){if(stopped)return;es=new EventSource('/api/events');es.onopen=()=>{setConnected(true);delay=1000;setEpoch(x=>x+1)};es.onerror=()=>{setConnected(false);es.close();timer=setTimeout(connect,delay);delay=Math.min(30000,delay*2)};for(const type of ['task.queued','task.started','task.progress','task.succeeded','task.failed','task.paused','task.resumed','task.canceled','unit.completed'])es.addEventListener(type,()=>setEpoch(x=>x+1))}connect();return()=>{stopped=true;clearTimeout(timer);es?.close()}},[])
+  useEffect(()=>{let es,timer,invalidationTimer,delay=1000,stopped=false;const refresh=()=>{clearTimeout(invalidationTimer);invalidationTimer=undefined;setEpoch(x=>x+1)};const schedule=()=>{if(!invalidationTimer)invalidationTimer=setTimeout(refresh,500)};function connect(){if(stopped)return;es=new EventSource('/api/events');es.onopen=()=>{setConnected(true);delay=1000;refresh()};es.onerror=()=>{setConnected(false);es.close();timer=setTimeout(connect,delay);delay=Math.min(30000,delay*2)};for(const type of ['task.queued','task.started','task.progress','task.resumed','unit.completed'])es.addEventListener(type,schedule);for(const type of ['task.succeeded','task.failed','task.paused','task.canceled'])es.addEventListener(type,refresh)}connect();return()=>{stopped=true;clearTimeout(timer);clearTimeout(invalidationTimer);es?.close()}},[])
   const pages=[['/','主页','⌂'],['/documents','文档','▤'],...(capabilities.value?.features?.includes('workbench')?[['/workbench','工作台','◫']]:[]),...(capabilities.value?.features?.includes('tasks')?[['/tasks','任务','◷']]:[])]
   useEffect(()=>{const key=e=>{if(!(e.ctrlKey||e.metaKey)||!/^\d$/.test(e.key))return;const item=pages[Number(e.key)-1];if(item){e.preventDefault();navigate(item[0]==='/workbench'?'/documents':item[0])}};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key)},[pages.map(p=>p[0]).join(',')])
   const title=path.startsWith('/workbench/')?'精翻工作台':path.startsWith('/documents')?'文档':path.startsWith('/tasks')?'任务':path.startsWith('/settings')?'设置':'主页'

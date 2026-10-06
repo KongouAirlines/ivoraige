@@ -86,7 +86,7 @@ function inline(raw, from, to, add, kind) {
       inline(raw, cursor + marks.length, close, add, kind)
       cursor = close + marks.length
       run = cursor
-    } else if (ch === '[' || ch === ']') {
+    } else if (ch === ']') {
       invalid('unbalanced bracket')
     } else {
       cursor++

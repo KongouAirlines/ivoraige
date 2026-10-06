@@ -15,6 +15,23 @@ async function fixture(t) {
 }
 const upload = content => ({ contentBase64: Buffer.from(content).toString('base64'), format: 'txt', language: 'en' })
 
+test('capabilities and export use installed outputs, and deferred profile input is rejected', async t => {
+  const f = await fixture(t)
+  const unregister = f.app.outputs.register({ id: 'plain', supports: () => true, rebuild: data => data.units[0].text })
+  const ops = f.app.operations
+  assert.ok((await ops.invoke('capabilities')).outputFormats.includes('plain'))
+  const { document } = await ops.invoke('importDocument', upload('Custom output.'))
+  await assert.rejects(ops.invoke('translate', { docId: document.id, targetLang: 'zh', profileId: 'unused' }),
+    { code: 'INVALID_ARGUMENT' })
+  const { taskId } = await ops.invoke('exportDocument', { docId: document.id, targetLang: 'zh',
+    onMissingAccepted: 'skip', outputs: [{ format: 'plain' }] })
+  const task = await f.app.tasks.wait(taskId)
+  assert.equal(task.state, 'succeeded')
+  assert.equal(await readFile(task.artifacts[0].path, 'utf8'), 'Custom output.')
+  unregister()
+  assert.ok(!(await ops.invoke('capabilities')).outputFormats.includes('plain'))
+})
+
 test('model changes and translation admission serialize, and active tasks block configuration changes', async t => {
   const f = await fixture(t)
   const ops = f.app.operations

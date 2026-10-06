@@ -23,7 +23,7 @@ const taskSchema = z.object({
     reusedUnits: z.number(), reuseRatio: z.number(), tokens: z.record(z.string(),
       z.object({ input: z.number().nullable(), output: z.number().nullable() })) }),
   artifacts: z.array(z.unknown()), createdAt: z.string(), updatedAt: z.string(),
-  profileId: z.string().optional(), error: z.object({ stage: z.string(), unitId: z.string().optional(), message: z.string() }).optional(),
+  profileId: z.string().optional(), error: z.object({ stage: z.string(), unitId: z.string().optional(), message: z.string(), traceId: z.string().optional() }).optional(),
 })
 const operationTaskSchema = taskSchema.omit({ mode: true, unitIds: true, checkpoints: true, profileId: true })
   .extend({ kind: z.enum(['import', 'export']), targetLang: z.string().optional(),
@@ -249,7 +249,7 @@ export class Records extends Service {
     await this.ready
     required(language(targetLang), 'targetLang must be a real BCP-47 tag')
     required(['fast', 'careful'].includes(mode), 'Invalid translation mode')
-    required(profileId === undefined || (typeof profileId === 'string' && profileId), 'Invalid profileId')
+    required(profileId === undefined, 'Translation profiles are deferred')
     required(unitIds === undefined || (Array.isArray(unitIds) &&
       unitIds.every(unitId => typeof unitId === 'string') && new Set(unitIds).size === unitIds.length),
     'unitIds must be a unique string array')
@@ -264,7 +264,7 @@ export class Records extends Service {
       const ordered = current.units.filter(unit => selected.includes(unit.id)).map(unit => unit.id)
       const timestamp = now()
       created = { id: `${docId}.${id()}`, kind: 'translate', docId, targetLang, mode,
-        ...(profileId ? { profileId } : {}), unitIds: ordered, state: 'queued',
+        unitIds: ordered, state: 'queued',
         progress: { stage: 'translate', done: 0, total: ordered.length }, cursor: 0,
         checkpoints: [], stats: { stageDurationsMs: {}, llmCalls: 0, reusedUnits: 0,
           reuseRatio: 0, tokens: { translation: { input: null, output: null } } },

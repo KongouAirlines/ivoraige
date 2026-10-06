@@ -1,9 +1,9 @@
 # Third-party runtime sources
 
 On `codex/restart-v2`, the pinned source bridge, dependency lock and build
-license handling are retained. The old M2 business model service is archived
-on `v0.0.0`; the final paragraph is historical reference. The current CLI and
-WebUI are new implementations.
+license handling are retained. The retired MVP business model service is on
+`codex/archive-mvp-0.0.0` (tag `v0.0.0`). The current CLI and WebUI are
+new implementations for `0.1.0-dev.0`.
 
 The restarted records service now mounts the same pinned DSH storage hub,
 storage-domain and storage-sqlite plugins. SQLite comes from Node's built-in
@@ -39,9 +39,15 @@ The dependency lockfile fixes `@earendil-works/pi-ai` 0.87.1,
 `ajv` 8.20.0, `chokidar` 4.0.3, `esbuild` 0.28.2, `js-yaml` 4.3.2,
 `resolve.exports` 2.0.3, `semver` 7.8.5, `yaml` 2.9.0, `zod` 4.4.3,
 `react` 18.3.1 and `react-dom` 18.3.1, plus their transitive dependencies.
-The added boot dependencies support DSH profile/settings composition; React
-and React DOM power the browser workbench. The dependency audit reported zero
-advisories for this lockfile during the current stage.
+These dependencies come from the pinned DSH source used in the build closure:
+`credentials-local` imports `yaml` and `chokidar`; `config-editor` imports both
+`js-yaml` and `yaml` (the latter preserves YAML structure and comments);
+`app-boot` also imports `js-yaml`. Its compatibility modules import `semver`,
+the config-schema projector loads `ajv`, its pattern validator loads
+`@eslint-community/regexpp`, and profile resolution imports
+`resolve.exports`. React and React DOM power the browser workbench. The
+dependency audit reported zero advisories for this lockfile during the
+current stage.
 
 esbuild bundles the reachable Node runtime into `dist/dsh.mjs` and the browser
 runtime into `dist/web/app.js`. The Node output includes `DSH-LICENSE.txt`,
@@ -52,13 +58,9 @@ these notices with any distributed bundle. The DSH bundle preserves attribution
 headers; the build embeds the pinned LLM package version so its attribution
 does not read the project's manifest or depend on the original checkout path.
 
-The business service in `src/model.mjs` mounts explicit OpenAI-compatible
-provider routes through DSH. Credential values are resolved by DSH from the
-named environment variables at runtime; setup and build do not read `.env`
-files or model credentials. Role endpoints must be explicit, and non-loopback
-endpoints require `network: true`. Loopback services such as an unauthenticated
-LM Studio server may omit `apiKeyEnv`; the mount then supplies a unique,
-non-secret dummy credential reference and removes it when unloaded, preventing
-ambient provider credential discovery. Remote endpoints require an explicit
-credential reference. The SDK's normalized usage cannot prove
-whether provider counts were supplied, so M2 records usage as unknown.
+The current translation service in `src/translation-model.mjs` uses DSH LLM
+routes. Credential values are resolved by DSH at runtime; setup and build do
+not read model credentials. The current workbench persists a named credential
+reference and DSH model settings, while explicit translation configuration
+remains available for examples and tests. When a provider omits usage, the
+business task records unknown (`null`) rather than zero.

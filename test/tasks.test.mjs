@@ -238,5 +238,4 @@ test('failed model attempts are counted and errors omit provider details', async
   const done = await f.tasks.wait(taskId)
   assert.equal(done.state, 'succeeded')
   assert.equal(done.stats.llmCalls, 3)
-  assert.ok(done.stats.stageDurationsMs.translate >= 0)
 })

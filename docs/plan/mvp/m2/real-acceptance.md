@@ -54,7 +54,7 @@
 
 ## 复跑与用户审阅入口
 
-轻量脚本：[scripts/m2-acceptance.mjs](../../../../scripts/m2-acceptance.mjs)。模型／端点示例：[model.hy-deepseek.json](../../../../examples/model.hy-deepseek.json)。运行数据在忽略目录 `evaluation/runs/m2-acceptance/`；脚本固定六 dev 白名单，只拷贝源文与定位，生成步骤不载入参考。
+以下命令是旧 MVP 的历史验收记录，只能在归档分支 `codex/archive-mvp-0.0.0`（或标签 `v0.0.0`）运行；当前 0.1.0 工作区没有该脚本或示例配置。轻量脚本：[scripts/m2-acceptance.mjs](https://github.com/KongouAirlines/ivaraige/blob/codex/archive-mvp-0.0.0/scripts/m2-acceptance.mjs)。模型／端点示例：[model.hy-deepseek.json](https://github.com/KongouAirlines/ivaraige/blob/codex/archive-mvp-0.0.0/examples/model.hy-deepseek.json)。运行数据在忽略目录 `evaluation/runs/m2-acceptance/`；脚本固定六 dev 白名单，只拷贝源文与定位，生成步骤不载入参考。
 
 ```powershell
 node scripts/m2-acceptance.mjs prepare

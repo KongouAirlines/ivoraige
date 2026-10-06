@@ -1,5 +1,6 @@
 import { Service } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
+import { reportFailure } from './diagnostics.mjs'
 import { resolve } from 'node:path'
 
 const terminal = new Set(['succeeded', 'failed', 'canceled'])
@@ -140,7 +141,13 @@ export class Tasks extends Service {
   schedule() {
     if (this.closing || this.running || this.scheduling) return
     this.scheduling = true
-    queueMicrotask(() => { this.scheduling = false; void this.dispatch() })
+    queueMicrotask(() => {
+      this.scheduling = false
+      void this.dispatch().catch(error => {
+        this.closing = true
+        reportFailure(error)
+      })
+    })
   }
 
   async dispatch() {
@@ -271,11 +278,12 @@ export class Tasks extends Service {
   }
 
   async fail(taskId, error) {
+    const traceId = reportFailure(error, { taskId })
     const message = safeMessage(error)
     const task = await this.records.updateTask(taskId, current => ({
       ...(this.running?.taskId === taskId ? this.withDuration(this.running, current) : current), state: 'failed',
       error: { stage: current.kind, ...(current.unitIds?.[current.cursor] ?
-        { unitId: current.unitIds[current.cursor] } : {}), message },
+        { unitId: current.unitIds[current.cursor] } : {}), message, traceId },
       updatedAt: new Date().toISOString() }))
     this.emit('task.failed', { taskId, ...task.error })
     this.settle(task)

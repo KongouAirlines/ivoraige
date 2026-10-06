@@ -2,9 +2,9 @@
 
 面向科研英汉翻译的可组装中间层。核心目标是译文和术语跨任务复用，各输出消费同一份已选定译文。
 
-当前在 `codex/restart-v2` 分支按 [v2.0 设计](docs/requirements/v2.0/01_design_v2.0.md)从头重建，软件版本为 `0.1.0-dev.0`（未发布）。旧 MVP（M0～M4）已弃用，完整实现及实验代码归档在独立分支 `codex/archive-mvp-0.0.0`，版本／本地标签为 `0.0.0`／`v0.0.0`，提交 `27eec14`。设计文档的 v2.0 不等于软件发布版本。
+当前在 `codex/restart-v2` 分支按 [v2.0 设计](docs/requirements/v2.0/01_design_v2.0.md)从头重建，软件版本为 `0.1.0-dev.0`（未发布）。旧 MVP（M0～M4）已弃用，完整实现及实验代码归档在独立分支 `codex/archive-mvp-0.0.0`，版本／标签为 `0.0.0`／`v0.0.0`，提交 `27eec14`。设计文档的 v2.0 不等于软件发布版本。
 
-当前文本工作台支持 TXT／Markdown 导入、DSH SQLite 持久化、按语言隔离的修订与接受、适用性检查，以及冻结快照驱动的 Markdown／JSON 导出。CLI、HTTP/SSE 与 React WebUI 共用内核；DSH profile 设置和命名凭据可保存模型路由，翻译任务支持快速接受、精翻草稿、暂停／恢复与取消。MCP、PDF、EPUB、RAG、Zotero 与词库结构尚未接入；完整科学质量验收和本阶段三系统 CI 仍待完成。范围与进度见 [重启实施记录](docs/plan/restart/README.md)。
+当前文本工作台支持 TXT／Markdown 导入、DSH SQLite 持久化、按语言隔离的修订与接受、适用性检查，以及冻结快照驱动的 Markdown／JSON 导出。CLI、HTTP/SSE 与 React WebUI 共用内核；DSH profile 设置和命名凭据可保存模型路由，翻译任务支持快速接受、精翻草稿、暂停／恢复与取消。MCP、PDF、EPUB、RAG、Zotero 与词库结构尚未接入；完整科学质量验收仍待完成。本阶段 Windows／Linux／macOS Node 24 的 63 项测试与安装包冒烟已通过，见 [CI 记录](https://github.com/KongouAirlines/ivaraige/actions/runs/37314672867)。范围与进度见 [0.1.0 实施记录](docs/plan/0.1.0/README.md)。
 
 ## 启动文本工作台
 
@@ -17,7 +17,7 @@ npm run build
 node src/cli.mjs serve --store .\evaluation\runs\workbench\store.sqlite
 ```
 
-浏览器打开终端打印的地址（默认 `http://127.0.0.1:8787`）。在设置页保存模型和凭据，然后导入 TXT／Markdown、逐段审校并导出。服务运行时，其他 CLI 命令应带 `--url http://127.0.0.1:8787`，避免第二个进程同时打开同一数据库。操作步骤、[DeepSeek 示例](examples/translation-deepseek.json)与 Markdown 语法边界见 [工作台指南](docs/plan/restart/workbench-guide.md)。当前只允许本机回环监听。
+浏览器打开终端打印的地址（默认 `http://127.0.0.1:8787`）。在设置页保存模型和凭据，然后导入 TXT／Markdown、逐段审校并导出。服务运行时，其他 CLI 命令应带 `--url http://127.0.0.1:8787`，避免第二个进程同时打开同一数据库。操作步骤、[DeepSeek 示例](examples/translation-deepseek.json)与 Markdown 语法边界见 [工作台指南](docs/plan/0.1.0/workbench-guide.md)。当前只允许本机回环监听。
 
 ## 开发验证
 

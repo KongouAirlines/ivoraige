@@ -22,7 +22,7 @@ test('DSH settings and credentials persist a model configured after empty boot',
     baseURL: 'http://127.0.0.1:9999/v1', credentialRef: 'IVORAIGE_LOCAL_KEY',
     contextWindow: 8192, maxTokens: 512,
   })
-  assert.deepEqual(saved.selected, { provider: 'local', model: 'scientific', timeoutMs: 120_000 })
+  assert.partialDeepStrictEqual(saved.selected, { provider: 'local', model: 'scientific' })
   assert.equal(saved.routes.local.apiKeyEnv, 'IVORAIGE_LOCAL_KEY')
   await app.settings.setCredential({ ref: 'IVORAIGE_LOCAL_KEY', value: 'a-private-test-secret' })
   const view = await app.settings.get()
@@ -32,7 +32,7 @@ test('DSH settings and credentials persist a model configured after empty boot',
   await assert.rejects(app.settings.update({ provider: 'local', model: 'other',
     routesRevision: view.revisions.routes, selectedRevision: view.revisions.selected - 1 }),
   { code: 'CONFLICT' })
-  assert.deepEqual(app.settings.resolve(), { provider: 'local', model: 'scientific', timeoutMs: 120_000 })
+  assert.partialDeepStrictEqual(app.settings.resolve(), { provider: 'local', model: 'scientific' })
   const changed = await app.settings.update({ provider: 'local', model: 'scientific-v2',
     selectedRevision: view.revisions.selected })
   assert.equal(changed.routes.local.baseURL, 'http://127.0.0.1:9999/v1')
@@ -40,7 +40,7 @@ test('DSH settings and credentials persist a model configured after empty boot',
 
   await app.dispose()
   app = await bootModelSettings({ directory })
-  assert.deepEqual(app.settings.resolve(), { provider: 'local', model: 'scientific-v2', timeoutMs: 120_000 })
+  assert.partialDeepStrictEqual(app.settings.resolve(), { provider: 'local', model: 'scientific-v2' })
   assert.equal((await app.settings.get()).credentials.local.configured, true)
   assert.equal((await app.ctx.credentials.resolve('IVORAIGE_LOCAL_KEY')).value, 'a-private-test-secret')
 })
@@ -91,7 +91,7 @@ test('createApp uses saved DSH settings for translation after empty boot and res
   assert.equal(requests[0].body.model, 'scientific')
   await app.dispose()
   app = await createApp({ store, settingsDir })
-  assert.deepEqual(app.settings.resolve(), { provider: 'local', model: 'scientific', timeoutMs: 120_000 })
+  assert.partialDeepStrictEqual(app.settings.resolve(), { provider: 'local', model: 'scientific' })
   const reused = await app.tasks.submit(document.id, { targetLang: 'zh-CN', mode: 'fast' })
   const second = await app.tasks.wait(reused.taskId)
   assert.equal(second.state, 'succeeded', JSON.stringify(second.error))

@@ -9,29 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- TXT/Markdown translation workbench with shared CLI/HTTP operations, SSE, React document/revision/task/settings pages, DSH model profiles and credentials, durable translation/export checkpoints, and same-snapshot MD/JSON output. The preview supports manual acceptance and rollback, with bounded Markdown syntax and explicit unsupported cases.
-- Real DeepSeek workbench acceptance and Node 24 checks on Windows/Linux/macOS: 63 tests and the installed-package workflow passed for `c28c583`; the user must review the preview before merging.
-- Restarted kernel: DSH domain/SQLite persistence, idempotent TXT import, language-scoped revisions with optimistic locks and applicability checks, frozen snapshot lifecycle, and MD/JSON exports from the same pinned revisions. Export adapters receive frozen data without model services.
-- A runnable text-records example and isolated npm package smoke; CI matrix for Node 24 on Windows, Linux and macOS; build, 17 tests and isolated package persistence/export smoke passed on all three platforms for commit `1f7e627`.
-
-- v2.0 design baseline in `docs/requirements/v2.0/`:
-  - `01_design_v2.0.md` — single-kernel three-entry architecture (CLI / MCP / WebUI), three-OS single-file distribution (Node SEA + PyInstaller sidecars + npm), data model with explicit `reuseKey` and frozen `ExportSnapshot` contracts, Zotero four-mode use case, fine-translation workbench walkthrough, acceptance matrix, milestones M5–M8, risk register; registered constraints C1–C8.
-  - `02_UI-design_v2.0.md` — WebUI design: light/dark theming, left-rail shell, per-plugin page registry, PDF processing page (settings / pipeline progress / performance & token summary / PDF.js preview), DeepL-style text translation page with regeneration versions, three-pane workbench.
-  - `03_API-protocol_v2.0.md` — REST + SSE + MCP + CLI protocol: zod schemas, error-code table mapped to CLI exit codes, optimistic-lock concurrency rules, SSE event types, Python sidecar JSON-RPC protocol (handshake / capability negotiation / dual sidecars), model-weight asset management via `dsh-attachment` content-addressed store with Range resume, loopback token auth and DNS-rebinding protection.
-- `AGENTS.md` rewritten in English as an agent-facing operational contract: project goals, nine architecture invariants, repository layout, commands, git workflow, subagent model-tier policy.
+- Rebuilt the text workbench with TXT/Markdown import, shared CLI/HTTP/SSE and React pages for documents, revisions, tasks and settings. DSH profiles and named credentials persist model routing; translation tasks support fast acceptance, careful drafts, pause/resume/cancel, manual revision acceptance and rollback.
+- Added language-scoped revisions, applicability checks, frozen export snapshots, and Markdown/JSON output from the same accepted revisions. Export does not call a model; durable task checkpoints and accepted revisions survive restart.
+- Added npm packaging and Node 24 CI on Windows, Linux and macOS, with an opt-in DeepSeek smoke workflow.
+- Added the v2.0 architecture, UI and API protocol design baseline in `docs/requirements/v2.0/`; it describes the future product separately from the current `0.1.0-dev.0` implementation.
 
 ### Changed
 
-- Archived the retired MVP as `0.0.0` on an independent branch and local tag. Removed legacy experiment code and CLI configuration examples from the restart branch; its development version is now `0.1.0-dev.0`.
+- Archived the retired MVP as `0.0.0` on independent branch `codex/archive-mvp-0.0.0` and tag `v0.0.0`. The earlier `0.2.0` label was never issued as a release; the archive uses `0.0.0` to distinguish that retired implementation from the new `0.1.0-dev.0` line. Historical commits remain unchanged.
+- Restarted the business kernel on `codex/restart-v2`; retained the pinned DSH bridge/build method, requirements and evaluation material, while replacing the old business services, CLI and tests.
 
-- Restarted the business kernel from the v2.0 design on `codex/restart-v2`; removed the old CLI, business services and their test suites. Retained the pinned DSH bridge/build method, requirements and evaluation materials; historical experiment code is now on the archive branch. The new text workflow is rebuilt independently of the retired MVP.
+## [0.0.0] - 2026-10-03
 
-- Export contract: all formats in one task share one frozen `ExportSnapshot`; in-flight outputs are immune to concurrent edits; snapshots are discoverable and deletable only when unreferenced.
-- Concurrency model: revision writes use `baseRevisionId`, accept/unaccept uses `expectedAcceptedRevisionId`; stale writes return `409 CONFLICT`.
-
-## [0.0.0] - 2026-09-30
-
-MVP (M0–M4) completed; retired on 2026-10-03 and archived as `0.0.0` on `codex/archive-mvp-0.0.0`. This supersedes the former `0.2.0` designation without rewriting history. The restart is currently `0.1.0-dev.0` (unreleased).
+MVP (M0–M4) historical implementation, retired and archived on `codex/archive-mvp-0.0.0` (tag `v0.0.0`, commit `27eec14`).
 
 ### Added
 
@@ -50,5 +40,5 @@ MVP (M0–M4) completed; retired on 2026-10-03 and archived as `0.0.0` on `codex
 - Explicit revision acceptance required; automatic version selection and a second parser integration pending.
 - No Web UI, no external dictionary integration yet.
 
-[Unreleased]: https://github.com/KongouAirlines/ivaraige/compare/v0.0.0...HEAD
-[0.0.0]: https://github.com/KongouAirlines/ivaraige/tree/v0.0.0
+[Unreleased]: https://github.com/KongouAirlines/ivaraige/pull/4
+[0.0.0]: https://github.com/KongouAirlines/ivaraige/tree/codex/archive-mvp-0.0.0

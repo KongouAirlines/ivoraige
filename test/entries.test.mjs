@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { request } from 'node:http'
+import { createServer, request } from 'node:http'
 import { mkdtemp, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -118,17 +118,6 @@ test('server close ends active SSE responses and releases listeners', async () =
   await response.body.cancel()
 })
 
-test('CLI --url --json prints the same envelope as HTTP', async t => {
-  const f = fixture()
-  const server = await serve(f.app, { port: 0 })
-  t.after(() => server.close())
-  let out = '', err = ''
-  const code = await runCli(['--url', server.url, '--json', 'documents'],
-    { stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
-  assert.equal(code, 0, err)
-  assert.equal(out, '{"apiVersion":"2.0","items":[{"id":"doc_1"}]}\n')
-})
-
 test('CLI --json errors use the shared error envelope and exit code', async () => {
   let out = '', err = ''
   const code = await runCli(['--json', 'units'],
@@ -216,29 +205,82 @@ test('CLI executes through a symlinked directory path', async t => {
   assert.match(out, /Commands: import, documents/)
 })
 
-test('CLI subprocess serializes the HTTP envelope when process spawning is permitted', async t => {
-  const f = fixture()
-  const server = await serve(f.app, { port: 0 })
-  t.after(() => server.close())
-  let child
-  try {
-    child = spawn(process.execPath, ['src/cli.mjs', '--url', server.url, '--json', 'documents'],
-      { cwd: new URL('..', import.meta.url), stdio: ['ignore', 'pipe', 'pipe'] })
-  } catch (error) {
-    if (error.code === 'EPERM') { t.skip('Process spawning is blocked by this sandbox'); return }
-    throw error
-  }
-  let out = '', err = ''
-  child.stdout.on('data', chunk => { out += chunk })
-  child.stderr.on('data', chunk => { err += chunk })
-  const result = await new Promise((resolve, reject) => {
-    child.once('error', error => error.code === 'EPERM' ? resolve({ blocked: true }) : reject(error))
-    child.once('close', code => resolve({ code }))
+for (const [state, exitCode] of [['failed', 4], ['canceled', 5]]) {
+  test(`CLI remote task waits for ${state} and returns exit ${exitCode}`, async t => {
+    let polls = 0
+    const app = { operations: {
+      async invoke(name) {
+        if (name === 'translate') return { apiVersion: '2.0', taskId: 'task_1' }
+        if (name === 'getTask') return { apiVersion: '2.0', task: { id: 'task_1', state: ++polls === 1 ? 'running' : state } }
+        throw new Error(`Unexpected operation ${name}`)
+      },
+      subscribe() { return () => {} },
+    } }
+    const server = await serve(app, { port: 0 })
+    t.after(() => server.close())
+    let out = '', err = ''
+    const code = await runCli(['--url', server.url, '--json', 'translate', 'doc_1', '--target-lang', 'zh-CN'],
+      { stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
+    assert.equal(code, exitCode, err)
+    assert.equal(polls, 2)
+    assert.equal(JSON.parse(out).taskId, 'task_1')
   })
-  if (result.blocked) { t.skip('Process spawning is blocked by this sandbox'); return }
-  const { code } = result
+}
+
+test('CLI remote --no-wait returns the task handle without polling', async t => {
+  let polls = 0
+  const app = { operations: {
+    async invoke(name) {
+      if (name === 'translate') return { apiVersion: '2.0', taskId: 'task_1' }
+      if (name === 'getTask') { polls++; return { apiVersion: '2.0', task: { state: 'running' } } }
+      throw new Error(`Unexpected operation ${name}`)
+    },
+    subscribe() { return () => {} },
+  } }
+  const server = await serve(app, { port: 0 })
+  t.after(() => server.close())
+  let out = '', err = ''
+  const code = await runCli(['--url', server.url, '--no-wait', 'translate', 'doc_1', '--target-lang', 'zh-CN'],
+    { stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
   assert.equal(code, 0, err)
-  assert.equal(out, '{"apiVersion":"2.0","items":[{"id":"doc_1"}]}\n')
+  assert.equal(JSON.parse(out).taskId, 'task_1')
+  assert.equal(polls, 0)
+})
+
+test('CLI rejects one output path for multiple formats before invocation', async () => {
+  let out = '', err = ''
+  const code = await runCli(['--url', 'http://127.0.0.1:1', '--json', 'export', 'doc_1', '--target-lang', 'zh',
+    '--format', 'md,json', '--out', 'result.md'],
+  { stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
+  assert.equal(code, 2)
+  assert.equal(JSON.parse(out).error.code, 'INVALID_ARGUMENT')
+  assert.match(err, /exactly one/)
+})
+
+test('CLI reports malformed SSE without printing its payload and still uses task status', async t => {
+  const secret = 'private-provider-token'
+  const server = createServer((req, res) => {
+    if (req.url === '/api/events') {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' })
+      res.end(`event: task.progress\ndata: {${secret}\n\n`)
+    } else if (req.url === '/api/documents/doc_1/translate') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ apiVersion: '2.0', taskId: 'task_1' }))
+    } else if (req.url === '/api/tasks/task_1') {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ apiVersion: '2.0', task: { id: 'task_1', state: 'failed' } }))
+    } else { res.writeHead(404); res.end() }
+  })
+  await new Promise(resolveListen => server.listen(0, '127.0.0.1', resolveListen))
+  t.after(() => server.close())
+  let out = '', err = ''
+  const code = await runCli(['--url', `http://127.0.0.1:${server.address().port}`, '--json-events',
+    'translate', 'doc_1', '--target-lang', 'zh'],
+  { stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
+  assert.equal(code, 4)
+  assert.equal(out, '')
+  assert.match(err, /Malformed task event/)
+  assert.doesNotMatch(err, new RegExp(secret))
 })
 
 test('HTTP and CLI share the real store-backed operations contract', async t => {

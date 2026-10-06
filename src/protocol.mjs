@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { reportFailure } from './diagnostics.mjs'
 import { z } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
 
@@ -23,8 +23,8 @@ export const parameters = {
   acceptRevision: shape({ revisionId: id, expectedAcceptedRevisionId: lock }),
   unaccept: shape({ ...unit, expectedAcceptedRevisionId: lock }),
   translate: shape({ ...document, targetLang: lang, mode: z.enum(['fast', 'careful']).default('fast'),
-    unitIds: z.array(id).optional(), profileId: id.optional() }),
-  exportDocument: shape({ ...document, targetLang: lang, outputs: z.array(shape({ format: z.enum(['md', 'json']), out: id.optional() })).min(1),
+    unitIds: z.array(id).optional() }),
+  exportDocument: shape({ ...document, targetLang: lang, outputs: z.array(shape({ format: z.string().regex(/^[a-z][a-z0-9-]*$/), out: id.optional() })).min(1),
     snapshotId: id.optional(), onMissingAccepted: z.enum(['fail', 'skip']).optional() }),
   listArtifacts: shape({ ...document, ...page }), listSnapshots: shape({ ...document, ...page, targetLang: lang.optional() }),
   getSnapshot: shape({ ...document, snapshotId: id }), deleteSnapshot: shape({ ...document, snapshotId: id }),
@@ -49,9 +49,9 @@ export function errorEnvelope(error) {
   const statuses = { INVALID_ARGUMENT: 400, UNAUTHORIZED: 401, FORBIDDEN_HOST: 403, NOT_FOUND: 404,
     CONFLICT: 409, PRECONDITION_FAILED: 412, UPSTREAM_FAILURE: 502, COMPONENT_MISSING: 503, INTERNAL: 500 }
   const code = error instanceof KernelError && statuses[error.code] ? error.code : 'INTERNAL'
-  const traceId = code === 'INTERNAL' ? randomUUID() : undefined
-  const details = traceId ? { traceId } : error.details ?? {}
-  if (traceId) console.error(`ivoraige internal failure traceId=${traceId}`)
+  const canceled = error?.details?.canceled === true
+  const traceId = code === 'INTERNAL' ? reportFailure(error) : undefined
+  const details = traceId ? { traceId, ...(canceled ? { canceled: true } : {}) } : error?.details ?? {}
   const status = statuses[code]
   return { status, body: { apiVersion: API_VERSION, error: { code,
     message: code === 'INTERNAL' ? 'Internal operation failed' : error.message, details } },

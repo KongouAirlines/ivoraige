@@ -6,7 +6,7 @@ import { resolve, join } from 'node:path'
 import { createApp } from '../src/app.mjs'
 
 const translation = JSON.parse(await readFile(new URL('../examples/translation-deepseek.json', import.meta.url), 'utf8'))
-const root = resolve(process.argv[2] ?? 'evaluation/runs/deepseek-restart')
+const root = resolve(process.argv[2] ?? 'evaluation/runs/deepseek-0.1.0')
 await mkdir(root, { recursive: true })
 const store = join(root, 'records.sqlite')
 const cases = [
