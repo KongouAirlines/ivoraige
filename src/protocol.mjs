@@ -12,7 +12,7 @@ const lock = id.nullable()
 const shape = fields => z.object(fields).strict()
 export const parameters = {
   capabilities: shape({}),
-  importDocument: shape({ path: id.optional(), contentBase64: z.string().optional(), format: z.enum(['txt', 'md']).optional(),
+  importDocument: shape({ path: id.optional(), contentBase64: z.string().optional(), format: z.enum(['txt', 'md', 'pdf']).optional(),
     title: z.string().optional(), language: lang, sourceId: id.optional(), externalRef: z.string().optional(),
     origin: z.enum(['manual', 'cli', 'mcp', 'zotero']).default('manual') }),
   listDocuments: shape({ ...page, origin: z.string().optional(), format: z.string().optional() }),
@@ -73,6 +73,6 @@ export function paginate(items, { cursor, limit = 100 }) {
 }
 
 export function taskView(task) {
-  const { mode, unitIds, checkpoints, profileId, outputs, ...view } = task
+  const { mode, unitIds, checkpoints, profileId, outputs, preparedDocId, ...view } = task
   return view
 }

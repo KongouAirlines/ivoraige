@@ -39,7 +39,19 @@ export class Parse extends Service {
     }
   }
 
-  listAdapters() { return [...this.adapters.keys()] }
+  listAdapters() { return [...this.adapters.values()].filter(adapter => adapter.status?.().state !== 'unavailable').map(adapter => adapter.id) }
+
+  componentStatus() {
+    return Object.fromEntries([...this.adapters.values()].filter(adapter => adapter.status)
+      .map(adapter => [adapter.id, adapter.status()]))
+  }
+
+  validateTranslation(binding, unit, text) {
+    const adapter = this.adapters.get(binding.adapterId)
+    if (!adapter) throw new KernelError('COMPONENT_MISSING', 'Install the source adapter before editing this document',
+      { adapterId: binding.adapterId })
+    adapter.validateTranslation?.(binding, unit, text)
+  }
 
   async parse(file) {
     if (!file || typeof file !== 'object' || Array.isArray(file)) {

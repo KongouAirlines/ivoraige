@@ -14,9 +14,13 @@ import { Operations } from './operations.mjs'
 import { MarkdownSource } from './adapters/markdown-source.mjs'
 import { bootModelSettings } from './model-settings.mjs'
 import { acquireStoreLock } from './store-lock.mjs'
+import { Pdf } from './adapters/pdf.mjs'
 
 // Composition only: business capabilities live in Cordis services.
-export async function createApp({ store, exportDir, translation, settingsDir } = {}) {
+export async function createApp({ store, exportDir, translation, settingsDir, pdf } = {}) {
+  if (pdf !== undefined && (!store || !pdf || typeof pdf !== 'object' || Array.isArray(pdf))) {
+    throw new KernelError('INVALID_ARGUMENT', 'PDF configuration requires a store and a component configuration')
+  }
   if (store !== undefined && (typeof store !== 'string' || !store.trim())) {
     throw new KernelError('INVALID_ARGUMENT', 'store must be an explicit SQLite file path')
   }
@@ -50,6 +54,7 @@ export async function createApp({ store, exportDir, translation, settingsDir } =
     await ctx.plugin(Parse)
     await ctx.plugin(TxtSource)
     await ctx.plugin(MarkdownSource)
+    if (pdf !== undefined) await ctx.plugin(Pdf, { ...pdf, directory: join(dirname(storeLock.path), 'pdf') })
     if (store !== undefined) {
       await ctx.plugin(Storage)
       await ctx.plugin(StorageSqlite, { path: storeLock.path })

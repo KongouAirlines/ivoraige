@@ -1,9 +1,9 @@
 import { Service, BlockAssembler } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
 
-export const PROMPT_VERSION = 'scientific-translation-v1'
+export const PROMPT_VERSION = 'scientific-translation-v2'
 
-const SYSTEM_PROMPT = 'Translate the source text faithfully. Return only the translated text. Preserve scientific meaning, numbers, citations, and mathematical notation. Do not add explanations.'
+const SYSTEM_PROMPT = 'Translate the source text faithfully. Return only the translated text. Preserve scientific meaning, numbers, citations, and mathematical notation. Preserve any structural placeholders such as <b1> exactly, with the same count and order. Do not add explanations.'
 
 function requiredString(value, name) {
   if (typeof value !== 'string' || !value.trim()) {
@@ -41,7 +41,7 @@ export class TranslationModel extends Service {
     this.timeoutMs = timeoutMs
   }
 
-  async translate({ basis, signal } = {}) {
+  preflight({ basis, signal } = {}) {
     if (!basis || typeof basis !== 'object' || Array.isArray(basis)) {
       throw new KernelError('INVALID_ARGUMENT', 'basis must be an object')
     }
@@ -69,6 +69,12 @@ export class TranslationModel extends Service {
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
       throw new KernelError('INVALID_ARGUMENT', 'timeoutMs must be a positive integer')
     }
+    return { provider, model, timeoutMs }
+  }
+
+  async translate({ basis, signal } = {}) {
+    const { provider, model, timeoutMs } = this.preflight({ basis, signal })
+    const { sourceText, sourceLang, targetLang, effectiveContext, effectiveTarget } = basis
     const timeout = AbortSignal.timeout(timeoutMs)
     const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout
     const assembler = new BlockAssembler()

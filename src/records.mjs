@@ -50,9 +50,10 @@ function assertJson(value, path = '$', seen = new Set()) {
 }
 const generic = z.record(z.string(), z.unknown())
 const recordSchema = z.object({
-  document: z.object({ id: z.string(), sourceId: z.string(), format: z.enum(['txt', 'md']), language: z.string(),
+  document: z.object({ id: z.string(), sourceId: z.string(), format: z.enum(['txt', 'md', 'pdf']), language: z.string(),
     title: z.string(), origin: z.enum(['manual', 'zotero', 'cli', 'mcp']), externalRef: z.string().optional(), unitCount: z.number(),
-    translatableCount: z.number(), availableOutputs: z.array(z.string()), importedAt: z.string() }),
+    translatableCount: z.number(), availableOutputs: z.array(z.string()), importedAt: z.string(),
+    warnings: z.array(z.string()).optional(), sourceCoverage: generic.optional() }),
   fingerprint: z.string(), sourceBinding: generic, sourceBindingRef: z.string(),
   sourceBindingDigest: z.string().optional(),
   resourceVersions: z.record(z.string(), z.string()),
@@ -74,8 +75,10 @@ const recordSchema = z.object({
   tasks: z.array(taskSchema).optional(),
   operationTasks: z.array(operationTaskSchema).optional(),
 })
+const importTaskSchema = operationTaskSchema.omit({ docId: true }).extend({ kind: z.literal('import'),
+  docId: z.string().optional(), preparedDocId: z.string().optional(), label: z.string(), result: generic.optional() })
 const spec = StorageDomain.defineDomain({ name: 'ivoraige_records', version: 1, layout: 'per-record',
-  tables: { documents: StorageDomain.domainTable(recordSchema) } })
+  tables: { documents: StorageDomain.domainTable(recordSchema), imports: StorageDomain.domainTable(importTaskSchema) } })
 
 export class Records {
   static inject = ['storageDomain', 'ivoraige.parse', 'ivoraige.outputs']
@@ -90,6 +93,7 @@ export class Records {
     this.ready = ctx.get('storageDomain').open(spec).then(domain => {
       this.domain = domain
       this.table = domain.table('documents')
+      this.importTable = domain.table('imports')
       for (const [docId, record] of this.table.entries()) this.indexAccepted(docId, record)
     })
   }
@@ -163,20 +167,24 @@ export class Records {
     }
   }
 
-  async importDocument(file, { sourceId, language: sourceLang, origin = 'manual', externalRef } = {}) {
+  async importDocument(file, { sourceId, language: sourceLang, origin = 'manual', externalRef } = {}, { taskId } = {}) {
     await this.ready
     required(language(sourceLang), 'language must be a real BCP-47 tag')
     required(['manual', 'zotero', 'cli', 'mcp'].includes(origin), 'Invalid origin')
     required(sourceId === undefined || (typeof sourceId === 'string' && sourceId.trim()), 'sourceId must be nonempty')
     required(externalRef === undefined || typeof externalRef === 'string', 'externalRef must be a string')
-    const parsed = await this.parse.parse(file)
-    required(['txt', 'md'].includes(parsed.format) && (!parsed.resources || parsed.resources.length === 0),
-      'Persistent import supports TXT and Markdown without bundled external resources')
+    const parsed = await this.parse.parse({ ...file, language: sourceLang })
+    required(['txt', 'md', 'pdf'].includes(parsed.format) && (!parsed.resources || parsed.resources.length === 0),
+      'Persistent import supports TXT, Markdown and PDF without bundled external resources')
     assertJson(parsed)
     const businessSourceId = sourceId ?? (file.path ? `path:${file.path}` : `manual:${id()}`)
     const fingerprint = digest({ format: parsed.format, language: sourceLang, units: parsed.units,
       chapters: parsed.chapters, resources: parsed.resources, sourceBinding: parsed.sourceBinding })
     const docId = digest({ sourceId: businessSourceId, fingerprint }).slice(0, 32)
+    // Persist the deterministic destination before inserting the document, so
+    // startup can reconcile a crash between document commit and task completion.
+    if (taskId) await this.updateTask(taskId, task => ({ ...task, preparedDocId: docId }))
+    file.signal?.throwIfAborted()
     const existing = this.table.get(docId)
     if (existing) return { document: clone(existing.document), deduplicated: true }
     const pending = this.imports.get(docId)
@@ -195,7 +203,9 @@ export class Records {
     const document = { id: docId, sourceId: businessSourceId, format: parsed.format, language: sourceLang,
       title: parsed.title, origin, ...(externalRef === undefined ? {} : { externalRef }),
       unitCount: units.length, translatableCount: units.filter(unit => unit.translatable).length,
-      availableOutputs: clone(parsed.availableOutputs), importedAt: now() }
+      availableOutputs: clone(parsed.availableOutputs), importedAt: now(),
+      ...(parsed.warnings?.length ? { warnings: clone(parsed.warnings) } : {}),
+      ...(parsed.sourceCoverage ? { sourceCoverage: clone(parsed.sourceCoverage) } : {}) }
     const record = { document, fingerprint, sourceBinding: clone(parsed.sourceBinding),
       sourceBindingRef: digest({ docId, fingerprint, binding: parsed.sourceBinding }),
       sourceBindingDigest: digest(parsed.sourceBinding), resourceVersions: {}, units, revisions: [],
@@ -286,6 +296,9 @@ export class Records {
     return clone(created)
   }
   getTask(taskId) {
+    if (typeof taskId === 'string' && taskId.startsWith('import.')) {
+      return clone(this.importTable.get(taskId) ?? missing('taskId', taskId))
+    }
     const docId = typeof taskId === 'string' ? taskId.split('.')[0] : ''
     const record = this.record(docId)
     return clone([...(record.tasks ?? []), ...(record.operationTasks ?? [])].find(task => task.id === taskId) ?? missing('taskId', taskId))
@@ -293,7 +306,29 @@ export class Records {
   listTasks({ docId } = {}) {
     this.requireReady()
     const records = docId === undefined ? [...this.table.entries()].map(([, record]) => record) : [this.record(docId)]
-    return clone(records.flatMap(record => [...(record.tasks ?? []), ...(record.operationTasks ?? [])]))
+    return clone([...records.flatMap(record => [...(record.tasks ?? []), ...(record.operationTasks ?? [])]),
+      ...[...this.importTable.entries()].map(([, task]) => task).filter(task => docId === undefined || task.docId === docId)])
+  }
+  async createImportTask(label) {
+    const stamp = now()
+    const task = { id: `import.${id()}`, kind: 'import', label, state: 'queued',
+      progress: { stage: 'import', done: 0, total: 1 }, cursor: 0,
+      stats: { stageDurationsMs: {}, llmCalls: 0, reusedUnits: 0, reuseRatio: 0, tokens: {} },
+      artifacts: [], createdAt: stamp, updatedAt: stamp }
+    importTaskSchema.parse(task)
+    await this.importTable.put(task.id, task)
+    return clone(task)
+  }
+  async recoverImportTask(taskId) {
+    return this.updateTask(taskId, task => {
+      const stored = task.preparedDocId ? this.table.get(task.preparedDocId) : null
+      if (!stored) return { ...task, state: 'failed',
+        error: { stage: 'import', message: 'Import interrupted; submit the source again' } }
+      const document = this.getDocument(task.preparedDocId)
+      return { ...task, state: 'succeeded', docId: document.id, cursor: 1,
+        progress: { stage: 'complete', done: 1, total: 1 },
+        result: { document, deduplicated: true, recovered: true, warnings: document.warnings ?? [] } }
+    })
   }
   async createOperationTask(docId, { kind, targetLang, snapshotId, outputs, durationMs = 0 }) {
     required(['import', 'export'].includes(kind), 'Unsupported operation task')
@@ -333,6 +368,17 @@ export class Records {
     return true
   }
   async updateTask(taskId, transform) {
+    if (taskId.startsWith('import.')) {
+      this.getTask(taskId)
+      const updated = await this.importTable.update(taskId, current => {
+        const next = { ...transform(clone(current)), updatedAt: now() }
+        required(next.id === current.id && next.kind === 'import', 'Import task identity is immutable')
+        assertJson(next)
+        importTaskSchema.parse(next)
+        return next
+      })
+      return clone(updated)
+    }
     await this.ready
     required(typeof transform === 'function', 'Task transform must be a function')
     const docId = typeof taskId === 'string' ? taskId.split('.')[0] : ''
@@ -410,6 +456,7 @@ export class Records {
         { taskId, cursor: task.cursor })
       const unit = current.units.find(item => item.id === unitId) ?? missing('unitId', unitId)
       const basis = this.basis(current, unit, task.targetLang)
+      if (result) this.parse.validateTranslation(current.sourceBinding, unit, result.text)
       if (!sameBasis(expectedBasis, basis)) throw new KernelError('PRECONDITION_FAILED',
         'Translation basis changed', { unitId })
       const key = keyFor(unitId, task.targetLang)
@@ -482,6 +529,7 @@ export class Records {
     const next = await this.update(docId, current => {
       const unit = current.units.find(u => u.id === unitId) ?? missing('unitId', unitId)
       required(unit.translatable, 'Unit is not translatable')
+      this.parse.validateTranslation(current.sourceBinding, unit, text)
       const key = keyFor(unitId, targetLang)
       const latestId = current.latest[key] ?? null
       if (baseRevisionId !== latestId) throw new KernelError('CONFLICT', 'Latest revision changed',
@@ -510,6 +558,7 @@ export class Records {
         { acceptedRevision: current.revisions.find(r => r.id === actual) ?
           this.viewRevision(current, current.revisions.find(r => r.id === actual)) : null })
       const unit = current.units.find(u => u.id === revision.unitId)
+      this.parse.validateTranslation(current.sourceBinding, unit, revision.text)
       if (!this.applicable(current, unit, revision)) throw new KernelError('PRECONDITION_FAILED',
         'Revision is no longer applicable', { revisionId })
       acceptedRevision = revision

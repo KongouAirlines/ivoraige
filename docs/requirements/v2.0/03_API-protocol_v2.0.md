@@ -4,7 +4,7 @@
 
 上位文档：[01_设计与验收基线 v2.0](01_design_v2.0.md)（下称《设计》）。本文只定义协议：端点、schema、错误码、SSE 事件、sidecar 协议、认证与安全。业务规则以《设计》为准；词库字段随词库结构研判调整，本文术语部分只锁定传输形状。
 
-当前 TXT/Markdown 工作台只实现本文的一部分；下文明确标注“当前实现”的规则为该阶段的线上协议，其余仍是后续目标，不因当前尚未装配而删除。当前入口为 CLI、HTTP 与 WebUI；MCP、PDF/EPUB、RAG、Zotero 桥及非回环认证仍待实现。
+当前工作台只实现本文的一部分；下文明确标注“当前实现”的规则为该阶段的线上协议，其余仍是后续目标，不因当前尚未装配而删除。当前入口为 CLI、HTTP 与 WebUI；可选 BabelDOC sidecar 已支持原生文本英文 PDF 导入和中文单语 PDF 回放。MCP、EPUB、OCR、双语 PDF、跨引擎映射、RAG、Zotero 桥及非回环认证仍待实现。
 
 **0.1.0 实现边界**：翻译入口当前从 DSH 已保存的模型选择取路由，不接受请求级 `profileId`；§3.2 中携带 `profileId` 的字段属于后续协议。非 `none` 的术语约束集合没有可用的词库写入或组装 API；内部 `setConstraints` 只支持保存约束标识并做修订适用性检查，尚未实现按术语 scope 筛选、匹配和组装。下文完整术语 schema 与算法仍是 v2.0 设计目标。
 
@@ -71,6 +71,7 @@ interface Document {
   externalRef?: string;                 // Zotero item key 等
   unitCount: number; translatableCount: number;
   availableOutputs: string[];           // 已装输出实现与来源绑定共同决定
+  warnings?: string[]; sourceCoverage?: Record<string, unknown>; // PDF 捕获覆盖与人工核对提示
   importedAt: ISODate;
 }
 
@@ -102,6 +103,8 @@ interface Task {
   error?: { stage: string; unitId?: Id; message: string };
   stats: TaskStats;                     // 见下
   artifacts: Artifact[];
+  label?: string;                        // 导入完成前标识来源
+  result?: { document: Document; deduplicated: boolean; warnings: string[] }; // 成功的导入任务
   createdAt: ISODate; updatedAt: ISODate;
 }
 
@@ -146,14 +149,14 @@ interface RagChunk {
 
 | 方法 | 路径 | 请求 | 响应 |
 |---|---|---|---|
-| POST | `/api/documents/import` | `{ path?: string, contentBase64?: string, format?: string, language: string, sourceId?: string, externalRef?: string, title?: string, origin?: string }`（path 与 contentBase64 二选一；当前 `language` 必填且不得为 `auto`） | `{ document: Document, taskId: Id, deduplicated: boolean, warnings: string[] }`；当前 TXT/MD 解析与持久化在响应前完成，返回的 import Task 已是 `succeeded` |
+| POST | `/api/documents/import` | `{ path?: string, contentBase64?: string, format?: string, language: string, sourceId?: string, externalRef?: string, title?: string, origin?: string }`（path 与 contentBase64 二选一；当前 `language` 必填且不得为 `auto`） | TXT/MD：`{ document: Document, taskId: Id, deduplicated: boolean, warnings: string[] }`；PDF：立即返回 `{ taskId: Id }`，完成后从 Task.result 读取同一导入结果 |
 | GET | `/api/documents` | `?origin=&format=&cursor=&limit=` | 分页 Document[] |
 | GET | `/api/documents/{docId}` | — | `{ document: Document }` |
 | GET | `/api/documents/{docId}/units` | `?targetLang=<必填>&filter=all\|untranslated\|draft\|accepted&cursor=&limit=` | 分页 Unit[]（含该语言 accepted/draft 修订 id，不内嵌全文） |
 | GET | `/api/units/{unitId}` | `?targetLang=<必填>` | `{ unit: Unit, accepted?: Revision, draft?: Revision }` |
 | GET | `/api/units/{unitId}/revisions` | `?targetLang=<必填>` | 该语言 Revision[]（版本翻看数据源） |
 
-当前导入只接受 UTF-8 TXT／Markdown（`format: "txt" | "md"`，或由路径识别）；`contentBase64` 是 UTF-8 字节的 Base64，HTTP 请求体最多 10 MiB。TXT/MD 有界解析在请求内完成，成功后才响应并返回已持久化的完成态 import Task；后续大文档／sidecar 解析仍可按异步任务扩展。调用方须明确原文语言，当前没有自动检测。`path` 是服务端可访问的路径；浏览器上传使用 `contentBase64`。
+当前导入接受 UTF-8 TXT／Markdown，以及在装配 PDF 组件时接受二进制 PDF（`format: "txt" | "md" | "pdf"`，或由路径识别）。`contentBase64` 保留原始字节，PDF 不作 UTF-8 解码；HTTP 请求体最多 10 MiB。TXT/MD 有界解析在请求内完成，返回已持久化的完成态 import Task。PDF 解析异步执行，Task 在完成前无 docId，成功时 `result` 包含 document、deduplicated、warnings；可取消，失败后重新提交来源，不提供续跑。调用方须明确原文语言，当前没有自动检测。`path` 是服务端可访问的路径；浏览器上传使用 `contentBase64`。原始 PDF 的受管理副本随 store 保留，供冻结快照重放。
 
 ### 3.2 翻译与编辑
 
@@ -199,6 +202,8 @@ interface RagChunk {
 
 翻译修订、接受指针（快速模式）与 unit 完成记录／cursor 必须原子提交。启动恢复将遗留 `queued`／`running` 任务转为 `paused`，由用户显式续跑；`failed` 任务也可从已提交断点重试。完成记录失去当前适用性时，恢复返回 `PRECONDITION_FAILED`，不静默重译已完成段落。仅已提交结果具备不重复调用保证；请求已被供应商执行但本地尚未落库时崩溃，恢复可能再次请求该 unit。模型调用计数在调用前持久化，表示内核已登记的调用尝试；重试或未完成请求无法确认的 token 用量继续为 `null`。
 
+上述断点恢复适用于翻译任务。PDF 导入任务独立于文档运行，完成前以 `label` 标识来源；`result.document` 只在成功后存在。导入失败或进程中断须重交来源，暂停／恢复不适用。
+
 ### 3.5 术语（形状锁定，字段随词库研判扩展）
 
 | 方法 | 路径 | 说明 |
@@ -222,7 +227,7 @@ interface RagChunk {
 
 | 方法 | 路径 | 请求 | 响应 |
 |---|---|---|---|
-| GET | `/api/capabilities` | — | `{ features: string[], inputFormats: string[], outputFormats: string[] }`；按已装配能力返回，当前文本工作台有 documents/workbench/tasks/settings、TXT/MD 输入及 MD/JSON 输出 |
+| GET | `/api/capabilities` | — | `{ features: string[], inputFormats: string[], outputFormats: string[], components?: object }`；按已装配能力返回。PDF 组件状态 `components.babeldoc` 为 `unchecked`／`ready`／`unavailable`，可带 `message`；配置只表示可尝试，首次操作前不能声称已就绪 |
 | GET | `/api/settings/modelconfig` | — | `{ settings: { selected: { provider, model, timeoutMs } \| null, routes, credentials, revisions: { routes, selected } } }`；凭据只返回状态，不返回值 |
 | PATCH | `/api/settings/modelconfig` | `{ provider, model, api?, baseURL?, credentialRef?, contextWindow?, maxTokens?, reasoning?, compat?, reasoningEfforts?, timeoutMs?, routesRevision?, selectedRevision? }` | `{ settings: ... }`；DSH schema 校验模型路由与选择，显式 revision 过期返回 409 |
 | PUT | `/api/settings/credentials` | `{ ref, value }` | `{ configured, source?, writable }` 等 DSH 凭据状态字段；秘密仅写入 `dsh-credentials-local`，响应不回显 `value` |
@@ -281,7 +286,7 @@ resources：`ivoraige://docs/{docId}`、`ivoraige://docs/{docId}/units/{unitId}?
 
 ```
 → {"jsonrpc":"2.0","id":1,"method":"handshake","params":{"protocolVersion":1}}
-← {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"capabilities":{"parse":["pdf"],"rebuild":["pdf","bilingual-pdf"]}}}
+← {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1,"capabilities":{"parse":["pdf"],"rebuild":["pdf"]}}}
 ```
 
 | method | params | result | 说明 |
@@ -296,7 +301,7 @@ resources：`ivoraige://docs/{docId}`、`ivoraige://docs/{docId}/units/{unitId}?
 
 错误：JSON-RPC error 对象的 `code` 自定义区间 `-32001` 解析失败、`-32002` 权重缺失、`-32003` 重建失败；内核映射为 `UPSTREAM_FAILURE`/`COMPONENT_MISSING`。
 
-sidecar 常驻复用（不每任务重启）；崩溃后内核重启 sidecar 一次，再失败则任务 failed。MinerU 与 BabelDOC **分两个 sidecar 可执行文件**（解析与重建独立缺失、独立升级），共用同一协议。
+当前 BabelDOC sidecar 以单独 Python 3.13 环境运行，通过 `--pdf-config` 显式装配；PDF 组件首次操作时验证，缺失不妨碍文本工作台启动。进程常驻复用，崩溃后单个请求最多重新启动一次，仍失败则任务 failed。MinerU 与 BabelDOC **分两个 sidecar 可执行文件**（解析与重建独立缺失、独立升级）是后续目标。当前只开放 BabelDOC 原生文本捕获与单语 PDF 回放；双语格式不是已公布能力。
 
 ### 7.2 与内核 IR 的对齐
 
@@ -305,6 +310,8 @@ sidecar 常驻复用（不每任务重启）；崩溃后内核重启 sidecar 一
 ## 8. 模型权重资产管理（复用边界）
 
 `dsh-attachment` + `dsh-attachment-local` 可复用文件存储能力，但固定版本未提供 HTTP 下载／Range 续传管理器，也不自动产出工具需要的权重目录树。下载优先选已有实现，目录装配作为具体工具适配；本节是待验证方案，不声称已能直接照搬完整能力。
+
+当前 PDF 子阶段使用 `scripts/setup-pdf.ps1` 调用 BabelDOC `--warmup` 准备默认缓存；下面的统一资产清单、`assets pull` 和设置页下载按钮仍是设计目标，不是现有命令或界面。当前资产缺失时提示执行 setup 脚本。
 
 1. **资产清单**：内核内置 `assets.json`（随版本发布），每项 `{ name, urls[], sha256, sizeBytes, requiredFor }`（如 `mineru-layout`、`mineru-ocr`、`doclayout-yolo`）。
 2. **下载**：`POST /api/assets/{name}/pull` 建任务（复用任务系统，进度=字节数），由所选下载实现处理 HTTP／Range，完成时校验 digest 后标记可用；不一致清理该次残留并 failed。内容寻址入库可复用附件组件，不将下载能力归给它。

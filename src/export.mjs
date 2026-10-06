@@ -23,7 +23,7 @@ export class Exporter extends Service {
   }
 
   // Kernel rendering primitive used by the durable export task queue.
-  async exportDocument(docId, { targetLang, outputs, snapshotId, onMissingAccepted, taskId, outputIndex } = {}) {
+  async exportDocument(docId, { targetLang, outputs, snapshotId, onMissingAccepted, taskId, outputIndex, signal } = {}) {
     if (typeof targetLang !== 'string' || !targetLang.trim() ||
         !Array.isArray(outputs) || !outputs.length || outputs.some(output =>
           !output || typeof output.format !== 'string' || !/^[a-z][a-z0-9-]*$/.test(output.format) ||
@@ -60,7 +60,10 @@ export class Exporter extends Service {
       for (let index = 0; index < outputs.length; index++) {
         // Deliberately unbound: adapters get data and format only, no service object.
         const rebuild = adapters[index].rebuild
-        const content = await rebuild(frozen, Object.freeze({ format: outputs[index].format }))
+        signal?.throwIfAborted()
+        const content = await rebuild(frozen, Object.freeze({ format: outputs[index].format,
+          ...(signal ? { signal } : {}) }))
+        signal?.throwIfAborted()
         if (typeof content !== 'string' && !Buffer.isBuffer(content)) {
           throw new KernelError('INTERNAL', `Output ${adapters[index].id} returned invalid content`)
         }
@@ -73,6 +76,7 @@ export class Exporter extends Service {
           throw error
         }
         try {
+          signal?.throwIfAborted()
           artifacts.push(await this.records.addArtifact(docId, {
             snapshotId: snapshot.id, targetLang, format: outputs[index].format, path: paths[index],
             ...(taskId ? { taskId, outputIndex: outputIndex + index } : {}),

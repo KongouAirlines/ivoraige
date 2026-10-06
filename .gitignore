@@ -27,6 +27,8 @@
 /node_modules/
 /dist/
 /.ivoraige/
+__pycache__/
+*.py[cod]
 
 # Local credentials; only intentionally public templates may be committed.
 .env
