@@ -26,7 +26,8 @@
     "setup:dsh": "node scripts/setup-dsh.mjs",
     "build": "node scripts/build.mjs && node scripts/build-web.mjs",
     "test": "npm run build && node --test test/*.test.mjs",
-    "smoke:package": "node scripts/smoke-package.mjs"
+    "smoke:package": "node scripts/smoke-package.mjs",
+    "followups": "node scripts/followups.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.87.1",
