@@ -18,10 +18,14 @@ const bounded = async promise => {
 async function marker(path) {
   const deadline = Date.now() + 2000
   while (true) {
-    try { return await readFile(path, 'utf8') } catch (error) {
+    try {
+      const content = await readFile(path, 'utf8')
+      if (content === 'entered') return content
+      if (Date.now() > deadline) throw new Error('Capture marker was not completed')
+    } catch (error) {
       if (Date.now() > deadline) throw error
-      await new Promise(resolve => setTimeout(resolve, 10))
     }
+    await new Promise(resolve => setTimeout(resolve, 10))
   }
 }
 
