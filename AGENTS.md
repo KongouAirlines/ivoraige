@@ -64,6 +64,16 @@ Node >= 24. Type "module" (ESM). Do not downgrade the engines field without veri
 - **Originals are read-only.** Modify derived data, never the copyrighted originals in `evaluation/private/`.
 - **No scope creep.** Do the requested task. Surface additional issues once, at the end; do not fold them into the change.
 
+## Follow-up tracking
+
+- Follow [the follow-up register rules](docs/plan/deferred.md). Each newly discovered out-of-scope issue lives in `docs/plan/follow-ups/<stable-id>.md`; existing milestone capabilities stay in the implementation plan. Recording an item does not authorize implementation.
+- Before related work, read relevant workspace items and, as needed, compare the local target branch. For stage planning, use `npm run followups -- --refs <target> <participating-branches>`; this reads committed local snapshots, not uncommitted changes or live remote state. Do not scan every branch for routine tasks.
+- Search for duplicates before recording a finding. Include evidence, impact, scope, deferral reason, reassessment trigger, and acceptance conditions. Do not defer a fix required for the current task's acceptance or expand implementation scope merely because a follow-up exists.
+- When taking up an item, check existing implementation branches/PRs and record the branch, scope, and acceptance conditions. Local absence is not proof that no other agent is working on it; coordinate overlapping work. Git records are not a global claim lock.
+- At stage completion, update related items with observed verification and implementation links. Branch verification alone remains in progress, pending merge. Mark resolved only after acceptance and integration into the named target branch; preserve unfinished scope.
+- When merging, reconcile duplicate items and branch-specific evidence without silently overwriting it. Before abandoning a branch, carry valuable unfinished findings into the target branch through a documentation change. Preserve duplicate IDs as redirects to the retained item.
+- In the final report, list IDs added, advanced, or resolved. Keep current behavior in feature documentation and historical evidence in implementation records; link them to the item instead of maintaining separate status lists.
+
 ## API and protocol work
 
 `03_API-protocol_v2.0.md` is normative for anything crossing a process or entry boundary: error codes (§1.3), optimistic-lock fields (`baseRevisionId` vs `expectedAcceptedRevisionId`, §1.4), SSE event shapes (§4), CLI stdout/exit-code discipline (§5), MCP tool mapping (§6), sidecar methods (§7). If an implementation need contradicts the spec, update the spec in the same change.
