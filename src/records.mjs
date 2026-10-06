@@ -77,11 +77,11 @@ const recordSchema = z.object({
 const spec = StorageDomain.defineDomain({ name: 'ivoraige_records', version: 1, layout: 'per-record',
   tables: { documents: StorageDomain.domainTable(recordSchema) } })
 
-export class Records extends Service {
+export class Records {
   static inject = ['storageDomain', 'ivoraige.parse', 'ivoraige.outputs']
 
   constructor(ctx) {
-    super(ctx, 'ivoraige.records')
+    this.ctx = ctx
     this.parse = ctx.get('ivoraige.parse')
     this.outputs = ctx.get('ivoraige.outputs')
     this.leases = new Map()
@@ -91,8 +91,17 @@ export class Records extends Service {
       this.domain = domain
       this.table = domain.table('documents')
       for (const [docId, record] of this.table.entries()) this.indexAccepted(docId, record)
-      ctx.effect(() => () => domain.close())
     })
+  }
+
+  async [Service.init]() {
+    await this.ready
+    // Unregistering the service awaits injected dependents before the domain closes.
+    // Both disposers belong to one effect because Cordis unloads sibling effects concurrently.
+    this.ctx.effect(function* () {
+      yield () => this.domain.close()
+      yield this.ctx.reflect.provide('ivoraige.records', this)
+    }.bind(this), 'ivoraige.records lifecycle')
   }
 
   requireReady() { if (!this.table) throw new KernelError('INTERNAL', 'Records service is not ready') }

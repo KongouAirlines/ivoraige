@@ -15,18 +15,19 @@ export class Tasks extends Service {
   constructor(ctx) {
     super(ctx, 'ivoraige.tasks')
     this.records = ctx.get('ivoraige.records')
-    this.model = ctx.get('ivoraige.translationModel')
     this.jobs = ctx.get('jobs')
     this.detachController = this.jobs.attachController('ivoraige translation tasks')
     this.listeners = new Set()
     this.running = null
     this.queue = []
     this.closing = false
+    this.tearingDown = false
     this.lastProgressAt = new Map()
     this.waiters = new Map()
     this.scheduling = false
     this.admissions = new Set()
     this.ready = this.recover()
+    ctx.effect(() => () => this.shutdown(), 'ivoraige.tasks teardown')
   }
 
   async recover() {
@@ -126,15 +127,15 @@ export class Tasks extends Service {
     await this.ready
     const task = this.records.getTask(taskId)
     if (terminal.has(task.state) || task.state === 'paused') return task
-    return new Promise(resolve => {
+    return new Promise((resolve, reject) => {
       if (!this.waiters.has(taskId)) this.waiters.set(taskId, new Set())
-      this.waiters.get(taskId).add(resolve)
+      this.waiters.get(taskId).add({ resolve, reject })
     })
   }
 
   settle(task) {
     if (!terminal.has(task.state) && task.state !== 'paused') return
-    for (const resolve of this.waiters.get(task.id) ?? []) resolve(task)
+    for (const waiter of this.waiters.get(task.id) ?? []) waiter.resolve(task)
     this.waiters.delete(task.id)
   }
 
@@ -170,6 +171,7 @@ export class Tasks extends Service {
           return { ...current, state: 'running', progress: { ...current.progress, stage: current.kind },
             updatedAt: new Date().toISOString() }
         })
+        if (this.tearingDown) { live.markStarted(); return }
         this.emit('task.started', { taskId, kind: task.kind })
         this.progress(taskStarted, true)
         live.jobId = this.jobs.start({ kind: task.kind, label: `${task.kind} ${task.docId}`,
@@ -181,7 +183,7 @@ export class Tasks extends Service {
         if (['completed', 'killed', 'failed'].includes(job.status)) this.jobs.remove(live.jobId)
       } catch (error) {
         live.markStarted()
-        if (this.records.getTask(taskId).state === 'running') await this.fail(taskId, error)
+        if (!this.tearingDown && this.records.getTask(taskId).state === 'running') await this.fail(taskId, error)
       } finally {
         this.running = null
         live.markFinished()
@@ -192,7 +194,7 @@ export class Tasks extends Service {
   async execute(live, job) {
     live.done = this.run(live, job)
     return live.done.then(() => ({ status: live.cancel ? 'killed' :
-      this.records.getTask(live.taskId).state === 'failed' ? 'failed' : 'completed' }),
+      this.tearingDown ? 'killed' : this.records.getTask(live.taskId).state === 'failed' ? 'failed' : 'completed' }),
       () => ({ status: live.cancel ? 'killed' : 'failed' }))
   }
 
@@ -207,12 +209,16 @@ export class Tasks extends Service {
   async run(live, job) {
     const { taskId, controller } = live
     try {
+      if (this.tearingDown) return
       let task = this.records.getTask(taskId)
       for (let index = task.cursor; index < task.progress.total; index++) {
+        if (this.tearingDown) return
         if (live.cancel || controller.signal.aborted) break
         if (live.pause || this.closing) break
         if (task.kind === 'export') {
-          await this.ctx.get('ivoraige.export').exportDocument(task.docId, { targetLang: task.targetLang,
+          const exporter = this.ctx.get('ivoraige.export')
+          if (!exporter) throw new KernelError('COMPONENT_MISSING', 'Install an export service before exporting')
+          await exporter.exportDocument(task.docId, { targetLang: task.targetLang,
             snapshotId: task.snapshotId, outputs: [task.outputs[index]], taskId, outputIndex: index })
           task = this.records.getTask(taskId)
           job.updateProgress(`${task.progress.done}/${task.progress.total}`)
@@ -230,9 +236,13 @@ export class Tasks extends Service {
           outcome = await this.records.commitTaskUnit(taskId, { unitId, expectedBasis: basis,
             baseRevisionId, expectedAcceptedRevisionId, reusedRevisionId: reusable.id })
         } else {
-          if (!this.model) throw new KernelError('COMPONENT_MISSING', 'Configure a translation model before translating')
+          // Optional capabilities are resolved per unit so later plugin mounts
+          // and replacements take effect without restarting the task service.
+          const model = this.ctx.get('ivoraige.translationModel')
+          if (!model) throw new KernelError('COMPONENT_MISSING', 'Configure a translation model before translating')
           await this.records.incrementTaskCall(taskId)
-          const result = await this.model.translate({ basis, signal: controller.signal })
+          if (this.tearingDown) return
+          const result = await model.translate({ basis, signal: controller.signal })
           if (live.cancel || controller.signal.aborted) break
           outcome = await this.records.commitTaskUnit(taskId, { unitId, expectedBasis: basis,
             baseRevisionId, expectedAcceptedRevisionId, result })
@@ -242,6 +252,7 @@ export class Tasks extends Service {
         this.emit('unit.completed', { taskId, unitId, targetLang: task.targetLang, reused: outcome.reused })
         this.progress(task)
       }
+      if (this.tearingDown) return
       if (live.cancel) {
         task = await this.records.updateTask(taskId, current => ({ ...this.withDuration(live, current), state: 'canceled',
           updatedAt: new Date().toISOString() }))
@@ -258,6 +269,7 @@ export class Tasks extends Service {
       }
       this.settle(task)
     } catch (error) {
+      if (this.tearingDown) return
       if (live.cancel || (controller.signal.aborted && this.closing)) {
         const state = live.cancel ? 'canceled' : 'paused'
         const task = await this.records.updateTask(taskId, current => ({ ...this.withDuration(live, current), state,
@@ -366,26 +378,63 @@ export class Tasks extends Service {
     try { return await admission } finally { this.admissions.delete(admission) }
   }
 
-  async close() {
-    await this.ready
+  close() {
+    if (this.tearingDown) return this.shutdownTask
+    return this.closeTask ??= this.drain()
+  }
+
+  shutdown() {
+    return this.shutdownTask ??= this.teardown()
+  }
+
+  async teardown() {
+    this.tearingDown = true
     this.closing = true
-    await Promise.allSettled([...this.admissions])
-    for (const taskId of this.queue.splice(0)) {
-      const task = this.records.getTask(taskId)
-      if (task.state === 'queued') {
-        const paused = await this.records.updateTask(taskId, current => ({ ...current, state: 'paused',
-          updatedAt: new Date().toISOString() }))
-        this.settle(paused)
-      }
+    for (const waiting of this.waiters.values()) {
+      for (const waiter of waiting) waiter.reject(new KernelError('PRECONDITION_FAILED', 'Task service is closing'))
     }
+    this.waiters.clear()
+    this.queue.length = 0
     const live = this.running
+    live?.controller.abort()
+    if (this.closeTask) await Promise.allSettled([this.closeTask])
     if (live) {
-      live.pause = true
-      live.controller.abort()
       await live.started
       await live.done
       await live.finished
     }
+    await Promise.allSettled([...this.admissions])
     this.detachController()
+  }
+
+  async drain() {
+    this.closing = true
+    try {
+      await this.ready
+      if (this.tearingDown) return
+      await Promise.allSettled([...this.admissions])
+      if (this.tearingDown) return
+      for (const taskId of this.queue.splice(0)) {
+        if (this.tearingDown) return
+        const task = this.records.getTask(taskId)
+        if (task.state === 'queued') {
+          const paused = await this.records.updateTask(taskId, current => ({ ...current, state: 'paused',
+            updatedAt: new Date().toISOString() }))
+          this.settle(paused)
+        }
+      }
+      const live = this.running
+      if (live) {
+        live.pause = true
+        live.controller.abort()
+        await live.started
+        await live.done
+        await live.finished
+      }
+    } catch (error) {
+      if (!this.tearingDown) throw error
+    } finally {
+      this.detachController()
+    }
   }
 }
