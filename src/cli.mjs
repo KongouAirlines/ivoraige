@@ -53,7 +53,7 @@ function route(command, args, o) {
       filter: o.filter, ...paging }, 'GET', `/api/documents/${docId}/units`]
     case 'unit': return ['getUnit', { unitId: required(unitId, 'unit ID'), targetLang: required(targetLang, '--target-lang') },
       'GET', `/api/units/${unitId}`]
-    case 'revisions': return ['listRevisions', { unitId: required(unitId, 'unit ID'), targetLang: required(targetLang, '--target-lang') },
+    case 'revisions': return ['listRevisions', { unitId: required(unitId, 'unit ID'), targetLang: required(targetLang, '--target-lang'), ...paging },
       'GET', `/api/units/${unitId}/revisions`]
     case 'edit': return ['writeRevision', { unitId: required(unitId, 'unit ID'), targetLang: required(targetLang, '--target-lang'),
       text: required(o.text, '--text'), baseRevisionId: o['base-revision'] ?? null }, 'PATCH', `/api/units/${unitId}`]
@@ -75,8 +75,8 @@ function route(command, args, o) {
       { docId: required(docId, 'document ID'), snapshotId: required(args[2], 'snapshot ID') },
       'DELETE', `/api/documents/${docId}/snapshots/${args[2]}`] : args[1] ? ['getSnapshot', { docId: required(docId, 'document ID'), snapshotId: args[1] },
       'GET', `/api/documents/${docId}/snapshots/${args[1]}`] :
-      ['listSnapshots', { docId: required(docId, 'document ID'), targetLang }, 'GET', `/api/documents/${docId}/snapshots`]
-    case 'artifacts': return ['listArtifacts', { docId: required(docId, 'document ID') }, 'GET', `/api/documents/${docId}/artifacts`]
+      ['listSnapshots', { docId: required(docId, 'document ID'), targetLang, ...paging }, 'GET', `/api/documents/${docId}/snapshots`]
+    case 'artifacts': return ['listArtifacts', { docId: required(docId, 'document ID'), ...paging }, 'GET', `/api/documents/${docId}/artifacts`]
     case 'tasks': return ['listTasks', { ...paging, state: o.state, kind: o.kind }, 'GET', '/api/tasks']
     case 'task': return ['getTask', { taskId: required(taskId, 'task ID') }, 'GET', `/api/tasks/${taskId}`]
     case 'pause': case 'resume': case 'cancel': return [`${command}Task`, { taskId: required(taskId, 'task ID') },

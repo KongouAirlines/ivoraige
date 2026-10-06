@@ -12,11 +12,16 @@ export function digest(value) {
 }
 
 export function basisFor(document, unit, targetLang, constraints) {
-  const sourceRevision = digest({ text: unit.sourceText, kind: unit.kind, locator: unit.locator ?? null,
-    binding: document.sourceBinding })
+  const sourceBindingDigest = document.sourceBindingDigest ?? digest(document.sourceBinding)
+  const sourceKind = unit.kind
+  const sourceLocator = unit.locator ?? null
+  const sourceRevision = digest({ text: unit.sourceText, kind: sourceKind, locator: sourceLocator,
+    bindingDigest: sourceBindingDigest })
   const basis = {
     sourceRevision,
-    sourceBinding: document.sourceBinding,
+    sourceBindingDigest,
+    sourceKind,
+    sourceLocator,
     sourceText: unit.sourceText,
     sourceLang: document.language,
     targetLang,
@@ -30,4 +35,22 @@ export function basisFor(document, unit, targetLang, constraints) {
 }
 
 // Key lookup narrows candidates; compare the actual applicability fields afterwards.
-export function sameBasis(a, b) { return isDeepStrictEqual(a, b) }
+export function sameBasis(a, b) {
+  if (!a || !b) return false
+  if (Object.hasOwn(a, 'sourceBinding') && Object.hasOwn(b, 'sourceBinding')) {
+    return isDeepStrictEqual(a, b)
+  }
+  const legacy = Object.hasOwn(a, 'sourceBinding') ? a :
+    Object.hasOwn(b, 'sourceBinding') ? b : null
+  if (!legacy) return isDeepStrictEqual(a, b)
+  const compact = legacy === a ? b : a
+  if (!Object.hasOwn(compact, 'sourceBindingDigest') ||
+      digest(legacy.sourceBinding) !== compact.sourceBindingDigest ||
+      compact.sourceRevision !== digest({ text: compact.sourceText, kind: compact.sourceKind,
+        locator: compact.sourceLocator, bindingDigest: compact.sourceBindingDigest }) ||
+      legacy.sourceRevision !== digest({ text: compact.sourceText, kind: compact.sourceKind,
+        locator: compact.sourceLocator, binding: legacy.sourceBinding })) return false
+  const { sourceBinding, sourceRevision: oldRevision, ...common } = legacy
+  const { sourceBindingDigest, sourceKind, sourceLocator, sourceRevision, ...newCommon } = compact
+  return isDeepStrictEqual(common, newCommon)
+}

@@ -54,6 +54,7 @@ const recordSchema = z.object({
     title: z.string(), origin: z.enum(['manual', 'zotero', 'cli', 'mcp']), externalRef: z.string().optional(), unitCount: z.number(),
     translatableCount: z.number(), availableOutputs: z.array(z.string()), importedAt: z.string() }),
   fingerprint: z.string(), sourceBinding: generic, sourceBindingRef: z.string(),
+  sourceBindingDigest: z.string().optional(),
   resourceVersions: z.record(z.string(), z.string()),
   units: z.array(z.object({ id: z.string(), docId: z.string(), order: z.number(), kind: z.enum(['heading', 'body', 'caption', 'formula', 'code', 'reference', 'other']),
     sourceText: z.string(), context: z.string().optional(), locator: generic.optional(), translatable: z.boolean() })),
@@ -121,7 +122,8 @@ export class Records extends Service {
     return record.constraints[keyFor(unit.id, targetLang)] ?? defaultConstraints(record.units, unit.order)
   }
   basis(record, unit, targetLang) {
-    return basisFor({ ...record.document, sourceBinding: record.sourceBinding }, unit, targetLang,
+    return basisFor({ ...record.document, sourceBinding: record.sourceBinding,
+      sourceBindingDigest: record.sourceBindingDigest }, unit, targetLang,
       this.constraintsFor(record, unit, targetLang))
   }
   applicable(record, unit, revision) {
@@ -186,7 +188,8 @@ export class Records extends Service {
       unitCount: units.length, translatableCount: units.filter(unit => unit.translatable).length,
       availableOutputs: clone(parsed.availableOutputs), importedAt: now() }
     const record = { document, fingerprint, sourceBinding: clone(parsed.sourceBinding),
-      sourceBindingRef: digest({ docId, fingerprint, binding: parsed.sourceBinding }), resourceVersions: {}, units, revisions: [],
+      sourceBindingRef: digest({ docId, fingerprint, binding: parsed.sourceBinding }),
+      sourceBindingDigest: digest(parsed.sourceBinding), resourceVersions: {}, units, revisions: [],
       latest: {}, accepted: {}, constraints: {}, snapshots: [], artifacts: [], tasks: [] }
     assertJson(record)
     recordSchema.parse(record)

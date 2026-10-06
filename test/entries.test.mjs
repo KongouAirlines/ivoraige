@@ -300,3 +300,46 @@ test('HTTP and CLI share the real store-backed operations contract', async t => 
   const listed = await (await fetch(`${server.url}/api/documents`)).json()
   assert.ok(listed.items.some(doc => doc.id === imported.document.id))
 })
+
+test('CLI revisions, snapshots and artifacts honor limit and continuation cursors', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-paging-'))
+  const app = await createApp({ store: join(directory, 'store.sqlite'), exportDir: join(directory, 'exports') })
+  const server = await serve(app, { port: 0 })
+  t.after(async () => { await server.close(); await app.dispose(); await rm(directory, { recursive: true, force: true }) })
+  const { document } = await app.operations.invoke('importDocument', {
+    contentBase64: Buffer.from('Paging sample.').toString('base64'), format: 'txt', language: 'en',
+  })
+  const [unit] = app.records.listUnits(document.id, { targetLang: 'zh' })
+  let previous = null
+  for (const text of ['初稿', '修订', '定稿']) {
+    const revision = await app.records.writeRevision(unit.id, { targetLang: 'zh', text, baseRevisionId: previous })
+    await app.records.acceptRevision(revision.id, { expectedAcceptedRevisionId: previous })
+    previous = revision.id
+    const { taskId } = await app.operations.invoke('exportDocument', {
+      docId: document.id, targetLang: 'zh', outputs: [{ format: 'json' }],
+    })
+    assert.equal((await app.tasks.wait(taskId)).state, 'succeeded')
+  }
+  for (const [command, id, operation, params] of [
+    ['revisions', unit.id, 'listRevisions', { unitId: unit.id, targetLang: 'zh' }],
+    ['snapshots', document.id, 'listSnapshots', { docId: document.id, targetLang: 'zh' }],
+    ['artifacts', document.id, 'listArtifacts', { docId: document.id }],
+  ]) {
+    const expected = (await app.operations.invoke(operation, params)).items.map(item => item.id)
+    const seen = []
+    let cursor
+    do {
+      let out = '', err = ''
+      const code = await runCli(['--url', server.url, '--json', command, id, '--target-lang', 'zh', '--limit', '1',
+        ...(cursor ? ['--cursor', cursor] : [])],
+      { stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
+      assert.equal(code, 0, err)
+      const page = JSON.parse(out)
+      assert.equal(page.items.length, 1, command)
+      seen.push(page.items[0].id)
+      cursor = page.nextCursor
+      assert.ok(seen.length <= expected.length, `${command} repeated a page`)
+    } while (cursor)
+    assert.deepEqual(seen, expected, command)
+  }
+})

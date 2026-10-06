@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createApp } from '../src/app.mjs'
+import { digest, sameBasis } from '../src/basis.mjs'
 
 async function fixture(t) {
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-records-'))
@@ -165,6 +166,79 @@ test('a matching reuse key still requires the same source structure and contextu
   await f.app.records.setConstraints(unit.id, { targetLang: 'zh', effectiveContext: { before: 'Changed context' },
     effectiveTarget: originalBasis.effectiveTarget, termConstraintSetId: originalBasis.termConstraintSetId })
   assert.equal(f.app.records.findReusable(unit.id, { targetLang: 'zh' }), null)
+})
+
+test('Markdown revision bases retain a compact binding and scale with units', async t => {
+  const f = await fixture(t)
+  const content = Array.from({ length: 1000 }, (_, index) =>
+    `${String(index).padStart(4, '0')} ${'A'.repeat(85)}`).join('\n\n')
+  assert.ok(Buffer.byteLength(content) > 90_000 && Buffer.byteLength(content) < 100_000)
+  const { document } = await f.app.records.importDocument({ format: 'md', content }, options)
+  const units = f.app.records.listUnits(document.id, { targetLang: 'zh' })
+  assert.equal(units.length, 1000)
+  const bases = units.map(unit => f.app.records.getBasis(unit.id, { targetLang: 'zh' }))
+  assert.ok(bases.every(basis => !Object.hasOwn(basis, 'sourceBinding')))
+  assert.equal(new Set(bases.map(basis => basis.sourceBindingDigest)).size, 1)
+  assert.ok(Buffer.byteLength(JSON.stringify(bases)) < Buffer.byteLength(content) * 10)
+  const first = await f.app.records.writeRevision(units[0].id,
+    { targetLang: 'zh', text: '译文一', baseRevisionId: null })
+  const second = await f.app.records.writeRevision(units[1].id,
+    { targetLang: 'zh', text: '译文二', baseRevisionId: null })
+  const saved = f.app.records.record(document.id)
+  assert.ok(saved.revisions.every(revision => !Object.hasOwn(revision.basis, 'sourceBinding')))
+  assert.equal(saved.revisions[0].basis.sourceBindingDigest, saved.revisions[1].basis.sourceBindingDigest)
+  await f.app.records.acceptRevision(first.id, { expectedAcceptedRevisionId: null })
+  await f.app.records.acceptRevision(second.id, { expectedAcceptedRevisionId: null })
+  await f.restart()
+  assert.equal(f.app.records.findReusable(units[0].id, { targetLang: 'zh' }).id, first.id)
+  const { document: other } = await f.app.records.importDocument({ format: 'md', content },
+    { ...options, sourceId: 'paper:other' })
+  const [otherUnit] = f.app.records.listUnits(other.id, { targetLang: 'zh' })
+  assert.equal(f.app.records.findReusable(otherUnit.id, { targetLang: 'zh' }).id, first.id)
+})
+
+test('legacy full-binding revisions remain applicable for acceptance, checkpoints and snapshots', async t => {
+  const f = await fixture(t)
+  const { document } = await f.app.records.importDocument({ format: 'md', content: 'First.\n\nSecond.' }, options)
+  const [unit] = f.app.records.listUnits(document.id, { targetLang: 'zh' })
+  const revision = await f.app.records.writeRevision(unit.id,
+    { targetLang: 'zh', text: '第一。', baseRevisionId: null })
+  await f.app.records.acceptRevision(revision.id, { expectedAcceptedRevisionId: null })
+  const task = await f.app.records.createTranslationTask(document.id,
+    { targetLang: 'zh', unitIds: [unit.id] })
+  await f.app.records.updateTask(task.id, current => ({ ...current, state: 'running' }))
+  await f.app.records.commitTaskUnit(task.id, { unitId: unit.id,
+    expectedBasis: f.app.records.getBasis(unit.id, { targetLang: 'zh' }),
+    baseRevisionId: revision.id, expectedAcceptedRevisionId: revision.id,
+    reusedRevisionId: revision.id })
+  const snapshot = await f.app.records.createSnapshot(document.id,
+    { targetLang: 'zh', onMissingAccepted: 'skip' })
+  await f.app.records.update(document.id, current => {
+    const { sourceBindingDigest, ...oldRecord } = current
+    const revisions = oldRecord.revisions.map(item => {
+      if (item.id !== revision.id) return item
+      const { sourceBindingDigest, sourceKind, sourceLocator, sourceRevision, ...shared } = item.basis
+      return { ...item, basis: { ...shared, sourceBinding: current.sourceBinding,
+        sourceRevision: digest({ text: shared.sourceText, kind: sourceKind,
+          locator: sourceLocator, binding: current.sourceBinding }) } }
+    })
+    return { ...oldRecord, revisions }
+  })
+  await f.restart()
+  const oldBasis = f.app.records.record(document.id).revisions.find(item => item.id === revision.id).basis
+  assert.equal(sameBasis(oldBasis, structuredClone(oldBasis)), true)
+  assert.equal(f.app.records.findReusable(unit.id, { targetLang: 'zh' }).id, revision.id)
+  const { document: other } = await f.app.records.importDocument(
+    { format: 'md', content: 'First.\n\nSecond.' }, { ...options, sourceId: 'legacy:other' })
+  const [otherUnit] = f.app.records.listUnits(other.id, { targetLang: 'zh' })
+  assert.equal(f.app.records.findReusable(otherUnit.id, { targetLang: 'zh' }).id, revision.id)
+  assert.equal(f.app.records.validateTaskCheckpoints(task.id), true)
+  assert.equal(f.app.records.resolveSnapshot(document.id, snapshot.id).units[0].text, '第一。')
+  await f.app.records.acceptRevision(revision.id, { expectedAcceptedRevisionId: revision.id })
+  await f.app.records.setConstraints(unit.id, { targetLang: 'zh', effectiveContext: {},
+    effectiveTarget: {}, termConstraintSetId: 'changed' })
+  assert.equal(f.app.records.findReusable(unit.id, { targetLang: 'zh' }), null)
+  assert.equal(f.app.records.resolveSnapshot(document.id, snapshot.id).units[0].text, '第一。')
 })
 
 test('accepting an older applicable revision rolls back the current view without rewriting either snapshot', async t => {
