@@ -19,6 +19,12 @@ node src/cli.mjs serve --store .\evaluation\runs\workbench\store.sqlite
 
 浏览器打开终端打印的地址（默认 `http://127.0.0.1:8787`）。在设置页保存模型和凭据，然后导入 TXT／Markdown、逐段审校并导出。服务运行时，其他 CLI 命令应带 `--url http://127.0.0.1:8787`，避免第二个进程同时打开同一数据库。操作步骤、[DeepSeek 示例](examples/translation-deepseek.json)与 Markdown 语法边界见 [工作台指南](docs/plan/0.1.0/workbench-guide.md)。当前只允许本机回环监听。
 
+### VS Code 运行／调试
+
+用 VS Code 打开仓库根目录，确保其终端中的 `node --version` 为 24 或更高。首次先执行 `npm ci` 和 `npm run setup:dsh`。在“运行和调试”中选择 **ivoraige: 启动文本工作台**，按 F5；每次启动会先自动执行构建。浏览器访问 `http://127.0.0.1:8787`，可在 `src/` 的业务代码中设置断点。
+
+配置位于 [.vscode/launch.json](.vscode/launch.json)，构建任务位于 [.vscode/tasks.json](.vscode/tasks.json)。数据、设置／凭据及导出均位于已忽略的 `evaluation/runs/workbench/`；模型与凭据在网页设置页配置，不写进调试配置。结束时在运行终端按 Ctrl+C，待服务退出后再启动，避免占用同一数据库或端口。
+
 ## 开发验证
 
 Node.js >=24；保留已验证的固定 DSH 源码桥接与构建方法，不另写模型、凭据、设置、存储或任务基础设施。
