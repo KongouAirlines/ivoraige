@@ -15,6 +15,12 @@
 /experiments/**/node_modules/
 /experiments/**/.venv/
 /experiments/**/__pycache__/
+/experiments/**/.npm-cache/
+
+# Generated artifacts left by the retired Cordis/DSH experiment.
+/experiments/cordis-dsh/bridge.bundle.mjs
+/experiments/cordis-dsh/build-evidence.json
+/experiments/cordis-dsh/results.json
 
 # M2 pinned upstream source, dependencies, generated bundle and local records.
 /vendor/
