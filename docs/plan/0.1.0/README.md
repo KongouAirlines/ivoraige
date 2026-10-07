@@ -1,5 +1,11 @@
 # 0.1.0 从头重建实施记录
 
+## PR #6 优化评估（2026-10-07）
+
+在 `f1d9840` 基础上检查模型设置读取与保存实现，仅做局部简化：一次保存复用已取得的提供商目录进行模型匹配，避免第二次 `getBuiltinModels()` 的 `Object.values()` 数组构建；一次已保存模型读取复用同一份 DSH 配置值。没有新增跨请求缓存或持久化层，模型目录默认、旧配置补入列表、保存／切换、超时与 revision 行为保持原设计。未做性能基准，不声称有可感知的提速。
+
+受影响路径的 `node --test test/model-settings.test.mjs test/model-presets.test.mjs` **15/15** 通过，覆盖预设 DSH 校验、多模型保存／切换、真实本机 mock 路由、旧配置读回、重启及复用后无追加调用；未调用真实云端模型。设置窗口改造仍在独立分支规划；[model-settings-partial-save](../follow-ups/model-settings-partial-save.md) 继续待评估，[quarto-qmd-support](../follow-ups/quarto-qmd-support.md) 继续暂缓，本轮未推进或关闭后续事项。优化验证待合入 `main`。
+
 ## PR #6 审阅修正（2026-10-07）
 
 修正体验指南的 YAML 表述：头部原样保留、不翻译，含有效头部的文件可正常导入；头部现校验有效 YAML 映射或空文档，拒绝无效／歧义标量及列表，保留完整原文。不可译单位的 sourceText 不再 trim，保持与 locator 范围一致。模型表单手改提供商／模型后撤销旧预设提示，编辑及添加入口清理旧错误；容量字段在发请求前校验配对。Kimi 国内／国际共用凭据引用的影响已写入预设说明。

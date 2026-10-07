@@ -11,7 +11,6 @@ const MODEL_NS = 'ivoraige-model'
 const ROUTES_NS = 'llm-pi-ai'
 const PROFILE_BUNDLE = 'ivoraige-model-settings'
 const DEFAULT_TIMEOUT_MS = 120_000
-const isBuiltinModel = (provider, model) => getBuiltinModels(provider).some(entry => entry.id === model)
 
 const nonempty = (value, field) => {
   if (typeof value !== 'string' || !value.trim()) {
@@ -45,13 +44,14 @@ export class ModelSettings extends Service {
   }
 
   savedModels(providers = {}) {
+    const configuredModels = this.config.savedModels.get()
     const saved = new Map()
     const add = (provider, model, timeoutMs) => {
       if (typeof provider !== 'string' || !provider || typeof model !== 'string' || !model) return
       const key = JSON.stringify([provider, model])
       if (!saved.has(key)) saved.set(key, { provider, model, timeoutMs })
     }
-    for (const entry of this.config.savedModels.get()) {
+    for (const entry of configuredModels) {
       add(entry.provider, entry.model, entry.timeoutMs)
     }
     for (const [provider, route] of Object.entries(providers)) {
@@ -65,7 +65,7 @@ export class ModelSettings extends Service {
     const selected = this.resolve()
     if (selected) {
       const key = JSON.stringify([selected.provider, selected.model])
-      if (!saved.has(key) || !this.config.savedModels.get().some(entry =>
+      if (!saved.has(key) || !configuredModels.some(entry =>
         entry.provider === selected.provider && entry.model === selected.model)) {
         saved.set(key, selected)
       }
@@ -148,7 +148,7 @@ export class ModelSettings extends Service {
     const existingModels = Array.isArray(route.models) ? route.models : []
     const existingModel = existingModels.find(entry => entry.id === model)
     const catalogModels = getBuiltinModels(provider)
-    const builtin = isBuiltinModel(provider, model)
+    const builtin = catalogModels.some(entry => entry.id === model)
     const hasCapacity = contextWindow !== undefined || maxTokens !== undefined
     const clearCapacity = contextWindow === null && maxTokens === null
     if (hasCapacity && !clearCapacity && (!Number.isSafeInteger(contextWindow) || contextWindow <= 0 ||
