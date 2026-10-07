@@ -99,6 +99,41 @@ test('PDF bindings persist; PDF, Markdown and JSON share frozen revisions', asyn
   assert.match(await readFile(changed.artifacts.md.path, 'utf8'), /修改后的 E = mc² 结果。/)
 })
 
+test('partial acceptance and skip replay the same frozen PDF, Markdown and JSON', async t => {
+  const f = await fixture(t)
+  const doc = await imported(f)
+  const [first, second] = f.app.records.listUnits(doc.id, { targetLang: 'zh-CN' })
+  const revision = await f.app.records.writeRevision(first.id, {
+    targetLang: 'zh-CN', text: '已接受 <b1> 结果。', baseRevisionId: null,
+  })
+  await f.app.records.acceptRevision(revision.id, { expectedAcceptedRevisionId: null })
+  const initial = await exported(f.app, doc.id, {
+    targetLang: 'zh-CN', onMissingAccepted: 'skip', outputs,
+  })
+  assert.equal(initial.task.stats.llmCalls, 0)
+  const pdf = JSON.parse((await readFile(initial.artifacts.pdf.path, 'utf8')).split('\n')[1])
+  const md = await readFile(initial.artifacts.md.path, 'utf8')
+  const json = JSON.parse(await readFile(initial.artifacts.json.path, 'utf8'))
+  assert.deepEqual(pdf.units.map(item => item.text), ['已接受 <b1> 结果。', second.sourceText])
+  assert.match(md, /已接受 E = mc² 结果。/)
+  assert.match(md, /The result E = mc² is reproducible\./)
+  assert.deepEqual(json.units.map(item => item.decision.type), ['revision', 'skip'])
+  assert.deepEqual(json.units.map(item => item.text),
+    ['已接受 E = mc² 结果。', 'The result E = mc² is reproducible.'])
+  assert.ok(initial.task.artifacts.every(item => item.snapshotId === initial.snapshotId))
+  const original = await Promise.all(outputs.map(({ format }) => readFile(initial.artifacts[format].path)))
+
+  const later = await f.app.records.writeRevision(second.id, {
+    targetLang: 'zh-CN', text: '后来接受 <b1> 结果。', baseRevisionId: null,
+  })
+  await f.app.records.acceptRevision(later.id, { expectedAcceptedRevisionId: null })
+  const replay = await exported(f.app, doc.id, { targetLang: 'zh-CN', snapshotId: initial.snapshotId, outputs })
+  assert.equal(replay.task.stats.llmCalls, 0)
+  for (const [index, { format }] of outputs.entries()) {
+    assert.deepEqual(await readFile(replay.artifacts[format].path), original[index])
+  }
+})
+
 test('managed PDF survives original mutation and rejects managed-source tampering', async t => {
   const f = await fixture(t)
   const doc = await imported(f)

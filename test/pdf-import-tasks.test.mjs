@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, writeFile, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,6 +9,14 @@ import { createApp } from '../src/app.mjs'
 
 const engine = fileURLToPath(new URL('./fixtures/pdf-engine.mjs', import.meta.url))
 const pdfBytes = '%PDF-FAKE-IMPORT-TASK\n'
+const managedSources = async directory => readdir(join(directory, 'pdf', 'sources')).catch(error => {
+  if (error.code === 'ENOENT') return []
+  throw error
+})
+const importWork = async directory => readdir(join(directory, 'pdf', 'work')).catch(error => {
+  if (error.code === 'ENOENT') return []
+  throw error
+})
 const bounded = async promise => {
   let timer
   try { return await Promise.race([promise, new Promise((_, reject) => {
@@ -66,6 +74,8 @@ test('an import is visible while capture runs; cancel leaves no document', async
   assert.equal(canceled.state, 'canceled')
   assert.deepEqual(f.app.records.listDocuments(), [])
   assert.equal((await f.app.tasks.get(taskId)).state, 'canceled')
+  assert.deepEqual(await managedSources(f.directory), [])
+  assert.deepEqual(await importWork(f.directory), [])
 })
 
 test('a second import can queue behind active capture and be canceled', async t => {
@@ -115,6 +125,55 @@ test('failed capture is durable and stays failed after restart', async t => {
   await f.restart()
   assert.equal((await f.app.tasks.get(taskId)).state, 'failed')
   assert.deepEqual(f.app.records.listDocuments(), [])
+  assert.deepEqual(await managedSources(f.directory), [])
+  assert.deepEqual(await importWork(f.directory), [])
+})
+
+test('failed persistence removes a new source and keeps an existing shared source', async t => {
+  const f = await fixture(t)
+  const file = { format: 'pdf', path: f.source }
+  const options = { language: 'en' }
+  await assert.rejects(f.app.records.importDocument(file, { ...options, sourceId: 'pdf:first-failure' },
+    { taskId: 'missing-task' }))
+  assert.deepEqual(await managedSources(f.directory), [])
+  assert.deepEqual(await importWork(f.directory), [])
+
+  const { document } = await f.app.records.importDocument(file, { ...options, sourceId: 'pdf:shared-success' })
+  const source = (await managedSources(f.directory))[0]
+  assert.ok(source)
+  await assert.rejects(f.app.records.importDocument(file, { ...options, sourceId: 'pdf:second-failure' },
+    { taskId: 'missing-task' }))
+  assert.deepEqual(await managedSources(f.directory), [source])
+  assert.deepEqual(f.app.records.listDocuments().map(item => item.id), [document.id])
+})
+
+test('a callback failure after record commit keeps its managed source', async t => {
+  const f = await fixture(t)
+  const records = f.app.records
+  const original = records.insertDocument.bind(records)
+  records.insertDocument = async (...args) => {
+    await original(...args)
+    throw new Error('simulated post-commit failure')
+  }
+  t.after(() => { records.insertDocument = original })
+  await assert.rejects(records.importDocument({ format: 'pdf', path: f.source },
+    { sourceId: 'pdf:committed-then-threw', language: 'en' }), /simulated post-commit failure/)
+  assert.equal(records.listDocuments().length, 1)
+  assert.equal((await managedSources(f.directory)).length, 1)
+  assert.deepEqual(await importWork(f.directory), [])
+})
+
+test('concurrent imports of the same source retain the successful document source', async t => {
+  const f = await fixture(t)
+  const file = { format: 'pdf', path: f.source }
+  const [failed, succeeded] = await Promise.allSettled([
+    f.app.records.importDocument(file, { sourceId: 'pdf:failed', language: 'en' }, { taskId: 'missing-task' }),
+    f.app.records.importDocument(file, { sourceId: 'pdf:success', language: 'en' }),
+  ])
+  assert.equal(failed.status, 'rejected')
+  assert.equal(succeeded.status, 'fulfilled')
+  assert.equal((await managedSources(f.directory)).length, 1)
+  assert.deepEqual(f.app.records.listDocuments().map(item => item.id), [succeeded.value.document.id])
 })
 
 test('startup marks an interrupted running import failed without resuming it', async t => {

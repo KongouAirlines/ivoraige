@@ -283,7 +283,7 @@ def validate_options(options):
     return pages, min_length
 
 
-def run_engine(
+def _run_engine(
     input_pdf: Path,
     config_id: dict,
     mode: str,
@@ -324,6 +324,7 @@ def run_engine(
     work = STATE["session_work"]
     STATE["run_index"] = STATE.get("run_index", 0) + 1
     task_work = work / f"run-{STATE['run_index']}"
+    STATE["active_run_work"] = task_work
     old_profile = os.environ.get("USERPROFILE")
     old_tiktoken = os.environ.get("TIKTOKEN_CACHE_DIR")
     old_cache = const.CACHE_FOLDER
@@ -554,6 +555,23 @@ def run_engine(
     return engine.calls, all_paragraphs or seen, checks
 
 
+def run_engine(
+    input_pdf: Path,
+    config_id: dict,
+    mode: str,
+    records: list | None = None,
+    out_dir: Path | None = None,
+):
+    """Remove this invocation's engine files after capture, replay, or failure."""
+    STATE.pop("active_run_work", None)
+    try:
+        return _run_engine(input_pdf, config_id, mode, records, out_dir)
+    finally:
+        task_work = STATE.pop("active_run_work", None)
+        if task_work is not None and task_work.exists():
+            shutil.rmtree(task_work)
+
+
 def parse(params):
     input_pdf = Path(params["path"]).resolve(strict=True)
     require(
@@ -766,8 +784,9 @@ def rebuild(params):
             f"Frozen source text changed at order {item['order']}",
         )
         decision = entry.get("decision", {}).get("type")
+        allowed = ("revision", "skip") if item.get("callback", True) else ("keepOriginal",)
         require(
-            decision == ("revision" if item.get("callback", True) else "keepOriginal"),
+            decision in allowed,
             f"Frozen decision does not match PDF callback at order {item['order']}",
         )
         projection = entry.get("text")
@@ -775,6 +794,11 @@ def rebuild(params):
             isinstance(projection, str),
             f"Accepted text missing at order {item['order']}",
         )
+        if decision == "skip":
+            require(
+                projection == item["requestText"],
+                f"Skipped source text changed at order {item['order']}",
+            )
         expected = [p["token"] for p in item.get("placeholders", [])]
         actual = TOKEN_RE.findall(projection)
         require(

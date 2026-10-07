@@ -110,8 +110,61 @@ class BindingTests(unittest.TestCase):
             frozen["units"][0]["text"] = record["requestText"]
             frozen["units"][0]["decision"]["type"] = "skip"
             revision_ref.write_text(json.dumps(frozen), encoding="utf-8")
+
+            def replay(_source, _config, _mode, records, staging):
+                self.assertEqual(records[0]["engineProjection"], record["requestText"])
+                self.assertEqual(records[0]["text"], record["sourceUnicode"])
+                staging.joinpath("translated.pdf").write_bytes(b"%PDF-1.7\n")
+                return [dict(key=record["key"])], [], []
+
+            with patch.object(server, "run_engine", side_effect=replay):
+                result = server.rebuild(params)
+            self.assertEqual(result["evidence"]["modelRequests"], 0)
+            self.assertEqual(Path(params["out"]).read_bytes(), b"%PDF-1.7\n")
+
+            Path(params["out"]).unlink()
+            frozen["units"][0]["text"] = "different <b1>- m H"
+            revision_ref.write_text(json.dumps(frozen), encoding="utf-8")
+            with self.assertRaisesRegex(server.SidecarError, "Skipped source text changed"):
+                server.rebuild(params)
+
+            frozen["units"][0]["text"] = record["requestText"]
+            frozen["units"][0]["decision"]["type"] = "keepOriginal"
+            revision_ref.write_text(json.dumps(frozen), encoding="utf-8")
             with self.assertRaisesRegex(server.SidecarError, "Frozen decision"):
                 server.rebuild(params)
+
+    def test_run_directory_removed_after_success_and_failure(self):
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
+            root = Path(directory)
+            session = root / "ivoraige-babeldoc-test"
+            session.mkdir()
+            cache = session / ".cache" / "babeldoc"
+            cache.mkdir(parents=True)
+            cache.joinpath("retained").write_text("shared", encoding="utf-8")
+            output = root / "published.pdf"
+            output.write_bytes(b"published")
+
+            def fake_engine(*_args):
+                task_work = session / "run-1"
+                task_work.mkdir()
+                task_work.joinpath("temporary").write_text("work", encoding="utf-8")
+                server.STATE["active_run_work"] = task_work
+                if failing:
+                    raise RuntimeError("engine failed")
+                return [], [], []
+
+            with patch.dict(server.STATE, {}, clear=True):
+                with patch.object(server, "_run_engine", side_effect=fake_engine):
+                    for failing in (False, True):
+                        if failing:
+                            with self.assertRaisesRegex(RuntimeError, "engine failed"):
+                                server.run_engine(Path("source.pdf"), {}, "capture")
+                        else:
+                            server.run_engine(Path("source.pdf"), {}, "capture")
+                        self.assertFalse((session / "run-1").exists())
+            self.assertEqual(cache.joinpath("retained").read_text(encoding="utf-8"), "shared")
+            self.assertEqual(output.read_bytes(), b"published")
 
 
 if __name__ == "__main__":

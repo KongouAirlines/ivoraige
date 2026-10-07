@@ -8,10 +8,13 @@ from pathlib import Path
 
 
 def main():
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser()
     parser.add_argument("pdf", type=Path)
     parser.add_argument("--assets", type=Path, default=Path.home() / ".cache/babeldoc")
     parser.add_argument("--work", type=Path, required=True)
+    parser.add_argument("--skip", action="store_true", help="Replay callbacks with source-text skip decisions")
     args = parser.parse_args()
     args.work.mkdir(parents=True, exist_ok=True)
     process = subprocess.Popen(
@@ -67,7 +70,8 @@ def main():
                         "sourceText": item["sourceText"],
                     },
                     "decision": {
-                        "type": "revision" if item["translatable"] else "keepOriginal"
+                        "type": ("skip" if args.skip else "revision")
+                        if item["translatable"] else "keepOriginal"
                     },
                     "text": item["sourceText"],
                 }
@@ -86,7 +90,7 @@ def main():
             {
                 "docRef": str(doc_ref),
                 "revisionsRef": str(revision_ref),
-                "out": str(args.work / "identity.pdf"),
+                "out": str(args.work / ("skip-source.pdf" if args.skip else "identity.pdf")),
                 "format": "pdf",
             },
         )
@@ -101,6 +105,7 @@ def main():
             )
         )
         call("shutdown", {})
+        process.wait(timeout=10)
     finally:
         if process.poll() is None:
             process.kill()

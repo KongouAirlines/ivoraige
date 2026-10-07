@@ -53,7 +53,7 @@ export class Parse extends Service {
     adapter.validateTranslation?.(binding, unit, text)
   }
 
-  async parse(file) {
+  select(file) {
     if (!file || typeof file !== 'object' || Array.isArray(file)) {
       throw new KernelError('INVALID_ARGUMENT', 'File reference must be an object')
     }
@@ -79,8 +79,22 @@ export class Parse extends Service {
         registeredAdapters: this.listAdapters(),
       })
     }
-    const parsed = await selected.parse(file)
-    validateIr(parsed, selected.id)
+    return selected
+  }
+
+  resolved(parsed, adapterId) {
+    validateIr(parsed, adapterId)
     return { ...parsed, availableOutputs: this.outputs.availableFor(parsed.sourceBinding) }
+  }
+
+  async parse(file) {
+    const selected = this.select(file)
+    return this.resolved(await selected.parse(file), selected.id)
+  }
+
+  async importDocument(file, persist, isReferenced) {
+    const selected = this.select(file)
+    const accept = parsed => persist(this.resolved(parsed, selected.id))
+    return selected.import ? selected.import(file, accept, isReferenced) : accept(await selected.parse(file))
   }
 }

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
-import { readFile, writeFile, mkdir, mkdtemp, rm, stat } from 'node:fs/promises'
+import { readFile, writeFile, mkdir, mkdtemp, rm, stat, copyFile } from 'node:fs/promises'
+import { constants } from 'node:fs'
 import { basename, join } from 'node:path'
 import { SidecarClient } from '../sidecar.mjs'
 import { KernelError } from '../errors.mjs'
@@ -14,6 +15,7 @@ class PdfRuntime {
     this.directory = directory
     this.client = new SidecarClient({ timeoutMs: 600_000, ...config })
     this.verified = new Map()
+    this.sourceLocks = new Map()
     this.status = { state: 'unchecked', message: 'PDF component configured; verified on first import or export' }
   }
 
@@ -38,7 +40,7 @@ class PdfRuntime {
     this.verified.set(path, { identity, digest: expected })
   }
 
-  async parse(file) {
+  async capture(file, temporary) {
     if ((file.path === undefined) === (file.content === undefined)) {
       throw new KernelError('INVALID_ARGUMENT', 'PDF requires exactly one of path or binary content')
     }
@@ -50,14 +52,9 @@ class PdfRuntime {
       throw new KernelError('INVALID_ARGUMENT', 'Input is not a PDF file')
     }
     const sourceDigest = hash(bytes)
-    const sources = join(this.directory, 'sources')
-    await mkdir(sources, { recursive: true })
-    const sourcePath = join(sources, `${sourceDigest}.pdf`)
-    try { await writeFile(sourcePath, bytes, { flag: 'wx' }) } catch (error) {
-      if (error.code !== 'EEXIST') throw error
-    }
-    await this.verifySource(sourcePath, sourceDigest)
-    const { doc } = await this.request('parse', { path: sourcePath,
+    const sourcePath = join(this.directory, 'sources', `${sourceDigest}.pdf`)
+    await writeFile(temporary, bytes)
+    const { doc } = await this.request('parse', { path: temporary,
       options: { language: file.language ?? 'en' } }, { signal: file.signal, onProgress: file.onProgress })
     if (doc?.format !== 'pdf' || doc.sourceBinding?.adapterId !== 'babeldoc' ||
         !Array.isArray(doc.sourceBinding.records) || !Array.isArray(doc.units) || !doc.units.length) {
@@ -70,6 +67,67 @@ class PdfRuntime {
     for (const unit of doc.units) validatePdfTranslation(doc.sourceBinding, unit, unit.sourceText)
     return { ...doc, title: file.title ?? (file.path ? basename(file.path) : file.name ?? 'PDF document'),
       sourceBinding: { ...doc.sourceBinding, sourcePath, sourceDigest } }
+  }
+
+  async publish(temporary, sourcePath, sourceDigest) {
+    await mkdir(join(this.directory, 'sources'), { recursive: true })
+    let created = false
+    try { await copyFile(temporary, sourcePath, constants.COPYFILE_EXCL); created = true } catch (error) {
+      if (error.code !== 'EEXIST') throw error
+    }
+    try { await this.verifySource(sourcePath, sourceDigest) } catch (error) {
+      if (created) await rm(sourcePath, { force: true })
+      throw error
+    }
+    return created
+  }
+
+  async withSourceLock(sourceDigest, operation) {
+    const previous = this.sourceLocks.get(sourceDigest) ?? Promise.resolve()
+    let release
+    const next = new Promise(resolve => { release = resolve })
+    this.sourceLocks.set(sourceDigest, next)
+    await previous
+    try { return await operation() } finally {
+      if (this.sourceLocks.get(sourceDigest) === next) this.sourceLocks.delete(sourceDigest)
+      release()
+    }
+  }
+
+  async parse(file) {
+    const work = join(this.directory, 'work')
+    await mkdir(work, { recursive: true })
+    const temporary = await mkdtemp(join(work, 'import-'))
+    try {
+      const input = join(temporary, 'source.pdf')
+      const parsed = await this.capture(file, input)
+      const { sourcePath, sourceDigest } = parsed.sourceBinding
+      file.signal?.throwIfAborted()
+      await this.withSourceLock(sourceDigest, () => this.publish(input, sourcePath, sourceDigest))
+      return parsed
+    } finally { await rm(temporary, { recursive: true, force: true }) }
+  }
+
+  async import(file, persist, isReferenced) {
+    const work = join(this.directory, 'work')
+    await mkdir(work, { recursive: true })
+    const temporary = await mkdtemp(join(work, 'import-'))
+    try {
+      const input = join(temporary, 'source.pdf')
+      const parsed = await this.capture(file, input)
+      const { sourcePath, sourceDigest } = parsed.sourceBinding
+      return await this.withSourceLock(sourceDigest, async () => {
+        file.signal?.throwIfAborted()
+        const created = await this.publish(input, sourcePath, sourceDigest)
+        try { return await persist(parsed) } catch (error) {
+          if (created && !isReferenced(sourcePath)) {
+            await rm(sourcePath, { force: true })
+            this.verified.delete(sourcePath)
+          }
+          throw error
+        }
+      })
+    } finally { await rm(temporary, { recursive: true, force: true }) }
   }
 
   async rebuild(frozen, { signal } = {}) {
@@ -103,6 +161,7 @@ export function Pdf(ctx, config) {
     match: file => file.format !== undefined ? (file.format.toLowerCase() === 'pdf' ? 1 : 0) :
       /\.pdf$/i.test(file.path ?? file.name ?? '') ? 0.9 : 0,
     parse: file => runtime.parse(file),
+    import: (file, persist, isReferenced) => runtime.import(file, persist, isReferenced),
     validateTranslation: validatePdfTranslation,
   }))
   ctx.effect(() => ctx.get('ivoraige.outputs').register({

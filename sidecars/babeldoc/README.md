@@ -39,8 +39,15 @@ mappings remain null and require review.
 accepted BabelDOC engine projection, including any preserved placeholders.
 The readable text for MD/JSON is a deterministic expansion through
 `placeholders[*].text`. The sidecar checks the exact token sequence and fails
-if a display mapping remains unresolved. Callback units must have a revision;
-passthrough units must retain their original text and `keepOriginal` decision.
+if a display mapping remains unresolved. Callback units use an accepted revision
+or a `skip` decision that replays the exact source request. Passthrough units
+must retain their original text and `keepOriginal` decision.
 It rejects missing, duplicate, changed, or unused engine requests and publishes
 the PDF only after all checks pass. Mono PDF is the supported format; bilingual
 PDF needs separate validation.
+
+Each capture or replay removes its own BabelDOC `run-N` working directory after
+the result has been copied out. The session cache stays available to subsequent
+requests and is removed when the sidecar exits.
+Forced process termination or power loss can leave a session directory behind;
+normal per-run cleanup cannot execute in those cases.

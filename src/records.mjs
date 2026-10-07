@@ -173,29 +173,30 @@ export class Records {
     required(['manual', 'zotero', 'cli', 'mcp'].includes(origin), 'Invalid origin')
     required(sourceId === undefined || (typeof sourceId === 'string' && sourceId.trim()), 'sourceId must be nonempty')
     required(externalRef === undefined || typeof externalRef === 'string', 'externalRef must be a string')
-    const parsed = await this.parse.parse({ ...file, language: sourceLang })
-    required(['txt', 'md', 'pdf'].includes(parsed.format) && (!parsed.resources || parsed.resources.length === 0),
-      'Persistent import supports TXT, Markdown and PDF without bundled external resources')
-    assertJson(parsed)
-    const businessSourceId = sourceId ?? (file.path ? `path:${file.path}` : `manual:${id()}`)
-    const fingerprint = digest({ format: parsed.format, language: sourceLang, units: parsed.units,
-      chapters: parsed.chapters, resources: parsed.resources, sourceBinding: parsed.sourceBinding })
-    const docId = digest({ sourceId: businessSourceId, fingerprint }).slice(0, 32)
-    // Persist the deterministic destination before inserting the document, so
-    // startup can reconcile a crash between document commit and task completion.
-    if (taskId) await this.updateTask(taskId, task => ({ ...task, preparedDocId: docId }))
-    file.signal?.throwIfAborted()
-    const existing = this.table.get(docId)
-    if (existing) return { document: clone(existing.document), deduplicated: true }
-    const pending = this.imports.get(docId)
-    if (pending) {
-      const document = await pending
-      return { document: clone(document), deduplicated: true }
-    }
-    const operation = this.insertDocument(docId, businessSourceId, sourceLang, origin, externalRef, fingerprint, parsed)
-    this.imports.set(docId, operation)
-    try { return { document: clone(await operation), deduplicated: false } }
-    finally { this.imports.delete(docId) }
+    return this.parse.importDocument({ ...file, language: sourceLang }, async parsed => {
+      required(['txt', 'md', 'pdf'].includes(parsed.format) && (!parsed.resources || parsed.resources.length === 0),
+        'Persistent import supports TXT, Markdown and PDF without bundled external resources')
+      assertJson(parsed)
+      const businessSourceId = sourceId ?? (file.path ? `path:${file.path}` : `manual:${id()}`)
+      const fingerprint = digest({ format: parsed.format, language: sourceLang, units: parsed.units,
+        chapters: parsed.chapters, resources: parsed.resources, sourceBinding: parsed.sourceBinding })
+      const docId = digest({ sourceId: businessSourceId, fingerprint }).slice(0, 32)
+      // Persist the deterministic destination before inserting the document, so
+      // startup can reconcile a crash between document commit and task completion.
+      if (taskId) await this.updateTask(taskId, task => ({ ...task, preparedDocId: docId }))
+      file.signal?.throwIfAborted()
+      const existing = this.table.get(docId)
+      if (existing) return { document: clone(existing.document), deduplicated: true }
+      const pending = this.imports.get(docId)
+      if (pending) {
+        const document = await pending
+        return { document: clone(document), deduplicated: true }
+      }
+      const operation = this.insertDocument(docId, businessSourceId, sourceLang, origin, externalRef, fingerprint, parsed)
+      this.imports.set(docId, operation)
+      try { return { document: clone(await operation), deduplicated: false } }
+      finally { this.imports.delete(docId) }
+    }, sourcePath => [...this.table.keys()].some(docId => this.table.get(docId)?.sourceBinding?.sourcePath === sourcePath))
   }
   async insertDocument(docId, businessSourceId, sourceLang, origin, externalRef, fingerprint, parsed) {
     const units = parsed.units.map((unit, order) => ({ ...clone(unit), id: `${docId}.${order.toString(36)}`,
