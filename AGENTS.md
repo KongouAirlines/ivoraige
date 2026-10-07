@@ -59,11 +59,22 @@ Node >= 24. Type "module" (ESM). Do not downgrade the engines field without veri
 ## Conventions
 
 - **Follow the restart decision.** The user requested a fresh business implementation, overriding the earlier incremental migration advice. Keep a thin DSH bridge and small Cordis services; implement the v2.0 target in working stages, without restoring the old business layer by default. Keep the current suites green at every stage.
+- **Version-based naming, always.** Directories and files that record project content are named by software version (`docs/plan/0.1.0/`), never by relative or process wording (`restart`, `legacy`, `old`, `new`, `final`, `backup`, `current`). Prose may describe a process, but anchors, links, branch names and artifact paths must resolve to a version. The design baseline version (`v2.0`) is a document version, distinct from software versions (`0.0.0` archived MVP, current `0.1.0-dev.0`); never conflate them. Development branches are named by software version (e.g. `codex/0.1.0-markdown-compat`); run output directories likewise (`evaluation/runs/<name>-0.1.0/`). Sole exception: follow-up item IDs in `docs/plan/follow-ups/` are stable semantic slugs that must not change across versions (see Follow-up tracking).
 - **Boring over clever.** Reuse existing components (DSH plugins, verified OSS) before writing new code. No speculative abstractions, no frameworks for hypothetical needs.
 - **Evidence over assertion.** Never write "verified" for code you didn't run; never claim a capability from a name or README. Distinguish observed results from inference. MVP evidence in `docs/plan/mvp/` is retired reference; old source links are resolved on `codex/archive-mvp-0.0.0` or the `v0.0.0` tag, not the current implementation.
 - **Proportionate verification.** After a change, verify the affected path (run the suite or a smoke command). Do not re-verify untouched artifacts, re-scan the whole corpus, or add hash gates to routine file passing. Existing import hashes are reused as-is.
 - **Originals are read-only.** Modify derived data, never the copyrighted originals in `evaluation/private/`.
 - **No scope creep.** Do the requested task. Surface additional issues once, at the end; do not fold them into the change.
+
+## Follow-up tracking
+
+- Follow [the follow-up register rules](docs/plan/follow-ups/README.md). Each newly discovered out-of-scope issue lives in `docs/plan/follow-ups/<stable-id>.md`; existing milestone capabilities stay in the implementation plan. Recording an item does not authorize implementation.
+- Before related work, read relevant workspace items and, as needed, compare the local target branch. For stage planning, use `npm run followups -- --refs <target> <participating-branches>`; this reads committed local snapshots, not uncommitted changes or live remote state. Do not scan every branch for routine tasks.
+- Search for duplicates before recording a finding. Include evidence, impact, scope, deferral reason, reassessment trigger, and acceptance conditions. Do not defer a fix required for the current task's acceptance or expand implementation scope merely because a follow-up exists.
+- When taking up an item, check existing implementation branches/PRs and record the branch, scope, and acceptance conditions. Local absence is not proof that no other agent is working on it; coordinate overlapping work. Git records are not a global claim lock.
+- At stage completion, update related items with observed verification and implementation links. Branch verification alone remains in progress, pending merge. Mark resolved only after acceptance and integration into the named target branch; preserve unfinished scope.
+- When merging, reconcile duplicate items and branch-specific evidence without silently overwriting it. Before abandoning a branch, carry valuable unfinished findings into the target branch through a documentation change. Preserve duplicate IDs as redirects to the retained item.
+- In the final report, list IDs added, advanced, or resolved. Keep current behavior in feature documentation and historical evidence in implementation records; link them to the item instead of maintaining separate status lists.
 
 ## API and protocol work
 

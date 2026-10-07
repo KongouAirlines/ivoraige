@@ -228,14 +228,16 @@ interface RagChunk {
 | 方法 | 路径 | 请求 | 响应 |
 |---|---|---|---|
 | GET | `/api/capabilities` | — | `{ features: string[], inputFormats: string[], outputFormats: string[], components?: object }`；按已装配能力返回。PDF 组件状态 `components.babeldoc` 为 `unchecked`／`ready`／`unavailable`，可带 `message`；配置只表示可尝试，首次操作前不能声称已就绪 |
-| GET | `/api/settings/modelconfig` | — | `{ settings: { selected: { provider, model, timeoutMs } \| null, routes, credentials, revisions: { routes, selected } } }`；凭据只返回状态，不返回值 |
-| PATCH | `/api/settings/modelconfig` | `{ provider, model, api?, baseURL?, credentialRef?, contextWindow?, maxTokens?, reasoning?, compat?, reasoningEfforts?, timeoutMs?, routesRevision?, selectedRevision? }` | `{ settings: ... }`；DSH schema 校验模型路由与选择，显式 revision 过期返回 409 |
+| GET | `/api/settings/modelconfig` | — | `{ settings: { selected: { provider, model, timeoutMs } \| null, savedModels: { provider, model, timeoutMs }[], presets, routes, credentials, revisions: { routes, selected } } }`；凭据只返回状态，不返回值；presets 是提供商模板及固定版本模型候选，不是账号实时可用性声明 |
+| PATCH | `/api/settings/modelconfig` | `{ provider, model, api?, baseURL?, credentialRef?, contextWindow?, maxTokens?, reasoning?, compat?, reasoningEfforts?, timeoutMs?, select?, selectOnly?, routesRevision?, selectedRevision? }` | `{ settings: ... }`；`select: false` 只保存到模型列表，默认 `select: true` 保持旧版保存并选择行为；`selectOnly: true` 仅切换已保存模型，此时只接受 provider、model、selectOnly 和两个 revision 字段；DSH schema 校验，显式 revision 过期返回 409 |
 | PUT | `/api/settings/credentials` | `{ ref, value }` | `{ configured, source?, writable }` 等 DSH 凭据状态字段；秘密仅写入 `dsh-credentials-local`，响应不回显 `value` |
 | GET | `/api/artifacts/{artifactId}/download` | — | 产物文件流；文件下载是 §1.1 JSON 规则的二进制例外 |
 
 初次启动可无模型配置，`selected` 为 `null`；若发起翻译时仍无选择，`POST /translate` 仍先返回 taskId，执行时模型服务抛出 `COMPONENT_MISSING`，任务随后记为失败。模型配置只存命名凭据引用，例如 `DeepSeek_API_TOKEN`；密钥值走凭据端点。`GET` 的 `credentials` 以提供商路由名为键，值是 DSH 的存在性与可写性描述，不是密钥。
 
-路由与当前模型选择分别属于 DSH 的两个可编辑插件条目。`PATCH` 先保存路由，再保存选择；每步由 DSH config-editor 持久化并热更新，但这两个条目之间不是一个跨条目原子事务。若第二步失败，已成功的路由写入仍保留，客户端应重新 `GET` 后修正。`routesRevision` 与 `selectedRevision` 在写前检查，不能把两次写误写为单次原子提交。设置和凭据更新遵守 §1.4 的运行任务互斥。
+模型配置 `PATCH` 中字段省略表示保留原值；`api`／`baseURL`／`credentialRef`／`reasoning`／`compat` 显式 `null` 表示删除对应路由覆盖。`contextWindow` 与 `maxTokens` 必须成对提供正整数，或同时为 `null` 以移除该模型的目录容量覆盖；`reasoningEfforts: null` 移除该模型的推理档位覆盖。未知自定义模型须声明实际容量，不能用清空来制造无声明模型；目录路由没有显式 models 列表时仅允许选择已收录模型，未收录模型用独立自定义路由声明。不满足声明条件返回 `INVALID_ARGUMENT`，不写入路由或列表。
+
+路由与模型列表／当前选择分别属于 DSH 的两个可编辑插件条目。`PATCH` 保存配置时先保存路由，再保存列表和（如需）选择；每步由 DSH config-editor 持久化并热更新，但这两个条目之间不是一个跨条目原子事务。若第二步失败，已成功的路由写入仍保留，客户端应重新 `GET` 后修正。纯切换只修改选择、不写路由。`routesRevision` 与 `selectedRevision` 在写前检查，后者也保护 savedModels 列表。旧配置的显式 route.models／modelOverrides 和当前选择在读取时补入列表；下次保存配置时随列表持久化。同一提供商标识下的模型共享路由级端点／凭据／推理设置；不同端点或账号使用不同提供商标识。内置目录模型的单项容量调整使用 modelOverrides，避免用显式 models 列表意外收窄目录；已存在显式 models 列表的语义不变。设置和凭据更新继续遵守 §1.4 的运行任务互斥，包括仅保存非当前模型的请求。
 
 ## 4. SSE 事件类型
 
