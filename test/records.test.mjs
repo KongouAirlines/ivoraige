@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createApp } from '../src/app.mjs'
 import { digest, sameBasis } from '../src/basis.mjs'
+import { renderMarkdown } from '../src/adapters/markdown-output.mjs'
 
 async function fixture(t) {
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-records-'))
@@ -15,6 +16,26 @@ async function fixture(t) {
 }
 const source = { format: 'txt', content: 'First sentence.\n\nSecond sentence.' }
 const options = { sourceId: 'paper:42', language: 'en' }
+
+test('Markdown metadata persists as nontranslatable and survives a frozen export after restart', async t => {
+  const f = await fixture(t)
+  const header = '---\r\ntitle: "Original title"\r\nabstract: >-\r\n  Original abstract.\r\n---\r\n'
+  const { document } = await f.app.records.importDocument(
+    { format: 'md', content: header + '\r\nBody text.\r\n' }, options)
+  const [metadata, body] = f.app.records.listUnits(document.id, { targetLang: 'zh' })
+  assert.equal(metadata.translatable, false)
+  await assert.rejects(f.app.records.writeRevision(metadata.id,
+    { targetLang: 'zh', text: '修改头部', baseRevisionId: null }), { code: 'INVALID_ARGUMENT' })
+  const revision = await f.app.records.writeRevision(body.id,
+    { targetLang: 'zh', text: '正文。', baseRevisionId: null })
+  await f.app.records.acceptRevision(revision.id, { expectedAcceptedRevisionId: null })
+  const snapshot = await f.app.records.createSnapshot(document.id, { targetLang: 'zh' })
+  assert.deepEqual(snapshot.items.map(item => item.decision.type), ['keepOriginal', 'revision'])
+  await f.restart()
+  assert.equal(f.app.records.listUnits(document.id, { targetLang: 'zh' })[0].translatable, false)
+  assert.equal(renderMarkdown(f.app.records.resolveSnapshot(document.id, snapshot.id)),
+    header + '\r\n正文。\r\n')
+})
 
 test('import is durable, idempotent under concurrency, and returns copies', async t => {
   const f = await fixture(t)

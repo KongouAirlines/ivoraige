@@ -1,13 +1,16 @@
 import { existsSync } from 'node:fs'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
+import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { AppBoot, ConfigEditor, Context, DshSchema as z, LlmPiAi, LlmRuntime,
   LocalCredentialProvider, Service, SettingsForms } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
+import { modelPresets } from './model-presets.mjs'
 
 const MODEL_NS = 'ivoraige-model'
 const ROUTES_NS = 'llm-pi-ai'
 const PROFILE_BUNDLE = 'ivoraige-model-settings'
+const DEFAULT_TIMEOUT_MS = 120_000
 
 const nonempty = (value, field) => {
   if (typeof value !== 'string' || !value.trim()) {
@@ -23,7 +26,10 @@ export class ModelSettings extends Service {
   static Config = z.object({
     provider: z.string().default('').volatile(),
     model: z.string().default('').volatile(),
-    timeoutMs: z.number().min(1).default(120_000).volatile(),
+    timeoutMs: z.number().min(1).default(DEFAULT_TIMEOUT_MS).volatile(),
+    savedModels: z.array(z.object({
+      provider: z.string(), model: z.string(), timeoutMs: z.number().min(1),
+    })).default([]).volatile(),
   })
 
   constructor(ctx, config) {
@@ -35,6 +41,36 @@ export class ModelSettings extends Service {
     const provider = this.config.provider.get()
     const model = this.config.model.get()
     return provider && model ? { provider, model, timeoutMs: this.config.timeoutMs.get() } : null
+  }
+
+  savedModels(providers = {}) {
+    const configuredModels = this.config.savedModels.get()
+    const saved = new Map()
+    const add = (provider, model, timeoutMs) => {
+      if (typeof provider !== 'string' || !provider || typeof model !== 'string' || !model) return
+      const key = JSON.stringify([provider, model])
+      if (!saved.has(key)) saved.set(key, { provider, model, timeoutMs })
+    }
+    for (const entry of configuredModels) {
+      add(entry.provider, entry.model, entry.timeoutMs)
+    }
+    for (const [provider, route] of Object.entries(providers)) {
+      for (const entry of Array.isArray(route?.models) ? route.models : []) {
+        add(provider, entry.id, DEFAULT_TIMEOUT_MS)
+      }
+      for (const id of Object.keys(route?.modelOverrides ?? {})) {
+        add(provider, id, DEFAULT_TIMEOUT_MS)
+      }
+    }
+    const selected = this.resolve()
+    if (selected) {
+      const key = JSON.stringify([selected.provider, selected.model])
+      if (!saved.has(key) || !configuredModels.some(entry =>
+        entry.provider === selected.provider && entry.model === selected.model)) {
+        saved.set(key, selected)
+      }
+    }
+    return [...saved.values()]
   }
 
   async get() {
@@ -51,6 +87,8 @@ export class ModelSettings extends Service {
     }
     return {
       selected: this.resolve(),
+      savedModels: this.savedModels(providers),
+      presets: structuredClone(modelPresets),
       routes: providers,
       credentials,
       revisions: { routes: routeForm.revision, selected: modelForm.revision },
@@ -59,9 +97,10 @@ export class ModelSettings extends Service {
 
   // Route options use DSH's pi-ai schema. A route may be an installed provider
   // with catalog defaults, or a fully declared OpenAI-compatible endpoint.
-  async update({ provider, model, api, baseURL, credentialRef, contextWindow, maxTokens,
-    reasoning, compat, reasoningEfforts, timeoutMs,
-    routesRevision, selectedRevision } = {}) {
+  async update(input = {}) {
+    let { provider, model, api, baseURL, credentialRef, contextWindow, maxTokens,
+      reasoning, compat, reasoningEfforts, timeoutMs, select = true, selectOnly = false,
+      routesRevision, selectedRevision } = input
     provider = nonempty(provider, 'provider')
     model = nonempty(model, 'model')
     if (routesRevision !== undefined && (!Number.isSafeInteger(routesRevision) || routesRevision < 0)) {
@@ -73,6 +112,14 @@ export class ModelSettings extends Service {
     if (timeoutMs !== undefined && (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)) {
       throw new KernelError('INVALID_ARGUMENT', 'timeoutMs must be a positive integer')
     }
+    if (typeof select !== 'boolean' || typeof selectOnly !== 'boolean') {
+      throw new KernelError('INVALID_ARGUMENT', 'select and selectOnly must be booleans')
+    }
+    if (selectOnly && Object.keys(input).some(field => ![
+      'provider', 'model', 'selectOnly', 'routesRevision', 'selectedRevision',
+    ].includes(field))) {
+      throw new KernelError('INVALID_ARGUMENT', 'selectOnly accepts only a saved provider and model')
+    }
     const forms = this.ctx.settings.describe()
     for (const [ns, expected] of [[ROUTES_NS, routesRevision], [MODEL_NS, selectedRevision]]) {
       if (expected === undefined) continue
@@ -82,41 +129,107 @@ export class ModelSettings extends Service {
       }
     }
     const currentRoute = forms.find(row => row.ns === ROUTES_NS)?.value?.providers?.[provider]
-    const route = currentRoute ? structuredClone(currentRoute) : {}
-    if (api !== undefined) route.api = nonempty(api, 'api')
-    if (baseURL !== undefined) route.baseURL = nonempty(baseURL, 'baseURL')
-    if (credentialRef !== undefined) route.apiKeyEnv = nonempty(credentialRef, 'credentialRef')
-    if (reasoning !== undefined) route.reasoning = nonempty(reasoning, 'reasoning')
-    if (compat !== undefined) route.compat = structuredClone(compat)
-    if (contextWindow !== undefined || maxTokens !== undefined) {
-      if (!Number.isSafeInteger(contextWindow) || contextWindow <= 0 ||
-          !Number.isSafeInteger(maxTokens) || maxTokens <= 0) {
-        throw new KernelError('INVALID_ARGUMENT', 'contextWindow and maxTokens must be positive integers')
-      }
-      const existingModels = Array.isArray(route.models) ? route.models : []
-      route.models = [...existingModels.filter(entry => entry.id !== model), {
-        ...(existingModels.find(entry => entry.id === model) ?? {}), id: model,
-        contextWindow, maxTokens,
-        ...(reasoningEfforts === undefined ? {} : { reasoningEfforts: structuredClone(reasoningEfforts) }),
-      }]
-    } else if (reasoningEfforts !== undefined) {
-      const existingModels = Array.isArray(route.models) ? route.models : []
-      const existing = existingModels.find(entry => entry.id === model)
-      if (!existing) throw new KernelError('INVALID_ARGUMENT',
-        'reasoningEfforts requires a declared model or contextWindow and maxTokens')
-      route.models = existingModels.map(entry => entry.id === model
-        ? { ...entry, reasoningEfforts: structuredClone(reasoningEfforts) } : entry)
+    const providers = forms.find(row => row.ns === ROUTES_NS)?.value?.providers ?? {}
+    const savedModels = this.savedModels(providers)
+    const savedIndex = savedModels.findIndex(entry => entry.provider === provider && entry.model === model)
+    if (selectOnly && savedIndex < 0) {
+      throw new KernelError('INVALID_ARGUMENT', 'model configuration is not saved')
     }
-    if (api !== undefined || baseURL !== undefined || credentialRef !== undefined ||
+    if (selectOnly) {
+      const saved = savedModels[savedIndex]
+      await this.ctx.settings.mutate(MODEL_NS, [
+        { op: 'set', path: ['provider'], value: provider },
+        { op: 'set', path: ['model'], value: model },
+        { op: 'set', path: ['timeoutMs'], value: saved.timeoutMs },
+      ], selectedRevision)
+      return this.get()
+    }
+    const route = currentRoute ? structuredClone(currentRoute) : {}
+    const existingModels = Array.isArray(route.models) ? route.models : []
+    const existingModel = existingModels.find(entry => entry.id === model)
+    const catalogModels = getBuiltinModels(provider)
+    const builtin = catalogModels.some(entry => entry.id === model)
+    const hasCapacity = contextWindow !== undefined || maxTokens !== undefined
+    const clearCapacity = contextWindow === null && maxTokens === null
+    if (hasCapacity && !clearCapacity && (!Number.isSafeInteger(contextWindow) || contextWindow <= 0 ||
+        !Number.isSafeInteger(maxTokens) || maxTokens <= 0)) {
+      throw new KernelError('INVALID_ARGUMENT',
+        'contextWindow and maxTokens must both be positive integers or both null')
+    }
+    if (catalogModels.length && !existingModels.length && !builtin) {
+      throw new KernelError('INVALID_ARGUMENT',
+        'model is absent from the installed catalog; use a distinct custom provider with api, baseURL, contextWindow and maxTokens')
+    }
+    if ((!catalogModels.length || existingModels.length) && !existingModel && !hasCapacity) {
+      throw new KernelError('INVALID_ARGUMENT',
+        'new custom models require contextWindow and maxTokens')
+    }
+    if (clearCapacity && (existingModels.length || !builtin)) {
+      throw new KernelError('INVALID_ARGUMENT',
+        'capacity can only be cleared for an installed catalog model using catalog defaults')
+    }
+    for (const [field, value, target] of [
+      ['api', api, 'api'], ['baseURL', baseURL, 'baseURL'],
+      ['credentialRef', credentialRef, 'apiKeyEnv'], ['reasoning', reasoning, 'reasoning'],
+    ]) {
+      if (value === null) delete route[target]
+      else if (value !== undefined) route[target] = nonempty(value, field)
+    }
+    if (compat === null) delete route.compat
+    else if (compat !== undefined) route.compat = structuredClone(compat)
+    if (existingModels.length || !catalogModels.length) {
+      if (hasCapacity) {
+        const declared = { ...existingModel, id: model, contextWindow, maxTokens }
+        if (reasoningEfforts === null) delete declared.reasoningEfforts
+        else if (reasoningEfforts !== undefined) declared.reasoningEfforts = structuredClone(reasoningEfforts)
+        route.models = [...existingModels.filter(entry => entry.id !== model), declared]
+      } else if (reasoningEfforts !== undefined) {
+        route.models = existingModels.map(entry => {
+          if (entry.id !== model) return entry
+          const updated = { ...entry }
+          if (reasoningEfforts === null) delete updated.reasoningEfforts
+          else updated.reasoningEfforts = structuredClone(reasoningEfforts)
+          return updated
+        })
+      }
+    } else if (hasCapacity || reasoningEfforts !== undefined) {
+      const override = { ...route.modelOverrides?.[model] }
+      if (clearCapacity) {
+        delete override.contextWindow
+        delete override.maxTokens
+      } else if (hasCapacity) {
+        override.contextWindow = contextWindow
+        override.maxTokens = maxTokens
+      }
+      if (reasoningEfforts === null) delete override.reasoningEfforts
+      else if (reasoningEfforts !== undefined) override.reasoningEfforts = structuredClone(reasoningEfforts)
+      // DSH materializes empty schema defaults when describing an override.
+      if (Array.isArray(override.input) && !override.input.length) delete override.input
+      if (override.compat && Object.values(override.compat).every(value =>
+        value && typeof value === 'object' && !Object.keys(value).length)) delete override.compat
+      if (Object.keys(override).length) {
+        route.modelOverrides = { ...route.modelOverrides, [model]: override }
+      } else {
+        delete route.modelOverrides?.[model]
+      }
+    }
+    if (!currentRoute || api !== undefined || baseURL !== undefined || credentialRef !== undefined ||
         contextWindow !== undefined || maxTokens !== undefined || reasoning !== undefined ||
         compat !== undefined || reasoningEfforts !== undefined) {
       await this.ctx.settings.mutate(ROUTES_NS,
         [{ op: 'set', path: ['providers', provider], value: route }], routesRevision)
     }
+    const existing = savedModels[savedIndex]
+    const effectiveTimeout = timeoutMs ?? existing?.timeoutMs ?? DEFAULT_TIMEOUT_MS
+    const nextSaved = savedModels.filter(entry => entry.provider !== provider || entry.model !== model)
+    nextSaved.push({ provider, model, timeoutMs: effectiveTimeout })
     await this.ctx.settings.mutate(MODEL_NS, [
-      { op: 'set', path: ['provider'], value: provider },
-      { op: 'set', path: ['model'], value: model },
-      ...(timeoutMs === undefined ? [] : [{ op: 'set', path: ['timeoutMs'], value: timeoutMs }]),
+      { op: 'set', path: ['savedModels'], value: nextSaved },
+      ...(select ? [
+        { op: 'set', path: ['provider'], value: provider },
+        { op: 'set', path: ['model'], value: model },
+        { op: 'set', path: ['timeoutMs'], value: effectiveTimeout },
+      ] : []),
     ], selectedRevision)
     return this.get()
   }

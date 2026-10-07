@@ -54,6 +54,7 @@ test('compares divergent committed records and excludes working-tree edits', () 
 
 test('reports missing records, empty ref, and legacy headings without canonizing them', () => fixture(cwd => {
   mkdirSync(path.join(cwd, 'docs/plan'), { recursive: true })
+  writeFileSync(path.join(cwd, 'docs/plan/follow-ups/README.md'), '# Follow-up register rules\nNo item metadata here.\n')
   writeFileSync(path.join(cwd, 'docs/plan/deferred.md'), '# Deferred\n\n### Old concern\n')
   commit(cwd, 'legacy only')
   git(cwd, 'switch', '-c', 'with-record')
