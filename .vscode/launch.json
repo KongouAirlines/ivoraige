@@ -19,6 +19,27 @@
       "preLaunchTask": "ivoraige: build",
       "console": "integratedTerminal",
       "skipFiles": ["<node_internals>/**"]
+    },
+    {
+      "name": "ivoraige: 启动 PDF 工作台",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/cli.mjs",
+      "cwd": "${workspaceFolder}",
+      "args": [
+        "serve",
+        "--store",
+        "${workspaceFolder}/evaluation/runs/workbench/store.sqlite",
+        "--pdf-config",
+        "${workspaceFolder}/examples/pdf-windows.json",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8787"
+      ],
+      "preLaunchTask": "ivoraige: build",
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
     }
   ]
 }

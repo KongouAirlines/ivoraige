@@ -1,6 +1,9 @@
 // Renderers receive only resolved frozen data, never a Cordis context or service.
 import { renderMarkdown } from './markdown-output.mjs'
-const supports = binding => ['txt', 'markdown'].includes(binding?.adapterId)
+import { readablePdfText } from './pdf-text.mjs'
+const supports = binding => ['txt', 'markdown', 'babeldoc'].includes(binding?.adapterId)
+const readable = (binding, item) => binding.adapterId === 'babeldoc'
+  ? readablePdfText(binding, item.unit, item.text) : item.text
 
 export const markdown = {
   id: 'md',
@@ -10,14 +13,14 @@ export const markdown = {
     const { snapshot, document, units } = data
     const title = document.title.replace(/[\r\n]+/g, ' ')
     return `<!-- ivoraige snapshot:${snapshot.id} revisions:${snapshot.revisionSetHash} -->\n\n` +
-      `# ${title}\n\n` + units.map(item => item.text).join('\n\n') + '\n'
+      `# ${title}\n\n` + units.map(item => readable(data.sourceBinding, item)).join('\n\n') + '\n'
   },
 }
 
 export const json = {
   id: 'json',
   supports,
-  rebuild({ snapshot, document, units }) {
+  rebuild({ snapshot, document, units, sourceBinding }) {
     return JSON.stringify({
       snapshotId: snapshot.id,
       revisionSetHash: snapshot.revisionSetHash,
@@ -27,7 +30,7 @@ export const json = {
       },
       units: units.map(({ unit, decision, text }) => ({
         id: unit.id, order: unit.order, kind: unit.kind, locator: unit.locator,
-        sourceText: unit.sourceText, text, decision,
+        sourceText: unit.sourceText, text: readable(sourceBinding, { unit, text }), decision,
       })),
     }, null, 2) + '\n'
   },

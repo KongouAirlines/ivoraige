@@ -14,6 +14,7 @@
 ## 当前规划
 
 - [0.1.0 实施记录](plan/0.1.0/README.md)：保留范围、从头重建与阶段进度；v2.0 是设计文档版本。
+- [PDF 工作台试用](plan/0.1.0/pdf-guide.md)：Windows 开发环境组件准备、浏览器与 CLI 用法、当前验收边界。
 - [v2.0 后端设计](requirements/v2.0/01_design_v2.0.md)、[UI 设计](requirements/v2.0/02_UI-design_v2.0.md)、[API 协议](requirements/v2.0/03_API-protocol_v2.0.md)：当前设计基线。
 
 - [代理协作规则](../AGENTS.md)：轻量子代理优先、任务边界、模型升级与私有语料处理。

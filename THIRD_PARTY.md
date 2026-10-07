@@ -1,9 +1,20 @@
 # Third-party runtime sources
 
-On `codex/restart-v2`, the pinned source bridge, dependency lock and build
-license handling are retained. The retired MVP business model service is on
+The `codex/0.1.0-pdf` branch retains the pinned source bridge, dependency lock
+and build license handling from `codex/restart-v2`. The retired MVP service is on
 `codex/archive-mvp-0.0.0` (tag `v0.0.0`). The current CLI and WebUI are
 new implementations for `0.1.0-dev.0`.
+
+The optional PDF sidecar is separate from the Node bundle. Its pinned Python
+runtime installs BabelDOC 0.6.4 and PyMuPDF 1.26.7 from
+`sidecars/babeldoc/requirements.lock`; the npm package carries the sidecar
+source and setup script, but no Python environment, wheels, model weights or
+downloaded assets. The installed BabelDOC 0.6.4 metadata declares
+`AGPL-3.0`; PyMuPDF 1.26.7 declares dual `GNU AFFERO GPL 3.0 or Artifex
+Commercial License`. Before redistributing a bundled sidecar or Python
+dependencies, review the upstream license texts, notices and distribution
+obligations. Independent sidecar packaging and its license review remain a
+later PDF milestone.
 
 The restarted records service now mounts the same pinned DSH storage hub,
 storage-domain and storage-sqlite plugins. SQLite comes from Node's built-in

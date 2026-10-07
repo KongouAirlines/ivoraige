@@ -8,6 +8,21 @@ import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { bootModelSettings } from '../src/model-settings.mjs'
 import { createApp } from '../src/app.mjs'
 
+test('unconfigured model fails before recording an LLM call', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-unconfigured-model-'))
+  const app = await createApp({ store: join(directory, 'records.sqlite'),
+    settingsDir: join(directory, 'settings') })
+  t.after(async () => { await app.dispose(); await rm(directory, { recursive: true, force: true }) })
+  const { document } = await app.records.importDocument({ format: 'txt', content: 'A result.' },
+    { sourceId: 'settings:unconfigured', language: 'en' })
+  const { taskId } = await app.tasks.submit(document.id, { targetLang: 'zh-CN' })
+  const failed = await app.tasks.wait(taskId)
+  assert.equal(failed.state, 'failed')
+  assert.equal(failed.error.message, 'No translation model configured')
+  assert.equal(failed.stats.llmCalls, 0)
+  assert.equal(failed.cursor, 0)
+})
+
 test('DSH settings and credentials persist a model configured after empty boot', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-model-settings-'))
   let app = await bootModelSettings({ directory })
@@ -88,6 +103,7 @@ test('createApp uses saved DSH settings for translation after empty boot and res
   const { taskId } = await app.tasks.submit(document.id, { targetLang: 'zh-CN', mode: 'fast' })
   const finished = await app.tasks.wait(taskId)
   assert.equal(finished.state, 'succeeded', JSON.stringify(finished.error))
+  assert.equal(finished.stats.llmCalls, 1)
   assert.equal(requests.length, 1)
   assert.equal(requests[0].headers.authorization, 'Bearer private-local-secret')
   assert.equal(requests[0].body.model, 'scientific')

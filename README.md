@@ -2,9 +2,9 @@
 
 面向科研英汉翻译的可组装中间层。核心目标是译文和术语跨任务复用，各输出消费同一份已选定译文。
 
-当前在 `codex/restart-v2` 分支按 [v2.0 设计](docs/requirements/v2.0/01_design_v2.0.md)从头重建，软件版本为 `0.1.0-dev.0`（未发布）。旧 MVP（M0～M4）已弃用，完整实现及实验代码归档在独立分支 `codex/archive-mvp-0.0.0`，版本／标签为 `0.0.0`／`v0.0.0`，提交 `27eec14`。设计文档的 v2.0 不等于软件发布版本。
+当前在 `codex/0.1.0-pdf` 分支按 [v2.0 设计](docs/requirements/v2.0/01_design_v2.0.md)继续重建，软件版本为 `0.1.0-dev.0`（未发布）。旧 MVP（M0～M4）已弃用，完整实现及实验代码归档在独立分支 `codex/archive-mvp-0.0.0`，版本／标签为 `0.0.0`／`v0.0.0`，提交 `27eec14`。设计文档的 v2.0 不等于软件发布版本。
 
-当前文本工作台支持 TXT／Markdown 导入、DSH SQLite 持久化、按语言隔离的修订与接受、适用性检查，以及冻结快照驱动的 Markdown／JSON 导出。CLI、HTTP/SSE 与 React WebUI 共用内核；DSH profile 设置和命名凭据可保存模型路由，翻译任务支持快速接受、精翻草稿、暂停／恢复与取消。MCP、PDF、EPUB、RAG、Zotero 与词库结构尚未接入；完整科学质量验收仍待完成。本阶段 Windows／Linux／macOS Node 24 的 63 项测试与安装包冒烟已通过，见 [CI 记录](https://github.com/KongouAirlines/ivaraige/actions/runs/37314672867)。范围与进度见 [0.1.0 实施记录](docs/plan/0.1.0/README.md)。
+当前工作台支持 TXT／Markdown 导入与 Markdown／JSON 导出；可选 BabelDOC 组件增加**原生文本英文 PDF → 中文单语 PDF**的导入、页码／坐标审校和冻结回放导出。记录、语言隔离修订、适用性检查、DSH 模型与任务由同一内核提供。CLI、HTTP/SSE 与 React WebUI 共用操作。Windows 原生 PDF 内核与浏览器审校、三格式导出下载已有原创样本实测，编辑后两页 PDF 已目检；OCR、三系统 PDF 打包和独立发行仍未验收。MCP、OCR、双语 PDF、EPUB、RAG、Zotero 与词库结构仍待实现。先前文本阶段的 Windows／Linux／macOS Node 24 的 63 项测试与安装包冒烟见 [CI 记录](https://github.com/KongouAirlines/ivaraige/actions/runs/37314672867)；该记录不覆盖本 PDF 分支。范围与进度见 [0.1.0 实施记录](docs/plan/0.1.0/README.md)。
 
 ## 启动文本工作台
 
@@ -23,7 +23,17 @@ node src/cli.mjs serve --store .\evaluation\runs\workbench\store.sqlite
 
 用 VS Code 打开仓库根目录，确保其终端中的 `node --version` 为 24 或更高。首次先执行 `npm ci` 和 `npm run setup:dsh`。在“运行和调试”中选择 **ivoraige: 启动文本工作台**，按 F5；每次启动会先自动执行构建。浏览器访问 `http://127.0.0.1:8787`，可在 `src/` 的业务代码中设置断点。
 
-配置位于 [.vscode/launch.json](.vscode/launch.json)，构建任务位于 [.vscode/tasks.json](.vscode/tasks.json)。数据、设置／凭据及导出均位于已忽略的 `evaluation/runs/workbench/`；模型与凭据在网页设置页配置，不写进调试配置。结束时在运行终端按 Ctrl+C，待服务退出后再启动，避免占用同一数据库或端口。
+配置位于 [.vscode/launch.json](.vscode/launch.json)，构建任务位于 [.vscode/tasks.json](.vscode/tasks.json)。PDF 组件准备后可选择 **ivoraige: 启动 PDF 工作台**；两个启动配置使用同一 SQLite 文件和端口，不能同时运行。数据、设置／凭据及导出均位于已忽略的 `evaluation/runs/workbench/`；模型与凭据在网页设置页配置，不写进调试配置。结束时在运行终端按 Ctrl+C，待服务退出后再启动，避免占用同一数据库或端口。
+
+## 可选 PDF 组件（Windows 开发环境）
+
+安装 [uv](https://docs.astral.sh/uv/) 后运行 `./scripts/setup-pdf.ps1`，脚本建立已忽略的 Python 3.13 虚拟环境、安装锁定依赖并对 BabelDOC 资产执行 warmup。运行时需要该环境及默认用户缓存；npm 包只包含 sidecar 源码、依赖锁与准备脚本，不包含 Python、模型权重或独立可执行 sidecar。启动命令：
+
+```powershell
+node src/cli.mjs serve --store ./evaluation/runs/workbench/store.sqlite --pdf-config ./examples/pdf-windows.json
+```
+
+PDF 导入返回可查询、可取消的持久任务；完成后在工作台审校并从同一接受修订导出 PDF／MD／JSON。组件状态在首次处理前显示为“已配置，未验证”；缺少组件或资产会报告错误，文本功能继续可用。完整步骤、CLI 命令、覆盖警告和适用范围见 [PDF 工作台指南](docs/plan/0.1.0/pdf-guide.md)。Windows 本机真实运行证据与未完成验收见 [PDF 实施计划](docs/plan/0.1.0/pdf.md)。
 
 ## 开发验证
 

@@ -37,7 +37,8 @@ export class Operations extends Service {
     if (!artifact) throw new KernelError('NOT_FOUND', 'Artifact not found', { artifactId })
     return { path: artifact.path, filename: basename(artifact.path),
       contentType: artifact.format === 'json' ? 'application/json; charset=utf-8' :
-        artifact.format === 'md' ? 'text/markdown; charset=utf-8' : 'application/octet-stream' }
+        artifact.format === 'md' ? 'text/markdown; charset=utf-8' :
+          artifact.format === 'pdf' ? 'application/pdf' : 'application/octet-stream' }
   }
   async waitTask(taskId, seconds) {
     const task = this.records.getTask(taskId)
@@ -56,10 +57,17 @@ export class Operations extends Service {
     const r = this.records
     let result
     switch (name) {
-      case 'capabilities': result = { features: ['documents', 'workbench', 'tasks',
-        ...(this.ctx.get('ivoraige.modelSettings') ? ['settings'] : [])],
-        inputFormats: this.ctx.get('ivoraige.parse').listAdapters().map(id => id === 'markdown' ? 'md' : id),
-        outputFormats: this.ctx.get('ivoraige.outputs').listAdapters() }; break
+      case 'capabilities': {
+        const parser = this.ctx.get('ivoraige.parse')
+        const components = parser.componentStatus()
+        result = { features: ['documents', 'workbench', 'tasks',
+          ...(this.ctx.get('ivoraige.modelSettings') ? ['settings'] : [])],
+          inputFormats: parser.listAdapters().map(id =>
+            id === 'markdown' ? 'md' : id === 'babeldoc' ? 'pdf' : id),
+          outputFormats: this.ctx.get('ivoraige.outputs').listAdapters(),
+          components }
+        break
+      }
       case 'importDocument': {
         if ((p.path === undefined) === (p.contentBase64 === undefined)) throw new KernelError('INVALID_ARGUMENT', 'Specify path or contentBase64, exclusively')
         let content
@@ -67,13 +75,18 @@ export class Operations extends Service {
           if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(p.contentBase64)) {
             throw new KernelError('INVALID_ARGUMENT', 'contentBase64 is not valid base64')
           }
-          try { content = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.from(p.contentBase64, 'base64')) }
-          catch { throw new KernelError('INVALID_ARGUMENT', 'Input must be UTF-8 text') }
+          const bytes = Buffer.from(p.contentBase64, 'base64')
+          if (p.format === 'pdf') content = bytes
+          else {
+            try { content = new TextDecoder('utf-8', { fatal: true }).decode(bytes) }
+            catch { throw new KernelError('INVALID_ARGUMENT', 'Input must be UTF-8 text') }
+          }
         }
         result = await this.tasks.importDocument({ ...(p.path ? { path: p.path } : { content }),
           ...(p.format ? { format: p.format } : {}), ...(p.title ? { title: p.title } : {}) },
         { language: p.language, origin: p.origin, ...(p.sourceId ? { sourceId: p.sourceId } : {}),
-          ...(p.externalRef ? { externalRef: p.externalRef } : {}) })
+          ...(p.externalRef ? { externalRef: p.externalRef } : {}) },
+        { wait: !(p.format === 'pdf' || /\.pdf$/i.test(p.path ?? '')) })
         break
       }
       case 'listDocuments': result = paginate(r.listDocuments().filter(item =>

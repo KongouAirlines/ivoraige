@@ -16,6 +16,13 @@
     "dist/web/",
     "dist/DSH-LICENSE.txt",
     "dist/THIRD_PARTY_LICENSES.txt",
+    "sidecars/babeldoc/server.py",
+    "sidecars/babeldoc/requirements.lock",
+    "sidecars/babeldoc/README.md",
+    "scripts/setup-pdf.ps1",
+    "examples/pdf-windows.json",
+    "docs/plan/0.1.0/pdf-guide.md",
+    "docs/plan/0.1.0/pdf.md",
     "README.md",
     "THIRD_PARTY.md"
   ],

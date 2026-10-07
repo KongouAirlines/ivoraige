@@ -2,24 +2,24 @@
 import { fileURLToPath } from 'node:url'
 import { dirname, join, resolve } from 'node:path'
 import { homedir } from 'node:os'
-import { mkdir, stat } from 'node:fs/promises'
+import { mkdir, readFile, stat } from 'node:fs/promises'
 import { realpathSync } from 'node:fs'
 import { createApp } from './app.mjs'
 import { serve } from './http.mjs'
 import { serialize, errorEnvelope } from './protocol.mjs'
 import { KernelError } from './errors.mjs'
 
-const usage = `ivoraige [--url URL | --store FILE] [--json] COMMAND [arguments] [options]
+const usage = `ivoraige [--url URL | --store FILE] [--pdf-config FILE] [--json] COMMAND [arguments] [options]
 Commands: import, documents, units, unit, revisions, edit, accept, unaccept,
   translate, export, snapshots, artifacts, tasks, task, pause, resume, cancel,
   settings, capabilities, serve, help
-Common options: --target-lang LANG, --json, --json-events, --no-wait, --url URL, --store FILE
+Common options: --target-lang LANG, --json, --json-events, --no-wait, --url URL, --store FILE, --pdf-config FILE
 `
 
 function parse(argv) {
   const positional = [], options = {}
   const boolean = new Set(['json', 'json-events', 'help', 'no-wait'])
-  const known = new Set([...boolean, 'url', 'store', 'export-dir', 'settings-dir', 'host', 'port', 'static-dir',
+  const known = new Set([...boolean, 'url', 'store', 'export-dir', 'settings-dir', 'pdf-config', 'host', 'port', 'static-dir',
     'path', 'format', 'source-id', 'external-ref', 'source-lang', 'title', 'target-lang', 'cursor',
     'limit', 'origin', 'filter', 'text', 'base-revision', 'expected-accepted', 'mode',
     'units', 'out', 'snapshot', 'on-missing-accepted', 'state', 'kind', 'set', 'ref', 'value'])
@@ -96,6 +96,30 @@ function storePath(options) {
     (process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local')) :
     (process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'))
   return join(root, 'ivoraige', 'store.sqlite')
+}
+// Relative filesystem paths in the optional PDF config are based on the config file.
+// Bare command names (for example "python") remain available through PATH.
+export async function readPdfConfig(path) {
+  if (!path) return undefined
+  let config
+  try { config = JSON.parse(await readFile(path, 'utf8')) }
+  catch (error) { throw new KernelError('INVALID_ARGUMENT', `Cannot read PDF config: ${error.message}`) }
+  if (!config || Array.isArray(config) || typeof config !== 'object' ||
+      typeof config.command !== 'string' || !config.command.trim() ||
+      (config.args !== undefined && (!Array.isArray(config.args) || !config.args.every(value => typeof value === 'string'))) ||
+      (config.modelDirs !== undefined && (!config.modelDirs || Array.isArray(config.modelDirs) ||
+        typeof config.modelDirs !== 'object' || !Object.values(config.modelDirs).every(value => typeof value === 'string'))) ||
+      (config.options !== undefined && (!config.options || Array.isArray(config.options) || typeof config.options !== 'object')) ||
+      (config.timeoutMs !== undefined && (!Number.isSafeInteger(config.timeoutMs) || config.timeoutMs <= 0)))
+    throw new KernelError('INVALID_ARGUMENT', 'Invalid PDF config; expected command, optional args, modelDirs, options and timeoutMs')
+  const base = dirname(resolve(path))
+  const pathLike = value => value.startsWith('.') || value.includes('/') || value.includes('\\')
+  return { ...config,
+    command: pathLike(config.command) ? resolve(base, config.command) : config.command,
+    ...(config.args ? { args: config.args.map(value => value.startsWith('./') || value.startsWith('../') ||
+      value.startsWith('.\\') || value.startsWith('..\\') ? resolve(base, value) : value) } : {}),
+    ...(config.modelDirs ? { modelDirs: Object.fromEntries(Object.entries(config.modelDirs)
+      .map(([name, value]) => [name, resolve(base, value)])) } : {}) }
 }
 async function webDirectory() {
   const path = resolve(import.meta.dirname, '../dist/web')
@@ -195,7 +219,7 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
       const store = storePath(o)
       await mkdir(dirname(store), { recursive: true })
       app = await createApp({ store, exportDir: o['export-dir'],
-        settingsDir: o['settings-dir'] ?? join(dirname(store), 'settings') })
+        settingsDir: o['settings-dir'] ?? join(dirname(store), 'settings'), pdf: await readPdfConfig(o['pdf-config']) })
       server = await serve(app, { host: o.host ?? '127.0.0.1', port: o.port ? Number(o.port) : 8787,
         staticDir: o['static-dir'] ?? await webDirectory() })
       stdout.write(`${server.url}\n`)
@@ -204,6 +228,7 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
     }
     const [name, params, method, path] = route(command, positional, o)
     const remote = !!o.url
+    if (remote && o['pdf-config']) throw new KernelError('INVALID_ARGUMENT', '--pdf-config only applies to a local kernel')
     const startsTask = ['translate', 'export', 'import'].includes(command)
     if (!remote && o['no-wait'] && startsTask)
       throw new KernelError('INVALID_ARGUMENT', '--no-wait requires --url so the live server owns the task')
@@ -213,7 +238,7 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
       const store = storePath(o)
       await mkdir(dirname(store), { recursive: true })
       app = await createApp({ store, exportDir: o['export-dir'],
-        settingsDir: o['settings-dir'] ?? join(dirname(store), 'settings') })
+        settingsDir: o['settings-dir'] ?? join(dirname(store), 'settings'), pdf: await readPdfConfig(o['pdf-config']) })
     }
     const invoke = remote ? (_name, p, m, url) => invokeRemote(o.url, m, url, p) :
       (operation, p) => app.operations.invoke(operation, clean(p))
@@ -221,9 +246,16 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
       observer = await observeEvents(app, o.url, stdout, stderr)
     const result = await invoke(name, params, method, path)
     observer?.setTaskId(result.taskId)
+    const pendingImport = command === 'import' && result.taskId && !result.document
     if (o['json-events'] && result.taskId) {
       const final = await waitForTask(invoke, result.taskId)
       await observer?.waitForTerminal()
+      if (final.task?.state === 'canceled') return 5
+      if (final.task?.state === 'failed') return 4
+    } else if (pendingImport && !o['no-wait']) {
+      const final = await waitForTask(invoke, result.taskId)
+      stdout.write(`${serialize(final.task?.state === 'succeeded' ?
+        { ...result, ...final.task.result } : { ...result, task: final.task })}\n`)
       if (final.task?.state === 'canceled') return 5
       if (final.task?.state === 'failed') return 4
     } else {

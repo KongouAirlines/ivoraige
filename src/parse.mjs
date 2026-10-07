@@ -39,9 +39,21 @@ export class Parse extends Service {
     }
   }
 
-  listAdapters() { return [...this.adapters.keys()] }
+  listAdapters() { return [...this.adapters.values()].filter(adapter => adapter.status?.().state !== 'unavailable').map(adapter => adapter.id) }
 
-  async parse(file) {
+  componentStatus() {
+    return Object.fromEntries([...this.adapters.values()].filter(adapter => adapter.status)
+      .map(adapter => [adapter.id, adapter.status()]))
+  }
+
+  validateTranslation(binding, unit, text) {
+    const adapter = this.adapters.get(binding.adapterId)
+    if (!adapter) throw new KernelError('COMPONENT_MISSING', 'Install the source adapter before editing this document',
+      { adapterId: binding.adapterId })
+    adapter.validateTranslation?.(binding, unit, text)
+  }
+
+  select(file) {
     if (!file || typeof file !== 'object' || Array.isArray(file)) {
       throw new KernelError('INVALID_ARGUMENT', 'File reference must be an object')
     }
@@ -67,8 +79,22 @@ export class Parse extends Service {
         registeredAdapters: this.listAdapters(),
       })
     }
-    const parsed = await selected.parse(file)
-    validateIr(parsed, selected.id)
+    return selected
+  }
+
+  resolved(parsed, adapterId) {
+    validateIr(parsed, adapterId)
     return { ...parsed, availableOutputs: this.outputs.availableFor(parsed.sourceBinding) }
+  }
+
+  async parse(file) {
+    const selected = this.select(file)
+    return this.resolved(await selected.parse(file), selected.id)
+  }
+
+  async importDocument(file, persist, isReferenced) {
+    const selected = this.select(file)
+    const accept = parsed => persist(this.resolved(parsed, selected.id))
+    return selected.import ? selected.import(file, accept, isReferenced) : accept(await selected.parse(file))
   }
 }

@@ -1,0 +1,5 @@
+{
+  "command": "../evaluation/runs/pdf-runtime/.venv/Scripts/python.exe",
+  "args": ["../sidecars/babeldoc/server.py"],
+  "timeoutMs": 600000
+}
