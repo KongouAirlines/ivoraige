@@ -1,11 +1,12 @@
 import { existsSync } from 'node:fs'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { AppBoot, ConfigEditor, Context, DshSchema as z, LlmPiAi, LlmRuntime,
   LocalCredentialProvider, Service, SettingsForms } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
 import { modelPresets } from './model-presets.mjs'
+import { SettingsPages } from './settings-pages.mjs'
 
 const MODEL_NS = 'ivoraige-model'
 const ROUTES_NS = 'llm-pi-ai'
@@ -22,7 +23,7 @@ const nonempty = (value, field) => {
 // A business selection is a normal DSH volatile Config. DSH owns its profile
 // patch, revision checks, live update, and credential document.
 export class ModelSettings extends Service {
-  static inject = ['settings', 'credentials']
+  static inject = ['settings', 'credentials', 'ivoraige.settingsPages']
   static Config = z.object({
     provider: z.string().default('').volatile(),
     model: z.string().default('').volatile(),
@@ -35,6 +36,7 @@ export class ModelSettings extends Service {
   constructor(ctx, config) {
     super(ctx, 'ivoraige.modelSettings')
     this.config = config
+    ctx.effect(() => ctx.get('ivoraige.settingsPages').register({ id: 'models', label: '模型', order: 10 }))
   }
 
   resolve() {
@@ -213,24 +215,39 @@ export class ModelSettings extends Service {
         delete route.modelOverrides?.[model]
       }
     }
+    let routePersisted = false
     if (!currentRoute || api !== undefined || baseURL !== undefined || credentialRef !== undefined ||
         contextWindow !== undefined || maxTokens !== undefined || reasoning !== undefined ||
         compat !== undefined || reasoningEfforts !== undefined) {
       await this.ctx.settings.mutate(ROUTES_NS,
         [{ op: 'set', path: ['providers', provider], value: route }], routesRevision)
+      routePersisted = true
     }
     const existing = savedModels[savedIndex]
     const effectiveTimeout = timeoutMs ?? existing?.timeoutMs ?? DEFAULT_TIMEOUT_MS
     const nextSaved = savedModels.filter(entry => entry.provider !== provider || entry.model !== model)
     nextSaved.push({ provider, model, timeoutMs: effectiveTimeout })
-    await this.ctx.settings.mutate(MODEL_NS, [
-      { op: 'set', path: ['savedModels'], value: nextSaved },
-      ...(select ? [
-        { op: 'set', path: ['provider'], value: provider },
-        { op: 'set', path: ['model'], value: model },
-        { op: 'set', path: ['timeoutMs'], value: effectiveTimeout },
-      ] : []),
-    ], selectedRevision)
+    try {
+      await this.ctx.settings.mutate(MODEL_NS, [
+        { op: 'set', path: ['savedModels'], value: nextSaved },
+        ...(select ? [
+          { op: 'set', path: ['provider'], value: provider },
+          { op: 'set', path: ['model'], value: model },
+          { op: 'set', path: ['timeoutMs'], value: effectiveTimeout },
+        ] : []),
+      ], selectedRevision)
+    } catch (error) {
+      if (!routePersisted) throw error
+      let revision = null
+      try { revision = this.ctx.settings.describe().find(row => row.ns === ROUTES_NS)?.revision ?? null } catch {}
+      const conflict = error instanceof KernelError && error.code === 'CONFLICT' ?
+        { expected: error.details?.expected, actual: error.details?.actual } : {}
+      throw new KernelError(error instanceof KernelError ? error.code : 'UPSTREAM_FAILURE',
+        'Provider route was saved, but the model list and any requested selection were not; reload settings before retrying',
+        { ...conflict, partialSave: {
+          persisted: 'routes', failed: 'selected', revisions: { routes: revision },
+        } }, { cause: error })
+    }
     return this.get()
   }
 
@@ -261,8 +278,20 @@ async function ensureProfile(directory) {
     { id: ROUTES_NS, name: 'cordis:piAi', config: { providers: {} } },
     { id: 'config-editor', name: 'cordis:editor' },
     { id: 'settings', name: 'cordis:settings' },
+    { id: 'settings-pages', name: 'cordis:settingsPages' },
     { id: MODEL_NS, name: 'cordis:modelSettings' },
   ] }]) + '\n')
+  else {
+    // Profiles created before settings pages already have this managed bundle.
+    const patch = JSON.parse(await readFile(bundlePatch, 'utf8'))
+    if (!patch.some(step => step.insert?.some(item => item.id === 'settings-pages'))) {
+      const models = patch.find(step => step.insert?.some(item => item.id === MODEL_NS))?.insert
+      if (!models) throw new Error('DSH model settings profile bundle is missing its model service')
+      models.splice(models.findIndex(item => item.id === MODEL_NS), 0,
+        { id: 'settings-pages', name: 'cordis:settingsPages' })
+      await writeFile(bundlePatch, JSON.stringify(patch) + '\n')
+    }
+  }
   const configPath = join(profileDir, 'cordis.yml')
   if (!existsSync(configPath)) await writeFile(configPath, '[]\n')
   return { profileDir, configPath, patchPath: join(profileDir, 'cordis.patch.yml') }
@@ -280,7 +309,7 @@ export async function bootModelSettings({ directory } = {}) {
     root.provide('profileContext', profile)
     Object.assign(root.loader.builtins, {
       credentials: LocalCredentialProvider, llm: LlmRuntime, piAi: LlmPiAi,
-      editor: ConfigEditor, settings: SettingsForms, modelSettings: ModelSettings,
+      editor: ConfigEditor, settings: SettingsForms, settingsPages: SettingsPages, modelSettings: ModelSettings,
     })
   })
   const settings = ctx.get('ivoraige.modelSettings')

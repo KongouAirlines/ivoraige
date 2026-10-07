@@ -154,6 +154,7 @@ class PdfRuntime {
 
 export function Pdf(ctx, config) {
   const runtime = new PdfRuntime(config)
+  ctx.effect(() => ctx.get('ivoraige.settingsPages').register({ id: 'pdf', label: 'PDF', order: 20 }))
   ctx.effect(() => () => runtime.client.close())
   ctx.effect(() => ctx.get('ivoraige.parse').register({
     id: 'babeldoc',
@@ -170,4 +171,4 @@ export function Pdf(ctx, config) {
     rebuild: (frozen, options) => runtime.rebuild(frozen, options),
   }))
 }
-Pdf.inject = ['ivoraige.parse', 'ivoraige.outputs']
+Pdf.inject = ['ivoraige.parse', 'ivoraige.outputs', 'ivoraige.settingsPages']

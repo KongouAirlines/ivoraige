@@ -41,3 +41,43 @@ export function modelSettingsRequest(form, revisions, select = false) {
   body.reasoningEfforts = form.reasoningEfforts
   return body
 }
+
+export function modelSettingsPath(provider, model) {
+  if (provider === undefined) return '/settings/models?new=1'
+  const params = new URLSearchParams({ provider, model })
+  return `/settings/models?${params}`
+}
+
+export function modelSettingsView(path = '') {
+  const query = path.includes('?') ? path.slice(path.indexOf('?') + 1) : ''
+  const params = new URLSearchParams(query)
+  if (params.has('new')) return { kind: 'new' }
+  if (params.has('provider') && params.has('model')) {
+    return { kind: 'edit', provider: params.get('provider'), model: params.get('model') }
+  }
+  return { kind: 'list' }
+}
+
+export function savedModelPathAfterSave(view, form) {
+  return view.kind === 'new' ? modelSettingsPath(form.provider, form.model) : null
+}
+
+export function sharedRouteModels(settings, provider) {
+  return (settings?.savedModels ?? []).filter(item => item.provider === provider)
+}
+
+export function modelDraftDirty(form, baseline, secret = '') {
+  // Number inputs return strings; restoring the displayed saved value is clean.
+  const comparable = value => ({ ...value, timeoutMs: String(value.timeoutMs),
+    contextWindow: String(value.contextWindow), maxTokens: String(value.maxTokens) })
+  return !!secret || JSON.stringify(comparable(form)) !== JSON.stringify(comparable(baseline))
+}
+
+export function shouldReplaceModelDraft({ available, settings, initializedView, viewKey, form, baseline, secret }) {
+  return !!available && !!settings &&
+    (initializedView !== viewKey || !modelDraftDirty(form, baseline, secret))
+}
+
+export function mayApplyModelRead({ active, available, startedVersion, currentVersion, startedView, currentView }) {
+  return !!active && !!available && startedVersion === currentVersion && startedView === currentView
+}

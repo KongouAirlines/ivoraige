@@ -7,7 +7,9 @@ import { createServer } from 'node:http'
 import { createApp } from '../src/app.mjs'
 import { bootModelSettings } from '../src/model-settings.mjs'
 import { modelPresets } from '../src/model-presets.mjs'
-import { modelForm, presetForm, modelSettingsRequest } from '../web/model-settings-state.mjs'
+import { modelForm, presetForm, modelSettingsRequest, modelSettingsPath,
+  modelSettingsView, sharedRouteModels, modelDraftDirty,
+  shouldReplaceModelDraft, mayApplyModelRead, savedModelPathAfterSave } from '../web/model-settings-state.mjs'
 
 test('provider presets produce valid DSH routes without network calls or credentials', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-presets-'))
@@ -69,6 +71,62 @@ test('half-filled capacity pairs are rejected before sending settings requests',
       /必须同时填写/)
   }
 })
+
+test('model detail paths encode provider and model identifiers and shared routes list affected models', () => {
+  const path = modelSettingsPath('custom/a', 'model ? # / 中文')
+  assert.deepEqual(modelSettingsView(path), { kind: 'edit', provider: 'custom/a', model: 'model ? # / 中文' })
+  assert.deepEqual(modelSettingsView(modelSettingsPath()), { kind: 'new' })
+  assert.deepEqual(modelSettingsView('/settings/models'), { kind: 'list' })
+  assert.deepEqual(sharedRouteModels({ savedModels: [
+    { provider: 'a', model: 'one' }, { provider: 'a', model: 'two' }, { provider: 'b', model: 'one' },
+  ] }, 'a').map(item => item.model), ['one', 'two'])
+})
+
+test('draft tracking treats credential input as unsaved without exposing it in requests', () => {
+  const base = emptyModelFormForTest()
+  assert.equal(modelDraftDirty(base, base), false)
+  assert.equal(modelDraftDirty({ ...base, timeoutMs: String(base.timeoutMs) }, base), false)
+  assert.equal(modelDraftDirty(base, base, 'secret'), true)
+  assert.equal(modelDraftDirty({ ...base, timeoutMs: 9000 }, base), true)
+})
+
+test('reconnect refreshes a clean model form but preserves a dirty draft and its revisions', () => {
+  const baseline = emptyModelFormForTest()
+  const current = { available: true, settings: { revisions: { routes: 4, selected: 5 } },
+    initializedView: 'edit', viewKey: 'edit', form: baseline, baseline, secret: '' }
+  assert.equal(shouldReplaceModelDraft(current), true)
+  assert.equal(shouldReplaceModelDraft({ ...current, form: { ...baseline, timeoutMs: 3000 } }), false)
+  assert.equal(shouldReplaceModelDraft({ ...current, secret: 'typed-key' }), false)
+  assert.equal(shouldReplaceModelDraft({ ...current, available: false }), false)
+  assert.equal(shouldReplaceModelDraft({ ...current, initializedView: 'list' }), true)
+})
+
+test('new model save switches to its edit identity and reads back saved fields', () => {
+  const form = { ...emptyModelFormForTest(), provider: 'custom/a', model: 'reader/large',
+    api: 'openai-completions', baseURL: 'http://127.0.0.1:1234/v1', timeoutMs: 90000 }
+  const target = savedModelPathAfterSave({ kind: 'new' }, form)
+  assert.deepEqual(modelSettingsView(target), { kind: 'edit', provider: form.provider, model: form.model })
+  assert.equal(savedModelPathAfterSave({ kind: 'edit' }, form), null)
+  const settings = { savedModels: [{ provider: form.provider, model: form.model, timeoutMs: form.timeoutMs }],
+    routes: { [form.provider]: { api: form.api, baseURL: form.baseURL, models: [
+      { id: form.model, contextWindow: 8192, maxTokens: 1024 },
+    ] } } }
+  const readBack = modelForm(settings, form.provider, form.model)
+  assert.equal(readBack.model, form.model)
+  assert.equal(readBack.baseURL, form.baseURL)
+  assert.equal(readBack.timeoutMs, form.timeoutMs)
+})
+
+test('settings read started before a write cannot overwrite the acknowledged result', () => {
+  const read = { active: true, available: true, startedVersion: 2, currentVersion: 2,
+    startedView: 'new', currentView: 'new' }
+  assert.equal(mayApplyModelRead(read), true)
+  assert.equal(mayApplyModelRead({ ...read, currentVersion: 3 }), false)
+  assert.equal(mayApplyModelRead({ ...read, currentView: 'edit' }), false)
+  assert.equal(mayApplyModelRead({ ...read, available: false }), false)
+})
+
+function emptyModelFormForTest() { return presetForm({ defaults: { provider: 'local', model: 'test' } }) }
 
 test('local presets distinguish serving endpoints from a model family and keep placeholder outside config', () => {
   for (const id of ['ollama', 'llama-cpp', 'lmstudio']) {

@@ -1,10 +1,10 @@
 # 独立设置窗口与插件设置页面规划
 
-2026-10-07 修订。分支 `codex/0.1.0-settings` 的规划提交已重放到本次 fetch 后的远端 `main`：`a683f9b`，包含已合并的 [模型修复 PR #6](https://github.com/KongouAirlines/ivaraige/pull/6)、[PDF PR #7](https://github.com/KongouAirlines/ivaraige/pull/7) 和版本命名规则 PR #8。只重放设置规划提交，不重复带入已 squash 合并的修复历史。本轮更新规划，尚未修改设置界面实现。
+2026-10-07 修订。分支 `codex/0.1.0-settings` 的规划提交已重放到本次 fetch 后的远端 `main`：`a683f9b`，包含已合并的 [模型修复 PR #6](https://github.com/KongouAirlines/ivaraige/pull/6)、[PDF PR #7](https://github.com/KongouAirlines/ivaraige/pull/7) 和版本命名规则 PR #8。只重放设置规划提交，不重复带入已 squash 合并的修复历史。后续实现与验收在本分支持续推进，实际结果见文末。
 
 事项的当前状态、认领范围和处理记录统一见 [plugin-settings-window](../follow-ups/plugin-settings-window.md)。本文件维护方案、阶段和验收清单，不另维护后续事项状态表；开始阶段时按 [跟踪规则](../follow-ups/README.md) 核对目标和参与分支的已提交快照。
 
-## 已合并基线与 PDF 带来的调整
+## 开始实施时的已合并基线与 PDF 调整
 
 - `web/model-settings.jsx` 仍是模型列表、端点和凭据的连续卡片；PDF 合入没有新增独立设置组件。`src/model-settings.mjs` 继续使用 DSH 路由、凭据与模型选择持久化。
 - PDF 已由 `createApp({pdf})`／CLI `--pdf-config` 装配，启动文件管理 command、args、timeoutMs、modelDirs 和 options；尚无 PDF 设置写入 HTTP 接口。具体准备方式见 [PDF 指南](pdf-guide.md)。
@@ -37,7 +37,7 @@ PDF 页首期是组件状态与使用配置说明。继续从 capabilities 读�
 
 ## DSH 复用证据与接入边界
 
-固定源码版本：`639ed015397290b3745d163aafe02ffee4aa3f84`。本轮已只读检查以下实现，未运行 DSH 客户端集成：
+固定源码版本：`639ed015397290b3745d163aafe02ffee4aa3f84`。规划时只读检查以下实现；实际接入与运行证据见 [S0 决策](settings-dsh.md)：
 
 - [ui-settings slots 契约](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/client/ui-settings/src/client/contract/slots.ts)：`settings.section` 为有序列表，注册选项包含 id、order、label；标题、关闭按钮等也由 slots 贡献。
 - [ui-settings-general SettingsRoot](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/client/ui-settings-general/src/client/SettingsRoot.tsx)：带侧边导航的 modal shell，使用 portal 和 modal primitives。其窗口尺寸仅作参考。
@@ -71,14 +71,14 @@ ivoraige 当前是静态 React SPA＋REST/SSE，不是完整 DSH client composit
 
 本目标不重构翻译／导出服务，不设计模型标签、多模型协作调度、在线模型目录、配置删除策略或全功能插件市场。相关范围分别见 [model-collaboration-labels](../follow-ups/model-collaboration-labels.md) 和 [provider-catalog-connections](../follow-ups/provider-catalog-connections.md)；新发现先查重，再按跟踪规则独立记录，不因登记而自动扩大实施范围。
 
-- [ ] S0 复用路线有运行证据和依赖清单。
-- [ ] 窗口可直接打开、刷新、关闭、返回，背景编辑不丢失。
-- [ ] 模型管理、端点与凭据形成明确的主从流程。
-- [ ] PDF 页面反映真实组件状态，刷新不触发任务、安装或模型调用；失败状态不被误当作卸载。
-- [ ] 打开／关闭设置不丢失 PDF 选页、选段、目标语言及未保存译文。
-- [ ] 插件注册／卸载驱动导航和内容，依赖错误可解释。
-- [ ] 旧设置可读回，保存／选择／凭据安全边界不回退。
-- [ ] 键盘、焦点、主题及窄屏检查通过。
+- [x] S0 复用路线有运行证据和依赖清单。
+- [x] 窗口可直接打开、刷新、关闭、返回，背景编辑不丢失。
+- [x] 模型管理、端点与凭据形成明确的主从流程。
+- [x] PDF 页面反映真实组件状态，刷新不触发任务、安装或模型调用；失败状态不被误当作卸载。
+- [x] 打开／关闭设置不丢失 PDF 选页、选段、目标语言及未保存译文。
+- [x] 插件注册／卸载驱动导航和内容，依赖错误可解释。
+- [x] 旧设置可读回，保存／选择／凭据安全边界不回退。
+- [x] 键盘、焦点、主题及窄屏检查通过。
 - [ ] 验证及限制更新入文档，提供体验 PR；Merge 等用户确认。
 
-规划状态：已按包含 PDF 的主线重新形成，尚未实施。下一步从 S0 验证 DSH 客户端最小装配及模型／PDF 页面注册开始；S0 通过后再进入界面重组。上述验收是未来要求，本轮仅核对源码、分支关系与文档链接，没有重新运行 PDF 实测或声明客户端插件集成已通过。
+实施进展：已完成 [DSH 最小装配与依赖验证](settings-dsh.md) 及本机自动化、浏览器与安装包验收。实际结果见 [实施记录](README.md)；最终 CI／PR 尚待完成。PDF 浏览器检查使用协议夹具验证页码和编辑状态，不重复声称原生 PDF 排版验收。

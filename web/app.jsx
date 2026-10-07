@@ -1,6 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Settings } from './model-settings.jsx'
+import { PdfSettings } from './pdf-settings.jsx'
+import { SettingsWindow } from './settings-window.jsx'
+import { createSettingsRuntime } from './settings-runtime.mjs'
+import { isSettingsPath, initialSettingsLocation, settingsLocation, readSettingsHistory, settingsHistoryState, nextSettingsHistory, reverseSettingsTraversal } from './settings-navigation.mjs'
 import { refreshDisposition, savedEditIsCurrent } from './editor-state.mjs'
 
 const h = React.createElement
@@ -125,16 +129,102 @@ function Workbench({docId,epoch}) {
 }
 
 function App() {
-  const [path,setPath]=useState(route),[epoch,setEpoch]=useState(0),[capabilityTick,setCapabilityTick]=useState(0),[connected,setConnected]=useState(false),[theme,setTheme]=useState(localStorage.getItem('ivoraige.theme')||'system'),[collapsed,setCollapsed]=useState(localStorage.getItem('ivoraige.sidebar')==='collapsed')
+  const [locationState,setLocationState]=useState(()=>{
+    const path=route(), meta=readSettingsHistory(history.state)
+    const initial=initialSettingsLocation(path)
+    return meta&&isSettingsPath(path) ? {...initial,background:meta.background} : initial
+  }),[epoch,setEpoch]=useState(0),[capabilityTick,setCapabilityTick]=useState(0),[connected,setConnected]=useState(false),[theme,setTheme]=useState(localStorage.getItem('ivoraige.theme')||'system'),[collapsed,setCollapsed]=useState(localStorage.getItem('ivoraige.sidebar')==='collapsed')
   const capabilities=useRemote(()=>api('/capabilities'),[capabilityTick]), taskData=useRemote(()=>allPages('/tasks'),[epoch]);const active=(taskData.value||[]).filter(t=>['queued','running'].includes(t.state)).length
-  useEffect(()=>{const sync=()=>setPath(route());window.addEventListener('hashchange',sync);return()=>window.removeEventListener('hashchange',sync)},[])
+  const path = locationState.background
+  const settingsOpen = isSettingsPath(locationState.path)
+  const locationRef = useRef(locationState)
+  const historyRef = useRef(readSettingsHistory(history.state)??{index:0,origin:null,background:locationState.background})
+  const restoringRef = useRef(null)
+  const handlingRef = useRef(false)
+  const guardRef = useRef({dirty:false,busy:false})
+  const [settingsRuntime] = useState(()=>createSettingsRuntime({models:Settings,pdf:PdfSettings}))
+  const [settingsError,setSettingsError] = useState('')
+  const [confirmation,setConfirmation] = useState(null)
+  const confirmationRef = useRef(null)
+  const confirmDiscard = useCallback(message=>new Promise(resolve=>{
+    if(confirmationRef.current){resolve(false);return}
+    confirmationRef.current=resolve;setConfirmation(message)
+  }),[])
+  const answerConfirmation = useCallback(answer=>{
+    const resolve=confirmationRef.current;confirmationRef.current=null;setConfirmation(null);resolve?.(answer)
+  },[])
+  const onGuardChange = useCallback(value=>{guardRef.current=value},[])
+  const allowSettingsExit = useCallback(async()=>{
+    if(confirmationRef.current || guardRef.current.busy)return false
+    return !guardRef.current.dirty || await confirmDiscard('设置修改尚未保存。放弃修改并离开吗？')
+  },[confirmDiscard])
+  const moveSettings = useCallback(async(next,{replace=false,confirmed=false}={})=>{
+    const current=locationRef.current
+    if(next===current.path)return
+    if(isSettingsPath(current.path)&&!confirmed&&!await allowSettingsExit())return
+    const state=settingsLocation(current,next)
+    const meta=nextSettingsHistory(historyRef.current,current,next,replace)
+    history[replace?'replaceState':'pushState'](settingsHistoryState(history.state,meta),'',`#${next}`)
+    historyRef.current=meta
+    locationRef.current=state;setLocationState(state)
+  },[allowSettingsExit])
+  const closeSettings = useCallback(async()=>{
+    if(!await allowSettingsExit())return
+    const {origin,index}=historyRef.current
+    if(origin!==null && origin<index){
+      restoringRef.current=origin
+      history.go(origin-index)
+    }else{
+      await moveSettings(locationRef.current.background,{replace:true,confirmed:true})
+    }
+  },[allowSettingsExit,moveSettings])
+  const refreshCapabilities = useCallback(()=>setCapabilityTick(x=>x+1),[])
+  useEffect(()=>{
+    if(!readSettingsHistory(history.state))history.replaceState(settingsHistoryState(history.state,historyRef.current),'')
+    const sync=async()=>{
+      if(handlingRef.current)return
+      handlingRef.current=true
+      try{
+        const next=route(),current=locationRef.current,previous=historyRef.current
+        let target=readSettingsHistory(history.state)
+        if(!target){
+          target=nextSettingsHistory(previous,current,next)
+          history.replaceState(settingsHistoryState(history.state,target),'')
+        }
+        const confirmedTraversal=restoringRef.current===target.index
+        if(confirmedTraversal){
+          restoringRef.current=null
+          if(next===current.path)return // Canceled Back/Forward reached the original entry.
+        }
+        if(next===current.path){historyRef.current=target;return}
+        if(isSettingsPath(current.path)&&!confirmedTraversal&&!await allowSettingsExit()){
+          const delta=reverseSettingsTraversal(previous,target)
+          restoringRef.current=previous.index
+          if(delta)history.go(delta)
+          return
+        }
+        const state=settingsLocation(current,next)
+        historyRef.current=target
+        locationRef.current=state;setLocationState(state)
+      }finally{handlingRef.current=false}
+    }
+    window.addEventListener('popstate',sync)
+    window.addEventListener('hashchange',sync)
+    return()=>{window.removeEventListener('popstate',sync);window.removeEventListener('hashchange',sync)}
+  },[allowSettingsExit])
+  useEffect(()=>{let alive=true;settingsRuntime.sync(capabilities.value?.settingsPages??[]).catch(error=>{if(alive)setSettingsError(error.message)});return()=>{alive=false}},[settingsRuntime,capabilities.value])
+  useEffect(()=>()=>{settingsRuntime.dispose()},[settingsRuntime])
+  useEffect(()=>{if(!settingsOpen)guardRef.current={dirty:false,busy:false}},[settingsOpen])
   useEffect(()=>{const apply=()=>{document.documentElement.dataset.theme=theme==='system'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):theme};apply();localStorage.setItem('ivoraige.theme',theme);const media=matchMedia('(prefers-color-scheme: dark)');media.addEventListener('change',apply);return()=>media.removeEventListener('change',apply)},[theme])
   useEffect(()=>{localStorage.setItem('ivoraige.sidebar',collapsed?'collapsed':'expanded')},[collapsed])
-  useEffect(()=>{let es,timer,invalidationTimer,delay=1000,stopped=false;const refresh=()=>{clearTimeout(invalidationTimer);invalidationTimer=undefined;setEpoch(x=>x+1)};const schedule=()=>{if(!invalidationTimer)invalidationTimer=setTimeout(refresh,500)};function connect(){if(stopped)return;es=new EventSource('/api/events');es.onopen=()=>{setConnected(true);delay=1000;refresh()};es.onerror=()=>{setConnected(false);es.close();timer=setTimeout(connect,delay);delay=Math.min(30000,delay*2)};for(const type of ['task.queued','task.started','task.progress','task.resumed','unit.completed'])es.addEventListener(type,schedule);for(const type of ['task.succeeded','task.failed','task.paused','task.canceled'])es.addEventListener(type,()=>{refresh();setCapabilityTick(x=>x+1)})}connect();return()=>{stopped=true;clearTimeout(timer);clearTimeout(invalidationTimer);es?.close()}},[])
+  useEffect(()=>{let es,timer,invalidationTimer,delay=1000,stopped=false;const refresh=()=>{clearTimeout(invalidationTimer);invalidationTimer=undefined;setEpoch(x=>x+1)};const schedule=()=>{if(!invalidationTimer)invalidationTimer=setTimeout(refresh,500)};function connect(){if(stopped)return;es=new EventSource('/api/events');es.addEventListener('settings.pages.changed',()=>setCapabilityTick(x=>x+1));es.onopen=()=>{setConnected(true);delay=1000;refresh();setCapabilityTick(x=>x+1)};es.onerror=()=>{setConnected(false);es.close();timer=setTimeout(connect,delay);delay=Math.min(30000,delay*2)};for(const type of ['task.queued','task.started','task.progress','task.resumed','unit.completed'])es.addEventListener(type,schedule);for(const type of ['task.succeeded','task.failed','task.paused','task.canceled'])es.addEventListener(type,()=>{refresh();setCapabilityTick(x=>x+1)})}connect();return()=>{stopped=true;clearTimeout(timer);clearTimeout(invalidationTimer);es?.close()}},[])
   const pages=[['/','主页','⌂'],['/documents','文档','▤'],...(capabilities.value?.features?.includes('workbench')?[['/workbench','工作台','◫']]:[]),...(capabilities.value?.features?.includes('tasks')?[['/tasks','任务','◷']]:[])]
-  useEffect(()=>{const key=e=>{if(!(e.ctrlKey||e.metaKey)||!/^\d$/.test(e.key))return;const item=pages[Number(e.key)-1];if(item){e.preventDefault();navigate(item[0]==='/workbench'?'/documents':item[0])}};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key)},[pages.map(p=>p[0]).join(',')])
+  useEffect(()=>{const key=e=>{if(settingsOpen)return;if(!(e.ctrlKey||e.metaKey)||!/^\d$/.test(e.key))return;const item=pages[Number(e.key)-1];if(item){e.preventDefault();navigate(item[0]==='/workbench'?'/documents':item[0])}};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key)},[pages.map(p=>p[0]).join(','),settingsOpen])
   const title=path.startsWith('/workbench/')?'精翻工作台':path.startsWith('/documents')?'文档':path.startsWith('/tasks')?'任务':path.startsWith('/settings')?'设置':'主页'
   const features=capabilities.value?.features||[]
-  return <div className={`app-shell ${collapsed?'collapsed':''}`}><aside className="sidebar"><a className="brand" href="#/"><span className="brand-icon">i.</span><span className="brand-word">ivoraige<small>TRANSLATION STUDIO</small></span></a><div className="nav-label">WORKSPACE</div><nav aria-label="主导航">{pages.filter(p=>p[0]!=='/workbench').map(([href,label,icon])=><a key={href} href={`#${href}`} title={label} className={(href==='/'?path==='/':path.startsWith(href))?'active':''}><span className="nav-icon">{icon}</span><span className="nav-text">{label}</span>{label==='任务'&&active>0&&<b className="badge">{active}</b>}</a>)}</nav><div className="sidebar-bottom"><button className="collapse-button" onClick={()=>setCollapsed(!collapsed)} title={collapsed?'展开侧栏':'折叠侧栏'}>{collapsed?'→':'←'} <span>折叠侧栏</span></button>{features.includes('settings')&&<a className={path.startsWith('/settings')?'active':''} href="#/settings" title="设置"><span className="nav-icon">⚙</span><span className="nav-text">设置</span></a>}<div className="sidebar-footer">v0.1 · LOCAL</div></div></aside><div className="content"><header className="topbar"><div className="breadcrumbs">工作空间 <span>/</span> <strong>{title}</strong></div><div className="top-actions"><button className="theme-button" onClick={()=>setTheme(theme==='light'?'dark':theme==='dark'?'system':'light')} title={`主题：${theme}`} aria-label="切换主题">{theme==='light'?'☼':theme==='dark'?'☾':'◐'}</button><a className="task-indicator" href="#/tasks">{active>0&&<span className="pulse"/>} {active} 项进行中</a><span className={`connection ${connected?'online':'offline'}`} title={connected?'已连接内核':'连接已断开，正在重连'}>{connected?'● 已连接':'● 正在重连'}</span></div></header><div className="content-scroll">{capabilities.error&&<ErrorBox message={capabilities.error}/>} {path.startsWith('/workbench/')&&features.includes('workbench')?<Workbench docId={path.split('/')[2]?.split('?')[0]} epoch={epoch}/>:path.startsWith('/documents')&&features.includes('documents')?<Documents epoch={epoch} inputFormats={capabilities.value?.inputFormats} pdfStatus={capabilities.value?.components?.babeldoc}/>:path.startsWith('/tasks')&&features.includes('tasks')?<Tasks epoch={epoch}/>:path.startsWith('/settings')&&features.includes('settings')?<Settings api={api} useRemote={useRemote} Button={Button} ErrorBox={ErrorBox}/>:<Dashboard epoch={epoch} capabilities={capabilities.value}/>}</div></div></div>
+  return <><div className={`app-shell ${collapsed?'collapsed':''}`}><aside className="sidebar"><a className="brand" href="#/"><span className="brand-icon">i.</span><span className="brand-word">ivoraige<small>TRANSLATION STUDIO</small></span></a><div className="nav-label">WORKSPACE</div><nav aria-label="主导航">{pages.filter(p=>p[0]!=='/workbench').map(([href,label,icon])=><a key={href} href={`#${href}`} title={label} className={(href==='/'?path==='/':path.startsWith(href))?'active':''}><span className="nav-icon">{icon}</span><span className="nav-text">{label}</span>{label==='任务'&&active>0&&<b className="badge">{active}</b>}</a>)}</nav><div className="sidebar-bottom"><button className="collapse-button" onClick={()=>setCollapsed(!collapsed)} title={collapsed?'展开侧栏':'折叠侧栏'}>{collapsed?'→':'←'} <span>折叠侧栏</span></button>{features.includes('settings')&&<a className={settingsOpen?'active':''} href="#/settings" onClick={event=>{event.preventDefault();void moveSettings('/settings')}} title="设置"><span className="nav-icon">⚙</span><span className="nav-text">设置</span></a>}<div className="sidebar-footer">v0.1 · LOCAL</div></div></aside><div className="content"><header className="topbar"><div className="breadcrumbs">工作空间 <span>/</span> <strong>{title}</strong></div><div className="top-actions"><button className="theme-button" onClick={()=>setTheme(theme==='light'?'dark':theme==='dark'?'system':'light')} title={`主题：${theme}`} aria-label="切换主题">{theme==='light'?'☼':theme==='dark'?'☾':'◐'}</button><a className="task-indicator" href="#/tasks">{active>0&&<span className="pulse"/>} {active} 项进行中</a><span className={`connection ${connected?'online':'offline'}`} title={connected?'已连接内核':'连接已断开，正在重连'}>{connected?'● 已连接':'● 正在重连'}</span></div></header><div className="content-scroll">{capabilities.error&&<ErrorBox message={capabilities.error}/>} {path.startsWith('/workbench/')&&features.includes('workbench')?<Workbench docId={path.split('/')[2]?.split('?')[0]} epoch={epoch}/>:path.startsWith('/documents')&&features.includes('documents')?<Documents epoch={epoch} inputFormats={capabilities.value?.inputFormats} pdfStatus={capabilities.value?.components?.babeldoc}/>:path.startsWith('/tasks')&&features.includes('tasks')?<Tasks epoch={epoch}/>:<Dashboard epoch={epoch} capabilities={capabilities.value}/>}</div></div></div>{settingsOpen&&<SettingsWindow runtime={settingsRuntime} path={locationState.path}
+    navigate={moveSettings} close={closeSettings} confirmDiscard={confirmDiscard} confirmation={confirmation} answerConfirmation={answerConfirmation} onGuardChange={onGuardChange} refreshKey={capabilityTick}
+    capabilities={{...capabilities,error:capabilities.error||settingsError}} refreshCapabilities={refreshCapabilities}
+    api={api} useRemote={useRemote} Button={Button} ErrorBox={ErrorBox}/>}</>
 }
 createRoot(document.getElementById('root')).render(<App/>)

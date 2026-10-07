@@ -22,6 +22,7 @@
     "scripts/setup-pdf.ps1",
     "examples/pdf-windows.json",
     "docs/plan/0.1.0/pdf-guide.md",
+    "docs/plan/0.1.0/settings-guide.md",
     "docs/plan/0.1.0/pdf.md",
     "README.md",
     "THIRD_PARTY.md"

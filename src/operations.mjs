@@ -60,8 +60,9 @@ export class Operations extends Service {
       case 'capabilities': {
         const parser = this.ctx.get('ivoraige.parse')
         const components = parser.componentStatus()
+        const settingsPages = this.ctx.get('ivoraige.settingsPages')?.list() ?? []
         result = { features: ['documents', 'workbench', 'tasks',
-          ...(this.ctx.get('ivoraige.modelSettings') ? ['settings'] : [])],
+          ...(settingsPages.length ? ['settings'] : [])], settingsPages,
           inputFormats: parser.listAdapters().map(id =>
             id === 'markdown' ? 'md' : id === 'babeldoc' ? 'pdf' : id),
           outputFormats: this.ctx.get('ivoraige.outputs').listAdapters(),

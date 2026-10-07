@@ -151,3 +151,15 @@
 本机初轮 `npm test` **61/61** 通过；独立安装包冒烟在临时目录验证 CLI、WebUI、设置、导出及重启读取。首轮 macOS CI 发现 CLI 符号链接路径判断问题，修复提交 `c28c583` 后，Windows/Linux/macOS 的 Node 24 均 **63/63** 测试及 29 文件安装包冒烟通过，见 [CI 记录](https://github.com/KongouAirlines/ivaraige/actions/runs/37314672867)。依赖锁更新到 esbuild 0.28.2、js-yaml 4.3.2、React 18.3.1／React DOM 18.3.1，加入 DSH profile boot 所需依赖；本阶段 npm audit 为 0 条告警。构建把浏览器资源与 React 许可清单放入 `dist/web/`。
 
 真实浏览器记录在 [首次合并目标](workbench-goal.md)：用原创 Markdown 样本经 DeepSeek 精翻 4 个可译片段，4 次请求输入 368／输出 13 token；代码段未调用模型。随后在浏览器完成草稿人工编辑、接受、历史版本回退与恢复；快速重提同 4 个单位新增模型调用为 0，人工接受版本保持不变。MD 与 JSON 导出成功并共用冻结快照，导出新增模型调用为 0，产物保留原文代码和数学。重启后浏览器从“正在重连”恢复“已连接”，同一数据库与 DSH 模型设置读回，单单位再提交复用且新增模型调用为 0。短片段翻译仍需人工审校：一次 “The value of” 被译为“值”，已人工补成“参数”的正确上下文。完整科学质量验收仍待后续阶段；本次体验目标已通过，见 [PR #4](https://github.com/KongouAirlines/ivaraige/pull/4)，实际 Merge 等用户体验确认。
+
+## 独立设置窗口（2026-10-07，分支验收）
+
+基于主线 `a683f9b`，`codex/0.1.0-settings` 实现 [S0～S3 规划](settings-goal.md)。设置改为独立对话框，具有自己的侧边栏；模型列表进入模型、提供商、凭据的分组编辑。PDF 页面只读取组件状态与准备指引，打开和刷新不启动处理任务。使用方法见 [设置指南](settings-guide.md)。
+
+导航来自内核插件注册，并通过 SSE 与重连刷新；浏览器复用固定 DSH SlotCore 和真实 Cordis plugin fiber，静态构建映射已打包页面，未引入另一套模型／凭据存储。完整 DSH SettingsRoot 的依赖边界与本地窗口适配理由见 [S0 记录](settings-dsh.md)。卸载保留非秘密草稿供核对，禁用提交并清空密钥输入；连续卸载的异步竞态有回归测试。
+
+模型保存与选择分开。revision 冲突和第二步写入失败保留输入、提示实际持久化边界并要求重新读取；不自动覆盖或声称跨命名空间事务回滚。浏览器验收发现并修复新增模型保存后的表单清空、旧读取覆盖写入、取消返回破坏历史，以及确认框背景表单未 inert 的问题。焦点圈定和关闭恢复、重复 Back／取消／再 Back、直接进入／刷新／关闭、深色主题及 390×844 窄屏均已检查，设置内容无横向溢出。
+
+本机 Windows／Node v26.7.0：最终 `npm test` **160/160**，后续旧配置升级及数值输入恢复的相关回归 **16/16**；安装包冒烟 **44 文件**通过，测试包含 PDF／MD／JSON 冻结导出及无追加模型请求。曾在并行全量测试中触发旧 sidecar 测试的 500ms 启动期限及失败清理问题；仅调整测试期限并补齐 cleanup，生产 sidecar 行为未改，随后常规并行全量通过。浏览器使用独立测试库验证两个提供商、保存与选择、真实 revision 冲突重读，以及 TXT、Markdown 和 PDF 工作台的未保存译文、目标语言、选段和来源页码保留。PDF 使用协议夹具，不声称再次完成原生 PDF 排版或多系统 Python 打包验收；本轮未调用付费模型。
+
+本地日志和明暗／窄屏截图保留在忽略目录 `evaluation/runs/settings-0.1.0/`。三系统 CI 与 PR 链接将在交付后补充。跟踪事项 [plugin-settings-window](../follow-ups/plugin-settings-window.md)、[model-settings-partial-save](../follow-ups/model-settings-partial-save.md) 均为处理中，待人工验收与主线合入后再标记解决。
