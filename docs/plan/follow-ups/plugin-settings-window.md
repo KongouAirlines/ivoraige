@@ -2,7 +2,7 @@
 
 - ID: plugin-settings-window
 - 状态: 处理中
-- 实施分支／PR: codex/0.1.0-settings；基于 main a683f9b（PR #6／#7 已合入）；本事项实施 PR 未创建
+- 实施分支／PR: codex/0.1.0-settings；基于 main a683f9b（PR #6／#7 已合入）；[PR #9](https://github.com/KongouAirlines/ivaraige/pull/9)
 - 类型: 改进
 - 发现依据: 2026-10-06，用户确认独立设置窗口与插件侧边栏方向；原规划提交 `4541bee` 已形成 [阶段规划](../0.1.0/settings-goal.md)。
 - 目标分支: main
@@ -29,7 +29,7 @@
 
 ## 处理记录
 
-- 2026-10-07：已实现 DSH SlotCore／Cordis 页面生命周期、模型管理、PDF 状态页与独立窗口。装配矩阵、SSE 装卸通知及模型回归已有运行证据；浏览器确认 TXT 草稿和 PDF 单位页码／选段／目标语言保留、冲突重读、窄屏和焦点循环。详见 [接入决策](../0.1.0/settings-dsh.md) 与阶段验收记录；尚待最终 CI／PR，保持待合入 main。
+- 2026-10-07：已实现 DSH SlotCore／Cordis 页面生命周期、模型管理、PDF 状态页与独立窗口。装配矩阵、SSE 装卸通知及模型回归已有运行证据；浏览器确认 TXT 草稿和 PDF 单位页码／选段／目标语言保留、冲突重读、窄屏和焦点循环。详见 [接入决策](../0.1.0/settings-dsh.md) 与阶段验收记录；实现提交 87de41b 的三系统 Node 24 CI 已通过，见 [运行记录](https://github.com/KongouAirlines/ivaraige/actions/runs/37638427976)。PR #9 待人工验收与合入 main，保持处理中。
 - 2026-10-07：基于 main `a683f9b` 重做规划，纳入已合并 PDF 的配置与状态边界；只读核对代码与后续事项，未执行 UI／PDF 验收，保持“已安排”。S2 关联 model-settings-partial-save 的反馈与恢复范围。
 - 2026-10-06：阶段规划在 `4541bee` 完成并推送，尚未修改设置界面实现。
 - 2026-10-06：按 PR #5 `94c2927` 规则登记为“已安排”。本次只规范跟踪，不把已有规划状态升级为已实施或已解决。

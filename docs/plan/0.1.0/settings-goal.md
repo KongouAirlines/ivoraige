@@ -79,6 +79,6 @@ ivoraige 当前是静态 React SPA＋REST/SSE，不是完整 DSH client composit
 - [x] 插件注册／卸载驱动导航和内容，依赖错误可解释。
 - [x] 旧设置可读回，保存／选择／凭据安全边界不回退。
 - [x] 键盘、焦点、主题及窄屏检查通过。
-- [ ] 验证及限制更新入文档，提供体验 PR；Merge 等用户确认。
+- [x] 验证及限制更新入文档，提供体验 PR；Merge 等用户确认。
 
-实施进展：已完成 [DSH 最小装配与依赖验证](settings-dsh.md) 及本机自动化、浏览器与安装包验收。实际结果见 [实施记录](README.md)；最终 CI／PR 尚待完成。PDF 浏览器检查使用协议夹具验证页码和编辑状态，不重复声称原生 PDF 排版验收。
+实施进展：已完成 [DSH 最小装配与依赖验证](settings-dsh.md) 及本机自动化、浏览器与安装包验收。实际结果见 [实施记录](README.md)；实现提交三系统 Node 24 CI 通过，已创建 [PR #9](https://github.com/KongouAirlines/ivaraige/pull/9)，等待人工验收与 Merge，最终检查以 PR 状态为准。PDF 浏览器检查使用协议夹具验证页码和编辑状态，不重复声称原生 PDF 排版验收。

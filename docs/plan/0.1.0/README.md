@@ -160,6 +160,6 @@
 
 模型保存与选择分开。revision 冲突和第二步写入失败保留输入、提示实际持久化边界并要求重新读取；不自动覆盖或声称跨命名空间事务回滚。浏览器验收发现并修复新增模型保存后的表单清空、旧读取覆盖写入、取消返回破坏历史，以及确认框背景表单未 inert 的问题。焦点圈定和关闭恢复、重复 Back／取消／再 Back、直接进入／刷新／关闭、深色主题及 390×844 窄屏均已检查，设置内容无横向溢出。
 
-本机 Windows／Node v26.7.0：最终 `npm test` **160/160**，后续旧配置升级及数值输入恢复的相关回归 **16/16**；安装包冒烟 **44 文件**通过，测试包含 PDF／MD／JSON 冻结导出及无追加模型请求。曾在并行全量测试中触发旧 sidecar 测试的 500ms 启动期限及失败清理问题；仅调整测试期限并补齐 cleanup，生产 sidecar 行为未改，随后常规并行全量通过。浏览器使用独立测试库验证两个提供商、保存与选择、真实 revision 冲突重读，以及 TXT、Markdown 和 PDF 工作台的未保存译文、目标语言、选段和来源页码保留。PDF 使用协议夹具，不声称再次完成原生 PDF 排版或多系统 Python 打包验收；本轮未调用付费模型。
+本机 Windows／Node v26.7.0：最终 `npm test` **160/160**，后续旧配置升级及数值输入恢复的相关回归 **16/16**；安装包冒烟 **44 文件**通过，测试包含 PDF／MD／JSON 冻结导出及无追加模型请求。曾在并行全量测试中触发旧 sidecar 测试的 500ms 启动期限及失败清理问题；仅调整测试期限并补齐 cleanup，生产 sidecar 行为未改，随后常规并行全量通过。浏览器使用独立测试库验证两个提供商、同提供商两个模型、保存与选择、真实 revision 冲突重读，以及 TXT、Markdown 和 PDF 工作台的未保存译文、目标语言、选段和来源页码保留。PDF 使用协议夹具，不声称再次完成原生 PDF 排版或多系统 Python 打包验收；本轮未调用付费模型。
 
-本地日志和明暗／窄屏截图保留在忽略目录 `evaluation/runs/settings-0.1.0/`。三系统 CI 与 PR 链接将在交付后补充。跟踪事项 [plugin-settings-window](../follow-ups/plugin-settings-window.md)、[model-settings-partial-save](../follow-ups/model-settings-partial-save.md) 均为处理中，待人工验收与主线合入后再标记解决。
+本地日志和明暗／窄屏截图保留在忽略目录 `evaluation/runs/settings-0.1.0/`。实现提交 `87de41b` 的 Windows／Linux／macOS Node 24 CI 均通过 161 项测试及安装包冒烟（CI 的 npm 打包清单为 48 文件），见 [运行记录](https://github.com/KongouAirlines/ivaraige/actions/runs/37638427976)。交付 [PR #9](https://github.com/KongouAirlines/ivaraige/pull/9) 等待人工 Merge。最终收尾补充排除禁用字段组内控件的焦点循环，构建和浏览器 Shift+Tab 复验通过，最终提交 CI 以 PR 检查为准。跟踪事项 [plugin-settings-window](../follow-ups/plugin-settings-window.md)、[model-settings-partial-save](../follow-ups/model-settings-partial-save.md) 均为处理中，待人工验收与主线合入后再标记解决。

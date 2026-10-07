@@ -39,7 +39,7 @@ export function SettingsWindow({ runtime, path, navigate, close, onGuardChange, 
     onKeyDown={event => {
       if (event.key !== 'Tab') return
       const area = confirmation ? dialog.current.querySelector('.settings-confirm') : dialog.current
-      const targets = [...area.querySelectorAll('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex="0"]')]
+      const targets = [...area.querySelectorAll('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]')]
         .filter(element => element.getClientRects().length && !element.closest('[inert]'))
       const first = targets[0], last = targets.at(-1)
       if (!first) { event.preventDefault(); return }
