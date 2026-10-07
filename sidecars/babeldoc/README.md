@@ -48,6 +48,7 @@ PDF needs separate validation.
 
 Each capture or replay removes its own BabelDOC `run-N` working directory after
 the result has been copied out. The session cache stays available to subsequent
-requests and is removed when the sidecar exits.
-Forced process termination or power loss can leave a session directory behind;
-normal per-run cleanup cannot execute in those cases.
+requests. The sidecar attempts to remove the session cache on exit, though an
+open Windows cache database can leave files behind. Forced process termination
+or power loss can also leave a session directory behind because normal cleanup
+cannot execute in those cases.
