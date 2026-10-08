@@ -68,7 +68,7 @@ Windows 浏览器另从新上传的 PDF 导入 13 个单位，在工作台选择
 
 完整 Node 测试 124/124 通过，Python 回归测试 4/4 通过。Windows 真实 BabelDOC 对原创样本执行捕获和 `skip` 回放：13 个单位、12 个回调，12/12 文本检查通过，模型请求为 0；捕获与回放的两个 `run-N` 目录均已清除。本次修正不新增真实模型请求。
 
-## 2026-10-08：同目录多数据库源文件清理修复（本地待合入）
+## 2026-10-08：同目录多数据库源文件清理修复（PR #10，待合入）
 
 PR #7 已合并，修复基于 `main` 的 `a683f9b308fedc6de19068d11a32e43a7d4dc793`，本地分支 `codex/0.1.0-pdf-source-ownership`。此前 runtime 内的内容锁及本库引用检查不能保护其他数据库：受控测试先让 A 发布并暂停持久化，再让 B 提交相同内容，最后令 A 抛错；修复前读取 B 的来源得到 `ENOENT`。
 
@@ -82,4 +82,8 @@ PR #7 已合并，修复基于 `main` 的 `a683f9b308fedc6de19068d11a32e43a7d4dc
 - `npm run smoke:package`：通过；本地 tarball 的隔离安装、SQLite 重启、CLI/HTTP 设置、Markdown 导出和静态 UI 检查通过。
 - 新回归覆盖跨库交错后 B 重启并导出、同库重启后重复导入，以及旧内容命名来源的冻结快照在失败清理和重启后导出。
 
-PDF 测试使用仓库模拟 sidecar。此次未运行真实 BabelDOC/模型、Windows/Linux 测试或浏览器视觉检查；不把上述结果视为这些环境的验收。仅保留本地提交与补丁，未推送、创建 PR、评论、合并或部署。未新增、推进或解决 follow-up ID。
+上述为首次本地验证，PDF 测试使用仓库模拟 sidecar。随后经用户授权推送并创建[草稿 PR #10](https://github.com/KongouAirlines/ivaraige/pull/10)。首轮 Windows CI 暴露测试清理顺序问题：第二数据库未关闭时删除目录触发 `EBUSY`；`f1e6baa` 将关闭操作移入测试的 `finally`，确保先释放句柄再清理目录，本地完整测试仍为 148/148 通过。
+
+`f1e6baa` 的 [PR CI](https://github.com/KongouAirlines/ivaraige/actions/runs/37741893034) 与 [push CI](https://github.com/KongouAirlines/ivaraige/actions/runs/37741887425) 均已成功：Windows、Ubuntu、macOS / Node 24 上的完整 Node 测试和 package smoke 全部通过。旧提交的两轮 CI 已取消。三平台 Node CI 不代表真实 BabelDOC、模型或浏览器视觉验收；这些实测本次未运行。PR 保持草稿，未合并或部署。未新增、推进或解决 follow-up ID。
+
+发布后审查核对了 `createApp` 对配置中 `directory`／`storePath` 的覆盖、规范 store 路径与独占锁的一致性、历史冻结来源路径和失败清理边界。macOS 额外实测不存在数据库的目录软链接、已有数据库文件软链接、相对路径及大小写别名：重开后同源文档和来源路径保持去重，活跃所有者冲突被拒绝，不同数据库仍隔离来源。大小写测试先确认本机两种拼写指向同一 inode，且 `realpath` 返回相同规范拼写；不据此推断所有文件系统行为。定向 store-lock/PDF 套件 29/29 通过。此次未发现需改动运行时代码的新缺陷；来源损坏恢复和公式问题属于既有 Issue #11，不计作本 PR 新引入的问题。
