@@ -35,3 +35,6 @@ __pycache__/
 .env.*
 !.env.example
 .credentials.yaml
+
+# Disposable local runtime probes.
+/.test-tmp/

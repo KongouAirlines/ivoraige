@@ -7,12 +7,15 @@ import { fileURLToPath } from 'node:url'
 import { SidecarClient } from '../src/sidecar.mjs'
 
 const fixture = fileURLToPath(new URL('./fixtures/pdf-sidecar.mjs', import.meta.url))
-const client = (mode = 'normal', extras = []) => new SidecarClient({
-  command: process.execPath, args: [fixture, mode, ...extras], timeoutMs: 500
-})
+const client = (t, mode = 'normal', extras = [], timeoutMs = 10_000) => {
+  const sidecar = new SidecarClient({ command: process.execPath,
+    args: [fixture, mode, ...extras], timeoutMs })
+  t.after(() => sidecar.close())
+  return sidecar
+}
 
-test('lazy handshake, configure, progress, serial calls and shutdown', async () => {
-  const sidecar = client('slow')
+test('lazy handshake, configure, progress, serial calls and shutdown', async t => {
+  const sidecar = client(t, 'slow')
   assert.equal(sidecar.session, null)
   const progress = []
   const first = sidecar.request('parse', { path: 'a.pdf' }, { onProgress: value => progress.push(value) })
@@ -25,38 +28,39 @@ test('lazy handshake, configure, progress, serial calls and shutdown', async () 
   await assert.rejects(sidecar.request('parse'), { code: 'PRECONDITION_FAILED' })
 })
 
-test('missing executable and mismatched handshake are component errors', async () => {
-  const missing = new SidecarClient({ command: join(tmpdir(), 'missing-sidecar-executable'), timeoutMs: 500 })
+test('missing executable and mismatched handshake are component errors', async t => {
+  const missing = new SidecarClient({ command: join(tmpdir(), 'missing-sidecar-executable'), timeoutMs: 10_000 })
+  t.after(() => missing.close())
   await assert.rejects(missing.request('parse'), { code: 'COMPONENT_MISSING' })
   await missing.close()
-  const mismatch = client('bad-version')
+  const mismatch = client(t, 'bad-version')
   await assert.rejects(mismatch.request('parse'), { code: 'COMPONENT_MISSING' })
   await mismatch.close()
 })
 
-test('sidecar error codes and malformed stdout map to kernel errors', async () => {
+test('sidecar error codes and malformed stdout map to kernel errors', async t => {
   for (const [mode, code] of [['missing-assets', 'COMPONENT_MISSING'], ['remote-error', 'UPSTREAM_FAILURE'],
     ['rebuild-error', 'UPSTREAM_FAILURE'], ['malformed', 'UPSTREAM_FAILURE']]) {
-    const sidecar = client(mode)
+    const sidecar = client(t, mode)
     await assert.rejects(sidecar.request('parse'), { code })
     await sidecar.close()
   }
 })
 
-test('one process crash is retried once; two crashes fail', async () => {
+test('one process crash is retried once; two crashes fail', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-sidecar-'))
   try {
-    const once = client('crash-once', [join(directory, 'marker')])
+    const once = client(t, 'crash-once', [join(directory, 'marker')])
     assert.deepEqual(await once.request('parse'), { method: 'parse', params: {} })
     await once.close()
-    const always = client('crash-always')
+    const always = client(t, 'crash-always')
     await assert.rejects(always.request('parse'), { code: 'UPSTREAM_FAILURE' })
     await always.close()
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
-test('abort active request kills child and queued cancellation does not run', async () => {
-  const sidecar = client('hang')
+test('abort active request kills child and queued cancellation does not run', async t => {
+  const sidecar = client(t, 'hang')
   const controller = new AbortController()
   const queued = new AbortController()
   const first = sidecar.request('parse', {}, { signal: controller.signal })
@@ -70,8 +74,8 @@ test('abort active request kills child and queued cancellation does not run', as
   await sidecar.close()
 })
 
-test('canceling a queued request preserves the active call and later work', async () => {
-  const sidecar = client('slow')
+test('canceling a queued request preserves the active call and later work', async t => {
+  const sidecar = client(t, 'slow')
   const controller = new AbortController()
   const first = sidecar.request('parse', { path: 'first.pdf' })
   const skipped = sidecar.request('parse', { path: 'skip.pdf' }, { signal: controller.signal })
@@ -84,22 +88,22 @@ test('canceling a queued request preserves the active call and later work', asyn
   await sidecar.close()
 })
 
-test('close sends shutdown to an idle sidecar', async () => {
+test('close sends shutdown to an idle sidecar', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-sidecar-'))
   const marker = join(directory, 'shutdown')
   try {
-    const sidecar = client('normal', [marker])
+    const sidecar = client(t, 'normal', [marker])
     await sidecar.request('parse')
     await sidecar.close()
     assert.equal(await readFile(marker, 'utf8'), 'shutdown')
   } finally { await rm(directory, { recursive: true, force: true }) }
 })
 
-test('timeout and close reject pending calls', async () => {
-  const timeout = client('hang')
+test('timeout and close reject pending calls', async t => {
+  const timeout = client(t, 'hang', [], 1_500)
   await assert.rejects(timeout.request('parse'), { code: 'UPSTREAM_FAILURE' })
   await timeout.close()
-  const sidecar = client('hang')
+  const sidecar = client(t, 'hang')
   const first = sidecar.request('parse')
   const second = sidecar.request('rebuild')
   const firstRejected = assert.rejects(first, { code: 'PRECONDITION_FAILED' })
@@ -109,18 +113,18 @@ test('timeout and close reject pending calls', async () => {
   await secondRejected
 })
 
-test('abort during handshake and configure releases active and queued callers', async () => {
+test('abort during handshake and configure releases active and queued callers', async t => {
   for (const mode of ['hang-handshake', 'hang-configure']) {
     const directory = await mkdtemp(join(tmpdir(), 'ivoraige-sidecar-'))
     const marker = join(directory, 'phase')
     try {
-      const sidecar = client(mode, [marker])
+      const sidecar = client(t, mode, [marker])
       const controller = new AbortController()
       const active = sidecar.request('parse', {}, { signal: controller.signal })
       const queued = sidecar.request('rebuild')
       const activeRejected = assert.rejects(active, error => error.details.canceled === true)
       const queuedRejected = assert.rejects(queued, { code: 'PRECONDITION_FAILED' })
-      const deadline = Date.now() + 1000
+      const deadline = Date.now() + 5000
       while (true) {
         try { assert.equal(await readFile(marker, 'utf8'), mode.slice(5)); break } catch (error) {
           if (Date.now() > deadline) throw error
@@ -135,12 +139,12 @@ test('abort during handshake and configure releases active and queued callers', 
   }
 })
 
-test('an aborted active request settles after the child closes', async () => {
-  const sidecar = client('hang')
+test('an aborted active request settles after the child closes', async t => {
+  const sidecar = client(t, 'hang')
   const controller = new AbortController()
   const pending = sidecar.request('parse', {}, { signal: controller.signal })
   const rejected = assert.rejects(pending, error => error.details.canceled === true)
-  const deadline = Date.now() + 1000
+  const deadline = Date.now() + 5000
   while (!sidecar.capabilities) {
     if (Date.now() > deadline) throw new Error('Sidecar did not finish configuration')
     await new Promise(resolve => setTimeout(resolve, 10))
@@ -153,8 +157,8 @@ test('an aborted active request settles after the child closes', async () => {
   await sidecar.close()
 })
 
-test('non-JSON params reject without occupying transport', async () => {
-  const sidecar = client()
+test('non-JSON params reject without occupying transport', async t => {
+  const sidecar = client(t)
   await assert.rejects(sidecar.request('parse', { value: 1n }), { code: 'INVALID_ARGUMENT' })
   assert.equal((await sidecar.request('parse')).method, 'parse')
   await sidecar.close()

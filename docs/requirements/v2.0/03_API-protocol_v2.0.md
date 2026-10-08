@@ -227,9 +227,9 @@ interface RagChunk {
 
 | 方法 | 路径 | 请求 | 响应 |
 |---|---|---|---|
-| GET | `/api/capabilities` | — | `{ features: string[], inputFormats: string[], outputFormats: string[], components?: object }`；按已装配能力返回。PDF 组件状态 `components.babeldoc` 为 `unchecked`／`ready`／`unavailable`，可带 `message`；配置只表示可尝试，首次操作前不能声称已就绪 |
+| GET | `/api/capabilities` | — | `{ features: string[], settingsPages: { id, label, order }[], inputFormats: string[], outputFormats: string[], components?: object }`；`settingsPages` 是已装配插件通过生命周期注册的有序纯数据描述，按 `order`、`id` 排序；非空时 `features` 才含 `settings`，卸载插件后页面消失。PDF 组件状态 `components.babeldoc` 为 `unchecked`／`ready`／`unavailable`，可带 `message`；已装配但不可用仍注册 PDF 设置页。配置只表示可尝试，首次操作前不能声称已就绪 |
 | GET | `/api/settings/modelconfig` | — | `{ settings: { selected: { provider, model, timeoutMs } \| null, savedModels: { provider, model, timeoutMs }[], presets, routes, credentials, revisions: { routes, selected } } }`；凭据只返回状态，不返回值；presets 是提供商模板及固定版本模型候选，不是账号实时可用性声明 |
-| PATCH | `/api/settings/modelconfig` | `{ provider, model, api?, baseURL?, credentialRef?, contextWindow?, maxTokens?, reasoning?, compat?, reasoningEfforts?, timeoutMs?, select?, selectOnly?, routesRevision?, selectedRevision? }` | `{ settings: ... }`；`select: false` 只保存到模型列表，默认 `select: true` 保持旧版保存并选择行为；`selectOnly: true` 仅切换已保存模型，此时只接受 provider、model、selectOnly 和两个 revision 字段；DSH schema 校验，显式 revision 过期返回 409 |
+| PATCH | `/api/settings/modelconfig` | `{ provider, model, api?, baseURL?, credentialRef?, contextWindow?, maxTokens?, reasoning?, compat?, reasoningEfforts?, timeoutMs?, select?, selectOnly?, routesRevision?, selectedRevision? }` | `{ settings: ... }`；`select: false` 只保存到模型列表，默认 `select: true` 保持旧版保存并选择行为；`selectOnly: true` 仅切换已保存模型，此时只接受 provider、model、selectOnly 和两个 revision 字段；DSH schema 校验，显式 revision 过期返回 409。修改路由及模型选择分两次 DSH 写入；若路由已持久化而第二次失败，错误 `details.partialSave` 为 `{ persisted: "routes", failed: "selected", revisions: { routes: number|null } }`；其中 `selected` 指第二次 DSH 写入（保存模型列表及可选的当前选择）。`savedModels` 读取时也会从已保存路由推导模型，因此失败后仍可能显示新模型，不能把列表显示视为第二次写入成功。已知内核错误码及冲突详情保留，其他第二次写入错误映射为 `UPSTREAM_FAILURE`。客户端须重新 GET 后核对，不能假设事务或自动重试旧 revision |
 | PUT | `/api/settings/credentials` | `{ ref, value }` | `{ configured, source?, writable }` 等 DSH 凭据状态字段；秘密仅写入 `dsh-credentials-local`，响应不回显 `value` |
 | GET | `/api/artifacts/{artifactId}/download` | — | 产物文件流；文件下载是 §1.1 JSON 规则的二进制例外 |
 
@@ -237,7 +237,7 @@ interface RagChunk {
 
 模型配置 `PATCH` 中字段省略表示保留原值；`api`／`baseURL`／`credentialRef`／`reasoning`／`compat` 显式 `null` 表示删除对应路由覆盖。`contextWindow` 与 `maxTokens` 必须成对提供正整数，或同时为 `null` 以移除该模型的目录容量覆盖；`reasoningEfforts: null` 移除该模型的推理档位覆盖。未知自定义模型须声明实际容量，不能用清空来制造无声明模型；目录路由没有显式 models 列表时仅允许选择已收录模型，未收录模型用独立自定义路由声明。不满足声明条件返回 `INVALID_ARGUMENT`，不写入路由或列表。
 
-路由与模型列表／当前选择分别属于 DSH 的两个可编辑插件条目。`PATCH` 保存配置时先保存路由，再保存列表和（如需）选择；每步由 DSH config-editor 持久化并热更新，但这两个条目之间不是一个跨条目原子事务。若第二步失败，已成功的路由写入仍保留，客户端应重新 `GET` 后修正。纯切换只修改选择、不写路由。`routesRevision` 与 `selectedRevision` 在写前检查，后者也保护 savedModels 列表。旧配置的显式 route.models／modelOverrides 和当前选择在读取时补入列表；下次保存配置时随列表持久化。同一提供商标识下的模型共享路由级端点／凭据／推理设置；不同端点或账号使用不同提供商标识。内置目录模型的单项容量调整使用 modelOverrides，避免用显式 models 列表意外收窄目录；已存在显式 models 列表的语义不变。设置和凭据更新继续遵守 §1.4 的运行任务互斥，包括仅保存非当前模型的请求。
+路由与模型列表／当前选择分别属于 DSH 的两个可编辑插件条目。`PATCH` 保存配置时先保存路由，再保存列表和（如需）选择；每步由 DSH config-editor 持久化并热更新，但这两个条目之间不是一个跨条目原子事务。若第二步失败，已成功的路由写入仍保留，客户端应重新 `GET` 后修正。纯切换只修改选择、不写路由。`PATCH` 只接受表中列出的字段，未知字段返回 `INVALID_ARGUMENT`。`routesRevision` 与 `selectedRevision` 在写前检查，后者也保护 savedModels 列表。旧配置的显式 route.models／modelOverrides 和当前选择在读取时补入列表，读取优先级为显式 savedModels、当前选择、推导路由；下次保存配置时随列表持久化。同一提供商标识下的模型共享路由级端点／凭据／推理设置；不同端点或账号使用不同提供商标识。内置目录模型的单项容量调整使用 modelOverrides，避免用显式 models 列表意外收窄目录；已存在显式 models 列表的语义不变。设置和凭据更新继续遵守 §1.4 的运行任务互斥，包括仅保存非当前模型的请求。
 
 ## 4. SSE 事件类型
 
@@ -252,6 +252,7 @@ interface RagChunk {
 | `task.failed` | `{ taskId, stage, unitId?, message }` | 失败即终态 |
 | `task.canceled` | `{ taskId }` | — |
 | `task.succeeded` | `{ taskId, artifacts: Artifact[], stats: TaskStats }` | 摘要区持久展示的数据源 |
+| `settings.pages.changed` | `{ settingsPages: { id, label, order }[] }` | 设置插件页面挂载或卸载时发出；客户端重新读取 `/api/capabilities`，刷新可用导航和组件状态。新连接仍以 capabilities 为准 |
 
 断线重连协议：客户端先 `GET /api/tasks/{id}` 拉快照，再续订 SSE；服务端不重放历史事件（快照即真相），只在响应头给 `X-Event-Id` 供日志对齐。
 

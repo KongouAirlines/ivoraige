@@ -15,6 +15,7 @@ import { MarkdownSource } from './adapters/markdown-source.mjs'
 import { bootModelSettings } from './model-settings.mjs'
 import { acquireStoreLock } from './store-lock.mjs'
 import { Pdf } from './adapters/pdf.mjs'
+import { SettingsPages } from './settings-pages.mjs'
 
 // Composition only: business capabilities live in Cordis services.
 export async function createApp({ store, exportDir, translation, settingsDir, pdf } = {}) {
@@ -50,6 +51,7 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
   try {
     ctx = settingsDir === undefined ? new Context() :
       (await bootModelSettings({ directory: settingsDir })).ctx
+    if (!ctx.get('ivoraige.settingsPages')) await ctx.plugin(SettingsPages)
     await ctx.plugin(Outputs)
     await ctx.plugin(Parse)
     await ctx.plugin(TxtSource)
