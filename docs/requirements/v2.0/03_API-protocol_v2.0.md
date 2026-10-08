@@ -304,7 +304,7 @@ resources：`ivoraige://docs/{docId}`、`ivoraige://docs/{docId}/units/{unitId}?
 
 BabelDOC `rebuild` 的冻结单位中，进入翻译回调的单位接受 `revision` 或 `skip` 决策；`skip` 的 `text` 必须等于绑定的原始请求文本，回放保留原文而不补译。未进入回调的单位仍要求 `keepOriginal`。这些决策继续参与来源与占位符完整性检查。
 
-BabelDOC `parse` 在完整 tracker 数据与来源位置关联后解析公式／富文本占位符显示。无法唯一确定的映射以 `-32001`、`data.code=PRECONDITION_FAILED` 返回页码和位置，不得持久化为可翻译单位后才在导出时报错。已有这类记录也必须在任务调用模型前拒绝。回放保留已接受投影中的连续标点，不能采用引擎的文本缩写结果；输出文本核对包含公式显示文本，但页级提取检查不能代替布局验收。
+BabelDOC `parse` 按来源位置关联回调与完成后的 tracker payload；tracker 缺失或请求不一致时不关联 payload，并记录警告。占位符显示优先采用可唯一确定的原文对齐；否则使用 BabelDOC 公式 `formula_chars`、富文本成对 token 的空显示，未知 token 保留其字面形式，并以页码、位置及 token 记录回退警告。映射不确定不阻止导入或翻译。`rebuild` 对照原始引擎请求校验占位符顺序，与持久化显示映射是否完整无关；旧记录的 null／缺失显示按字面 token 用于可读诊断。回放遵循 BabelDOC 自身的文本处理，包括连续标点缩写。输出文本核对包含公式展开文本；页级提取缺失只作为未验证证据和目检提示，不阻止 PDF 输出，也不能代替布局验收。来源位置、请求文本及冻结决策不匹配仍须拒绝。
 
 内核为每次 sidecar 启动创建独占临时目录，通过 `configure.options.workDir` 传入。用户配置的 workDir 是这些目录的父目录。取消／关闭等待子进程退出后只清理该专属目录；不会删除工作根或扫描其他会话。父进程被强杀、断电后的历史残留回收不属于当前保证。
 

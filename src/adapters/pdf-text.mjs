@@ -8,12 +8,6 @@ export function validatePdfTranslation(binding, unit, text) {
     throw new KernelError('PRECONDITION_FAILED', 'PDF source binding does not match this unit')
   }
   const expected = placeholderTokens(unit.sourceText)
-  if (expected.length !== (record.placeholders?.length ?? 0) || expected.some((token, index) =>
-    record.placeholders[index]?.token !== token || typeof record.placeholders[index]?.text !== 'string')) {
-    throw new KernelError('PRECONDITION_FAILED',
-      `PDF placeholder display mapping is unavailable at page ${unit.locator?.page ?? record.page + 1}; reimport with the updated PDF component or use a supported text source`,
-      { unitId: unit.id, key: record.key, tokens: expected })
-  }
   const actual = placeholderTokens(text)
   if (expected.length !== actual.length || expected.some((token, index) => token !== actual[index])) {
     throw new KernelError('PRECONDITION_FAILED', 'Preserve PDF placeholders exactly, in their original order',
@@ -27,9 +21,10 @@ export function readablePdfText(binding, unit, text) {
   let index = 0
   return text.replace(/<\/?(?:b|i|u|s|f)\d+>/g, token => {
     const replacement = record.placeholders?.[index++]
-    if (replacement?.token !== token || typeof replacement.text !== 'string') {
-      throw new KernelError('PRECONDITION_FAILED', 'PDF placeholder display mapping is unavailable')
-    }
-    return replacement.text
+    if (replacement?.token === token && typeof replacement.text === 'string') return replacement.text
+    // Older bindings may lack display metadata. Preserve the engine token
+    // rather than dropping source content or blocking every output format.
+    const payload = record.placeholderPayloads?.find(item => item.type === 'formula' && item.placeholder === token)
+    return typeof payload?.formula_chars === 'string' ? payload.formula_chars : token
   })
 }

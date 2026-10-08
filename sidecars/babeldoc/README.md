@@ -31,24 +31,28 @@ audit does not prove that image-only text or formula semantics were recovered.
 The line audit renders flagged superscript spans as Unicode superscripts where
 possible (otherwise `^(text)`) and retains `rawExtractedText` for comparison.
 Structural placeholders retain completed upstream tracker payloads, associated
-by source location. Formula text and paired rich-text tokens constrain exact
-source alignment. An unresolved or ambiguous mapping rejects capture with its
-page, location and tokens before translation; it is not stored as a null display.
-Previously stored unresolved bindings also fail before any model request.
+by source location. A unique literal alignment supplies readable display text
+when available. Otherwise a formula uses BabelDOC's `formula_chars`, paired
+rich-text tokens use an empty display, and unknown tokens remain visible as
+literal tokens. Capture records page, location and token warnings for fallback
+displays. Missing or changed tracker input contributes no payload and is
+reported as a warning; the callback's source location remains mandatory.
 
 `rebuild` takes a frozen `docRef` JSON containing the binding and a
 `revisionsRef` JSON with units in `{unit, decision, text}` form. `text` is the
 accepted BabelDOC engine projection, including any preserved placeholders.
 The readable text for MD/JSON is a deterministic expansion through
-`placeholders[*].text`. The sidecar checks the exact token sequence and fails
-if a display mapping remains unresolved. Callback units use an accepted revision
+`placeholders[*].text`. Legacy null or missing displays retain the visible
+token for diagnostics. The sidecar checks the exact token sequence against the
+original engine request regardless of saved display mappings. Callback units use an accepted revision
 or a `skip` decision that replays the exact source request. Passthrough units
 must retain their original text and `keepOriginal` decision.
-Replay preserves accepted punctuation runs instead of BabelDOC's punctuation
-shortening. Extracted-text checks include expanded formulas; these page-level
-checks still require visual inspection for position, clipping and reading order.
-It rejects missing, duplicate, changed, or unused engine requests and publishes
-the PDF only after all checks pass. Mono PDF is the supported format; bilingual
+Replay lets BabelDOC apply its own text processing, including punctuation
+shortening. Extracted-text checks include expanded formulas but are informational:
+a mismatch appears in export evidence as unverified and calls for visual review.
+Page-level extraction also cannot prove position, clipping or reading order.
+The sidecar rejects missing, duplicate, changed, or unused engine requests.
+Mono PDF is the supported format; bilingual
 PDF needs separate validation.
 
 Each capture or replay removes its own BabelDOC `run-N` working directory after

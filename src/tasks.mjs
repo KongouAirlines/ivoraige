@@ -284,9 +284,6 @@ export class Tasks extends Service {
         await this.runImport(task, input.file, input.metadata, controller, job)
         return
       }
-      if (task.kind === 'translate') {
-        this.records.validateSources(task.docId, task.unitIds.slice(task.cursor))
-      }
       for (let index = task.cursor; index < task.progress.total; index++) {
         if (this.tearingDown) return
         if (live.cancel || controller.signal.aborted) break

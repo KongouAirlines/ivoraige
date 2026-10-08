@@ -54,13 +54,18 @@ async function exported(app, docId, options) {
 
 const outputs = [{ format: 'pdf' }, { format: 'md' }, { format: 'json' }]
 
-test('unresolved PDF mappings fail import before a document or model call exists', async t => {
+test('unresolved PDF displays preserve tokens and allow import and all frozen outputs', async t => {
   const f = await fixture(t, 'unresolved-mapping')
-  await assert.rejects(imported(f), /placeholder display mapping/)
-  assert.deepEqual(f.app.records.listDocuments(), [])
+  const doc = await imported(f)
+  await accept(f.app, doc.id, ['结果 <b1> 一。', '结果 <b1> 二。'])
+  const result = await exported(f.app, doc.id, { targetLang: 'zh-CN', outputs })
+  assert.equal(result.task.stats.llmCalls, 0)
+  assert.match(await readFile(result.artifacts.md.path, 'utf8'), /结果 <b1> 一。/)
+  const json = JSON.parse(await readFile(result.artifacts.json.path, 'utf8'))
+  assert.equal(json.units[0].text, '结果 <b1> 一。')
 })
 
-test('a legacy unresolved mapping fails translation before spending a model request', async t => {
+test('a legacy unresolved mapping does not prevent translation and frozen export after restart', async t => {
   const f = await fixture(t)
   const adapter = f.app.parse.adapters.get('babeldoc')
   const original = adapter.import
@@ -73,17 +78,23 @@ test('a legacy unresolved mapping fails translation before spending a model requ
   adapter.import = original
   await f.restart()
   let calls = 0
-  class NeverCalled extends Service {
+  class CompatibleModel extends Service {
     constructor(ctx) { super(ctx, 'ivoraige.translationModel') }
-    async translate() { calls++; throw new Error('must fail before model') }
+    async translate() {
+      calls++
+      return { text: '兼容 <b1> 译文。', modelId: 'fixture', promptVersion: 'v1',
+        tokens: { input: null, output: null } }
+    }
   }
-  await f.app.ctx.plugin(NeverCalled)
+  await f.app.ctx.plugin(CompatibleModel)
   const submitted = await f.app.tasks.submit(doc.id, { targetLang: 'zh-CN' })
   const task = await f.app.tasks.wait(submitted.taskId)
-  assert.equal(task.state, 'failed')
-  assert.match(task.error.message, /placeholder display mapping/)
-  assert.equal(task.stats.llmCalls, 0)
-  assert.equal(calls, 0)
+  assert.equal(task.state, 'succeeded', task.error?.message)
+  assert.equal(calls, 2)
+  const result = await exported(f.app, doc.id, { targetLang: 'zh-CN', outputs })
+  assert.equal(result.task.stats.llmCalls, 0)
+  assert.equal(calls, 2)
+  assert.match(await readFile(result.artifacts.md.path, 'utf8'), /兼容 <b1> 译文。/)
 })
 
 test('PDF bindings persist; PDF, Markdown and JSON share frozen revisions', async t => {

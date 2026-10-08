@@ -71,18 +71,29 @@ class BindingTests(unittest.TestCase):
             [{"token": "<b1>", "text": ""}, {"token": "</b1>", "text": ""}],
         )
         payloads[0]["composition_chars"] = "different"
-        self.assertIsNone(
-            server.display_mapping("A <b1>word</b1> B", "A word B", payloads)
+        self.assertEqual(
+            server.display_mapping("A <b1>word</b1> B", "A word B", payloads),
+            [{"token": "<b1>", "text": ""}, {"token": "</b1>", "text": ""}],
         )
 
-    def test_wrong_or_ambiguous_payload_is_unresolved(self):
+    def test_ambiguous_mapping_falls_back_to_payload_or_literal(self):
         wrong = [{"type": "formula", "id": 1, "placeholder": "<b1>", "formula_chars": "z"}]
-        self.assertIsNone(server.display_mapping("A <b1> B", "A x B", wrong))
+        self.assertEqual(server.display_mapping("A <b1> B", "A x B", wrong),
+                         [{"token": "<b1>", "text": "x"}])
         adjacent = [
             {"type": "formula", "id": 1, "placeholder": "<b1>", "formula_chars": "x"},
             {"type": "formula", "id": 2, "placeholder": "<b2>", "formula_chars": "y"},
         ]
-        self.assertIsNone(server.display_mapping("A <b1><b2> B", "A x y B", adjacent))
+        uncertain = []
+        self.assertEqual(server.display_mapping("A <b1><b2> B", "A x y B", adjacent, uncertain),
+                         [{"token": "<b1>", "text": "x"}, {"token": "<b2>", "text": "y"}])
+        self.assertEqual(uncertain, ["<b1> (payload)", "<b2> (payload)"])
+        self.assertEqual(server.display_mapping("A <b1><b2> B", "unknown", []),
+                         [{"token": "<b1>", "text": "<b1>"},
+                          {"token": "<b2>", "text": "<b2>"}])
+        self.assertEqual(server.display_mapping("<b1><b1> B", "unknown", [adjacent[0]]),
+                         [{"token": "<b1>", "text": "<b1>"},
+                          {"token": "<b1>", "text": "<b1>"}])
 
     def test_completed_callbacks_keep_payloads_by_location(self):
         first = {"key": "p0:first", "preparedInput": "A <b1> B",
@@ -97,19 +108,18 @@ class BindingTests(unittest.TestCase):
         self.assertEqual(calls[0]["placeholderPayloads"][0]["formula_chars"], "y")
         self.assertEqual(calls[1]["placeholderPayloads"][0]["formula_chars"], "x")
 
+        second["preparedInput"] = "changed"
+        server.complete_callbacks(calls, [first, second])
+        self.assertEqual(calls[0]["placeholderPayloads"], [])
+        self.assertIn("tracker missing or changed", calls[0]["payloadWarning"])
+
     def test_pdf_text_check_keeps_punctuation_and_checks_formulas(self):
         records = [{"unitId": "u1", "page": 0, "text": "A x... B",
                     "engineProjection": "A <b1>... B"}]
         self.assertEqual(server.pdf_text_checks(records, ["A x ... B"])[0]["present"], True)
         self.assertEqual(server.pdf_text_checks(records, ["A x… B"])[0]["present"], False)
 
-    def test_replay_projection_preserves_long_punctuation_run(self):
-        raw = "A" + "." * 20 + "<b1> B"
-        self.assertEqual(server.replay_projection(raw, "A.<b1> B"), raw)
-        with self.assertRaisesRegex(server.SidecarError, "changed accepted"):
-            server.replay_projection(raw, "A!<b1> B")
-
-    def test_capture_rejects_unresolved_mapping_with_location(self):
+    def test_capture_warns_on_fallback_with_location(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
             path = Path(directory) / "formula.pdf"
             path.write_bytes(b"%PDF-1.7\n")
@@ -123,11 +133,11 @@ class BindingTests(unittest.TestCase):
             ]}
             with patch.object(server, "run_engine", return_value=([call], [paragraph], [])), \
                  patch.object(server, "unbound_pdf_lines", return_value=[]):
-                with self.assertRaisesRegex(
-                    server.SidecarError,
-                    r"page 1, p0:1\.000,2\.000,3\.000,4\.000; tokens=",
-                ):
-                    server.parse({"path": str(path), "options": {"language": "en"}})
+                parsed = server.parse({"path": str(path), "options": {"language": "en"}})
+            record = parsed["doc"]["sourceBinding"]["records"][0]
+            self.assertEqual(record["placeholders"],
+                             [{"token": "<b1>", "text": "x"}, {"token": "<b2>", "text": "y"}])
+            self.assertIn(f"page 1, {key} used fallback", parsed["doc"]["warnings"][0])
 
     def test_rebuild_preflight_rejects_changed_source_and_placeholders(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
@@ -209,6 +219,40 @@ class BindingTests(unittest.TestCase):
             self.assertEqual(Path(params["out"]).read_bytes(), b"%PDF-1.7\n")
 
             Path(params["out"]).unlink()
+            record["placeholders"] = [{"token": "<b1>", "text": None}]
+            doc_ref.write_text(
+                json.dumps({"document": {"language": "en"}, "sourceBinding": binding}),
+                encoding="utf-8",
+            )
+
+            def replay_unmapped(_source, _config, _mode, records, staging):
+                self.assertEqual(records[0]["engineProjection"], record["requestText"])
+                self.assertEqual(records[0]["text"], record["requestText"])
+                staging.joinpath("translated.pdf").write_bytes(b"%PDF-1.7\n")
+                return [dict(key=record["key"])], [], [
+                    {"unitId": "test", "page": 0, "present": False,
+                     "reason": "PDF text extraction did not show expanded accepted text"}
+                ]
+
+            with patch.object(server, "run_engine", side_effect=replay_unmapped):
+                result = server.rebuild(params)
+            self.assertEqual(len(result["evidence"]["warnings"]), 2)
+            self.assertIn("retained literal token", result["evidence"]["warnings"][0])
+            self.assertIn("visual review needed", result["evidence"]["warnings"][1])
+
+            Path(params["out"]).unlink()
+            record["placeholders"] = []
+            doc_ref.write_text(
+                json.dumps({"document": {"language": "en"}, "sourceBinding": binding}),
+                encoding="utf-8",
+            )
+            frozen["units"][0]["decision"]["type"] = "revision"
+            frozen["units"][0]["text"] = "E - m H"
+            revision_ref.write_text(json.dumps(frozen), encoding="utf-8")
+            with self.assertRaisesRegex(server.SidecarError, "Placeholder order mismatch"):
+                server.rebuild(params)
+
+            frozen["units"][0]["decision"]["type"] = "skip"
             frozen["units"][0]["text"] = "different <b1>- m H"
             revision_ref.write_text(json.dumps(frozen), encoding="utf-8")
             with self.assertRaisesRegex(server.SidecarError, "Skipped source text changed"):

@@ -102,14 +102,22 @@ Windows / Node 26.7.0：完整 `npm test` 185/185 通过；最终 PDF 导入、�
 
 分支 `codex/0.1.0-pdf-formula-replay` 基于 PR #10 的 `26087a4`，该基线已合并 PR #9 后的 main/fde5ec8。跟踪 [pdf-formula-replay](../follow-ups/pdf-formula-replay.md) 与 [pdf-sidecar-work-cleanup](../follow-ups/pdf-sidecar-work-cleanup.md)。
 
-- 完成后的 tracker 数据按来源位置关联到回调，公式 payload 约束显示映射。相邻公式、重复锚点及富文本 token 的单元测试覆盖可解析和无法唯一解析两种结果；后者在导入前失败。旧无效绑定也在整个翻译任务调用模型前失败。
-- 冻结回放在 BabelDOC 排版前恢复原始接受投影，避免上游缩短连续标点。文本核对覆盖公式展开文本，保留页级核对不能证明位置正确的限制。
+- 完成后的 tracker 数据按来源位置关联到回调，避免我们过早复制而丢失公式 payload。初版曾要求显示映射唯一并提前拒绝不完整记录，后按用户要求调整为下述兼容策略。
+- 初版曾在 BabelDOC 排版前恢复接受投影以绕过连续标点缩短；该补丁已撤除，上游解析和排版行为不属于本项目修复范围。
 - Node 为每次 sidecar 启动管理专属工作目录；Windows 取消时终止进程树并等待退出，随后清理。真实测试还发现 BabelDOC 的原件句柄会留在对象循环中；在单次调用边界显式关闭该次通过 high_level.Document 打开的原件，避免全局强制垃圾回收及 Windows EBUSY。
 
-验证结果：Windows / Node 26.7.0 完整 Node 测试 **190/190**，Python 标准库测试 **13/13**，package smoke 通过。Python 回归已加入三平台 CI（不安装 BabelDOC 权重）。
+初版 `c4829c7` 验证结果（以下为调整前的历史证据）：Windows / Node 26.7.0 完整 Node 测试 **190/190**，Python 标准库测试 **13/13**，package smoke 通过。Python 回归已加入三平台 CI（不安装 BabelDOC 权重）。
 
 真实 BabelDOC 0.6.4／PyMuPDF 1.26.7 原创两页样本：**14 个单位、12 个可译、2 个带 formula payload 的记录**；包含行内公式、同页重复句及双栏。人工接受修订后完成 skip、PDF／MD／JSON 同快照输出、SQLite 重启及后续编辑后的旧快照重放。新增真实模型调用 **0**，三个导出任务各为 **0**；本轮没有配置翻译提供方。MD／JSON 重放字节一致；PDF 提取文本一致，两页渲染 PNG 分别与重放逐字节一致。四个重复句用不同人工文字标记，其实际输出坐标与对应来源位置相符；连续 20 个句点保留。两页已目检，未见裁切、错列或遮挡，长译文完整。常驻进程关闭后 engine 与 pdf/work 目录为空。
 
 本机证据：`evaluation/runs/pdf-formula-0.1.0/run-6/report.json`、`captured.json`、`text-layout-checks.json` 及相邻 PDF/PNG。复现脚本是 `scripts/pdf-formula-sample.py`（开发依赖 ReportLab）、`scripts/pdf-formula-acceptance.mjs` 和 `scripts/pdf-formula-verify.py`；运行产物保持忽略。
 
 真实采样另外发现部分源行拆分的覆盖问题，已登记 [pdf-partial-line-coverage](../follow-ups/pdf-partial-line-coverage.md)。上述公式验收不代表所有 PDF 结构、富文本真实排版、OCR、双语或三平台原生 PDF 打包通过。
+
+### 兼容策略调整（2026-10-08）
+
+按用户要求，仅修复本项目接入时机、来源关联及资源生命周期的问题，不修补 BabelDOC 自身的解析／排版。显示映射能直接确定时使用原文，否则使用引擎 payload；仍未知则保留 token 并记录位置提示。旧记录缺少显示元数据也可继续翻译和导出。来源与请求错配、占位符删改仍属于本项目回放完整性错误。
+
+撤除通用任务层的 PDF 前置扫描、显示映射失败门槛及 BabelDOC 标点缩短补丁。PDF 提取文本与接受文本不同仅记录诊断，不阻止输出；冻结快照和传给引擎的文本不变，MD／JSON 使用同一快照，但不承诺引擎排版后的逐字符一致。
+
+调整后 Windows 验证：Node **190/190**、Python **12/12**；真实 BabelDOC 再跑原创两页样本，14 单位、2 个公式 payload，skip／人工接受／三格式冻结导出／重启后编辑并重放均完成，新增模型请求及每次导出均为 **0**。MD／JSON 重放字节一致，PDF 提取文本一致，四处重复句输出位置正确。连续 20 个句点被 BabelDOC 缩短，12 个回调单位中该项提取核对不匹配，但 PDF 正常输出；其余 11 项匹配。两页渲染已目检，公式及双栏可见，未见裁切或遮挡。证据在 `evaluation/runs/pdf-formula-0.1.0/run-7/`；这验证了兼容流程，不构成上游解析质量保证。该轮未重复未改动的打包烟测。
