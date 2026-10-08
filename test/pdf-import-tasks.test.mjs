@@ -181,43 +181,45 @@ test('failed import cannot remove another database source in the same directory'
   const config = { store: join(f.directory, 'other.sqlite'),
     pdf: { command: process.execPath, args: [engine], timeoutMs: 2000 } }
   let other = await createApp(config)
-  t.after(() => other.dispose())
-  const entered = Promise.withResolvers()
-  const release = Promise.withResolvers()
-  const original = f.app.records.insertDocument
-  f.app.records.insertDocument = async () => {
-    entered.resolve()
-    await release.promise
-    throw new Error('controlled persistence failure')
-  }
-  const file = { format: 'pdf', path: f.source }
-  const failing = assert.rejects(f.app.records.importDocument(file,
-    { sourceId: 'pdf:failure-owner', language: 'en' }), /controlled persistence failure/)
-  let document, binding
+  // Close both stores before the fixture removes their shared directory (Windows).
   try {
-    // The first runtime has published its source but cannot commit yet.
-    await bounded(entered.promise)
-    ;({ document } = await bounded(other.records.importDocument(file,
-      { sourceId: 'pdf:other-owner', language: 'en' })))
-    const snapshot = await other.records.createSnapshot(document.id,
-      { targetLang: 'zh-CN', onMissingAccepted: 'skip' })
-    binding = other.records.resolveSnapshot(document.id, snapshot.id).sourceBinding
+    const entered = Promise.withResolvers()
+    const release = Promise.withResolvers()
+    const original = f.app.records.insertDocument
+    f.app.records.insertDocument = async () => {
+      entered.resolve()
+      await release.promise
+      throw new Error('controlled persistence failure')
+    }
+    const file = { format: 'pdf', path: f.source }
+    const failing = assert.rejects(f.app.records.importDocument(file,
+      { sourceId: 'pdf:failure-owner', language: 'en' }), /controlled persistence failure/)
+    let document, binding
+    try {
+      // The first runtime has published its source but cannot commit yet.
+      await bounded(entered.promise)
+      ;({ document } = await bounded(other.records.importDocument(file,
+        { sourceId: 'pdf:other-owner', language: 'en' })))
+      const snapshot = await other.records.createSnapshot(document.id,
+        { targetLang: 'zh-CN', onMissingAccepted: 'skip' })
+      binding = other.records.resolveSnapshot(document.id, snapshot.id).sourceBinding
+      assert.equal(await readFile(binding.sourcePath, 'utf8'), pdfBytes)
+    } finally {
+      release.resolve()
+      await failing
+      f.app.records.insertDocument = original
+    }
+    assert.deepEqual(f.app.records.listDocuments(), [])
     assert.equal(await readFile(binding.sourcePath, 'utf8'), pdfBytes)
-  } finally {
-    release.resolve()
-    await failing
-    f.app.records.insertDocument = original
-  }
-  assert.deepEqual(f.app.records.listDocuments(), [])
-  assert.equal(await readFile(binding.sourcePath, 'utf8'), pdfBytes)
-  assert.equal((await managedSources(f.directory)).length, 1)
-  assert.deepEqual(await importWork(f.directory), [])
-  await other.dispose()
-  other = await createApp(config)
-  const exported = await other.tasks.exportDocument(document.id,
-    { targetLang: 'zh-CN', onMissingAccepted: 'skip', outputs: [{ format: 'pdf' }] })
-  const task = await other.tasks.wait(exported.taskId)
-  assert.equal(task.state, 'succeeded', task.error?.message)
+    assert.equal((await managedSources(f.directory)).length, 1)
+    assert.deepEqual(await importWork(f.directory), [])
+    await other.dispose()
+    other = await createApp(config)
+    const exported = await other.tasks.exportDocument(document.id,
+      { targetLang: 'zh-CN', onMissingAccepted: 'skip', outputs: [{ format: 'pdf' }] })
+    const task = await other.tasks.wait(exported.taskId)
+    assert.equal(task.state, 'succeeded', task.error?.message)
+  } finally { await other.dispose() }
 })
 
 test('store-owned sources remain stable across restart and same-store reimport', async t => {
