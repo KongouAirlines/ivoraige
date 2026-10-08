@@ -175,3 +175,5 @@
 新增实际 React 构建产物的 DOM 集成回归，使用仅开发依赖 jsdom（不进入浏览器 bundle），覆盖后台快捷键、草稿保留、普通链接与设置历史、Back/Forward、保存中守卫、畸形地址及加载重试。DOM 环境只为 dialog 提供最小方法，不代替真实浏览器焦点、inert 与布局验收。首轮并行全量发现测试在 React 提交前发起返回；测试改为等待已启用的保存按钮，页面守卫同步到 layout effect，保证提交时即生效。最终本机全量测试 **173/173**、安装包冒烟 **44 文件**通过；三系统 CI 结果随 PR comment 记录。
 
 本次推进 [plugin-settings-window](../follow-ups/plugin-settings-window.md) 与 [model-settings-partial-save](../follow-ups/model-settings-partial-save.md)，待主线合入。PDF 范围另登记 [pdf-managed-source-containment](../follow-ups/pdf-managed-source-containment.md) 与 [pdf-store-relocation](../follow-ups/pdf-store-relocation.md)，均待评估：前者是静态核实的路径归属检查缺口，未找到公开请求直接写入绑定的利用链；后者是绝对路径绑定的迁移限制。未更改 PDF 生产路径，也不把审阅中的其他 PDF 疑点当作已证实缺陷。
+
+Windows CI 补充暴露详情页首次提交后的草稿初始化与输入竞争：将初始化移到 layout effect，使表单可交互前完成基线装载；DOM 测试等待表单实际挂载再输入，继续断言取消 Back 后原值保留。最终 CI 以补充提交后的 PR 检查为准。

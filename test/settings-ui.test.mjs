@@ -122,7 +122,7 @@ test('nested settings Back cancellation preserves history and Forward returns to
     const add = await until(() => [...window.document.querySelectorAll('dialog button')].find(button => button.textContent === '添加模型'), 'model list did not load')
     click(window, add)
     await until(() => window.location.hash.includes('new=1'), 'model detail route did not open')
-    const provider = window.document.querySelector('dialog input[placeholder="例如 deepseek"]')
+    const provider = await until(() => window.document.querySelector('dialog input[placeholder="例如 deepseek"]'), 'model form did not mount')
     setInput(window, provider, 'pending-provider')
     setInput(window, window.document.querySelector('dialog input[placeholder="服务实际支持的模型 ID"]'), 'pending-model')
     await until(() => [...window.document.querySelectorAll('dialog button')].some(button => button.textContent === '仅保存' && !button.disabled), 'dirty model form did not commit')

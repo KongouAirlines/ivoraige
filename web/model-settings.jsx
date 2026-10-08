@@ -64,7 +64,7 @@ export function Settings({ api, useRemote, Button, ErrorBox, onGuardChange,
     setSecret(''); setBusy(''); setError(''); if (!keepSuccess) setMessage('')
     setReloadNeeded(false); setTab('model')
   }, [viewKey])
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!shouldReplaceModelDraft({ available, settings, initializedView: initializedView.current,
       viewKey, form, baseline, secret })) return
     const next = view.kind === 'edit' ? modelForm(settings, view.provider, view.model) : emptyModelForm()
