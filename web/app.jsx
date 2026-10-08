@@ -1,6 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Settings } from './model-settings.jsx'
+import { PdfSettings } from './pdf-settings.jsx'
+import { SettingsWindow } from './settings-window.jsx'
+import { createSettingsRuntime } from './settings-runtime.mjs'
+import { isSettingsPath, initialSettingsLocation, settingsLocation, readSettingsHistory, settingsHistoryState, nextSettingsHistory, reverseSettingsTraversal, hashRoute } from './settings-navigation.mjs'
 import { refreshDisposition, savedEditIsCurrent } from './editor-state.mjs'
 
 const h = React.createElement
@@ -35,8 +39,8 @@ const kindNames = { import:'导入',translate:'翻译',export:'导出' }
 const status = s => <span className={`status status-${s}`}>{stateNames[s] || s || '—'}</span>
 const revisionStatus = s => <span className={`status revision-${s}`}>{({ accepted:'已接受', draft:'草稿', superseded:'历史版本' })[s] || s || '—'}</span>
 const usage = n => n == null ? '未知' : n.toLocaleString()
-const navigate = path => { location.hash = path }
-const route = () => { try { return decodeURI(location.hash.replace(/^#/, '') || '/') } catch { return '/' } }
+const navigate = path => { window.dispatchEvent(new CustomEvent('ivoraige:navigate', { detail: path })) }
+const route = () => hashRoute(location.hash)
 const targetFor = language => language?.toLowerCase().startsWith('zh') ? 'en' : 'zh'
 const openImported = result => navigate(result.document?.id ? `/workbench/${result.document.id}` : '/tasks')
 
@@ -91,7 +95,7 @@ function DocumentCard({doc}) {return <a className="doc-card" href={`#/workbench/
 function Documents({epoch,inputFormats,pdfStatus}) {const docs=useRemote(()=>allPages('/documents'),[epoch]); const [search,setSearch]=useState(''); const visible=(docs.value||[]).filter(d=>`${d.title} ${d.sourceId}`.toLowerCase().includes(search.toLowerCase()));return <div className="page"><div className="page-head"><div><span className="eyebrow">LIBRARY</span><h1>文档</h1><p>所有导入材料及其翻译记录。</p></div><span className="count">{docs.value?.length ?? '—'} 份文档</span></div><Upload compact inputFormats={inputFormats} pdfStatus={pdfStatus} onDone={openImported}/><div className="toolbar"><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="搜索标题或来源…" aria-label="搜索文档"/></div><ErrorBox message={docs.error}/>{!docs.value? <div className="skeleton">正在读取文档…</div>:visible.length?<div className="doc-grid">{visible.map(d=><DocumentCard key={d.id} doc={d}/>)}</div>:<Empty title={search?'没有匹配的文档':'还没有文档'} detail={search?'试试其他关键词。':'在上方导入支持的文档。'}/>}</div>}
 function Tasks({epoch}) {const [filter,setFilter]=useState('all'),[tick,setTick]=useState(0);const data=useRemote(()=>allPages('/tasks'),[epoch,tick]);const visible=(data.value||[]).filter(t=>filter==='all'||t.state===filter).reverse();return <div className="page"><div className="page-head"><div><span className="eyebrow">ACTIVITY</span><h1>任务</h1><p>翻译进度、导出产物与模型用量。</p></div></div><div className="tabs">{[['all','全部'],['running','进行中'],['paused','已暂停'],['failed','失败'],['succeeded','已完成']].map(([v,n])=><button key={v} className={filter===v?'active':''} onClick={()=>setFilter(v)}>{n}</button>)}</div><ErrorBox message={data.error}/>{visible.length?<div className="task-grid">{visible.map(t=><TaskCard key={t.id} task={t} refresh={()=>setTick(x=>x+1)}/>)}</div>:<Empty title="这里暂无任务" detail="导入文档或发起翻译后，任务会出现在这里。"/>}</div>}
 
-function Workbench({docId,epoch}) {
+function Workbench({docId,epoch,interactive=true}) {
   const document=useRemote(()=>api(`/documents/${docId}`).then(r=>r.document),[docId,epoch])
   const [targetLang,setTargetLang]=useState('zh'), [filter,setFilter]=useState('all'),[selected,setSelected]=useState([]),[current,setCurrent]=useState(null),[unitData,setUnitData]=useState(null),[history,setHistory]=useState([]),[text,setText]=useState(''),[dirty,setDirty]=useState(false),[mode,setMode]=useState('careful'),[busy,setBusy]=useState(''),[error,setError]=useState(''),[message,setMessage]=useState(''),[artifacts,setArtifacts]=useState([]),[snapshots,setSnapshots]=useState([]),[tasks,setTasks]=useState([]),[formats,setFormats]=useState(['md']),[contextOpen,setContextOpen]=useState(!window.matchMedia('(max-width: 1100px)').matches),[actionTick,setActionTick]=useState(0)
   const dirtyRef=useRef(false), loadRef=useRef(0), editVersionRef=useRef(0)
@@ -113,7 +117,7 @@ function Workbench({docId,epoch}) {
   const translate=scope=>act('translate',()=>api(`/documents/${docId}/translate`,{method:'POST',body:{targetLang,mode,...(scope==='one'?{unitIds:[current]}:scope==='selected'?{unitIds:selected}:{} )}}))
   const exportNow=()=>act('export',()=>api(`/documents/${docId}/export`,{method:'POST',body:{targetLang,outputs:formats.map(format=>({format}))}}))
   const visible=units.value||[], index=visible.findIndex(u=>u.id===current), currentUnit=unitData?.unit
-  useEffect(()=>{const onKey=e=>{if(!(e.ctrlKey||e.metaKey)||!current)return;if(e.key==='Enter'){e.preventDefault();if(unitData?.draft&&!dirty){accept().then(result=>{if(result&&index<visible.length-1)choose(visible[index+1].id)})}else if(dirty)save()}if(e.key.toLowerCase()==='r'){e.preventDefault();translate('one')}};window.addEventListener('keydown',onKey);return()=>window.removeEventListener('keydown',onKey)},[current,unitData,dirty,text,index,visible])
+  useEffect(()=>{if(!interactive)return;const onKey=e=>{if(!(e.ctrlKey||e.metaKey)||!current)return;if(e.key==='Enter'){e.preventDefault();if(unitData?.draft&&!dirty){accept().then(result=>{if(result&&index<visible.length-1)choose(visible[index+1].id)})}else if(dirty)save()}if(e.key.toLowerCase()==='r'){e.preventDefault();translate('one')}};window.addEventListener('keydown',onKey);return()=>window.removeEventListener('keydown',onKey)},[interactive,current,unitData,dirty,text,index,visible])
   useEffect(()=>{const before=e=>{if(dirty){e.preventDefault();e.returnValue=''}};window.addEventListener('beforeunload',before);return()=>window.removeEventListener('beforeunload',before)},[dirty])
   if(document.error)return <div className="page"><ErrorBox message={document.error}/></div>
   return <div className="workbench"><div className="workbench-head"><div><a className="back" href="#/documents">← 文档</a><h1>{document.value?.title||'工作台'}</h1><span className="muted">{document.value?.format?.toUpperCase()} · {document.value?.unitCount??'—'} 个单位</span></div><div className="row"><label className="inline-label">目标语言 <select value={targetLang} onChange={e=>{if(dirty&&!confirm('修改尚未保存。仍要切换语言吗？'))return;dirtyRef.current=false;loadRef.current++;viewKeyRef.current=JSON.stringify([docId,e.target.value,current]);setDirty(false);setSelected([]);setTargetLang(e.target.value);setUnitData(null)}}><option value="zh-CN">简体中文（zh-CN）</option><option value="zh">中文（zh）</option><option value="en">English</option></select></label><select value={mode} onChange={e=>setMode(e.target.value)} aria-label="翻译模式"><option value="careful">精细 · 保留草稿</option><option value="fast">快速 · 自动接受</option></select><Button className="secondary" busy={!!busy} onClick={()=>translate('all')}>翻译全文</Button></div></div>
@@ -125,16 +129,118 @@ function Workbench({docId,epoch}) {
 }
 
 function App() {
-  const [path,setPath]=useState(route),[epoch,setEpoch]=useState(0),[capabilityTick,setCapabilityTick]=useState(0),[connected,setConnected]=useState(false),[theme,setTheme]=useState(localStorage.getItem('ivoraige.theme')||'system'),[collapsed,setCollapsed]=useState(localStorage.getItem('ivoraige.sidebar')==='collapsed')
+  const [locationState,setLocationState]=useState(()=>{
+    const path=route(), meta=readSettingsHistory(history.state)
+    const initial=initialSettingsLocation(path)
+    return meta&&isSettingsPath(path) ? {...initial,background:meta.background} : initial
+  }),[epoch,setEpoch]=useState(0),[capabilityTick,setCapabilityTick]=useState(0),[connected,setConnected]=useState(false),[theme,setTheme]=useState(localStorage.getItem('ivoraige.theme')||'system'),[collapsed,setCollapsed]=useState(localStorage.getItem('ivoraige.sidebar')==='collapsed')
   const capabilities=useRemote(()=>api('/capabilities'),[capabilityTick]), taskData=useRemote(()=>allPages('/tasks'),[epoch]);const active=(taskData.value||[]).filter(t=>['queued','running'].includes(t.state)).length
-  useEffect(()=>{const sync=()=>setPath(route());window.addEventListener('hashchange',sync);return()=>window.removeEventListener('hashchange',sync)},[])
+  const path = locationState.background
+  const settingsOpen = isSettingsPath(locationState.path)
+  const locationRef = useRef(locationState)
+  const historyRef = useRef(readSettingsHistory(history.state)??{index:0,origin:null,background:locationState.background})
+  const restoringRef = useRef(null)
+  const handlingRef = useRef(false)
+  const guardRef = useRef({dirty:false,busy:false})
+  const [settingsRuntime] = useState(()=>createSettingsRuntime({models:Settings,pdf:PdfSettings}))
+  const [settingsError,setSettingsError] = useState('')
+  const [confirmation,setConfirmation] = useState(null)
+  const confirmationRef = useRef(null)
+  const confirmDiscard = useCallback(message=>new Promise(resolve=>{
+    if(confirmationRef.current){resolve(false);return}
+    confirmationRef.current=resolve;setConfirmation(message)
+  }),[])
+  const answerConfirmation = useCallback(answer=>{
+    const resolve=confirmationRef.current;confirmationRef.current=null;setConfirmation(null);resolve?.(answer)
+  },[])
+  const onGuardChange = useCallback(value=>{guardRef.current=value},[])
+  const allowSettingsExit = useCallback(async()=>{
+    if(confirmationRef.current || guardRef.current.busy)return false
+    return !guardRef.current.dirty || await confirmDiscard('设置修改尚未保存。放弃修改并离开吗？')
+  },[confirmDiscard])
+  const moveSettings = useCallback(async(next,{replace=false,confirmed=false}={})=>{
+    next=hashRoute(next)
+    const current=locationRef.current
+    if(next===current.path)return
+    if(isSettingsPath(current.path)&&!confirmed&&!await allowSettingsExit())return
+    const state=settingsLocation(current,next)
+    const meta=nextSettingsHistory(historyRef.current,current,next,replace)
+    history[replace?'replaceState':'pushState'](settingsHistoryState(history.state,meta),'',`#${next}`)
+    historyRef.current=meta
+    locationRef.current=state;setLocationState(state)
+  },[allowSettingsExit])
+  // Every in-app link and programmatic navigation uses the same history writer.
+  useEffect(()=>{
+    const requested=event=>{void moveSettings(event.detail)}
+    const clicked=event=>{
+      if(event.defaultPrevented||event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return
+      const anchor=event.target.closest?.('a[href]')
+      if(!anchor||anchor.hasAttribute('download')||(anchor.target&&anchor.target!=='_self'))return
+      const url=new URL(anchor.href,location.href)
+      if(url.origin!==location.origin||url.pathname!==location.pathname||url.search!==location.search||!url.hash.startsWith('#/'))return
+      event.preventDefault();void moveSettings(url.hash.slice(1))
+    }
+    window.addEventListener('ivoraige:navigate',requested)
+    document.addEventListener('click',clicked)
+    return()=>{window.removeEventListener('ivoraige:navigate',requested);document.removeEventListener('click',clicked)}
+  },[moveSettings])
+  const closeSettings = useCallback(async()=>{
+    if(!await allowSettingsExit())return
+    const {origin,index}=historyRef.current
+    if(origin!==null && origin<index){
+      restoringRef.current=origin
+      history.go(origin-index)
+    }else{
+      await moveSettings(locationRef.current.background,{replace:true,confirmed:true})
+    }
+  },[allowSettingsExit,moveSettings])
+  const refreshCapabilities = useCallback(()=>setCapabilityTick(x=>x+1),[])
+  useEffect(()=>{
+    if(!readSettingsHistory(history.state))history.replaceState(settingsHistoryState(history.state,historyRef.current),'')
+    const sync=async()=>{
+      if(handlingRef.current)return
+      handlingRef.current=true
+      try{
+        const next=route(),current=locationRef.current,previous=historyRef.current
+        let target=readSettingsHistory(history.state)
+        if(!target){
+          target=nextSettingsHistory(previous,current,next)
+          history.replaceState(settingsHistoryState(history.state,target),'')
+        }
+        const confirmedTraversal=restoringRef.current===target.index
+        if(confirmedTraversal){
+          restoringRef.current=null
+          if(next===current.path)return // Canceled Back/Forward reached the original entry.
+        }
+        if(next===current.path){historyRef.current=target;return}
+        if(isSettingsPath(current.path)&&!confirmedTraversal&&!await allowSettingsExit()){
+          const delta=reverseSettingsTraversal(previous,target)
+          restoringRef.current=previous.index
+          if(delta)history.go(delta)
+          return
+        }
+        const state=settingsLocation(current,next)
+        historyRef.current=target
+        locationRef.current=state;setLocationState(state)
+      }finally{handlingRef.current=false}
+    }
+    window.addEventListener('popstate',sync)
+    window.addEventListener('hashchange',sync)
+    return()=>{window.removeEventListener('popstate',sync);window.removeEventListener('hashchange',sync)}
+  },[allowSettingsExit])
+  useEffect(()=>{let alive=true;settingsRuntime.sync(capabilities.value?.settingsPages??[]).catch(error=>{if(alive)setSettingsError(error.message)});return()=>{alive=false}},[settingsRuntime,capabilities.value])
+  useEffect(()=>()=>{settingsRuntime.dispose()},[settingsRuntime])
+  useEffect(()=>{if(!settingsOpen)guardRef.current={dirty:false,busy:false}},[settingsOpen])
   useEffect(()=>{const apply=()=>{document.documentElement.dataset.theme=theme==='system'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):theme};apply();localStorage.setItem('ivoraige.theme',theme);const media=matchMedia('(prefers-color-scheme: dark)');media.addEventListener('change',apply);return()=>media.removeEventListener('change',apply)},[theme])
   useEffect(()=>{localStorage.setItem('ivoraige.sidebar',collapsed?'collapsed':'expanded')},[collapsed])
-  useEffect(()=>{let es,timer,invalidationTimer,delay=1000,stopped=false;const refresh=()=>{clearTimeout(invalidationTimer);invalidationTimer=undefined;setEpoch(x=>x+1)};const schedule=()=>{if(!invalidationTimer)invalidationTimer=setTimeout(refresh,500)};function connect(){if(stopped)return;es=new EventSource('/api/events');es.onopen=()=>{setConnected(true);delay=1000;refresh()};es.onerror=()=>{setConnected(false);es.close();timer=setTimeout(connect,delay);delay=Math.min(30000,delay*2)};for(const type of ['task.queued','task.started','task.progress','task.resumed','unit.completed'])es.addEventListener(type,schedule);for(const type of ['task.succeeded','task.failed','task.paused','task.canceled'])es.addEventListener(type,()=>{refresh();setCapabilityTick(x=>x+1)})}connect();return()=>{stopped=true;clearTimeout(timer);clearTimeout(invalidationTimer);es?.close()}},[])
+  useEffect(()=>{let es,timer,invalidationTimer,delay=1000,stopped=false;const refresh=()=>{clearTimeout(invalidationTimer);invalidationTimer=undefined;setEpoch(x=>x+1)};const schedule=()=>{if(!invalidationTimer)invalidationTimer=setTimeout(refresh,500)};function connect(){if(stopped)return;es=new EventSource('/api/events');es.addEventListener('settings.pages.changed',()=>setCapabilityTick(x=>x+1));es.onopen=()=>{setConnected(true);delay=1000;refresh();setCapabilityTick(x=>x+1)};es.onerror=()=>{setConnected(false);es.close();timer=setTimeout(connect,delay);delay=Math.min(30000,delay*2)};for(const type of ['task.queued','task.started','task.progress','task.resumed','unit.completed'])es.addEventListener(type,schedule);for(const type of ['task.succeeded','task.failed','task.paused','task.canceled'])es.addEventListener(type,()=>{refresh();setCapabilityTick(x=>x+1)})}connect();return()=>{stopped=true;clearTimeout(timer);clearTimeout(invalidationTimer);es?.close()}},[])
   const pages=[['/','主页','⌂'],['/documents','文档','▤'],...(capabilities.value?.features?.includes('workbench')?[['/workbench','工作台','◫']]:[]),...(capabilities.value?.features?.includes('tasks')?[['/tasks','任务','◷']]:[])]
-  useEffect(()=>{const key=e=>{if(!(e.ctrlKey||e.metaKey)||!/^\d$/.test(e.key))return;const item=pages[Number(e.key)-1];if(item){e.preventDefault();navigate(item[0]==='/workbench'?'/documents':item[0])}};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key)},[pages.map(p=>p[0]).join(',')])
+  useEffect(()=>{const key=e=>{if(settingsOpen)return;if(!(e.ctrlKey||e.metaKey)||!/^\d$/.test(e.key))return;const item=pages[Number(e.key)-1];if(item){e.preventDefault();navigate(item[0]==='/workbench'?'/documents':item[0])}};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key)},[pages.map(p=>p[0]).join(','),settingsOpen])
   const title=path.startsWith('/workbench/')?'精翻工作台':path.startsWith('/documents')?'文档':path.startsWith('/tasks')?'任务':path.startsWith('/settings')?'设置':'主页'
   const features=capabilities.value?.features||[]
-  return <div className={`app-shell ${collapsed?'collapsed':''}`}><aside className="sidebar"><a className="brand" href="#/"><span className="brand-icon">i.</span><span className="brand-word">ivoraige<small>TRANSLATION STUDIO</small></span></a><div className="nav-label">WORKSPACE</div><nav aria-label="主导航">{pages.filter(p=>p[0]!=='/workbench').map(([href,label,icon])=><a key={href} href={`#${href}`} title={label} className={(href==='/'?path==='/':path.startsWith(href))?'active':''}><span className="nav-icon">{icon}</span><span className="nav-text">{label}</span>{label==='任务'&&active>0&&<b className="badge">{active}</b>}</a>)}</nav><div className="sidebar-bottom"><button className="collapse-button" onClick={()=>setCollapsed(!collapsed)} title={collapsed?'展开侧栏':'折叠侧栏'}>{collapsed?'→':'←'} <span>折叠侧栏</span></button>{features.includes('settings')&&<a className={path.startsWith('/settings')?'active':''} href="#/settings" title="设置"><span className="nav-icon">⚙</span><span className="nav-text">设置</span></a>}<div className="sidebar-footer">v0.1 · LOCAL</div></div></aside><div className="content"><header className="topbar"><div className="breadcrumbs">工作空间 <span>/</span> <strong>{title}</strong></div><div className="top-actions"><button className="theme-button" onClick={()=>setTheme(theme==='light'?'dark':theme==='dark'?'system':'light')} title={`主题：${theme}`} aria-label="切换主题">{theme==='light'?'☼':theme==='dark'?'☾':'◐'}</button><a className="task-indicator" href="#/tasks">{active>0&&<span className="pulse"/>} {active} 项进行中</a><span className={`connection ${connected?'online':'offline'}`} title={connected?'已连接内核':'连接已断开，正在重连'}>{connected?'● 已连接':'● 正在重连'}</span></div></header><div className="content-scroll">{capabilities.error&&<ErrorBox message={capabilities.error}/>} {path.startsWith('/workbench/')&&features.includes('workbench')?<Workbench docId={path.split('/')[2]?.split('?')[0]} epoch={epoch}/>:path.startsWith('/documents')&&features.includes('documents')?<Documents epoch={epoch} inputFormats={capabilities.value?.inputFormats} pdfStatus={capabilities.value?.components?.babeldoc}/>:path.startsWith('/tasks')&&features.includes('tasks')?<Tasks epoch={epoch}/>:path.startsWith('/settings')&&features.includes('settings')?<Settings api={api} useRemote={useRemote} Button={Button} ErrorBox={ErrorBox}/>:<Dashboard epoch={epoch} capabilities={capabilities.value}/>}</div></div></div>
+  return <><div className={`app-shell ${collapsed?'collapsed':''}`}><aside className="sidebar"><a className="brand" href="#/"><span className="brand-icon">i.</span><span className="brand-word">ivoraige<small>TRANSLATION STUDIO</small></span></a><div className="nav-label">WORKSPACE</div><nav aria-label="主导航">{pages.filter(p=>p[0]!=='/workbench').map(([href,label,icon])=><a key={href} href={`#${href}`} title={label} className={(href==='/'?path==='/':path.startsWith(href))?'active':''}><span className="nav-icon">{icon}</span><span className="nav-text">{label}</span>{label==='任务'&&active>0&&<b className="badge">{active}</b>}</a>)}</nav><div className="sidebar-bottom"><button className="collapse-button" onClick={()=>setCollapsed(!collapsed)} title={collapsed?'展开侧栏':'折叠侧栏'}>{collapsed?'→':'←'} <span>折叠侧栏</span></button>{features.includes('settings')&&<a className={settingsOpen?'active':''} href="#/settings" onClick={event=>{event.preventDefault();void moveSettings('/settings')}} title="设置"><span className="nav-icon">⚙</span><span className="nav-text">设置</span></a>}<div className="sidebar-footer">v0.1 · LOCAL</div></div></aside><div className="content"><header className="topbar"><div className="breadcrumbs">工作空间 <span>/</span> <strong>{title}</strong></div><div className="top-actions"><button className="theme-button" onClick={()=>setTheme(theme==='light'?'dark':theme==='dark'?'system':'light')} title={`主题：${theme}`} aria-label="切换主题">{theme==='light'?'☼':theme==='dark'?'☾':'◐'}</button><a className="task-indicator" href="#/tasks">{active>0&&<span className="pulse"/>} {active} 项进行中</a><span className={`connection ${connected?'online':'offline'}`} title={connected?'已连接内核':'连接已断开，正在重连'}>{connected?'● 已连接':'● 正在重连'}</span></div></header><div className="content-scroll">{capabilities.error&&<ErrorBox message={capabilities.error}/>} {path.startsWith('/workbench/')&&features.includes('workbench')?<Workbench docId={path.split('/')[2]?.split('?')[0]} epoch={epoch} interactive={!settingsOpen}/>:path.startsWith('/documents')&&features.includes('documents')?<Documents epoch={epoch} inputFormats={capabilities.value?.inputFormats} pdfStatus={capabilities.value?.components?.babeldoc}/>:path.startsWith('/tasks')&&features.includes('tasks')?<Tasks epoch={epoch}/>:<Dashboard epoch={epoch} capabilities={capabilities.value}/>}</div></div></div>{settingsOpen&&<SettingsWindow runtime={settingsRuntime} path={locationState.path}
+    navigate={moveSettings} close={closeSettings} confirmDiscard={confirmDiscard} confirmation={confirmation} answerConfirmation={answerConfirmation} onGuardChange={onGuardChange} refreshKey={capabilityTick}
+    capabilities={{...capabilities,error:capabilities.error||settingsError}} refreshCapabilities={refreshCapabilities}
+    api={api} useRemote={useRemote} Button={Button} ErrorBox={ErrorBox}/>}</>
 }
 createRoot(document.getElementById('root')).render(<App/>)

@@ -9,7 +9,8 @@ export function modelForm(settings, provider = settings.selected?.provider, mode
   return { ...emptyModelForm(), provider: provider ?? '', model: model ?? '',
     api: route.api ?? '', baseURL: route.baseURL ?? '', credentialRef: route.apiKeyEnv ?? '',
     contextWindow: declared.contextWindow ?? '', maxTokens: declared.maxTokens ?? '',
-    timeoutMs: saved?.timeoutMs ?? settings.selected?.timeoutMs ?? 120_000,
+    timeoutMs: saved?.timeoutMs ?? (settings.selected?.provider === provider && settings.selected?.model === model
+      ? settings.selected.timeoutMs : 120_000),
     reasoning: route.reasoning ?? '', thinkingFormat: route.compat?.thinkingFormat ?? '',
     reasoningEfforts: declared.reasoningEfforts ?? null, compat: { ...route.compat } }
 }
@@ -18,6 +19,33 @@ export function presetForm(preset) {
   const { defaults } = preset
   return { ...emptyModelForm(), ...defaults, thinkingFormat: defaults.compat?.thinkingFormat ?? '',
     compat: { ...defaults.compat } }
+}
+
+export function formForPresetChoice(settings, preset) {
+  const { provider, model } = preset.defaults
+  return settings?.routes?.[provider]
+    ? modelForm(settings, provider, model)
+    : presetForm(preset)
+}
+
+// Identity changes must read destination scope before constructing a request.
+// Route fields are shared by provider; capacities and timeout belong to a model.
+export function formForProviderChange(settings, presets, form, provider) {
+  const sameModel = sharedRouteModels(settings, provider).some(item => item.model === form.model)
+  const model = sameModel ? form.model : ''
+  if (settings.routes?.[provider]) return modelForm(settings, provider, model)
+  const preset = presets.find(item => item.defaults.provider === provider)
+  if (preset) {
+    const target = presetForm(preset)
+    return { ...target, model, contextWindow: '', maxTokens: '', reasoningEfforts: null }
+  }
+  return { ...emptyModelForm(), provider, model }
+}
+
+export function formForModelChange(settings, form, model) {
+  const target = modelForm(settings, form.provider, model)
+  return { ...form, model, contextWindow: target.contextWindow, maxTokens: target.maxTokens,
+    reasoningEfforts: target.reasoningEfforts, timeoutMs: target.timeoutMs }
 }
 
 export function modelSettingsRequest(form, revisions, select = false) {
@@ -40,4 +68,48 @@ export function modelSettingsRequest(form, revisions, select = false) {
   body.compat = compat
   body.reasoningEfforts = form.reasoningEfforts
   return body
+}
+
+export function modelSettingsPath(provider, model) {
+  if (provider === undefined) return '/settings/models?new=1'
+  const params = new URLSearchParams({ provider, model })
+  return `/settings/models?${params}`
+}
+
+export function modelSettingsView(path = '') {
+  const query = path.includes('?') ? path.slice(path.indexOf('?') + 1) : ''
+  const params = new URLSearchParams(query)
+  if (params.has('new')) return { kind: 'new' }
+  if (params.has('provider') && params.has('model')) {
+    return { kind: 'edit', provider: params.get('provider'), model: params.get('model') }
+  }
+  return { kind: 'list' }
+}
+
+export function savedModelPathAfterSave(view, form) {
+  if (view.kind === 'new' || (view.kind === 'edit' &&
+    (view.provider !== form.provider || view.model !== form.model))) {
+    return modelSettingsPath(form.provider, form.model)
+  }
+  return null
+}
+
+export function sharedRouteModels(settings, provider) {
+  return (settings?.savedModels ?? []).filter(item => item.provider === provider)
+}
+
+export function modelDraftDirty(form, baseline, secret = '') {
+  // Number inputs return strings; restoring the displayed saved value is clean.
+  const comparable = value => ({ ...value, timeoutMs: String(value.timeoutMs),
+    contextWindow: String(value.contextWindow), maxTokens: String(value.maxTokens) })
+  return !!secret || JSON.stringify(comparable(form)) !== JSON.stringify(comparable(baseline))
+}
+
+export function shouldReplaceModelDraft({ available, settings, initializedView, viewKey, form, baseline, secret }) {
+  return !!available && !!settings &&
+    (initializedView !== viewKey || !modelDraftDirty(form, baseline, secret))
+}
+
+export function mayApplyModelRead({ active, available, startedVersion, currentVersion, startedView, currentView }) {
+  return !!active && !!available && startedVersion === currentVersion && startedView === currentView
 }

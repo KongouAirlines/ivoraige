@@ -151,3 +151,33 @@
 本机初轮 `npm test` **61/61** 通过；独立安装包冒烟在临时目录验证 CLI、WebUI、设置、导出及重启读取。首轮 macOS CI 发现 CLI 符号链接路径判断问题，修复提交 `c28c583` 后，Windows/Linux/macOS 的 Node 24 均 **63/63** 测试及 29 文件安装包冒烟通过，见 [CI 记录](https://github.com/KongouAirlines/ivaraige/actions/runs/37314672867)。依赖锁更新到 esbuild 0.28.2、js-yaml 4.3.2、React 18.3.1／React DOM 18.3.1，加入 DSH profile boot 所需依赖；本阶段 npm audit 为 0 条告警。构建把浏览器资源与 React 许可清单放入 `dist/web/`。
 
 真实浏览器记录在 [首次合并目标](workbench-goal.md)：用原创 Markdown 样本经 DeepSeek 精翻 4 个可译片段，4 次请求输入 368／输出 13 token；代码段未调用模型。随后在浏览器完成草稿人工编辑、接受、历史版本回退与恢复；快速重提同 4 个单位新增模型调用为 0，人工接受版本保持不变。MD 与 JSON 导出成功并共用冻结快照，导出新增模型调用为 0，产物保留原文代码和数学。重启后浏览器从“正在重连”恢复“已连接”，同一数据库与 DSH 模型设置读回，单单位再提交复用且新增模型调用为 0。短片段翻译仍需人工审校：一次 “The value of” 被译为“值”，已人工补成“参数”的正确上下文。完整科学质量验收仍待后续阶段；本次体验目标已通过，见 [PR #4](https://github.com/KongouAirlines/ivaraige/pull/4)，实际 Merge 等用户体验确认。
+
+## 独立设置窗口（2026-10-07，分支验收）
+
+基于主线 `a683f9b`，`codex/0.1.0-settings` 实现 [S0～S3 规划](settings-goal.md)。设置改为独立对话框，具有自己的侧边栏；模型列表进入模型、提供商、凭据的分组编辑。PDF 页面只读取组件状态与准备指引，打开和刷新不启动处理任务。使用方法见 [设置指南](settings-guide.md)。
+
+导航来自内核插件注册，并通过 SSE 与重连刷新；浏览器复用固定 DSH SlotCore 和真实 Cordis plugin fiber，静态构建映射已打包页面，未引入另一套模型／凭据存储。完整 DSH SettingsRoot 的依赖边界与本地窗口适配理由见 [S0 记录](settings-dsh.md)。卸载保留非秘密草稿供核对，禁用提交并清空密钥输入；连续卸载的异步竞态有回归测试。
+
+模型保存与选择分开。revision 冲突和第二步写入失败保留输入、提示实际持久化边界并要求重新读取；不自动覆盖或声称跨命名空间事务回滚。浏览器验收发现并修复新增模型保存后的表单清空、旧读取覆盖写入、取消返回破坏历史，以及确认框背景表单未 inert 的问题。焦点圈定和关闭恢复、重复 Back／取消／再 Back、直接进入／刷新／关闭、深色主题及 390×844 窄屏均已检查，设置内容无横向溢出。
+
+本机 Windows／Node v26.7.0：最终 `npm test` **160/160**，后续旧配置升级及数值输入恢复的相关回归 **16/16**；安装包冒烟 **44 文件**通过，测试包含 PDF／MD／JSON 冻结导出及无追加模型请求。曾在并行全量测试中触发旧 sidecar 测试的 500ms 启动期限及失败清理问题；仅调整测试期限并补齐 cleanup，生产 sidecar 行为未改，随后常规并行全量通过。浏览器使用独立测试库验证两个提供商、同提供商两个模型、保存与选择、真实 revision 冲突重读，以及 TXT、Markdown 和 PDF 工作台的未保存译文、目标语言、选段和来源页码保留。PDF 使用协议夹具，不声称再次完成原生 PDF 排版或多系统 Python 打包验收；本轮未调用付费模型。
+
+本地日志和明暗／窄屏截图保留在忽略目录 `evaluation/runs/settings-0.1.0/`。实现提交 `87de41b` 的 Windows／Linux／macOS Node 24 CI 均通过 161 项测试及安装包冒烟（CI 的 npm 打包清单为 48 文件），见 [运行记录](https://github.com/KongouAirlines/ivaraige/actions/runs/37638427976)。交付 [PR #9](https://github.com/KongouAirlines/ivaraige/pull/9) 等待人工 Merge。最终收尾补充排除禁用字段组内控件的焦点循环，构建和浏览器 Shift+Tab 复验通过，最终提交 CI 以 PR 检查为准。跟踪事项 [plugin-settings-window](../follow-ups/plugin-settings-window.md)、[model-settings-partial-save](../follow-ups/model-settings-partial-save.md) 均为处理中，待人工验收与主线合入后再标记解决。
+
+## 设置 PR #9 审阅修正（2026-10-08）
+
+审阅指出并修复设置浮层下工作台快捷键仍可保存／接受／翻译的回归：窗口打开时暂停 Workbench 的 window 监听，关闭后恢复，工作台不卸载。浏览器已检查设置内 Ctrl+Enter 不保存也不接受，关闭后恢复保存；普通文档链接、设置子页、重复 Back 取消及关闭返回也通过。站内 hash 链接与程序导航统一走历史写入入口；地址校验保留编码供 URLSearchParams 单次解码。
+
+模型身份变更先读取目标提供商和模型配置，避免旧端点、凭据引用、兼容参数及容量跨对象写入；选择已有提供商预设也保留其共享路由。改名按现有添加／更新语义另存模型，原条目保留，界面说明该行为并跳转到实际保存对象。初始加载失败提供重试。部分保存沿用集中错误码映射，未知错误归入 UPSTREAM_FAILURE；updateSettings 改为显式字段契约，拒绝未知字段。
+
+两条审阅意见经核对不属于原有缺陷：构建清理的是旧浏览器重复 bundle，dist/settings-runtime-test.mjs 是测试必需且不进入安装包的产物；旧 savedModels 已用当前选择覆盖推导条目的默认超时，本次仅简化优先级表达并补回归。另补充在途 sync/dispose 测试，重复 dispose 等待同一完整释放过程；保留页 ref 改在提交后的 effect 更新。
+
+新增实际 React 构建产物的 DOM 集成回归，使用仅开发依赖 jsdom（不进入浏览器 bundle），覆盖后台快捷键、草稿保留、普通链接与设置历史、Back/Forward、保存中守卫、畸形地址及加载重试。DOM 环境只为 dialog 提供最小方法，不代替真实浏览器焦点、inert 与布局验收。首轮并行全量发现测试在 React 提交前发起返回；测试改为等待已启用的保存按钮，页面守卫同步到 layout effect，保证提交时即生效。最终本机全量测试 **173/173**、安装包冒烟 **44 文件**通过；三系统 CI 结果随 PR comment 记录。
+
+本次推进 [plugin-settings-window](../follow-ups/plugin-settings-window.md) 与 [model-settings-partial-save](../follow-ups/model-settings-partial-save.md)，待主线合入。PDF 范围另登记 [pdf-managed-source-containment](../follow-ups/pdf-managed-source-containment.md) 与 [pdf-store-relocation](../follow-ups/pdf-store-relocation.md)，均待评估：前者是静态核实的路径归属检查缺口，未找到公开请求直接写入绑定的利用链；后者是绝对路径绑定的迁移限制。未更改 PDF 生产路径，也不把审阅中的其他 PDF 疑点当作已证实缺陷。
+
+Windows CI 补充暴露详情页首次提交后的草稿初始化与输入竞争：将初始化移到 layout effect，使表单可交互前完成基线装载；DOM 测试等待表单实际挂载再输入，继续断言取消 Back 后原值保留。最终 CI 以补充提交后的 PR 检查为准。
+
+### PR #9 未提交凭据保留（2026-10-08）
+
+针对 [API Key 草稿被自动导航清空的评论](https://github.com/KongouAirlines/ivaraige/pull/9#issuecomment-6054894246)，模型保存成功后的详情地址更新保留当前分类和未提交凭据，并提示另行保存凭据。模型 PATCH 不提交 API Key；关闭设置仍触发未保存确认；只有凭据 PUT 成功后才清空该输入，普通离开和插件卸载沿用既有清理规则。实际 React bundle DOM 回归覆盖新增／更改模型身份 × 两种保存按钮，以及取消关闭、显式保存凭据，共四个新增用例。未使用真实凭据或请求模型。

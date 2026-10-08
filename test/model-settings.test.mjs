@@ -183,6 +183,10 @@ test('model library exposes legacy declared route models and current selection',
   await app.dispose()
   app = await bootModelSettings({ directory })
   const legacy = await app.settings.get()
+  assert.deepEqual(app.settings.savedModels({ old: { models: [{ id: 'declared' }, { id: 'current' }] } }), [
+    { provider: 'old', model: 'current', timeoutMs: 4500 },
+    { provider: 'old', model: 'declared', timeoutMs: 120000 },
+  ])
   assert.deepEqual(legacy.savedModels, [
     { provider: 'old', model: 'current', timeoutMs: 4500 },
     { provider: 'old', model: 'declared', timeoutMs: 120000 },
