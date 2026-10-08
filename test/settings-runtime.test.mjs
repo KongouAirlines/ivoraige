@@ -65,3 +65,28 @@ test('unbundled pages are excluded and invalid descriptors keep current pages', 
   assert.deepEqual(runtime.getSnapshot().map(page => page.id), ['models'])
   await runtime.dispose()
 })
+
+test('dispose drains a sync already inside Cordis registration and releases subscribers', async () => {
+  const runtime = createSettingsRuntime({ models: Model, pdf: Pdf })
+  await runtime.sync([descriptors.models])
+  const seen = []
+  const unsubscribe = runtime.subscribe(() => seen.push(runtime.getSnapshot().map(page => page.id)))
+  let completed = false
+  const inFlight = runtime.sync([descriptors.pdf]).then(() => { completed = true })
+  // sync queues its reconciliation before this continuation, so it has
+  // entered removal/registration by the time disposal starts.
+  await Promise.resolve()
+  assert.equal(completed, false)
+  const closing = runtime.dispose()
+  assert.equal(runtime.dispose(), closing)
+  await Promise.all([inFlight, closing])
+  assert.deepEqual(runtime.getSnapshot(), [])
+  assert.deepEqual(seen.at(-1), [])
+  const notifications = seen.length
+  await runtime.dispose()
+  await Promise.resolve()
+  assert.equal(seen.length, notifications)
+  await assert.rejects(runtime.sync([descriptors.models]), /disposed/)
+  assert.throws(() => runtime.subscribe(() => {}), /disposed/)
+  unsubscribe()
+})

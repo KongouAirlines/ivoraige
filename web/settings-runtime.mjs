@@ -16,6 +16,7 @@ export function createSettingsRuntime(components) {
   const listeners = new Set()
   let snapshot = Object.freeze([])
   let disposed = false
+  let disposal
   let generation = 0
   let pending = Promise.resolve()
 
@@ -100,17 +101,20 @@ export function createSettingsRuntime(components) {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    async dispose() {
-      if (disposed) return pending
+    dispose() {
+      if (disposal) return disposal
       disposed = true
       generation += 1
-      await pending
-      for (const page of mounted.values()) await page.fiber.dispose()
-      mounted.clear()
-      disposeRoot() // DSH recursively releases every settings.section entry.
-      await cordis.fiber.dispose()
-      publish()
-      listeners.clear()
+      disposal = (async () => {
+        await pending
+        for (const page of mounted.values()) await page.fiber.dispose()
+        mounted.clear()
+        disposeRoot() // DSH recursively releases every settings.section entry.
+        await cordis.fiber.dispose()
+        publish()
+        listeners.clear()
+      })()
+      return disposal
     },
   }
 }

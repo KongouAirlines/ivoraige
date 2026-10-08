@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { emptyModelForm, modelDraftDirty, modelForm, modelSettingsPath, modelSettingsRequest,
-  modelSettingsView, presetForm, sharedRouteModels, shouldReplaceModelDraft,
-  mayApplyModelRead, savedModelPathAfterSave } from './model-settings-state.mjs'
+  modelSettingsView, formForPresetChoice, sharedRouteModels, shouldReplaceModelDraft,
+  mayApplyModelRead, savedModelPathAfterSave, formForProviderChange,
+  formForModelChange } from './model-settings-state.mjs'
 
 const LIST_PATH = '/settings/models'
 
@@ -9,6 +10,7 @@ export function Settings({ api, useRemote, Button, ErrorBox, onGuardChange,
   available = true, refreshKey = 0, pagePath = LIST_PATH, onPagePathChange, confirmDiscard }) {
   const [settings, setSettings] = useState(null)
   const [loadError, setLoadError] = useState('')
+  const [readTick, setReadTick] = useState(0)
   const data = { value: settings, error: loadError, setValue: setSettings }
   const view = modelSettingsView(pagePath)
   const viewKey = JSON.stringify(view)
@@ -46,7 +48,7 @@ export function Settings({ api, useRemote, Button, ErrorBox, onGuardChange,
       if (canApply()) { setSettings(result.settings); setLoadError('') }
     }, failure => { if (canApply()) setLoadError(failure.message) })
     return () => { current = false }
-  }, [api, available, refreshKey])
+  }, [api, available, refreshKey, readTick])
   useEffect(() => {
     if (!available) {
       requestVersion.current += 1
@@ -71,8 +73,8 @@ export function Settings({ api, useRemote, Button, ErrorBox, onGuardChange,
   }, [settings, viewKey, available])
 
   const dirty = view.kind !== 'list' && modelDraftDirty(form, baseline, secret)
-  useEffect(() => { onGuardChange?.({ dirty, busy: !!busy || confirming }) }, [dirty, busy, confirming, onGuardChange])
-  useEffect(() => () => onGuardChange?.({ dirty: false, busy: false }), [onGuardChange])
+  useLayoutEffect(() => { onGuardChange?.({ dirty, busy: !!busy || confirming }) }, [dirty, busy, confirming, onGuardChange])
+  useLayoutEffect(() => () => onGuardChange?.({ dirty: false, busy: false }), [onGuardChange])
   useEffect(() => {
     if (!dirty && !busy && !confirming) return
     const warn = event => { event.preventDefault(); event.returnValue = '' }
@@ -106,8 +108,11 @@ export function Settings({ api, useRemote, Button, ErrorBox, onGuardChange,
     if (['provider', 'credentialRef'].includes(field)) setSecret('')
     if (['provider', 'model'].includes(field)) setPresetId('')
     setError(''); setMessage('')
-    setForm(current => ({ ...current, [field]: value,
-      ...(['provider', 'model'].includes(field) ? { reasoningEfforts: null } : {}) }))
+    setForm(current => field === 'provider'
+      ? formForProviderChange(data.value, data.value?.presets ?? [], current, value)
+      : field === 'model'
+        ? formForModelChange(data.value, current, value)
+        : { ...current, [field]: value })
   }
   const presets = data.value?.presets ?? []
   const preset = presets.find(item => item.id === presetId)
@@ -118,7 +123,7 @@ export function Settings({ api, useRemote, Button, ErrorBox, onGuardChange,
     if (!(await guard())) return
     setPresetId(id); setSecret('')
     const selected = presets.find(item => item.id === id)
-    setForm(selected ? presetForm(selected) : emptyModelForm())
+    setForm(selected ? formForPresetChoice(data.value, selected) : emptyModelForm())
     setMessage(''); setError('')
   }
   const reload = async () => {
@@ -164,7 +169,7 @@ export function Settings({ api, useRemote, Button, ErrorBox, onGuardChange,
       const stale = failure.code === 'CONFLICT'
       setReloadNeeded(partial || stale)
       setError(partial
-        ? `保存未完成，提供商配置已写入，${select ? '模型列表与当前选择' : '模型列表'}尚未完成保存。${failure.message} 请重新读取并核对后再保存。`
+        ? `提供商配置已写入，但模型记录${select ? '和当前选择' : ''}尚未完成写入。重读后模型仍可能出现在列表中；请核对设置与当前选择。${failure.message}`
         : stale ? `设置已在别处变更。${failure.message} 请重新读取并核对后再保存。` : failure.message)
     } finally { if (alive.current && version === requestVersion.current) setBusy('') }
   }
@@ -218,13 +223,17 @@ export function Settings({ api, useRemote, Button, ErrorBox, onGuardChange,
     !busy && !confirming && !reloadNeeded && available
   const credentialStatus = data.value?.credentials?.[form.provider]
   const affected = sharedRouteModels(data.value, form.provider)
+  const identityChanged = view.kind === 'edit' &&
+    (view.provider !== form.provider || view.model !== form.model)
+  const retryRead = () => { setLoadError(''); setReadTick(value => value + 1) }
 
   return <div className="model-settings">
     {!available && <div className="notice error" role="alert">模型设置组件已卸载，当前不可保存。非秘密输入保留供核对。</div>}
-    <ErrorBox message={error || data.error}/>
+    <ErrorBox message={error || data.error} onRetry={!error && data.error && available ? retryRead : undefined}/>
     {reloadNeeded && <Button className="secondary" disabled={!available || !!busy || confirming} onClick={reload}>重新读取设置</Button>}
     {message && <div className="notice success" role="status">{message}</div>}
-    {!data.value ? <div className="skeleton">{available ? '正在读取设置…' : '模型设置组件已卸载，无法读取设置。'}</div> : view.kind === 'list' ? <>
+    {!data.value ? <div className="skeleton">{!available ? '模型设置组件已卸载，无法读取设置。'
+      : data.error ? '设置读取失败。请点击重试。' : '正在读取设置…'}</div> : view.kind === 'list' ? <>
       <div className="settings-heading"><h2>已保存的模型</h2><p>当前翻译模型：{selected ? `${selected.provider} / ${selected.model}` : '尚未选择'}</p></div>
       <div className="row model-settings-actions"><Button className="primary" disabled={!available || !!busy || confirming} onClick={() => go(modelSettingsPath())}>添加模型</Button></div>
       {(data.value.savedModels ?? []).map(item => {
@@ -241,6 +250,7 @@ export function Settings({ api, useRemote, Button, ErrorBox, onGuardChange,
       <div className="settings-heading"><button className="link" disabled={!!busy || confirming} onClick={() => go(LIST_PATH)}>← 返回模型列表</button>
         <h2>{view.kind === 'new' ? '添加模型' : `编辑 ${view.model}`}</h2>
         <p>按模型、提供商和凭据分组编辑；同一提供商的模型共享端点和凭据设置。</p></div>
+      {identityChanged && <p className="hint">更改提供商标识或模型 ID 会保存为另一个模型；原模型仍保留在列表中。</p>}
       <nav className="tabs" aria-label="模型设置分类">
         {[['model', '模型'], ['provider', '提供商'], ['credential', '凭据']].map(([id, label]) =>
           <button key={id} type="button" aria-pressed={tab === id} disabled={confirming} className={tab === id ? 'active' : ''}

@@ -10,7 +10,7 @@ export function SettingsWindow({ runtime, path, navigate, close, onGuardChange, 
   const lastPage = useRef(null)
   const id = settingsPageId(path)
   const active = pages.find(page => page.id === id)
-  if (active) lastPage.current = active
+  useEffect(() => { if (active) lastPage.current = active }, [active])
   const retained = !active && lastPage.current?.id === id ? lastPage.current : null
   const page = active || retained
   const Page = page?.component

@@ -113,6 +113,9 @@ test('second DSH mutation failure reports persisted route and preserves the fail
   assert.ok(current.routes.custom)
   assert.equal(current.selected, null)
   assert.deepEqual(current.savedModels, [{ provider: 'custom', model: 'scientific', timeoutMs: 120000 }])
+  await assert.rejects(app.operations.invoke('updateSettings', {
+    provider: 'custom', model: 'scientific', unexpectedField: 'ignored before this fix',
+  }), { code: 'INVALID_ARGUMENT' })
 
   settings.mutate = (ns, ...args) => ns === 'ivoraige-model' ?
     Promise.reject(new KernelError('CONFLICT', 'selection changed',
@@ -126,6 +129,20 @@ test('second DSH mutation failure reports persisted route and preserves the fail
       assert.equal(envelope.body.error.details.expected, 0)
       assert.equal(envelope.body.error.details.actual, 1)
       assert.doesNotMatch(JSON.stringify(envelope.body), /must-stay-private/)
+      return true
+    })
+  } finally { settings.mutate = mutate }
+
+  settings.mutate = (ns, ...args) => ns === 'ivoraige-model' ?
+    Promise.reject(new KernelError('DSH_CUSTOM', 'internal detail')) : mutate(ns, ...args)
+  try {
+    await assert.rejects(app.operations.invoke('updateSettings', {
+      provider: 'custom', model: 'scientific', baseURL: 'http://127.0.0.1:9997/v1',
+    }), error => {
+      const envelope = errorEnvelope(error)
+      assert.equal(envelope.status, 502)
+      assert.equal(envelope.body.error.code, 'UPSTREAM_FAILURE')
+      assert.equal(envelope.body.error.details.partialSave.persisted, 'routes')
       return true
     })
   } finally { settings.mutate = mutate }

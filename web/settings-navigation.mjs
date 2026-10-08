@@ -1,6 +1,14 @@
 export const isSettingsPath = path => /^\/settings(?:\/|\?|$)/.test(path)
 export const settingsPageId = path => path.split('?')[0].split('/')[2] || ''
 
+export function hashRoute(hash) {
+  const path = hash.replace(/^#/, '') || '/'
+  if (!path.startsWith('/')) return '/'
+  try { decodeURI(path) } catch { return '/' }
+  // URLSearchParams owns query decoding. Decoding here too corrupts literal %.
+  return path
+}
+
 // Settings is an overlay route; its background is a separate, mounted view.
 export function settingsLocation(previous, path) {
   return { path, background: isSettingsPath(path) ? previous.background : path }

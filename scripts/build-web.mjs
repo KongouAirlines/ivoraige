@@ -18,9 +18,12 @@ const plugin = { name: 'pinned-dsh-client', setup(builder) {
     return { path }
   })
 } }
-// Test the same source closure without shipping a duplicate browser runtime.
+// Node tests need an importable build of the browser source. This file is
+// outside dist/web and outside the package's published "files" allowlist.
 await build({ absWorkingDir: root, entryPoints: ['web/settings-runtime.mjs'], outfile: 'dist/settings-runtime-test.mjs',
   bundle: true, minify: false, format: 'esm', platform: 'neutral', target: 'es2022', plugins: [plugin] })
+// Remove the browser duplicate produced by an earlier build layout. The SPA
+// includes the runtime in app.js; no page fetches this standalone file.
 await rm(resolve(outdir, 'settings-runtime.mjs'), { force: true })
 const appBuild = await build({ absWorkingDir: root, entryPoints: ['web/app.jsx'], outfile: 'dist/web/app.js',
   bundle: true, minify: true, format: 'esm', platform: 'browser', target: 'es2022', write: false,

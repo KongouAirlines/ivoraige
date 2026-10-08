@@ -1,6 +1,6 @@
 import { reportFailure } from './diagnostics.mjs'
 import { z } from '../dist/dsh.mjs'
-import { KernelError } from './errors.mjs'
+import { ERROR_STATUSES, KernelError } from './errors.mjs'
 
 export const API_VERSION = '2.0'
 const id = z.string().min(1)
@@ -32,7 +32,18 @@ export const parameters = {
     kind: z.enum(['import', 'translate', 'export']).optional() }),
   getTask: shape({ taskId: id, waitSeconds: z.coerce.number().min(0).max(60).optional() }),
   pauseTask: shape({ taskId: id }), resumeTask: shape({ taskId: id }), cancelTask: shape({ taskId: id }),
-  getSettings: shape({}), updateSettings: z.record(z.string(), z.unknown()),
+  getSettings: shape({}), updateSettings: shape({
+    provider: id, model: id,
+    api: z.string().nullable().optional(), baseURL: z.string().nullable().optional(),
+    credentialRef: z.string().nullable().optional(), reasoning: z.string().nullable().optional(),
+    contextWindow: z.number().int().positive().nullable().optional(),
+    maxTokens: z.number().int().positive().nullable().optional(),
+    compat: z.unknown().optional(), reasoningEfforts: z.unknown().optional(),
+    timeoutMs: z.number().int().positive().optional(),
+    select: z.boolean().optional(), selectOnly: z.boolean().optional(),
+    routesRevision: z.number().int().min(0).optional(),
+    selectedRevision: z.number().int().min(0).optional(),
+  }),
   setCredential: shape({ ref: id, value: z.string().min(1) }),
 }
 
@@ -46,13 +57,11 @@ export function validate(name, value) {
 }
 export const serialize = value => JSON.stringify(value)
 export function errorEnvelope(error) {
-  const statuses = { INVALID_ARGUMENT: 400, UNAUTHORIZED: 401, FORBIDDEN_HOST: 403, NOT_FOUND: 404,
-    CONFLICT: 409, PRECONDITION_FAILED: 412, UPSTREAM_FAILURE: 502, COMPONENT_MISSING: 503, INTERNAL: 500 }
-  const code = error instanceof KernelError && statuses[error.code] ? error.code : 'INTERNAL'
+  const code = error instanceof KernelError && Object.hasOwn(ERROR_STATUSES, error.code) ? error.code : 'INTERNAL'
   const canceled = error?.details?.canceled === true
   const traceId = code === 'INTERNAL' ? reportFailure(error) : undefined
   const details = traceId ? { traceId, ...(canceled ? { canceled: true } : {}) } : error?.details ?? {}
-  const status = statuses[code]
+  const status = ERROR_STATUSES[code]
   return { status, body: { apiVersion: API_VERSION, error: { code,
     message: code === 'INTERNAL' ? 'Internal operation failed' : error.message, details } },
     exitCode: details.canceled ? 5 : status < 404 ? 2 : status < 500 || status === 503 ? 3 : 4 }

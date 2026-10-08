@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { AppBoot, ConfigEditor, Context, DshSchema as z, LlmPiAi, LlmRuntime,
   LocalCredentialProvider, Service, SettingsForms } from '../dist/dsh.mjs'
-import { KernelError } from './errors.mjs'
+import { isPublicErrorCode, KernelError } from './errors.mjs'
 import { modelPresets } from './model-presets.mjs'
 import { SettingsPages } from './settings-pages.mjs'
 
@@ -56,20 +56,14 @@ export class ModelSettings extends Service {
     for (const entry of configuredModels) {
       add(entry.provider, entry.model, entry.timeoutMs)
     }
+    const selected = this.resolve()
+    if (selected) add(selected.provider, selected.model, selected.timeoutMs)
     for (const [provider, route] of Object.entries(providers)) {
       for (const entry of Array.isArray(route?.models) ? route.models : []) {
         add(provider, entry.id, DEFAULT_TIMEOUT_MS)
       }
       for (const id of Object.keys(route?.modelOverrides ?? {})) {
         add(provider, id, DEFAULT_TIMEOUT_MS)
-      }
-    }
-    const selected = this.resolve()
-    if (selected) {
-      const key = JSON.stringify([selected.provider, selected.model])
-      if (!saved.has(key) || !configuredModels.some(entry =>
-        entry.provider === selected.provider && entry.model === selected.model)) {
-        saved.set(key, selected)
       }
     }
     return [...saved.values()]
@@ -242,7 +236,7 @@ export class ModelSettings extends Service {
       try { revision = this.ctx.settings.describe().find(row => row.ns === ROUTES_NS)?.revision ?? null } catch {}
       const conflict = error instanceof KernelError && error.code === 'CONFLICT' ?
         { expected: error.details?.expected, actual: error.details?.actual } : {}
-      throw new KernelError(error instanceof KernelError ? error.code : 'UPSTREAM_FAILURE',
+      throw new KernelError(error instanceof KernelError && isPublicErrorCode(error.code) ? error.code : 'UPSTREAM_FAILURE',
         'Provider route was saved, but the model list and any requested selection were not; reload settings before retrying',
         { ...conflict, partialSave: {
           persisted: 'routes', failed: 'selected', revisions: { routes: revision },

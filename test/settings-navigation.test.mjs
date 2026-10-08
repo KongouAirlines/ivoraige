@@ -1,7 +1,13 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { initialSettingsLocation, settingsLocation, settingsPageId, isSettingsPath,
-  readSettingsHistory, settingsHistoryState, nextSettingsHistory, reverseSettingsTraversal } from '../web/settings-navigation.mjs'
+  readSettingsHistory, settingsHistoryState, nextSettingsHistory, reverseSettingsTraversal, hashRoute } from '../web/settings-navigation.mjs'
+
+test('hash routes reject malformed encoding without decoding model identifiers twice', () => {
+  for (const hash of ['#/settings/%E0', '#/settings/%xx', '#other']) assert.equal(hashRoute(hash), '/')
+  const route = hashRoute('#/settings/models?provider=a&model=literal%252Fvalue')
+  assert.equal(new URLSearchParams(route.split('?')[1]).get('model'), 'literal%2Fvalue')
+})
 
 test('settings navigation preserves background through nested pages and direct entry has a fallback', () => {
   let state = initialSettingsLocation('/workbench/doc?unit=one')

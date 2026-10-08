@@ -163,3 +163,15 @@
 本机 Windows／Node v26.7.0：最终 `npm test` **160/160**，后续旧配置升级及数值输入恢复的相关回归 **16/16**；安装包冒烟 **44 文件**通过，测试包含 PDF／MD／JSON 冻结导出及无追加模型请求。曾在并行全量测试中触发旧 sidecar 测试的 500ms 启动期限及失败清理问题；仅调整测试期限并补齐 cleanup，生产 sidecar 行为未改，随后常规并行全量通过。浏览器使用独立测试库验证两个提供商、同提供商两个模型、保存与选择、真实 revision 冲突重读，以及 TXT、Markdown 和 PDF 工作台的未保存译文、目标语言、选段和来源页码保留。PDF 使用协议夹具，不声称再次完成原生 PDF 排版或多系统 Python 打包验收；本轮未调用付费模型。
 
 本地日志和明暗／窄屏截图保留在忽略目录 `evaluation/runs/settings-0.1.0/`。实现提交 `87de41b` 的 Windows／Linux／macOS Node 24 CI 均通过 161 项测试及安装包冒烟（CI 的 npm 打包清单为 48 文件），见 [运行记录](https://github.com/KongouAirlines/ivaraige/actions/runs/37638427976)。交付 [PR #9](https://github.com/KongouAirlines/ivaraige/pull/9) 等待人工 Merge。最终收尾补充排除禁用字段组内控件的焦点循环，构建和浏览器 Shift+Tab 复验通过，最终提交 CI 以 PR 检查为准。跟踪事项 [plugin-settings-window](../follow-ups/plugin-settings-window.md)、[model-settings-partial-save](../follow-ups/model-settings-partial-save.md) 均为处理中，待人工验收与主线合入后再标记解决。
+
+## 设置 PR #9 审阅修正（2026-10-08）
+
+审阅指出并修复设置浮层下工作台快捷键仍可保存／接受／翻译的回归：窗口打开时暂停 Workbench 的 window 监听，关闭后恢复，工作台不卸载。浏览器已检查设置内 Ctrl+Enter 不保存也不接受，关闭后恢复保存；普通文档链接、设置子页、重复 Back 取消及关闭返回也通过。站内 hash 链接与程序导航统一走历史写入入口；地址校验保留编码供 URLSearchParams 单次解码。
+
+模型身份变更先读取目标提供商和模型配置，避免旧端点、凭据引用、兼容参数及容量跨对象写入；选择已有提供商预设也保留其共享路由。改名按现有添加／更新语义另存模型，原条目保留，界面说明该行为并跳转到实际保存对象。初始加载失败提供重试。部分保存沿用集中错误码映射，未知错误归入 UPSTREAM_FAILURE；updateSettings 改为显式字段契约，拒绝未知字段。
+
+两条审阅意见经核对不属于原有缺陷：构建清理的是旧浏览器重复 bundle，dist/settings-runtime-test.mjs 是测试必需且不进入安装包的产物；旧 savedModels 已用当前选择覆盖推导条目的默认超时，本次仅简化优先级表达并补回归。另补充在途 sync/dispose 测试，重复 dispose 等待同一完整释放过程；保留页 ref 改在提交后的 effect 更新。
+
+新增实际 React 构建产物的 DOM 集成回归，使用仅开发依赖 jsdom（不进入浏览器 bundle），覆盖后台快捷键、草稿保留、普通链接与设置历史、Back/Forward、保存中守卫、畸形地址及加载重试。DOM 环境只为 dialog 提供最小方法，不代替真实浏览器焦点、inert 与布局验收。首轮并行全量发现测试在 React 提交前发起返回；测试改为等待已启用的保存按钮，页面守卫同步到 layout effect，保证提交时即生效。最终本机全量测试 **173/173**、安装包冒烟 **44 文件**通过；三系统 CI 结果随 PR comment 记录。
+
+本次推进 [plugin-settings-window](../follow-ups/plugin-settings-window.md) 与 [model-settings-partial-save](../follow-ups/model-settings-partial-save.md)，待主线合入。PDF 范围另登记 [pdf-managed-source-containment](../follow-ups/pdf-managed-source-containment.md) 与 [pdf-store-relocation](../follow-ups/pdf-store-relocation.md)，均待评估：前者是静态核实的路径归属检查缺口，未找到公开请求直接写入绑定的利用链；后者是绝对路径绑定的迁移限制。未更改 PDF 生产路径，也不把审阅中的其他 PDF 疑点当作已证实缺陷。

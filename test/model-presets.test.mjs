@@ -9,7 +9,8 @@ import { bootModelSettings } from '../src/model-settings.mjs'
 import { modelPresets } from '../src/model-presets.mjs'
 import { modelForm, presetForm, modelSettingsRequest, modelSettingsPath,
   modelSettingsView, sharedRouteModels, modelDraftDirty,
-  shouldReplaceModelDraft, mayApplyModelRead, savedModelPathAfterSave } from '../web/model-settings-state.mjs'
+  shouldReplaceModelDraft, mayApplyModelRead, savedModelPathAfterSave,
+  formForProviderChange, formForModelChange, formForPresetChoice } from '../web/model-settings-state.mjs'
 
 test('provider presets produce valid DSH routes without network calls or credentials', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-presets-'))
@@ -106,7 +107,8 @@ test('new model save switches to its edit identity and reads back saved fields',
     api: 'openai-completions', baseURL: 'http://127.0.0.1:1234/v1', timeoutMs: 90000 }
   const target = savedModelPathAfterSave({ kind: 'new' }, form)
   assert.deepEqual(modelSettingsView(target), { kind: 'edit', provider: form.provider, model: form.model })
-  assert.equal(savedModelPathAfterSave({ kind: 'edit' }, form), null)
+  assert.equal(savedModelPathAfterSave({ kind: 'edit', provider: form.provider, model: form.model }, form), null)
+  assert.equal(savedModelPathAfterSave({ kind: 'edit', provider: 'old', model: 'entry' }, form), target)
   const settings = { savedModels: [{ provider: form.provider, model: form.model, timeoutMs: form.timeoutMs }],
     routes: { [form.provider]: { api: form.api, baseURL: form.baseURL, models: [
       { id: form.model, contextWindow: 8192, maxTokens: 1024 },
@@ -124,6 +126,116 @@ test('settings read started before a write cannot overwrite the acknowledged res
   assert.equal(mayApplyModelRead({ ...read, currentVersion: 3 }), false)
   assert.equal(mayApplyModelRead({ ...read, currentView: 'edit' }), false)
   assert.equal(mayApplyModelRead({ ...read, available: false }), false)
+})
+
+test('changing provider loads its route and never submits source route or model overrides', () => {
+  const settings = { selected: { provider: 'a', model: 'source', timeoutMs: 1111 },
+    savedModels: [
+      { provider: 'a', model: 'source', timeoutMs: 1111 },
+      { provider: 'b', model: 'target', timeoutMs: 2222 },
+    ], routes: {
+      a: { api: 'openai-completions', baseURL: 'https://a.example/v1', apiKeyEnv: 'A_KEY',
+        reasoning: 'off', compat: { thinkingFormat: 'a', supportsStore: false },
+        models: [{ id: 'source', contextWindow: 4096, maxTokens: 512 }] },
+      b: { api: 'anthropic-messages', baseURL: 'https://b.example/v1', apiKeyEnv: 'B_KEY',
+        reasoning: 'on', compat: { thinkingFormat: 'b' },
+        models: [{ id: 'target', contextWindow: 8192, maxTokens: 2048 }] },
+    } }
+  const source = modelForm(settings, 'a', 'source')
+  const changed = formForProviderChange(settings, [], source, 'b')
+  assert.equal(changed.provider, 'b')
+  assert.equal(changed.model, '')
+  assert.equal(changed.api, 'anthropic-messages')
+  assert.equal(changed.baseURL, 'https://b.example/v1')
+  assert.equal(changed.credentialRef, 'B_KEY')
+  assert.equal(changed.reasoning, 'on')
+  assert.deepEqual(changed.compat, { thinkingFormat: 'b' })
+  assert.equal(changed.contextWindow, '')
+  assert.equal(changed.maxTokens, '')
+  assert.equal(changed.timeoutMs, 120_000)
+  assert.deepEqual(formForProviderChange(settings, [], source, 'unconfigured'),
+    { ...emptyModelFormForTest(), provider: 'unconfigured', model: '' })
+  const target = formForModelChange(settings, changed, 'target')
+  const request = modelSettingsRequest(target, { routes: 3, selected: 4 })
+  assert.equal(request.baseURL, 'https://b.example/v1')
+  assert.equal(request.credentialRef, 'B_KEY')
+  assert.equal(request.contextWindow, 8192)
+  assert.equal(request.maxTokens, 2048)
+  assert.equal(request.timeoutMs, 2222)
+})
+
+test('changing model loads target capacity but preserves edited shared provider route', () => {
+  const settings = { savedModels: [{ provider: 'p', model: 'one', timeoutMs: 1000 },
+    { provider: 'p', model: 'two', timeoutMs: 2000 }], routes: { p: {
+    api: 'openai-completions', baseURL: 'https://p.example/v1', apiKeyEnv: 'P_KEY',
+    modelOverrides: { one: { contextWindow: 4096, maxTokens: 512, reasoningEfforts: ['low'] },
+      two: { contextWindow: 16384, maxTokens: 4096, reasoningEfforts: ['high'] } },
+  } } }
+  const edited = { ...modelForm(settings, 'p', 'one'), baseURL: 'https://edited.example/v1' }
+  const target = formForModelChange(settings, edited, 'two')
+  assert.equal(target.baseURL, 'https://edited.example/v1')
+  assert.equal(target.contextWindow, 16384)
+  assert.equal(target.maxTokens, 4096)
+  assert.deepEqual(target.reasoningEfforts, ['high'])
+  assert.equal(target.timeoutMs, 2000)
+  const newModel = formForModelChange(settings, edited, 'third')
+  assert.equal(newModel.baseURL, edited.baseURL)
+  assert.equal(newModel.contextWindow, '')
+  assert.equal(newModel.maxTokens, '')
+  assert.equal(newModel.reasoningEfforts, null)
+  assert.equal(newModel.timeoutMs, 120_000)
+})
+
+test('provider change to matching saved model uses destination overrides; preset change clears source capacity', () => {
+  const settings = { savedModels: [
+    { provider: 'a', model: 'shared', timeoutMs: 1000 },
+    { provider: 'b', model: 'shared', timeoutMs: 2000 },
+  ], routes: {
+    a: { baseURL: 'https://a.example/v1', apiKeyEnv: 'A_KEY',
+      modelOverrides: { shared: { contextWindow: 4000, maxTokens: 400 } } },
+    b: { baseURL: 'https://b.example/v1', apiKeyEnv: 'B_KEY',
+      modelOverrides: { shared: { contextWindow: 8000, maxTokens: 800 } } },
+  } }
+  const source = modelForm(settings, 'a', 'shared')
+  const target = formForProviderChange(settings, [], source, 'b')
+  assert.equal(target.model, 'shared')
+  assert.equal(target.baseURL, 'https://b.example/v1')
+  assert.equal(target.credentialRef, 'B_KEY')
+  assert.equal(target.contextWindow, 8000)
+  assert.equal(target.maxTokens, 800)
+  assert.equal(target.timeoutMs, 2000)
+  const preset = { defaults: { provider: 'c', model: 'sample', api: 'openai-completions',
+    baseURL: 'https://c.example/v1', credentialRef: 'C_KEY', contextWindow: 16000, maxTokens: 1600 } }
+  const unsaved = formForProviderChange(settings, [preset], source, 'c')
+  assert.equal(unsaved.model, '')
+  assert.equal(unsaved.baseURL, 'https://c.example/v1')
+  assert.equal(unsaved.credentialRef, 'C_KEY')
+  assert.equal(unsaved.contextWindow, '')
+  assert.equal(unsaved.maxTokens, '')
+})
+
+test('choosing a preset for an installed provider keeps its custom route and target model fields', () => {
+  const preset = { defaults: { provider: 'ollama', model: 'loaded', api: 'openai-completions',
+    baseURL: 'http://127.0.0.1:11434/v1', credentialRef: 'OLLAMA_LOCAL_KEY',
+    contextWindow: 8192, maxTokens: 2048 } }
+  const settings = { selected: null, savedModels: [
+    { provider: 'ollama', model: 'loaded', timeoutMs: 45000 },
+  ], routes: { ollama: {
+    api: 'openai-completions', baseURL: 'http://127.0.0.1:4444/v1', apiKeyEnv: 'CUSTOM_KEY',
+    reasoning: 'off', compat: { supportsStore: false },
+    models: [{ id: 'loaded', contextWindow: 32000, maxTokens: 4000 }],
+  } } }
+  const form = formForPresetChoice(settings, preset)
+  assert.equal(form.baseURL, 'http://127.0.0.1:4444/v1')
+  assert.equal(form.credentialRef, 'CUSTOM_KEY')
+  assert.equal(form.contextWindow, 32000)
+  assert.equal(form.maxTokens, 4000)
+  assert.equal(form.timeoutMs, 45000)
+  assert.deepEqual(modelSettingsRequest(form, { routes: 1, selected: 2 }).compat,
+    { supportsStore: false })
+  const fresh = formForPresetChoice({ routes: {} }, preset)
+  assert.equal(fresh.baseURL, preset.defaults.baseURL)
+  assert.equal(fresh.credentialRef, preset.defaults.credentialRef)
 })
 
 function emptyModelFormForTest() { return presetForm({ defaults: { provider: 'local', model: 'test' } }) }

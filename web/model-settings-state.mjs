@@ -9,7 +9,8 @@ export function modelForm(settings, provider = settings.selected?.provider, mode
   return { ...emptyModelForm(), provider: provider ?? '', model: model ?? '',
     api: route.api ?? '', baseURL: route.baseURL ?? '', credentialRef: route.apiKeyEnv ?? '',
     contextWindow: declared.contextWindow ?? '', maxTokens: declared.maxTokens ?? '',
-    timeoutMs: saved?.timeoutMs ?? settings.selected?.timeoutMs ?? 120_000,
+    timeoutMs: saved?.timeoutMs ?? (settings.selected?.provider === provider && settings.selected?.model === model
+      ? settings.selected.timeoutMs : 120_000),
     reasoning: route.reasoning ?? '', thinkingFormat: route.compat?.thinkingFormat ?? '',
     reasoningEfforts: declared.reasoningEfforts ?? null, compat: { ...route.compat } }
 }
@@ -18,6 +19,33 @@ export function presetForm(preset) {
   const { defaults } = preset
   return { ...emptyModelForm(), ...defaults, thinkingFormat: defaults.compat?.thinkingFormat ?? '',
     compat: { ...defaults.compat } }
+}
+
+export function formForPresetChoice(settings, preset) {
+  const { provider, model } = preset.defaults
+  return settings?.routes?.[provider]
+    ? modelForm(settings, provider, model)
+    : presetForm(preset)
+}
+
+// Identity changes must read destination scope before constructing a request.
+// Route fields are shared by provider; capacities and timeout belong to a model.
+export function formForProviderChange(settings, presets, form, provider) {
+  const sameModel = sharedRouteModels(settings, provider).some(item => item.model === form.model)
+  const model = sameModel ? form.model : ''
+  if (settings.routes?.[provider]) return modelForm(settings, provider, model)
+  const preset = presets.find(item => item.defaults.provider === provider)
+  if (preset) {
+    const target = presetForm(preset)
+    return { ...target, model, contextWindow: '', maxTokens: '', reasoningEfforts: null }
+  }
+  return { ...emptyModelForm(), provider, model }
+}
+
+export function formForModelChange(settings, form, model) {
+  const target = modelForm(settings, form.provider, model)
+  return { ...form, model, contextWindow: target.contextWindow, maxTokens: target.maxTokens,
+    reasoningEfforts: target.reasoningEfforts, timeoutMs: target.timeoutMs }
 }
 
 export function modelSettingsRequest(form, revisions, select = false) {
@@ -59,7 +87,11 @@ export function modelSettingsView(path = '') {
 }
 
 export function savedModelPathAfterSave(view, form) {
-  return view.kind === 'new' ? modelSettingsPath(form.provider, form.model) : null
+  if (view.kind === 'new' || (view.kind === 'edit' &&
+    (view.provider !== form.provider || view.model !== form.model))) {
+    return modelSettingsPath(form.provider, form.model)
+  }
+  return null
 }
 
 export function sharedRouteModels(settings, provider) {
