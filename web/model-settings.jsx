@@ -61,8 +61,9 @@ export function Settings({ api, useRemote, Button, ErrorBox, onGuardChange,
     else mountedView.current = true
     const keepSuccess = successNavigation.current === viewKey
     successNavigation.current = ''
-    setSecret(''); setBusy(''); setError(''); if (!keepSuccess) setMessage('')
-    setReloadNeeded(false); setTab('model')
+    // Saving changes the detail URL, but does not submit the credential draft.
+    if (!keepSuccess) { setSecret(''); setMessage(''); setTab('model') }
+    setBusy(''); setError(''); setReloadNeeded(false)
   }, [viewKey])
   useLayoutEffect(() => {
     if (!shouldReplaceModelDraft({ available, settings, initializedView: initializedView.current,
@@ -232,6 +233,7 @@ export function Settings({ api, useRemote, Button, ErrorBox, onGuardChange,
     <ErrorBox message={error || data.error} onRetry={!error && data.error && available ? retryRead : undefined}/>
     {reloadNeeded && <Button className="secondary" disabled={!available || !!busy || confirming} onClick={reload}>重新读取设置</Button>}
     {message && <div className="notice success" role="status">{message}</div>}
+    {message && secret && <p className="hint">API Key 尚未保存，请在凭据分类中点击“保存凭据”。</p>}
     {!data.value ? <div className="skeleton">{!available ? '模型设置组件已卸载，无法读取设置。'
       : data.error ? '设置读取失败。请点击重试。' : '正在读取设置…'}</div> : view.kind === 'list' ? <>
       <div className="settings-heading"><h2>已保存的模型</h2><p>当前翻译模型：{selected ? `${selected.provider} / ${selected.model}` : '尚未选择'}</p></div>

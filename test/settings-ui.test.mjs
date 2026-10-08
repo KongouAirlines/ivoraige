@@ -20,6 +20,7 @@ function fixture({ hash = '#/workbench/doc', modelReadFails = 0, deferModelSave 
   const { window } = dom
   const calls = []
   let failures = modelReadFails
+  let settings = structuredClone(modelSettings)
   let releaseSave
   window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} })
   window.confirm = () => true
@@ -38,7 +39,16 @@ function fixture({ hash = '#/workbench/doc', modelReadFails = 0, deferModelSave 
     let data
     if (path === '/capabilities') data = capabilities
     else if (path === '/tasks' || path.startsWith('/tasks?')) data = { items: [], nextCursor: null }
-    else if (path === '/settings/modelconfig') data = { settings: modelSettings }
+    else if (path === '/settings/modelconfig') {
+      if (options.method === 'PATCH') {
+        const body = JSON.parse(options.body)
+        settings = { ...settings,
+          routes: { ...settings.routes, [body.provider]: { apiKeyEnv: body.credentialRef } },
+          savedModels: [{ provider: body.provider, model: body.model, timeoutMs: body.timeoutMs }],
+        }
+      }
+      data = { settings }
+    }
     else if (path === '/documents/doc') data = { document: {
       id: 'doc', title: 'Test document', language: 'en', format: 'txt', unitCount: 1,
       availableOutputs: ['md'],
@@ -204,3 +214,39 @@ test('model load failure exposes a retry that reads successfully', async () => {
     assert.equal(calls.filter(call => call.path === '/settings/modelconfig').length, 2)
   } finally { app.close() }
 })
+
+for (const identity of ['new', 'changed']) {
+  for (const action of ['仅保存', '保存并用于翻译']) {
+    test(`model save retains unsubmitted credential: ${identity}, ${action}`, async () => {
+      const app = fixture({ hash: identity === 'new' ? '#/settings/models?new=1' : '#/settings/models?provider=original&model=original' })
+      const { window, calls } = app
+      const button = text => [...window.document.querySelectorAll('dialog button')].find(node => node.textContent === text)
+      try {
+        const provider = await until(() => window.document.querySelector('input[placeholder="例如 deepseek"]'), 'model form missing')
+        setInput(window, provider, 'target-provider')
+        setInput(window, window.document.querySelector('input[placeholder="服务实际支持的模型 ID"]'), 'target-model')
+        click(window, button('凭据'))
+        const secret = await until(() => window.document.querySelector('input[type="password"]'), 'credential tab missing')
+        setInput(window, window.document.querySelector('.credential-form input:not([type="password"])'), 'TEST_KEY_REF')
+        setInput(window, secret, 'test-only-unsaved-secret')
+        click(window, await until(() => button(action)?.disabled === false && button(action), 'save not enabled'))
+        await until(() => window.location.hash.includes('provider=target-provider') && window.document.querySelector('[role="status"]'), 'saved detail missing')
+        assert.equal(window.document.querySelector('input[type="password"]').value, 'test-only-unsaved-secret')
+        assert.equal(window.document.querySelector('.credential-form input:not([type="password"])').value, 'TEST_KEY_REF')
+        assert.match(window.document.body.textContent, /API Key 尚未保存/)
+        assert.equal(writes(calls).length, 1)
+        assert.equal(writes(calls)[0].method, 'PATCH')
+        assert.ok(!writes(calls)[0].body.includes('test-only-unsaved-secret'))
+        click(window, window.document.querySelector('button[aria-label="关闭设置"]'))
+        click(window, await until(() => button('继续编辑'), 'unsubmitted credential must guard closing'))
+        await until(() => !window.document.querySelector('.settings-confirm'), 'close cancel did not settle')
+        assert.equal(window.document.querySelector('input[type="password"]').value, 'test-only-unsaved-secret')
+        click(window, button('保存凭据'))
+        await until(() => window.document.querySelector('input[type="password"]').value === '', 'successful credential save must clear input')
+        const credentialWrites = calls.filter(call => call.path === '/settings/credentials' && call.method === 'PUT')
+        assert.equal(credentialWrites.length, 1)
+        assert.deepEqual(JSON.parse(credentialWrites[0].body), { ref: 'TEST_KEY_REF', value: 'test-only-unsaved-secret' })
+      } finally { app.close() }
+    })
+  }
+}

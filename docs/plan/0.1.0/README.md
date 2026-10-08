@@ -177,3 +177,7 @@
 本次推进 [plugin-settings-window](../follow-ups/plugin-settings-window.md) 与 [model-settings-partial-save](../follow-ups/model-settings-partial-save.md)，待主线合入。PDF 范围另登记 [pdf-managed-source-containment](../follow-ups/pdf-managed-source-containment.md) 与 [pdf-store-relocation](../follow-ups/pdf-store-relocation.md)，均待评估：前者是静态核实的路径归属检查缺口，未找到公开请求直接写入绑定的利用链；后者是绝对路径绑定的迁移限制。未更改 PDF 生产路径，也不把审阅中的其他 PDF 疑点当作已证实缺陷。
 
 Windows CI 补充暴露详情页首次提交后的草稿初始化与输入竞争：将初始化移到 layout effect，使表单可交互前完成基线装载；DOM 测试等待表单实际挂载再输入，继续断言取消 Back 后原值保留。最终 CI 以补充提交后的 PR 检查为准。
+
+### PR #9 未提交凭据保留（2026-10-08）
+
+针对 [API Key 草稿被自动导航清空的评论](https://github.com/KongouAirlines/ivaraige/pull/9#issuecomment-6054894246)，模型保存成功后的详情地址更新保留当前分类和未提交凭据，并提示另行保存凭据。模型 PATCH 不提交 API Key；关闭设置仍触发未保存确认；只有凭据 PUT 成功后才清空该输入，普通离开和插件卸载沿用既有清理规则。实际 React bundle DOM 回归覆盖新增／更改模型身份 × 两种保存按钮，以及取消关闭、显式保存凭据，共四个新增用例。未使用真实凭据或请求模型。
