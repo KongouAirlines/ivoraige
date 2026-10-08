@@ -87,3 +87,13 @@ PR #7 已合并，修复基于 `main` 的 `a683f9b308fedc6de19068d11a32e43a7d4dc
 `f1e6baa` 的 [PR CI](https://github.com/KongouAirlines/ivaraige/actions/runs/37741893034) 与 [push CI](https://github.com/KongouAirlines/ivaraige/actions/runs/37741887425) 均已成功：Windows、Ubuntu、macOS / Node 24 上的完整 Node 测试和 package smoke 全部通过。旧提交的两轮 CI 已取消。三平台 Node CI 不代表真实 BabelDOC、模型或浏览器视觉验收；这些实测本次未运行。PR 保持草稿，未合并或部署。未新增、推进或解决 follow-up ID。
 
 发布后审查核对了 `createApp` 对配置中 `directory`／`storePath` 的覆盖、规范 store 路径与独占锁的一致性、历史冻结来源路径和失败清理边界。macOS 额外实测不存在数据库的目录软链接、已有数据库文件软链接、相对路径及大小写别名：重开后同源文档和来源路径保持去重，活跃所有者冲突被拒绝，不同数据库仍隔离来源。大小写测试先确认本机两种拼写指向同一 inode，且 `realpath` 返回相同规范拼写；不据此推断所有文件系统行为。定向 store-lock/PDF 套件 29/29 通过。此次未发现需改动运行时代码的新缺陷；来源损坏恢复和公式问题属于既有 Issue #11，不计作本 PR 新引入的问题。
+
+## PR #10 接续修复与 PR #9 兼容（2026-10-08，待合入）
+
+`codex/0.1.0-pdf-source-ownership` 合并了含 PR #9 的 `origin/main`（`fde5ec8`，合并提交 `1044dc4`）。来源恢复、路径边界及搬迁在此分支接续，跟踪 [pdf-source-restoration](../follow-ups/pdf-source-restoration.md)、[pdf-managed-source-containment](../follow-ups/pdf-managed-source-containment.md) 和 [pdf-store-relocation](../follow-ups/pdf-store-relocation.md)。
+
+重新导入通过内容摘要选择本库副本，损坏副本用同目录暂存及 rename 替换。冻结导出在当前受管理根内解析来源，可读取恢复后的本库副本或随数据库迁移的旧副本；持久绑定、修订及快照不改写，其他数据库的旧共享文件不被覆盖。来源 realpath 检查保留原有摘要缓存。仅挂载 PDF 设置页不再要求数据库标识，实际导入仍须有 store 所有者。
+
+Windows / Node 26.7.0：完整 `npm test` 185/185 通过；最终 PDF 导入、回放及设置注册定向测试 31/31 通过；`npm run smoke:package` 通过。以 `1044dc4` 的修复前适配器运行新增恢复／旧快照／搬迁测试，3 项均出现预期失败。测试使用模拟 sidecar；本段不构成真实 BabelDOC 或三平台发行验收。新增真实模型调用为 0，恢复后的冻结导出任务调用为 0。
+
+公式映射和 tracker payload 属于不同的捕获／回放问题，见 [Issue #11](https://github.com/KongouAirlines/ivaraige/issues/11)，另建分支处理。

@@ -1,7 +1,7 @@
-import { createHash } from 'node:crypto'
-import { readFile, writeFile, mkdir, mkdtemp, rm, stat, copyFile } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
+import { readFile, writeFile, mkdir, mkdtemp, rm, stat, copyFile, realpath, rename } from 'node:fs/promises'
 import { constants } from 'node:fs'
-import { basename, join } from 'node:path'
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { SidecarClient } from '../sidecar.mjs'
 import { KernelError } from '../errors.mjs'
 import { validatePdfTranslation } from './pdf-text.mjs'
@@ -16,7 +16,9 @@ class PdfRuntime {
     // The canonical store is exclusively locked for this runtime's lifetime.
     // Different databases may share the PDF directory, but must never share a
     // newly published file: cleanup can only inspect this store's references.
-    this.sourceOwner = hash(storePath)
+    // Standalone plugin mounts can inspect availability without a database.
+    // Source capture still requires an owning store.
+    this.sourceOwner = storePath ? hash(storePath) : null
     this.client = new SidecarClient({ timeoutMs: 600_000, ...config })
     this.verified = new Map()
     this.sourceLocks = new Map()
@@ -35,8 +37,10 @@ class PdfRuntime {
   }
 
   async verifySource(path, expected) {
-    let info
-    try { info = await stat(path) } catch { fail('Managed PDF source is missing; import the original again') }
+    let info, actual
+    try { info = await stat(path); actual = await realpath(path) }
+    catch { fail('Managed PDF source is missing; import the original again') }
+    if (!info.isFile() || actual !== resolve(path)) fail('Managed PDF source escapes its managed directory')
     const identity = `${info.size}:${info.mtimeMs}:${info.ctimeMs}`
     const cached = this.verified.get(path)
     if (cached?.identity === identity && cached.digest === expected) return
@@ -44,7 +48,45 @@ class PdfRuntime {
     this.verified.set(path, { identity, digest: expected })
   }
 
+  async managedRoot() {
+    const root = join(this.directory, 'sources')
+    let parent, actual
+    try { parent = await realpath(this.directory); actual = await realpath(root) }
+    catch { fail('Managed PDF source directory is missing; import the original again') }
+    if (actual !== join(parent, 'sources') || parent !== resolve(this.directory)) {
+      fail('Managed PDF source directory escapes the current store')
+    }
+    return root
+  }
+
+  async exportSource(binding) {
+    const { sourcePath, sourceDigest } = binding
+    if (typeof sourceDigest !== 'string' || !/^[a-f0-9]{64}$/.test(sourceDigest) ||
+        typeof sourcePath !== 'string' || !isAbsolute(sourcePath) ||
+        basename(dirname(sourcePath)) !== 'sources' || basename(dirname(dirname(sourcePath))) !== 'pdf') {
+      fail('PDF source binding has an invalid managed path')
+    }
+    const savedName = basename(sourcePath)
+    if (savedName !== `${sourceDigest}.pdf` &&
+        !new RegExp(`^[a-f0-9]{64}-${sourceDigest}\\.pdf$`).test(savedName)) {
+      fail('PDF source binding filename does not match its digest')
+    }
+    const root = await this.managedRoot()
+    const owned = join(root, `${this.sourceOwner}-${sourceDigest}.pdf`)
+    const local = join(root, savedName)
+    // An owned copy takes precedence. The saved basename also supports legacy
+    // digest-only records and stores moved together with their PDF directory.
+    let path = owned
+    try { await stat(owned) } catch (error) {
+      if (error.code !== 'ENOENT') throw error
+      path = local
+    }
+    await this.verifySource(path, sourceDigest)
+    return path
+  }
+
   async capture(file, temporary) {
+    if (!this.sourceOwner) fail('PDF import requires a store-owned source directory')
     if ((file.path === undefined) === (file.content === undefined)) {
       throw new KernelError('INVALID_ARGUMENT', 'PDF requires exactly one of path or binary content')
     }
@@ -75,13 +117,26 @@ class PdfRuntime {
 
   async publish(temporary, sourcePath, sourceDigest) {
     await mkdir(join(this.directory, 'sources'), { recursive: true })
+    await this.managedRoot()
     let created = false
     try { await copyFile(temporary, sourcePath, constants.COPYFILE_EXCL); created = true } catch (error) {
       if (error.code !== 'EEXIST') throw error
     }
     try { await this.verifySource(sourcePath, sourceDigest) } catch (error) {
-      if (created) await rm(sourcePath, { force: true })
-      throw error
+      if (created) {
+        await rm(sourcePath, { force: true })
+        throw error
+      }
+      // Capture has already hashed the original. Publish the validated bytes
+      // beside the destination and replace the damaged file with one rename.
+      const replacement = `${sourcePath}.${randomUUID()}.repair`
+      try {
+        await copyFile(temporary, replacement, constants.COPYFILE_EXCL)
+        await this.verifySource(replacement, sourceDigest)
+        await rename(replacement, sourcePath)
+      } finally { await rm(replacement, { force: true }); this.verified.delete(replacement) }
+      this.verified.delete(sourcePath)
+      await this.verifySource(sourcePath, sourceDigest)
     }
     return created
   }
@@ -139,7 +194,8 @@ class PdfRuntime {
   async rebuild(frozen, { signal } = {}) {
     const { sourceBinding } = frozen
     for (const item of frozen.units) validatePdfTranslation(sourceBinding, item.unit, item.text)
-    await this.verifySource(sourceBinding.sourcePath, sourceBinding.sourceDigest)
+    const sourcePath = await this.exportSource(sourceBinding)
+    const effectiveBinding = { ...sourceBinding, sourcePath }
     const jobs = join(this.directory, 'work')
     await mkdir(jobs, { recursive: true })
     const temporary = await mkdtemp(join(jobs, 'export-'))
@@ -147,8 +203,8 @@ class PdfRuntime {
       const docRef = join(temporary, 'source.json')
       const revisionsRef = join(temporary, 'snapshot.json')
       const out = join(temporary, 'result.pdf')
-      await writeFile(docRef, JSON.stringify({ document: frozen.document, sourceBinding }))
-      await writeFile(revisionsRef, JSON.stringify(frozen))
+      await writeFile(docRef, JSON.stringify({ document: frozen.document, sourceBinding: effectiveBinding }))
+      await writeFile(revisionsRef, JSON.stringify({ ...frozen, sourceBinding: effectiveBinding }))
       const result = await this.request('rebuild', { docRef, revisionsRef, out, format: 'pdf' }, { signal })
       if (result?.path !== out) fail('PDF component returned an unexpected output path')
       const content = await readFile(out)

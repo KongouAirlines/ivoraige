@@ -1,8 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, realpath, rm, writeFile, readdir, rename } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, writeFile, readdir, rename, symlink, cp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join, relative, isAbsolute } from 'node:path'
+import { dirname, join, relative, isAbsolute, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Service } from '../dist/dsh.mjs'
 import { createApp } from '../src/app.mjs'
@@ -235,6 +235,50 @@ test('store-owned sources remain stable across restart and same-store reimport',
   assert.deepEqual(await managedSources(f.directory), sources)
 })
 
+test('reimport repairs missing and changed owned sources without changing frozen bindings', async t => {
+  const f = await fixture(t)
+  const file = { format: 'pdf', path: f.source }
+  const options = { sourceId: 'pdf:repair', language: 'en' }
+  const first = await f.app.records.importDocument(file, options)
+  const snapshot = await f.app.records.createSnapshot(first.document.id,
+    { targetLang: 'zh-CN', onMissingAccepted: 'skip' })
+  const binding = f.app.records.resolveSnapshot(first.document.id, snapshot.id).sourceBinding
+  await rm(binding.sourcePath)
+  const missing = await f.app.records.importDocument(file, options)
+  assert.equal(missing.deduplicated, true)
+  assert.equal(await readFile(binding.sourcePath, 'utf8'), pdfBytes)
+  await writeFile(binding.sourcePath, '%PDF-WRONG-BYTES\n')
+  const changed = await f.app.records.importDocument(file, options)
+  assert.equal(changed.deduplicated, true)
+  assert.equal(await readFile(binding.sourcePath, 'utf8'), pdfBytes)
+  await f.restart()
+  assert.deepEqual(f.app.records.resolveSnapshot(first.document.id, snapshot.id).sourceBinding, binding)
+  const submitted = await f.app.tasks.exportDocument(first.document.id,
+    { targetLang: 'zh-CN', snapshotId: snapshot.id, outputs: [{ format: 'pdf' }] })
+  const task = await f.app.tasks.wait(submitted.taskId)
+  assert.equal(task.state, 'succeeded', task.error?.message)
+  assert.equal(task.stats.llmCalls, 0)
+})
+
+test('concurrent valid reimports repair one damaged owned copy', async t => {
+  const f = await fixture(t)
+  const file = { format: 'pdf', path: f.source }
+  const first = await f.app.records.importDocument(file, { sourceId: 'pdf:race', language: 'en' })
+  const snapshot = await f.app.records.createSnapshot(first.document.id,
+    { targetLang: 'zh-CN', onMissingAccepted: 'skip' })
+  const path = f.app.records.resolveSnapshot(first.document.id, snapshot.id).sourceBinding.sourcePath
+  await writeFile(path, '%PDF-WRONG-BYTES\n')
+  const attempts = await Promise.all([1, 2].map(index => f.app.records.importDocument(file,
+    { sourceId: `pdf:race-${index}`, language: 'en' })))
+  assert.equal(attempts.length, 2)
+  assert.equal(await readFile(path, 'utf8'), pdfBytes)
+  assert.deepEqual(await managedSources(f.directory), [basename(path)])
+  await writeFile(f.source, '%PDF-DIFFERENT-ORIGINAL\n')
+  const different = await f.app.records.importDocument(file, { sourceId: 'pdf:different', language: 'en' })
+  assert.notEqual(different.document.id, first.document.id)
+  assert.equal(await readFile(path, 'utf8'), pdfBytes)
+})
+
 test('legacy shared-source snapshots survive new import cleanup and restart', async t => {
   const f = await fixture(t)
   const adapter = f.app.parse.adapters.get('babeldoc')
@@ -267,6 +311,97 @@ test('legacy shared-source snapshots survive new import cleanup and restart', as
     { targetLang: 'zh-CN', snapshotId: snapshot.id, outputs: [{ format: 'pdf' }] })
   const task = await f.app.tasks.wait(exported.taskId)
   assert.equal(task.state, 'succeeded', task.error?.message)
+})
+
+test('legacy snapshot recovers after reimport without rewriting its binding or shared file', async t => {
+  const f = await fixture(t)
+  const adapter = f.app.parse.adapters.get('babeldoc')
+  const originalParse = adapter.parse
+  const originalImport = adapter.import
+  let legacyPath
+  adapter.import = undefined
+  adapter.parse = async file => {
+    const parsed = await originalParse(file)
+    legacyPath = join(dirname(parsed.sourceBinding.sourcePath), `${parsed.sourceBinding.sourceDigest}.pdf`)
+    await rename(parsed.sourceBinding.sourcePath, legacyPath)
+    return { ...parsed, sourceBinding: { ...parsed.sourceBinding, sourcePath: legacyPath } }
+  }
+  let document
+  try {
+    ;({ document } = await f.app.records.importDocument({ format: 'pdf', path: f.source },
+      { sourceId: 'pdf:legacy-repair', language: 'en' }))
+  } finally { adapter.parse = originalParse; adapter.import = originalImport }
+  const snapshot = await f.app.records.createSnapshot(document.id,
+    { targetLang: 'zh-CN', onMissingAccepted: 'skip' })
+  const binding = f.app.records.resolveSnapshot(document.id, snapshot.id).sourceBinding
+  const damagedLegacy = '%PDF-DAMAGED-LEGACY\n'
+  await writeFile(legacyPath, damagedLegacy)
+  await f.app.records.importDocument({ format: 'pdf', path: f.source },
+    { sourceId: 'pdf:owned-reimport', language: 'en' })
+  const names = await managedSources(f.directory)
+  assert.equal(names.length, 2)
+  assert.ok(names.includes(basename(legacyPath)))
+  assert.ok(names.some(name => new RegExp(`^[a-f0-9]{64}-${binding.sourceDigest}\\.pdf$`).test(name)))
+  assert.equal(await readFile(legacyPath, 'utf8'), damagedLegacy)
+  await f.restart()
+  assert.deepEqual(f.app.records.resolveSnapshot(document.id, snapshot.id).sourceBinding, binding)
+  const submitted = await f.app.tasks.exportDocument(document.id,
+    { targetLang: 'zh-CN', snapshotId: snapshot.id, outputs: [{ format: 'pdf' }] })
+  const task = await f.app.tasks.wait(submitted.taskId)
+  assert.equal(task.state, 'succeeded', task.error?.message)
+  assert.equal(task.stats.llmCalls, 0)
+  assert.deepEqual(await managedSources(f.directory), names)
+  assert.equal(await readFile(legacyPath, 'utf8'), damagedLegacy)
+})
+
+test('moved store resolves a saved owned binding within its new managed root', async t => {
+  const original = await mkdtemp(join(tmpdir(), 'ivoraige-pdf-before-move-'))
+  const moved = await mkdtemp(join(tmpdir(), 'ivoraige-pdf-moved-'))
+  let app
+  const pdf = { command: process.execPath, args: [engine], timeoutMs: 2000 }
+  try {
+    const input = join(original, 'source.pdf')
+    await writeFile(input, pdfBytes)
+    app = await createApp({ store: join(original, 'records.sqlite'), pdf })
+    const { document } = await app.records.importDocument({ format: 'pdf', path: input },
+      { sourceId: 'pdf:move', language: 'en' })
+    const snapshot = await app.records.createSnapshot(document.id,
+      { targetLang: 'zh-CN', onMissingAccepted: 'skip' })
+    const saved = app.records.resolveSnapshot(document.id, snapshot.id).sourceBinding
+    await app.dispose(); app = null
+    await cp(join(original, 'records.sqlite'), join(moved, 'records.sqlite'))
+    await cp(join(original, 'pdf'), join(moved, 'pdf'), { recursive: true })
+    await rm(saved.sourcePath)
+    app = await createApp({ store: join(moved, 'records.sqlite'), pdf })
+    assert.deepEqual(app.records.resolveSnapshot(document.id, snapshot.id).sourceBinding, saved)
+    const submitted = await app.tasks.exportDocument(document.id,
+      { targetLang: 'zh-CN', snapshotId: snapshot.id, outputs: [{ format: 'pdf' }] })
+    const task = await app.tasks.wait(submitted.taskId)
+    assert.equal(task.state, 'succeeded', task.error?.message)
+    assert.equal(task.stats.llmCalls, 0)
+  } finally {
+    if (app) await app.dispose()
+    await rm(original, { recursive: true, force: true })
+    await rm(moved, { recursive: true, force: true })
+  }
+})
+
+test('rebuild rejects a forged path and a managed symlink escaping the source root', async t => {
+  const f = await fixture(t)
+  const { document } = await f.app.records.importDocument({ format: 'pdf', path: f.source },
+    { sourceId: 'pdf:containment', language: 'en' })
+  const snapshot = await f.app.records.createSnapshot(document.id,
+    { targetLang: 'zh-CN', onMissingAccepted: 'skip' })
+  const frozen = f.app.records.resolveSnapshot(document.id, snapshot.id)
+  const rebuild = f.app.outputs.get('pdf').rebuild
+  await assert.rejects(rebuild({ ...frozen, sourceBinding: { ...frozen.sourceBinding,
+    sourcePath: f.source } }), { code: 'PRECONDITION_FAILED' })
+  const root = dirname(frozen.sourceBinding.sourcePath)
+  const outside = join(f.directory, 'outside')
+  await cp(root, outside, { recursive: true })
+  await rm(root, { recursive: true, force: true })
+  await symlink(outside, root, process.platform === 'win32' ? 'junction' : 'dir')
+  await assert.rejects(rebuild(frozen), { code: 'PRECONDITION_FAILED' })
 })
 
 test('startup marks an interrupted running import failed without resuming it', async t => {
