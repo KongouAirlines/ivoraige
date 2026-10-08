@@ -8,6 +8,12 @@ export function validatePdfTranslation(binding, unit, text) {
     throw new KernelError('PRECONDITION_FAILED', 'PDF source binding does not match this unit')
   }
   const expected = placeholderTokens(unit.sourceText)
+  if (expected.length !== (record.placeholders?.length ?? 0) || expected.some((token, index) =>
+    record.placeholders[index]?.token !== token || typeof record.placeholders[index]?.text !== 'string')) {
+    throw new KernelError('PRECONDITION_FAILED',
+      `PDF placeholder display mapping is unavailable at page ${unit.locator?.page ?? record.page + 1}; reimport with the updated PDF component or use a supported text source`,
+      { unitId: unit.id, key: record.key, tokens: expected })
+  }
   const actual = placeholderTokens(text)
   if (expected.length !== actual.length || expected.some((token, index) => token !== actual[index])) {
     throw new KernelError('PRECONDITION_FAILED', 'Preserve PDF placeholders exactly, in their original order',

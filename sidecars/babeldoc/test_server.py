@@ -43,6 +43,92 @@ class BindingTests(unittest.TestCase):
             [{"token": "<b1>", "text": "= "}],
         )
 
+    def test_adjacent_formula_payloads_resolve_display(self):
+        payloads = [
+            {"type": "formula", "id": 1, "placeholder": "<b1>", "formula_chars": "x"},
+            {"type": "formula", "id": 2, "placeholder": "<b2>", "formula_chars": "y"},
+        ]
+        self.assertEqual(
+            server.display_mapping("A <b1><b2> B", "A xy B", payloads),
+            [{"token": "<b1>", "text": "x"}, {"token": "<b2>", "text": "y"}],
+        )
+
+    def test_repeated_anchors_use_formula_payload(self):
+        payloads = [
+            {"type": "formula", "id": 1, "placeholder": "<b1>", "formula_chars": "x B y"},
+            {"type": "formula", "id": 2, "placeholder": "<b2>", "formula_chars": "z"},
+        ]
+        self.assertEqual(
+            server.display_mapping("A <b1> B <b2> C", "A x B y B z C", payloads),
+            [{"token": "<b1>", "text": "x B y"}, {"token": "<b2>", "text": "z"}],
+        )
+
+    def test_rich_text_pair_has_empty_display(self):
+        payloads = [{"type": "rich_text", "id": 1, "left_placeholder": "<b1>",
+                     "right_placeholder": "</b1>", "composition_chars": "word"}]
+        self.assertEqual(
+            server.display_mapping("A <b1>word</b1> B", "A word B", payloads),
+            [{"token": "<b1>", "text": ""}, {"token": "</b1>", "text": ""}],
+        )
+        payloads[0]["composition_chars"] = "different"
+        self.assertIsNone(
+            server.display_mapping("A <b1>word</b1> B", "A word B", payloads)
+        )
+
+    def test_wrong_or_ambiguous_payload_is_unresolved(self):
+        wrong = [{"type": "formula", "id": 1, "placeholder": "<b1>", "formula_chars": "z"}]
+        self.assertIsNone(server.display_mapping("A <b1> B", "A x B", wrong))
+        adjacent = [
+            {"type": "formula", "id": 1, "placeholder": "<b1>", "formula_chars": "x"},
+            {"type": "formula", "id": 2, "placeholder": "<b2>", "formula_chars": "y"},
+        ]
+        self.assertIsNone(server.display_mapping("A <b1><b2> B", "A x y B", adjacent))
+
+    def test_completed_callbacks_keep_payloads_by_location(self):
+        first = {"key": "p0:first", "preparedInput": "A <b1> B",
+                 "placeholderPayloads": [{"type": "formula", "placeholder": "<b1>",
+                                           "formula_chars": "x"}]}
+        second = {"key": "p0:second", "preparedInput": "A <b1> B",
+                  "placeholderPayloads": [{"type": "formula", "placeholder": "<b1>",
+                                            "formula_chars": "y"}]}
+        calls = [{"key": "p0:second", "requestText": "A <b1> B"},
+                 {"key": "p0:first", "requestText": "A <b1> B"}]
+        server.complete_callbacks(calls, [first, second])
+        self.assertEqual(calls[0]["placeholderPayloads"][0]["formula_chars"], "y")
+        self.assertEqual(calls[1]["placeholderPayloads"][0]["formula_chars"], "x")
+
+    def test_pdf_text_check_keeps_punctuation_and_checks_formulas(self):
+        records = [{"unitId": "u1", "page": 0, "text": "A x... B",
+                    "engineProjection": "A <b1>... B"}]
+        self.assertEqual(server.pdf_text_checks(records, ["A x ... B"])[0]["present"], True)
+        self.assertEqual(server.pdf_text_checks(records, ["A x… B"])[0]["present"], False)
+
+    def test_replay_projection_preserves_long_punctuation_run(self):
+        raw = "A" + "." * 20 + "<b1> B"
+        self.assertEqual(server.replay_projection(raw, "A.<b1> B"), raw)
+        with self.assertRaisesRegex(server.SidecarError, "changed accepted"):
+            server.replay_projection(raw, "A!<b1> B")
+
+    def test_capture_rejects_unresolved_mapping_with_location(self):
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
+            path = Path(directory) / "formula.pdf"
+            path.write_bytes(b"%PDF-1.7\n")
+            box = [1, 2, 3, 4]
+            key = server.location_key(0, dict(zip(("x", "y", "x2", "y2"), box)))
+            paragraph = {"page": 0, "bbox": box, "key": key,
+                         "sourceUnicode": "A x y B", "layoutLabel": "plain text"}
+            call = {**paragraph, "requestText": "A <b1><b2> B", "placeholderPayloads": [
+                {"type": "formula", "placeholder": "<b1>", "formula_chars": "x"},
+                {"type": "formula", "placeholder": "<b2>", "formula_chars": "y"},
+            ]}
+            with patch.object(server, "run_engine", return_value=([call], [paragraph], [])), \
+                 patch.object(server, "unbound_pdf_lines", return_value=[]):
+                with self.assertRaisesRegex(
+                    server.SidecarError,
+                    r"page 1, p0:1\.000,2\.000,3\.000,4\.000; tokens=",
+                ):
+                    server.parse({"path": str(path), "options": {"language": "en"}})
+
     def test_rebuild_preflight_rejects_changed_source_and_placeholders(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
             root = Path(directory)
@@ -165,6 +251,37 @@ class BindingTests(unittest.TestCase):
                         self.assertFalse((session / "run-1").exists())
             self.assertEqual(cache.joinpath("retained").read_text(encoding="utf-8"), "shared")
             self.assertEqual(output.read_bytes(), b"published")
+
+    def test_only_input_pdf_documents_are_owned_by_engine(self):
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
+            source = Path(directory) / "source.pdf"
+            other = Path(directory) / "other.pdf"
+            made = []
+            owned = []
+
+            class Document:
+                def __init__(self, path):
+                    self.path = path
+                    self.is_closed = False
+
+                def close(self):
+                    self.is_closed = True
+
+            def constructor(path):
+                item = Document(path)
+                made.append(item)
+                return item
+
+            open_document = server.source_document_factory(constructor, source, owned)
+            first = open_document(source)
+            second = open_document(str(other))
+            third = open_document(str(source))
+            self.assertEqual(owned, [first, third])
+            self.assertEqual(made, [first, second, third])
+            server.close_source_documents(owned)
+            self.assertTrue(first.is_closed)
+            self.assertTrue(third.is_closed)
+            self.assertFalse(second.is_closed)
 
 
 if __name__ == "__main__":

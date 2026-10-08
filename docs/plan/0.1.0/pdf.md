@@ -97,3 +97,19 @@ PR #7 已合并，修复基于 `main` 的 `a683f9b308fedc6de19068d11a32e43a7d4dc
 Windows / Node 26.7.0：完整 `npm test` 185/185 通过；最终 PDF 导入、回放及设置注册定向测试 31/31 通过；`npm run smoke:package` 通过。以 `1044dc4` 的修复前适配器运行新增恢复／旧快照／搬迁测试，3 项均出现预期失败。测试使用模拟 sidecar；本段不构成真实 BabelDOC 或三平台发行验收。新增真实模型调用为 0，恢复后的冻结导出任务调用为 0。
 
 公式映射和 tracker payload 属于不同的捕获／回放问题，见 [Issue #11](https://github.com/KongouAirlines/ivaraige/issues/11)，另建分支处理。
+
+## Issue #11：公式与回放接续（2026-10-08，待合入）
+
+分支 `codex/0.1.0-pdf-formula-replay` 基于 PR #10 的 `26087a4`，该基线已合并 PR #9 后的 main/fde5ec8。跟踪 [pdf-formula-replay](../follow-ups/pdf-formula-replay.md) 与 [pdf-sidecar-work-cleanup](../follow-ups/pdf-sidecar-work-cleanup.md)。
+
+- 完成后的 tracker 数据按来源位置关联到回调，公式 payload 约束显示映射。相邻公式、重复锚点及富文本 token 的单元测试覆盖可解析和无法唯一解析两种结果；后者在导入前失败。旧无效绑定也在整个翻译任务调用模型前失败。
+- 冻结回放在 BabelDOC 排版前恢复原始接受投影，避免上游缩短连续标点。文本核对覆盖公式展开文本，保留页级核对不能证明位置正确的限制。
+- Node 为每次 sidecar 启动管理专属工作目录；Windows 取消时终止进程树并等待退出，随后清理。真实测试还发现 BabelDOC 的原件句柄会留在对象循环中；在单次调用边界显式关闭该次通过 high_level.Document 打开的原件，避免全局强制垃圾回收及 Windows EBUSY。
+
+验证结果：Windows / Node 26.7.0 完整 Node 测试 **190/190**，Python 标准库测试 **13/13**，package smoke 通过。Python 回归已加入三平台 CI（不安装 BabelDOC 权重）。
+
+真实 BabelDOC 0.6.4／PyMuPDF 1.26.7 原创两页样本：**14 个单位、12 个可译、2 个带 formula payload 的记录**；包含行内公式、同页重复句及双栏。人工接受修订后完成 skip、PDF／MD／JSON 同快照输出、SQLite 重启及后续编辑后的旧快照重放。新增真实模型调用 **0**，三个导出任务各为 **0**；本轮没有配置翻译提供方。MD／JSON 重放字节一致；PDF 提取文本一致，两页渲染 PNG 分别与重放逐字节一致。四个重复句用不同人工文字标记，其实际输出坐标与对应来源位置相符；连续 20 个句点保留。两页已目检，未见裁切、错列或遮挡，长译文完整。常驻进程关闭后 engine 与 pdf/work 目录为空。
+
+本机证据：`evaluation/runs/pdf-formula-0.1.0/run-6/report.json`、`captured.json`、`text-layout-checks.json` 及相邻 PDF/PNG。复现脚本是 `scripts/pdf-formula-sample.py`（开发依赖 ReportLab）、`scripts/pdf-formula-acceptance.mjs` 和 `scripts/pdf-formula-verify.py`；运行产物保持忽略。
+
+真实采样另外发现部分源行拆分的覆盖问题，已登记 [pdf-partial-line-coverage](../follow-ups/pdf-partial-line-coverage.md)。上述公式验收不代表所有 PDF 结构、富文本真实排版、OCR、双语或三平台原生 PDF 打包通过。

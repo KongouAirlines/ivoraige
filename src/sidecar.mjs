@@ -1,4 +1,7 @@
 import { spawn } from 'node:child_process'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { KernelError } from './errors.mjs'
 
 const PROTOCOL_VERSION = 1
@@ -14,6 +17,34 @@ const crashed = (message, cause) => {
   const error = failure('UPSTREAM_FAILURE', message, {}, cause)
   error.retryable = true
   return error
+}
+
+async function cleanupWorkDir(workDir) {
+  try { await rm(workDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }) }
+  catch (cause) { return failure('UPSTREAM_FAILURE', 'PDF sidecar work directory cleanup failed', { workDir, cleanupFailed: true }, cause) }
+  return null
+}
+
+function terminateWindowsTree(pid) {
+  if (!Number.isSafeInteger(pid) || pid <= 0) return Promise.resolve(null)
+  return new Promise(resolve => {
+    let killer
+    try { killer = spawn('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }) }
+    catch (cause) { resolve(failure('UPSTREAM_FAILURE', 'PDF sidecar process tree could not be terminated', { terminationFailed: true }, cause)); return }
+    let settled = false
+    const finish = error => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(error)
+    }
+    const timer = setTimeout(() => {
+      killer.kill()
+      finish(failure('UPSTREAM_FAILURE', 'PDF sidecar process tree termination timed out', { terminationFailed: true }))
+    }, 10_000)
+    killer.once('error', cause => finish(failure('UPSTREAM_FAILURE', 'PDF sidecar process tree could not be terminated', { terminationFailed: true }, cause)))
+    killer.once('close', code => finish(code === 0 ? null : failure('UPSTREAM_FAILURE', `PDF sidecar process tree termination failed (${code})`, { terminationFailed: true })))
+  })
 }
 
 function remoteError(value) {
@@ -82,16 +113,20 @@ export class SidecarClient {
     this.closed = true
     const error = failure('PRECONDITION_FAILED', 'PDF sidecar client is closed')
     for (const item of this.queue.splice(0)) this.#settle(item, error)
+    let activeClosed
     if (this.active) {
       this.active.closeRequested = true
-      this.#stopSession(this.session, error)
+      activeClosed = this.#stopSession(this.session, error)
     }
     this.closePromise = (async () => {
       await this.worker
+      const activeCleanupError = await activeClosed
+      if (activeCleanupError) throw activeCleanupError
       const session = this.session
       if (!session) return
       try { await this.#rpc(session, 'shutdown', {}, undefined, SHUTDOWN_TIMEOUT_MS) } catch { /* shutdown is best effort */ }
-      await this.#stopSession(session)
+      const cleanupError = await this.#stopSession(session)
+      if (cleanupError) throw cleanupError
     })()
     return this.closePromise
   }
@@ -120,7 +155,9 @@ export class SidecarClient {
             const result = await this.#rpc(this.session, item.method, item.params, item.onProgress)
             this.#settle(item, null, result)
           } catch (error) {
-            await error.closePromise
+            const cleanupError = await error.closePromise
+            if (cleanupError) error = cleanupError
+            if (error.details?.cleanupFailed || error.details?.terminationFailed) { this.#settle(item, error); break }
             if (item.cancelRequested) { this.#settle(item, canceled()); break }
             if (item.closeRequested) { this.#settle(item, failure('PRECONDITION_FAILED', 'PDF sidecar client is closed')); break }
             if (item.settled) break
@@ -138,18 +175,38 @@ export class SidecarClient {
   }
 
   async #start() {
+    let workDir
+    try {
+      const root = this.options?.workDir || tmpdir()
+      await mkdir(root, { recursive: true })
+      workDir = await mkdtemp(join(root, 'ivoraige-sidecar-'))
+    } catch (cause) {
+      throw failure('UPSTREAM_FAILURE', 'PDF sidecar work directory could not be created', {}, cause)
+    }
+    if (this.closed || this.active?.cancelRequested) {
+      const cleanupError = await cleanupWorkDir(workDir)
+      if (cleanupError) throw cleanupError
+      throw this.closed ? failure('PRECONDITION_FAILED', 'PDF sidecar client is closed') : canceled()
+    }
     let child
     try {
       child = spawn(this.command, this.args, { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
     } catch (cause) {
+      const cleanupError = await cleanupWorkDir(workDir)
+      if (cleanupError) throw cleanupError
       throw failure('COMPONENT_MISSING', 'PDF sidecar executable is unavailable', {}, cause)
     }
-    const session = { child, pending: null, buffer: '', stderr: '', dead: false }
-    session.closed = new Promise(resolve => { session.resolveClosed = resolve })
+    const session = { child, workDir, pending: null, buffer: '', stderr: '', dead: false }
+    session.childClosed = new Promise(resolve => { session.resolveChildClosed = resolve })
+    session.closed = session.childClosed.then(async () => {
+      const terminationError = await session.termination
+      const cleanupError = await cleanupWorkDir(workDir)
+      return terminationError ?? cleanupError
+    })
     this.session = session
     child.once('close', () => {
       clearTimeout(session.killTimer)
-      session.resolveClosed()
+      session.resolveChildClosed()
     })
     child.stdout.setEncoding('utf8')
     child.stderr.setEncoding('utf8')
@@ -172,11 +229,11 @@ export class SidecarClient {
         })
       }
       if (this.closed) throw failure('PRECONDITION_FAILED', 'PDF sidecar client is closed')
-      await this.#rpc(session, 'configure', { modelDirs: this.modelDirs, options: this.options })
+      await this.#rpc(session, 'configure', { modelDirs: this.modelDirs, options: { ...this.options, workDir } })
       this.capabilities = handshake.capabilities ?? null
     } catch (error) {
-      await this.#stopSession(session, error)
-      throw error
+      const cleanupError = await this.#stopSession(session, error)
+      throw cleanupError ?? error
     }
   }
 
@@ -257,9 +314,23 @@ export class SidecarClient {
     }
     if (error) error.closePromise = session.closed
     if (session.child.exitCode === null && session.child.signalCode === null) {
-      session.child.kill()
-      session.killTimer = setTimeout(() => session.child.kill('SIGKILL'), 1500)
-      session.killTimer.unref()
+      if (process.platform === 'win32') {
+        session.termination = terminateWindowsTree(session.child.pid).then(treeError => {
+          // Shutdown or startup failure can close the process while taskkill is
+          // starting; an already exited launcher no longer needs termination.
+          if (treeError && session.child.exitCode !== null) return null
+          if (treeError && session.child.exitCode === null && session.child.signalCode === null) {
+            session.child.kill()
+            session.killTimer = setTimeout(() => session.child.kill('SIGKILL'), 1500)
+            session.killTimer.unref()
+          }
+          return treeError
+        })
+      } else {
+        session.child.kill()
+        session.killTimer = setTimeout(() => session.child.kill('SIGKILL'), 1500)
+        session.killTimer.unref()
+      }
     }
     return session.closed
   }

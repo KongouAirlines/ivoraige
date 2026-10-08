@@ -13,6 +13,7 @@ const records = units.map(unit => ({
   order: unit.order, requestText: sourceText, page: unit.locator.page,
   placeholders: [{ token: '<b1>', text: 'E = mc²' }],
 }))
+if (mode === 'unresolved-mapping') records[0].placeholders[0].text = null
 
 for await (const line of createInterface({ input: process.stdin })) {
   const { id, method, params } = JSON.parse(line)

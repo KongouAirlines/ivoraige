@@ -30,9 +30,11 @@ segment, as passthrough units and emits a coverage warning. This
 audit does not prove that image-only text or formula semantics were recovered.
 The line audit renders flagged superscript spans as Unicode superscripts where
 possible (otherwise `^(text)`) and retains `rawExtractedText` for comparison.
-Structural placeholders retain upstream payloads; their display strings are
-derived only when exact source alignment has one solution. Unresolved display
-mappings remain null and require review.
+Structural placeholders retain completed upstream tracker payloads, associated
+by source location. Formula text and paired rich-text tokens constrain exact
+source alignment. An unresolved or ambiguous mapping rejects capture with its
+page, location and tokens before translation; it is not stored as a null display.
+Previously stored unresolved bindings also fail before any model request.
 
 `rebuild` takes a frozen `docRef` JSON containing the binding and a
 `revisionsRef` JSON with units in `{unit, decision, text}` form. `text` is the
@@ -42,13 +44,17 @@ The readable text for MD/JSON is a deterministic expansion through
 if a display mapping remains unresolved. Callback units use an accepted revision
 or a `skip` decision that replays the exact source request. Passthrough units
 must retain their original text and `keepOriginal` decision.
+Replay preserves accepted punctuation runs instead of BabelDOC's punctuation
+shortening. Extracted-text checks include expanded formulas; these page-level
+checks still require visual inspection for position, clipping and reading order.
 It rejects missing, duplicate, changed, or unused engine requests and publishes
 the PDF only after all checks pass. Mono PDF is the supported format; bilingual
 PDF needs separate validation.
 
 Each capture or replay removes its own BabelDOC `run-N` working directory after
 the result has been copied out. The session cache stays available to subsequent
-requests. The sidecar attempts to remove the session cache on exit, though an
-open Windows cache database can leave files behind. Forced process termination
-or power loss can also leave a session directory behind because normal cleanup
-cannot execute in those cases.
+requests. The Node host allocates a private directory for each sidecar process
+under the configured work root (OS temp by default). It waits for process exit
+before removing that directory, including after cancellation or a crash. The
+configured root and unrelated files are preserved. Killing the Node host itself
+or losing power can still leave files; historical cleanup is not implemented.

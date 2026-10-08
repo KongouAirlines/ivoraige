@@ -248,6 +248,14 @@ export class Records {
     const { record, unit } = this.locateUnit(unitId)
     return clone(this.basis(record, unit, targetLang))
   }
+  validateSources(docId, unitIds) {
+    const record = this.record(docId)
+    const selected = new Set(unitIds)
+    for (const unit of record.units) {
+      if (selected.delete(unit.id)) this.parse.validateTranslation(record.sourceBinding, unit, unit.sourceText)
+    }
+    if (selected.size) missing('unitId', selected.values().next().value)
+  }
   findReusable(unitId, { targetLang } = {}) {
     const basis = this.getBasis(unitId, { targetLang })
     const { record: local, unit } = this.locateUnit(unitId)

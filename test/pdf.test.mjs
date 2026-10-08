@@ -54,6 +54,38 @@ async function exported(app, docId, options) {
 
 const outputs = [{ format: 'pdf' }, { format: 'md' }, { format: 'json' }]
 
+test('unresolved PDF mappings fail import before a document or model call exists', async t => {
+  const f = await fixture(t, 'unresolved-mapping')
+  await assert.rejects(imported(f), /placeholder display mapping/)
+  assert.deepEqual(f.app.records.listDocuments(), [])
+})
+
+test('a legacy unresolved mapping fails translation before spending a model request', async t => {
+  const f = await fixture(t)
+  const adapter = f.app.parse.adapters.get('babeldoc')
+  const original = adapter.import
+  // Persist a pre-fix binding through the usual records path (including digests).
+  adapter.import = (file, persist, referenced) => original(file, parsed => {
+    parsed.sourceBinding.records[1].placeholders[0].text = null
+    return persist(parsed)
+  }, referenced)
+  const doc = await imported(f)
+  adapter.import = original
+  await f.restart()
+  let calls = 0
+  class NeverCalled extends Service {
+    constructor(ctx) { super(ctx, 'ivoraige.translationModel') }
+    async translate() { calls++; throw new Error('must fail before model') }
+  }
+  await f.app.ctx.plugin(NeverCalled)
+  const submitted = await f.app.tasks.submit(doc.id, { targetLang: 'zh-CN' })
+  const task = await f.app.tasks.wait(submitted.taskId)
+  assert.equal(task.state, 'failed')
+  assert.match(task.error.message, /placeholder display mapping/)
+  assert.equal(task.stats.llmCalls, 0)
+  assert.equal(calls, 0)
+})
+
 test('PDF bindings persist; PDF, Markdown and JSON share frozen revisions', async t => {
   const f = await fixture(t)
   const doc = await imported(f)
