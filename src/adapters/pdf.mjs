@@ -11,8 +11,12 @@ const fail = message => { throw new KernelError('PRECONDITION_FAILED', message) 
 
 // This runtime owns files and a subprocess only. It has no Cordis context or model access.
 class PdfRuntime {
-  constructor({ directory, ...config }) {
+  constructor({ directory, storePath, ...config }) {
     this.directory = directory
+    // The canonical store is exclusively locked for this runtime's lifetime.
+    // Different databases may share the PDF directory, but must never share a
+    // newly published file: cleanup can only inspect this store's references.
+    this.sourceOwner = hash(storePath)
     this.client = new SidecarClient({ timeoutMs: 600_000, ...config })
     this.verified = new Map()
     this.sourceLocks = new Map()
@@ -52,7 +56,7 @@ class PdfRuntime {
       throw new KernelError('INVALID_ARGUMENT', 'Input is not a PDF file')
     }
     const sourceDigest = hash(bytes)
-    const sourcePath = join(this.directory, 'sources', `${sourceDigest}.pdf`)
+    const sourcePath = join(this.directory, 'sources', `${this.sourceOwner}-${sourceDigest}.pdf`)
     await writeFile(temporary, bytes)
     const { doc } = await this.request('parse', { path: temporary,
       options: { language: file.language ?? 'en' } }, { signal: file.signal, onProgress: file.onProgress })
@@ -120,6 +124,8 @@ class PdfRuntime {
         file.signal?.throwIfAborted()
         const created = await this.publish(input, sourcePath, sourceDigest)
         try { return await persist(parsed) } catch (error) {
+          // This path belongs to the locked store. Legacy digest-only sources
+          // remain readable through saved bindings and are never cleanup targets.
           if (created && !isReferenced(sourcePath)) {
             await rm(sourcePath, { force: true })
             this.verified.delete(sourcePath)

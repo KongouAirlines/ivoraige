@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, realpath, rm, writeFile, readdir } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, writeFile, readdir, rename } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, isAbsolute } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -174,6 +174,97 @@ test('concurrent imports of the same source retain the successful document sourc
   assert.equal(succeeded.status, 'fulfilled')
   assert.equal((await managedSources(f.directory)).length, 1)
   assert.deepEqual(f.app.records.listDocuments().map(item => item.id), [succeeded.value.document.id])
+})
+
+test('failed import cannot remove another database source in the same directory', async t => {
+  const f = await fixture(t)
+  const config = { store: join(f.directory, 'other.sqlite'),
+    pdf: { command: process.execPath, args: [engine], timeoutMs: 2000 } }
+  let other = await createApp(config)
+  t.after(() => other.dispose())
+  const entered = Promise.withResolvers()
+  const release = Promise.withResolvers()
+  const original = f.app.records.insertDocument
+  f.app.records.insertDocument = async () => {
+    entered.resolve()
+    await release.promise
+    throw new Error('controlled persistence failure')
+  }
+  const file = { format: 'pdf', path: f.source }
+  const failing = assert.rejects(f.app.records.importDocument(file,
+    { sourceId: 'pdf:failure-owner', language: 'en' }), /controlled persistence failure/)
+  let document, binding
+  try {
+    // The first runtime has published its source but cannot commit yet.
+    await bounded(entered.promise)
+    ;({ document } = await bounded(other.records.importDocument(file,
+      { sourceId: 'pdf:other-owner', language: 'en' })))
+    const snapshot = await other.records.createSnapshot(document.id,
+      { targetLang: 'zh-CN', onMissingAccepted: 'skip' })
+    binding = other.records.resolveSnapshot(document.id, snapshot.id).sourceBinding
+    assert.equal(await readFile(binding.sourcePath, 'utf8'), pdfBytes)
+  } finally {
+    release.resolve()
+    await failing
+    f.app.records.insertDocument = original
+  }
+  assert.deepEqual(f.app.records.listDocuments(), [])
+  assert.equal(await readFile(binding.sourcePath, 'utf8'), pdfBytes)
+  assert.equal((await managedSources(f.directory)).length, 1)
+  assert.deepEqual(await importWork(f.directory), [])
+  await other.dispose()
+  other = await createApp(config)
+  const exported = await other.tasks.exportDocument(document.id,
+    { targetLang: 'zh-CN', onMissingAccepted: 'skip', outputs: [{ format: 'pdf' }] })
+  const task = await other.tasks.wait(exported.taskId)
+  assert.equal(task.state, 'succeeded', task.error?.message)
+})
+
+test('store-owned sources remain stable across restart and same-store reimport', async t => {
+  const f = await fixture(t, 'normal', true)
+  const file = { format: 'pdf', path: f.source }
+  const options = { sourceId: 'pdf:stable-owner', language: 'en' }
+  const first = await f.app.records.importDocument(file, options)
+  const sources = await managedSources(f.directory)
+  await f.restart()
+  const again = await f.app.records.importDocument(file, options)
+  assert.equal(again.deduplicated, true)
+  assert.equal(again.document.id, first.document.id)
+  assert.deepEqual(await managedSources(f.directory), sources)
+})
+
+test('legacy shared-source snapshots survive new import cleanup and restart', async t => {
+  const f = await fixture(t)
+  const adapter = f.app.parse.adapters.get('babeldoc')
+  const { parse, import: importSource } = adapter
+  let legacyPath
+  // Create a record with the pre-fix digest-only binding via the normal records
+  // persistence path, including its fingerprint and frozen binding digests.
+  adapter.import = undefined
+  adapter.parse = async file => {
+    const parsed = await parse(file)
+    legacyPath = join(dirname(parsed.sourceBinding.sourcePath), `${parsed.sourceBinding.sourceDigest}.pdf`)
+    await rename(parsed.sourceBinding.sourcePath, legacyPath)
+    return { ...parsed, sourceBinding: { ...parsed.sourceBinding, sourcePath: legacyPath } }
+  }
+  let document
+  try {
+    ;({ document } = await f.app.records.importDocument({ format: 'pdf', path: f.source },
+      { sourceId: 'pdf:legacy', language: 'en' }))
+  } finally { adapter.parse = parse; adapter.import = importSource }
+  const snapshot = await f.app.records.createSnapshot(document.id,
+    { targetLang: 'zh-CN', onMissingAccepted: 'skip' })
+  await assert.rejects(f.app.records.importDocument({ format: 'pdf', path: f.source },
+    { sourceId: 'pdf:new-failure', language: 'en' }, { taskId: 'missing-task' }))
+  assert.deepEqual(await managedSources(f.directory), [legacyPath.split(/[\\/]/).at(-1)])
+  await f.restart()
+  const binding = f.app.records.resolveSnapshot(document.id, snapshot.id).sourceBinding
+  assert.equal(binding.sourcePath, legacyPath)
+  assert.equal(await readFile(legacyPath, 'utf8'), pdfBytes)
+  const exported = await f.app.tasks.exportDocument(document.id,
+    { targetLang: 'zh-CN', snapshotId: snapshot.id, outputs: [{ format: 'pdf' }] })
+  const task = await f.app.tasks.wait(exported.taskId)
+  assert.equal(task.state, 'succeeded', task.error?.message)
 })
 
 test('startup marks an interrupted running import failed without resuming it', async t => {
