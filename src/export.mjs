@@ -61,11 +61,17 @@ export class Exporter extends Service {
         // Deliberately unbound: adapters get data and format only, no service object.
         const rebuild = adapters[index].rebuild
         signal?.throwIfAborted()
-        const content = await rebuild(frozen, Object.freeze({ format: outputs[index].format,
+        const rendered = await rebuild(frozen, Object.freeze({ format: outputs[index].format,
           ...(signal ? { signal } : {}) }))
         signal?.throwIfAborted()
+        const wrapped = rendered !== null && typeof rendered === 'object' && !Buffer.isBuffer(rendered)
+        const content = wrapped ? rendered.content : rendered
+        const warnings = wrapped ? rendered.warnings ?? [] : []
         if (typeof content !== 'string' && !Buffer.isBuffer(content)) {
           throw new KernelError('INTERNAL', `Output ${adapters[index].id} returned invalid content`)
+        }
+        if (!Array.isArray(warnings) || !warnings.every(value => typeof value === 'string')) {
+          throw new KernelError('INTERNAL', `Output ${adapters[index].id} returned invalid warnings`)
         }
         await mkdir(dirname(paths[index]), { recursive: true })
         try {
@@ -79,6 +85,7 @@ export class Exporter extends Service {
           signal?.throwIfAborted()
           artifacts.push(await this.records.addArtifact(docId, {
             snapshotId: snapshot.id, targetLang, format: outputs[index].format, path: paths[index],
+            ...(warnings.length ? { warnings } : {}),
             ...(taskId ? { taskId, outputIndex: outputIndex + index } : {}),
           }))
         } catch (error) {
@@ -86,7 +93,8 @@ export class Exporter extends Service {
           throw error
         }
       }
-      return { snapshotId: snapshot.id, artifacts }
+      return { snapshotId: snapshot.id, artifacts,
+        warnings: artifacts.flatMap(artifact => artifact.warnings ?? []) }
     } catch (error) {
       // Any earlier successful format remains discoverable rather than lost.
       if (artifacts.length) {

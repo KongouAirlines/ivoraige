@@ -11,7 +11,8 @@ assert.ok(input && python && output, 'Provide PDF, Python executable and an empt
 const work = resolve(output)
 await mkdir(work, { recursive: true })
 const config = { store: join(work, 'records.sqlite'), pdf: {
-  command: resolve(python), args: [sidecar ? resolve(sidecar) : fileURLToPath(new URL('../sidecars/babeldoc/server.py', import.meta.url))],
+  command: /[\\/]/.test(python) ? resolve(python) : python,
+  args: [sidecar ? resolve(sidecar) : fileURLToPath(new URL('../sidecars/babeldoc/server.py', import.meta.url))],
   options: { workDir: join(work, 'engine') }, timeoutMs: 600_000,
 } }
 let app = await createApp(config)
@@ -29,7 +30,8 @@ async function exportSnapshot(docId, options, label) {
     bytes[artifact.format] = await readFile(artifact.path)
     await writeFile(join(work, `${label}.${artifact.format}`), bytes[artifact.format])
   }
-  report.exports.push({ label, snapshotId: submitted.snapshotId, modelRequests: task.stats.llmCalls })
+  report.exports.push({ label, snapshotId: submitted.snapshotId, modelRequests: task.stats.llmCalls,
+    warnings: task.warnings ?? [] })
   return { snapshotId: submitted.snapshotId, bytes }
 }
 try {

@@ -4,8 +4,12 @@ import { mkdtemp, readFile, realpath, rm, writeFile, readdir, rename, symlink, c
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, isAbsolute, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Service } from '../dist/dsh.mjs'
+import { Context, Service } from '../dist/dsh.mjs'
 import { createApp } from '../src/app.mjs'
+import { Parse } from '../src/parse.mjs'
+import { Outputs } from '../src/outputs.mjs'
+import { SettingsPages } from '../src/settings-pages.mjs'
+import { Pdf } from '../src/adapters/pdf.mjs'
 
 const engine = fileURLToPath(new URL('./fixtures/pdf-engine.mjs', import.meta.url))
 const pdfBytes = '%PDF-FAKE-IMPORT-TASK\n'
@@ -382,6 +386,47 @@ test('moved store resolves a saved owned binding within its new managed root', a
   } finally {
     if (app) await app.dispose()
     await rm(original, { recursive: true, force: true })
+    await rm(moved, { recursive: true, force: true })
+  }
+})
+
+test('direct PDF mount imports and replays from a relative custom directory after relocation', async () => {
+  const first = await mkdtemp(join(tmpdir(), 'ivoraige-direct-pdf-'))
+  const moved = await mkdtemp(join(tmpdir(), 'ivoraige-direct-moved-'))
+  const basenameOfRoot = 'custom-pdf-cache'
+  const directory = join(first, basenameOfRoot)
+  const movedDirectory = join(moved, basenameOfRoot)
+  const mount = async (root, storePath) => {
+    const ctx = new Context()
+    await ctx.plugin(SettingsPages)
+    await ctx.plugin(Outputs)
+    await ctx.plugin(Parse)
+    await ctx.plugin(Pdf, { directory: relative(process.cwd(), root), storePath,
+      command: process.execPath, args: [engine], timeoutMs: 2000 })
+    return ctx
+  }
+  let initial, relocated
+  try {
+    initial = await mount(directory, join(first, 'records.sqlite'))
+    const parsed = await initial.get('ivoraige.parse').parse({ format: 'pdf', content: Buffer.from(pdfBytes) })
+    assert.equal(isAbsolute(parsed.sourceBinding.sourcePath), true)
+    assert.equal(dirname(parsed.sourceBinding.sourcePath), join(directory, 'sources'))
+    const frozen = { document: { id: 'direct-mount' }, sourceBinding: parsed.sourceBinding,
+      snapshot: { id: 'direct-snapshot' },
+      units: parsed.units.map(unit => ({ unit, text: unit.sourceText })) }
+    const originalOutput = await initial.get('ivoraige.outputs').get('pdf').rebuild(frozen)
+    assert.match(originalOutput.content.toString(), /^%PDF-FAKE-TEST/)
+    await initial.fiber.dispose(); initial = null
+    await cp(directory, movedDirectory, { recursive: true })
+    await rm(parsed.sourceBinding.sourcePath)
+    relocated = await mount(movedDirectory, join(moved, 'records.sqlite'))
+    const movedOutput = await relocated.get('ivoraige.outputs').get('pdf').rebuild(frozen)
+    assert.deepEqual(movedOutput, originalOutput)
+    assert.equal(frozen.sourceBinding.sourcePath, parsed.sourceBinding.sourcePath)
+  } finally {
+    if (initial) await initial.fiber.dispose()
+    if (relocated) await relocated.fiber.dispose()
+    await rm(first, { recursive: true, force: true })
     await rm(moved, { recursive: true, force: true })
   }
 })

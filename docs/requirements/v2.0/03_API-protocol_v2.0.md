@@ -103,6 +103,7 @@ interface Task {
   error?: { stage: string; unitId?: Id; message: string };
   stats: TaskStats;                     // 见下
   artifacts: Artifact[];
+  warnings?: string[];                  // 已完成导出产物的非阻断提示，持久化且重启后可查
   label?: string;                        // 导入完成前标识来源
   result?: { document: Document; deduplicated: boolean; warnings: string[] }; // 成功的导入任务
   createdAt: ISODate; updatedAt: ISODate;
@@ -117,6 +118,7 @@ interface TaskStats {
 interface Artifact {
   id: Id; docId: Id; targetLang: string; format: string; path: string;
   snapshotId: Id; revisionSetHash: string; createdAt: ISODate;
+  warnings?: string[];                  // 对应本次输出的质量诊断，不改变冻结快照
 }
 
 interface ExportSnapshot {
@@ -251,7 +253,7 @@ interface RagChunk {
 | `task.paused` / `task.resumed` | `{ taskId, cursor? }` | — |
 | `task.failed` | `{ taskId, stage, unitId?, message }` | 失败即终态 |
 | `task.canceled` | `{ taskId }` | — |
-| `task.succeeded` | `{ taskId, artifacts: Artifact[], stats: TaskStats }` | 摘要区持久展示的数据源 |
+| `task.succeeded` | `{ taskId, artifacts: Artifact[], stats: TaskStats, warnings?: string[] }` | 摘要区持久展示的数据源；导出提示也可从 Task／Artifact 查询 |
 | `settings.pages.changed` | `{ settingsPages: { id, label, order }[] }` | 设置插件页面挂载或卸载时发出；客户端重新读取 `/api/capabilities`，刷新可用导航和组件状态。新连接仍以 capabilities 为准 |
 
 断线重连协议：客户端先 `GET /api/tasks/{id}` 拉快照，再续订 SSE；服务端不重放历史事件（快照即真相），只在响应头给 `X-Event-Id` 供日志对齐。
@@ -301,6 +303,8 @@ resources：`ivoraige://docs/{docId}`、`ivoraige://docs/{docId}/units/{unitId}?
 | `shutdown` | `{}` | — | 内核退出/释放时调用 |
 
 通知：`{"method":"progress","params":{"stage","done","total"}}` → 映射为 `task.progress` 事件。
+
+当前 BabelDOC `rebuild` 响应的 `evidence.warnings: string[]` 经输出适配器传给内核，随成功写入的 `Artifact.warnings` 和 `Task.warnings` 原子持久化；`task.succeeded` 事件也携带提示。CLI 的任务 JSON、HTTP 任务／产物查询及 WebUI 任务／产物提示均可读取，重启后保留。提示不使任务失败，不改写快照。内核输出适配器兼容原有字符串／Buffer 返回值，也接受 `{ content: string | Buffer, warnings?: string[] }`，没有提示的文本输出无需变更。
 
 BabelDOC `rebuild` 的冻结单位中，进入翻译回调的单位接受 `revision` 或 `skip` 决策；`skip` 的 `text` 必须等于绑定的原始请求文本，回放保留原文而不补译。未进入回调的单位仍要求 `keepOriginal`。这些决策继续参与来源与占位符完整性检查。
 

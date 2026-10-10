@@ -65,6 +65,28 @@ test('unresolved PDF displays preserve tokens and allow import and all frozen ou
   assert.equal(json.units[0].text, '结果 <b1> 一。')
 })
 
+test('PDF rebuild warnings survive export checkpoints and restart', async t => {
+  const f = await fixture(t, 'warning-rebuild')
+  const doc = await imported(f)
+  await accept(f.app, doc.id, ['结果 <b1> 一。', '结果 <b1> 二。'])
+  const events = []
+  const unsubscribe = f.app.tasks.subscribe(event => events.push(event))
+  const result = await exported(f.app, doc.id, { targetLang: 'zh-CN', outputs })
+  unsubscribe()
+  const warning = 'PDF text extraction did not verify formula on page 1'
+  assert.deepEqual(result.artifacts.pdf.warnings, [warning])
+  assert.equal(result.artifacts.md.warnings, undefined)
+  assert.deepEqual(result.task.warnings, [warning])
+  assert.deepEqual(events.find(event => event.type === 'task.succeeded' &&
+    event.data.taskId === result.task.id)?.data.warnings, [warning])
+  assert.deepEqual((await f.app.operations.invoke('getTask', { taskId: result.task.id })).task.warnings, [warning])
+  await f.restart()
+  assert.deepEqual((await f.app.tasks.get(result.task.id)).warnings, [warning])
+  assert.deepEqual(f.app.records.listArtifacts(doc.id).find(item => item.id === result.artifacts.pdf.id).warnings,
+    [warning])
+  assert.deepEqual((await f.app.operations.invoke('getTask', { taskId: result.task.id })).task.warnings, [warning])
+})
+
 test('a legacy unresolved mapping does not prevent translation and frozen export after restart', async t => {
   const f = await fixture(t)
   const adapter = f.app.parse.adapters.get('babeldoc')

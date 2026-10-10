@@ -41,6 +41,8 @@ node src/cli.mjs --url http://127.0.0.1:8787 export DOC_ID --target-lang zh-CN -
 
 ## 当前验收边界
 
+导出警告显示在 WebUI 任务和产物列表中，也可用 CLI `task TASK_ID --json` 或 HTTP 的任务／产物接口查看 `warnings`。这些提示随产物持久化，重启后仍可查询；例如公式显示回退或 PDF 提取文本未匹配，导出可正常完成，但建议人工检查页面。
+
 取消导入会停止捕获；中断且未提交的导入需重新上传，不能暂停后续传。重启会核对已经提交的文档并恢复导入结果。取消导出不会删除此前已完成的格式产物，其他格式可从同一快照重新导出。组件修复或配置更改后请重启服务，再进行 PDF 处理。
 
 公式占位符必须保留原顺序。导入按来源位置关联回调与引擎 payload；能唯一对齐原文时使用对齐得到的显示内容，否则使用 BabelDOC 的公式字符、富文本成对 token 的空显示，未知 token 保留字面形式。回退会在文档警告中列出页码、位置和 token，不会阻止导入或翻译。旧记录的 null／缺失显示在回放诊断中也保留字面 token。回放仍核对来源请求和 token 顺序；`skip` 必须逐字使用来源请求。BabelDOC 可能缩写连续标点，PDF 文本提取未匹配时会在导出证据中提示目检，不据此判定导出失败。当前没有手工修改来源绑定的界面。
@@ -53,9 +55,10 @@ Windows 原生组件与原创样本的实测记录在 [PDF 实施计划](pdf.md)
 
 ## 开发回归样本
 
-公式专项验收使用原创样本和人工修订，不需要配置模型。准备 PDF 组件后，用带 ReportLab 的 Python 生成样本，再运行：
+公式专项验收使用原创样本和人工修订，不需要配置模型。准备 PDF 组件后，给用于生成样本的开发 Python 安装 ReportLab（仅样本生成需要，不属于 sidecar 运行时依赖），再运行：
 
 ```powershell
+python -m pip install reportlab
 python scripts/pdf-formula-sample.py evaluation/runs/pdf-formula-0.1.0/original.pdf
 node scripts/pdf-formula-acceptance.mjs evaluation/runs/pdf-formula-0.1.0/original.pdf evaluation/runs/pdf-runtime/.venv/Scripts/python.exe evaluation/runs/pdf-formula-0.1.0/check-1
 & evaluation/runs/pdf-runtime/.venv/Scripts/python.exe scripts/pdf-formula-verify.py evaluation/runs/pdf-formula-0.1.0/check-1
