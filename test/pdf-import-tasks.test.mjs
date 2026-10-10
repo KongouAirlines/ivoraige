@@ -391,8 +391,10 @@ test('moved store resolves a saved owned binding within its new managed root', a
 })
 
 test('direct PDF mount imports and replays from a relative custom directory after relocation', async () => {
-  const first = await mkdtemp(join(tmpdir(), 'ivoraige-direct-pdf-'))
-  const moved = await mkdtemp(join(tmpdir(), 'ivoraige-direct-moved-'))
+  // macOS tmpdir can use /var, an alias for /private/var. Like createApp,
+  // mount under a canonical owner root; this test varies relative path/name.
+  const first = await realpath(await mkdtemp(join(tmpdir(), 'ivoraige-direct-pdf-')))
+  const moved = await realpath(await mkdtemp(join(tmpdir(), 'ivoraige-direct-moved-')))
   const basenameOfRoot = 'custom-pdf-cache'
   const directory = join(first, basenameOfRoot)
   const movedDirectory = join(moved, basenameOfRoot)
