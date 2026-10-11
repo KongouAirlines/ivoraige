@@ -97,3 +97,37 @@ PR #7 已合并，修复基于 `main` 的 `a683f9b308fedc6de19068d11a32e43a7d4dc
 Windows / Node 26.7.0：完整 `npm test` 185/185 通过；最终 PDF 导入、回放及设置注册定向测试 31/31 通过；`npm run smoke:package` 通过。以 `1044dc4` 的修复前适配器运行新增恢复／旧快照／搬迁测试，3 项均出现预期失败。测试使用模拟 sidecar；本段不构成真实 BabelDOC 或三平台发行验收。新增真实模型调用为 0，恢复后的冻结导出任务调用为 0。
 
 公式映射和 tracker payload 属于不同的捕获／回放问题，见 [Issue #11](https://github.com/KongouAirlines/ivaraige/issues/11)，另建分支处理。
+
+## Issue #11：公式与回放接续（2026-10-08，待合入）
+
+分支 `codex/0.1.0-pdf-formula-replay` 基于 PR #10 的 `26087a4`，该基线已合并 PR #9 后的 main/fde5ec8。跟踪 [pdf-formula-replay](../follow-ups/pdf-formula-replay.md) 与 [pdf-sidecar-work-cleanup](../follow-ups/pdf-sidecar-work-cleanup.md)。
+
+- 完成后的 tracker 数据按来源位置关联到回调，避免我们过早复制而丢失公式 payload。初版曾要求显示映射唯一并提前拒绝不完整记录，后按用户要求调整为下述兼容策略。
+- 初版曾在 BabelDOC 排版前恢复接受投影以绕过连续标点缩短；该补丁已撤除，上游解析和排版行为不属于本项目修复范围。
+- Node 为每次 sidecar 启动管理专属工作目录；Windows 取消时终止进程树并等待退出，随后清理。真实测试还发现 BabelDOC 的原件句柄会留在对象循环中；在单次调用边界显式关闭该次通过 high_level.Document 打开的原件，避免全局强制垃圾回收及 Windows EBUSY。
+
+初版 `c4829c7` 验证结果（以下为调整前的历史证据）：Windows / Node 26.7.0 完整 Node 测试 **190/190**，Python 标准库测试 **13/13**，package smoke 通过。Python 回归已加入三平台 CI（不安装 BabelDOC 权重）。
+
+真实 BabelDOC 0.6.4／PyMuPDF 1.26.7 原创两页样本：**14 个单位、12 个可译、2 个带 formula payload 的记录**；包含行内公式、同页重复句及双栏。人工接受修订后完成 skip、PDF／MD／JSON 同快照输出、SQLite 重启及后续编辑后的旧快照重放。新增真实模型调用 **0**，三个导出任务各为 **0**；本轮没有配置翻译提供方。MD／JSON 重放字节一致；PDF 提取文本一致，两页渲染 PNG 分别与重放逐字节一致。四个重复句用不同人工文字标记，其实际输出坐标与对应来源位置相符；连续 20 个句点保留。两页已目检，未见裁切、错列或遮挡，长译文完整。常驻进程关闭后 engine 与 pdf/work 目录为空。
+
+本机证据：`evaluation/runs/pdf-formula-0.1.0/run-6/report.json`、`captured.json`、`text-layout-checks.json` 及相邻 PDF/PNG。复现脚本是 `scripts/pdf-formula-sample.py`（开发依赖 ReportLab）、`scripts/pdf-formula-acceptance.mjs` 和 `scripts/pdf-formula-verify.py`；运行产物保持忽略。
+
+真实采样另外发现部分源行拆分的覆盖问题，已登记 [pdf-partial-line-coverage](../follow-ups/pdf-partial-line-coverage.md)。上述公式验收不代表所有 PDF 结构、富文本真实排版、OCR、双语或三平台原生 PDF 打包通过。
+
+### 兼容策略调整（2026-10-08）
+
+按用户要求，仅修复本项目接入时机、来源关联及资源生命周期的问题，不修补 BabelDOC 自身的解析／排版。显示映射能直接确定时使用原文，否则使用引擎 payload；仍未知则保留 token 并记录位置提示。旧记录缺少显示元数据也可继续翻译和导出。来源与请求错配、占位符删改仍属于本项目回放完整性错误。
+
+撤除通用任务层的 PDF 前置扫描、显示映射失败门槛及 BabelDOC 标点缩短补丁。PDF 提取文本与接受文本不同仅记录诊断，不阻止输出；冻结快照和传给引擎的文本不变，MD／JSON 使用同一快照，但不承诺引擎排版后的逐字符一致。
+
+调整后 Windows 验证：Node **190/190**、Python **12/12**；真实 BabelDOC 再跑原创两页样本，14 单位、2 个公式 payload，skip／人工接受／三格式冻结导出／重启后编辑并重放均完成，新增模型请求及每次导出均为 **0**。MD／JSON 重放字节一致，PDF 提取文本一致，四处重复句输出位置正确。连续 20 个句点被 BabelDOC 缩短，12 个回调单位中该项提取核对不匹配，但 PDF 正常输出；其余 11 项匹配。两页渲染已目检，公式及双栏可见，未见裁切或遮挡。证据在 `evaluation/runs/pdf-formula-0.1.0/run-7/`；这验证了兼容流程，不构成上游解析质量保证。该轮未重复未改动的打包烟测。
+
+### PR #10／#12 堆栈审阅修正（2026-10-11，待合入）
+
+按用户安排，PR #10 保持原提交，两个路径契约问题转入 PR #12：PDF 插件构造时规范化相对目录，导出校验使用配置的目录名，允许自定义名称并继续支持来源搬迁。定向回归直接挂载插件，导入后搬迁并移除旧来源，再用旧冻结绑定重放。
+
+PR #12 的导出提示此前只存在于 Python 响应中，Node 丢弃了它。本次将 `evidence.warnings` 经通用输出适配器保存到产物、任务及完成事件，WebUI 任务／产物列表显示，CLI 任务 JSON 与 HTTP 查询可读。回归确认提示不阻断三格式输出、不会污染无提示格式、重启后仍保留。旧字符串／Buffer 输出适配器继续兼容，没有引入模型访问或 PDF 专用任务逻辑。
+
+验收脚本支持 PATH 中的 Python 裸命令，指南补充仅样本生成需要的 `python -m pip install reportlab`。Windows 完整 `npm test` **192/192** 通过（包含构建）；本轮未修改 Python 解析逻辑。来源打开竞态仅登记 [pdf-source-open-race](../follow-ups/pdf-source-open-race.md)，未增加复制或哈希开销。
+
+真实 BabelDOC 使用 PATH 裸命令 `python.exe` 完成两页／14 单位的捕获、skip、人工接受和重启后旧快照重放。三个导出任务均保留第 1 页标点单位的目检提示，全部成功，新增模型请求 **0**；MD／JSON 重放字节一致、PDF 提取文本一致、四处重复句坐标核对通过。本轮未重复页面渲染目检；证据为 `evaluation/runs/pdf-formula-0.1.0/run-8/report.json` 和 `text-layout-checks.json`。真实引擎未再次出现警告丢失。

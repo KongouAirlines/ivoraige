@@ -12,7 +12,7 @@ const fail = message => { throw new KernelError('PRECONDITION_FAILED', message) 
 // This runtime owns files and a subprocess only. It has no Cordis context or model access.
 class PdfRuntime {
   constructor({ directory, storePath, ...config }) {
-    this.directory = directory
+    this.directory = resolve(directory)
     // The canonical store is exclusively locked for this runtime's lifetime.
     // Different databases may share the PDF directory, but must never share a
     // newly published file: cleanup can only inspect this store's references.
@@ -63,7 +63,8 @@ class PdfRuntime {
     const { sourcePath, sourceDigest } = binding
     if (typeof sourceDigest !== 'string' || !/^[a-f0-9]{64}$/.test(sourceDigest) ||
         typeof sourcePath !== 'string' || !isAbsolute(sourcePath) ||
-        basename(dirname(sourcePath)) !== 'sources' || basename(dirname(dirname(sourcePath))) !== 'pdf') {
+        basename(dirname(sourcePath)) !== 'sources' ||
+        basename(dirname(dirname(sourcePath))) !== basename(this.directory)) {
       fail('PDF source binding has an invalid managed path')
     }
     const savedName = basename(sourcePath)
@@ -209,7 +210,7 @@ class PdfRuntime {
       if (result?.path !== out) fail('PDF component returned an unexpected output path')
       const content = await readFile(out)
       if (!content.subarray(0, 1024).includes(Buffer.from('%PDF-'))) fail('PDF component returned invalid output')
-      return content
+      return { content, warnings: result.evidence?.warnings ?? [] }
     } finally { await rm(temporary, { recursive: true, force: true }) }
   }
 }

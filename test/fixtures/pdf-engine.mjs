@@ -13,6 +13,7 @@ const records = units.map(unit => ({
   order: unit.order, requestText: sourceText, page: unit.locator.page,
   placeholders: [{ token: '<b1>', text: 'E = mc²' }],
 }))
+if (mode === 'unresolved-mapping') records[0].placeholders[0].text = null
 
 for await (const line of createInterface({ input: process.stdin })) {
   const { id, method, params } = JSON.parse(line)
@@ -43,7 +44,9 @@ for await (const line of createInterface({ input: process.stdin })) {
       units: frozen.units.map(({ unit, text }) => ({ order: unit.order, page: unit.locator.page, text })) })
     // Deliberately fake PDF bytes: this fixture tests transport and frozen data flow.
     await writeFile(params.out, `%PDF-FAKE-TEST\n${body}\n`)
-    reply(id, { path: params.out })
+    reply(id, { path: params.out, ...(mode === 'warning-rebuild' ? {
+      evidence: { warnings: ['PDF text extraction did not verify formula on page 1'] },
+    } : {}) })
   } else if (method === 'shutdown') {
     reply(id, {})
     process.exit(0)

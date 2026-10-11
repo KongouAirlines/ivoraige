@@ -103,6 +103,7 @@ interface Task {
   error?: { stage: string; unitId?: Id; message: string };
   stats: TaskStats;                     // 见下
   artifacts: Artifact[];
+  warnings?: string[];                  // 已完成导出产物的非阻断提示，持久化且重启后可查
   label?: string;                        // 导入完成前标识来源
   result?: { document: Document; deduplicated: boolean; warnings: string[] }; // 成功的导入任务
   createdAt: ISODate; updatedAt: ISODate;
@@ -117,6 +118,7 @@ interface TaskStats {
 interface Artifact {
   id: Id; docId: Id; targetLang: string; format: string; path: string;
   snapshotId: Id; revisionSetHash: string; createdAt: ISODate;
+  warnings?: string[];                  // 对应本次输出的质量诊断，不改变冻结快照
 }
 
 interface ExportSnapshot {
@@ -251,7 +253,7 @@ interface RagChunk {
 | `task.paused` / `task.resumed` | `{ taskId, cursor? }` | — |
 | `task.failed` | `{ taskId, stage, unitId?, message }` | 失败即终态 |
 | `task.canceled` | `{ taskId }` | — |
-| `task.succeeded` | `{ taskId, artifacts: Artifact[], stats: TaskStats }` | 摘要区持久展示的数据源 |
+| `task.succeeded` | `{ taskId, artifacts: Artifact[], stats: TaskStats, warnings?: string[] }` | 摘要区持久展示的数据源；导出提示也可从 Task／Artifact 查询 |
 | `settings.pages.changed` | `{ settingsPages: { id, label, order }[] }` | 设置插件页面挂载或卸载时发出；客户端重新读取 `/api/capabilities`，刷新可用导航和组件状态。新连接仍以 capabilities 为准 |
 
 断线重连协议：客户端先 `GET /api/tasks/{id}` 拉快照，再续订 SSE；服务端不重放历史事件（快照即真相），只在响应头给 `X-Event-Id` 供日志对齐。
@@ -302,9 +304,15 @@ resources：`ivoraige://docs/{docId}`、`ivoraige://docs/{docId}/units/{unitId}?
 
 通知：`{"method":"progress","params":{"stage","done","total"}}` → 映射为 `task.progress` 事件。
 
+当前 BabelDOC `rebuild` 响应的 `evidence.warnings: string[]` 经输出适配器传给内核，随成功写入的 `Artifact.warnings` 和 `Task.warnings` 原子持久化；`task.succeeded` 事件也携带提示。CLI 的任务 JSON、HTTP 任务／产物查询及 WebUI 任务／产物提示均可读取，重启后保留。提示不使任务失败，不改写快照。内核输出适配器兼容原有字符串／Buffer 返回值，也接受 `{ content: string | Buffer, warnings?: string[] }`，没有提示的文本输出无需变更。
+
 BabelDOC `rebuild` 的冻结单位中，进入翻译回调的单位接受 `revision` 或 `skip` 决策；`skip` 的 `text` 必须等于绑定的原始请求文本，回放保留原文而不补译。未进入回调的单位仍要求 `keepOriginal`。这些决策继续参与来源与占位符完整性检查。
 
-错误：JSON-RPC error 对象的 `code` 自定义区间 `-32001` 解析失败、`-32002` 权重缺失、`-32003` 重建失败；内核映射为 `UPSTREAM_FAILURE`/`COMPONENT_MISSING`。
+BabelDOC `parse` 按来源位置关联回调与完成后的 tracker payload；tracker 缺失或请求不一致时不关联 payload，并记录警告。占位符显示优先采用可唯一确定的原文对齐；否则使用 BabelDOC 公式 `formula_chars`、富文本成对 token 的空显示，未知 token 保留其字面形式，并以页码、位置及 token 记录回退警告。映射不确定不阻止导入或翻译。`rebuild` 对照原始引擎请求校验占位符顺序，与持久化显示映射是否完整无关；旧记录的 null／缺失显示按字面 token 用于可读诊断。回放遵循 BabelDOC 自身的文本处理，包括连续标点缩写。输出文本核对包含公式展开文本；页级提取缺失只作为未验证证据和目检提示，不阻止 PDF 输出，也不能代替布局验收。来源位置、请求文本及冻结决策不匹配仍须拒绝。
+
+内核为每次 sidecar 启动创建独占临时目录，通过 `configure.options.workDir` 传入。用户配置的 workDir 是这些目录的父目录。取消／关闭等待子进程退出后只清理该专属目录；不会删除工作根或扫描其他会话。父进程被强杀、断电后的历史残留回收不属于当前保证。
+
+错误：JSON-RPC error 对象的 `code` 自定义区间 `-32001` 解析失败、`-32002` 权重缺失、`-32003` 重建失败；内核映射为 `UPSTREAM_FAILURE`/`COMPONENT_MISSING`。`-32001` 或 `-32003` 携带 `data.code=PRECONDITION_FAILED` 时映射为同名内核错误。
 
 当前 BabelDOC sidecar 以单独 Python 3.13 环境运行，通过 `--pdf-config` 显式装配；PDF 组件首次操作时验证，缺失不妨碍文本工作台启动。进程常驻复用，崩溃后单个请求最多重新启动一次，仍失败则任务 failed。MinerU 与 BabelDOC **分两个 sidecar 可执行文件**（解析与重建独立缺失、独立升级）是后续目标。当前只开放 BabelDOC 原生文本捕获与单语 PDF 回放；双语格式不是已公布能力。
 

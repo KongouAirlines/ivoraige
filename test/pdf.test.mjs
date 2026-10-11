@@ -54,6 +54,71 @@ async function exported(app, docId, options) {
 
 const outputs = [{ format: 'pdf' }, { format: 'md' }, { format: 'json' }]
 
+test('unresolved PDF displays preserve tokens and allow import and all frozen outputs', async t => {
+  const f = await fixture(t, 'unresolved-mapping')
+  const doc = await imported(f)
+  await accept(f.app, doc.id, ['结果 <b1> 一。', '结果 <b1> 二。'])
+  const result = await exported(f.app, doc.id, { targetLang: 'zh-CN', outputs })
+  assert.equal(result.task.stats.llmCalls, 0)
+  assert.match(await readFile(result.artifacts.md.path, 'utf8'), /结果 <b1> 一。/)
+  const json = JSON.parse(await readFile(result.artifacts.json.path, 'utf8'))
+  assert.equal(json.units[0].text, '结果 <b1> 一。')
+})
+
+test('PDF rebuild warnings survive export checkpoints and restart', async t => {
+  const f = await fixture(t, 'warning-rebuild')
+  const doc = await imported(f)
+  await accept(f.app, doc.id, ['结果 <b1> 一。', '结果 <b1> 二。'])
+  const events = []
+  const unsubscribe = f.app.tasks.subscribe(event => events.push(event))
+  const result = await exported(f.app, doc.id, { targetLang: 'zh-CN', outputs })
+  unsubscribe()
+  const warning = 'PDF text extraction did not verify formula on page 1'
+  assert.deepEqual(result.artifacts.pdf.warnings, [warning])
+  assert.equal(result.artifacts.md.warnings, undefined)
+  assert.deepEqual(result.task.warnings, [warning])
+  assert.deepEqual(events.find(event => event.type === 'task.succeeded' &&
+    event.data.taskId === result.task.id)?.data.warnings, [warning])
+  assert.deepEqual((await f.app.operations.invoke('getTask', { taskId: result.task.id })).task.warnings, [warning])
+  await f.restart()
+  assert.deepEqual((await f.app.tasks.get(result.task.id)).warnings, [warning])
+  assert.deepEqual(f.app.records.listArtifacts(doc.id).find(item => item.id === result.artifacts.pdf.id).warnings,
+    [warning])
+  assert.deepEqual((await f.app.operations.invoke('getTask', { taskId: result.task.id })).task.warnings, [warning])
+})
+
+test('a legacy unresolved mapping does not prevent translation and frozen export after restart', async t => {
+  const f = await fixture(t)
+  const adapter = f.app.parse.adapters.get('babeldoc')
+  const original = adapter.import
+  // Persist a pre-fix binding through the usual records path (including digests).
+  adapter.import = (file, persist, referenced) => original(file, parsed => {
+    parsed.sourceBinding.records[1].placeholders[0].text = null
+    return persist(parsed)
+  }, referenced)
+  const doc = await imported(f)
+  adapter.import = original
+  await f.restart()
+  let calls = 0
+  class CompatibleModel extends Service {
+    constructor(ctx) { super(ctx, 'ivoraige.translationModel') }
+    async translate() {
+      calls++
+      return { text: '兼容 <b1> 译文。', modelId: 'fixture', promptVersion: 'v1',
+        tokens: { input: null, output: null } }
+    }
+  }
+  await f.app.ctx.plugin(CompatibleModel)
+  const submitted = await f.app.tasks.submit(doc.id, { targetLang: 'zh-CN' })
+  const task = await f.app.tasks.wait(submitted.taskId)
+  assert.equal(task.state, 'succeeded', task.error?.message)
+  assert.equal(calls, 2)
+  const result = await exported(f.app, doc.id, { targetLang: 'zh-CN', outputs })
+  assert.equal(result.task.stats.llmCalls, 0)
+  assert.equal(calls, 2)
+  assert.match(await readFile(result.artifacts.md.path, 'utf8'), /兼容 <b1> 译文。/)
+})
+
 test('PDF bindings persist; PDF, Markdown and JSON share frozen revisions', async t => {
   const f = await fixture(t)
   const doc = await imported(f)

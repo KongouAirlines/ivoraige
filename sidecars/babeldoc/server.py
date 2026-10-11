@@ -71,14 +71,64 @@ def display_span(text: str, flags: int) -> str:
     )
 
 
-def display_mapping(request: str, source: str):
-    """Derive placeholder displays only when literal alignment is unambiguous."""
+def complete_callbacks(calls: list, positions: list) -> None:
+    """Attach tracker data after BabelDOC finishes each located paragraph."""
+    by_key = {}
+    for position in positions:
+        key = position["key"]
+        require(key not in by_key, f"Duplicate BabelDOC callback location: {key}")
+        by_key[key] = position
+    for call in calls:
+        key = call["key"]
+        position = by_key.get(key)
+        require(position is not None, f"BabelDOC callback position missing: {key}")
+        if position.get("preparedInput") != call["requestText"]:
+            call["placeholderPayloads"] = []
+            call["payloadWarning"] = (
+                f"BabelDOC tracker missing or changed request at {key}; "
+                "placeholder payload unavailable"
+            )
+            continue
+        call["preparedInput"] = position["preparedInput"]
+        call["placeholderPayloads"] = position.get("placeholderPayloads", [])
+
+
+def payload_displays(tokens: list, payloads: list):
+    displays = {}
+    ambiguous = set()
+    for payload in payloads:
+        kind = payload.get("type")
+        if kind == "formula":
+            token = payload.get("placeholder")
+            value = payload.get("formula_chars")
+            entries = [(token, value)]
+        elif kind == "rich_text":
+            left = payload.get("left_placeholder")
+            right = payload.get("right_placeholder")
+            entries = [(left, ""), (right, "")]
+        else:
+            continue
+        for token, value in entries:
+            if not isinstance(token, str) or not isinstance(value, str):
+                continue
+            if tokens.count(token) != 1 or token in ambiguous:
+                continue
+            if token in displays:
+                displays.pop(token)
+                ambiguous.add(token)
+            else:
+                displays[token] = value
+    return displays
+
+
+def display_mapping(
+    request: str, source: str, payloads: list | None = None, uncertain: list | None = None
+):
+    """Use unique literal alignment, then BabelDOC payload or visible tokens."""
     tokens = TOKEN_RE.findall(request)
     if not tokens:
         return []
     pieces = TOKEN_RE.split(request)
-    if not source.startswith(pieces[0]):
-        return [{"token": token, "text": None} for token in tokens]
     solutions = []
 
     def walk(index, cursor, values):
@@ -90,7 +140,6 @@ def display_mapping(request: str, source: str):
             return
         anchor = pieces[index + 1]
         if not anchor:
-            # Adjacent placeholders have no unique boundary except at end.
             if index == len(tokens) - 1:
                 walk(index + 1, len(source), values + [source[cursor:]])
             return
@@ -99,12 +148,58 @@ def display_mapping(request: str, source: str):
             walk(index + 1, found + len(anchor), values + [source[cursor:found]])
             found = source.find(anchor, found + 1)
 
-    walk(0, len(pieces[0]), [])
-    if len(solutions) != 1:
-        return [{"token": token, "text": None} for token in tokens]
-    return [
-        {"token": token, "text": value} for token, value in zip(tokens, solutions[0])
-    ]
+    if source.startswith(pieces[0]):
+        walk(0, len(pieces[0]), [])
+    if len(solutions) == 1:
+        return [
+            {"token": token, "text": value}
+            for token, value in zip(tokens, solutions[0])
+        ]
+    known = payload_displays(tokens, payloads or [])
+    mapped = []
+    for token in tokens:
+        value = known.get(token, token)
+        mapped.append({"token": token, "text": value})
+        if uncertain is not None:
+            uncertain.append(f"{token} ({'payload' if token in known else 'literal token'})")
+    return mapped
+
+
+def pdf_text_checks(records: list, page_texts: list[str]) -> list:
+    checks = []
+    for record in records:
+        if not record.get("callback", True):
+            continue
+        page = record["page"]
+        present = (
+            0 <= page < len(page_texts)
+            and normalized_text(record["text"]) in normalized_text(page_texts[page])
+        )
+        checks.append(
+            {"unitId": record["unitId"], "page": page, "present": present,
+             "reason": None if present else "PDF text extraction did not show expanded accepted text; visual review needed"}
+        )
+    return checks
+
+
+def source_document_factory(constructor, source: Path, opened: list):
+    """Track only BabelDOC's handles to this invocation's input file."""
+    source = source.resolve()
+
+    def open_document(*args, **kwargs):
+        document = constructor(*args, **kwargs)
+        if args and isinstance(args[0], (str, Path)):
+            if Path(args[0]).resolve() == source:
+                opened.append(document)
+        return document
+
+    return open_document
+
+
+def close_source_documents(documents: list) -> None:
+    for document in documents:
+        if not document.is_closed:
+            document.close()
 
 
 def unbound_pdf_lines(input_pdf: Path, paragraphs: list, selected_pages: list | None):
@@ -345,7 +440,7 @@ def _run_engine(
     const.get_cache_file_path = cache_path
     from babeldoc.docvision.doclayout import OnnxModel
     from babeldoc.format.pdf.document_il.midend.il_translator import ILTranslator
-    from babeldoc.format.pdf.high_level import translate
+    from babeldoc.format.pdf import high_level
     from babeldoc.format.pdf.translation_config import (
         TranslationConfig,
         WatermarkOutputMode,
@@ -354,6 +449,8 @@ def _run_engine(
 
     original = ILTranslator.translate_paragraph
     original_translate = ILTranslator.translate
+    original_document = high_level.Document
+    source_documents = []
 
     def inventory(self, docs):
         for page in docs.page:
@@ -446,6 +543,9 @@ def _run_engine(
     try:
         ILTranslator.translate_paragraph = located
         ILTranslator.translate = inventory
+        high_level.Document = source_document_factory(
+            original_document, input_pdf, source_documents
+        )
         try:
             page_arg = (
                 ",".join(str(page) for page in config_id["pages"])
@@ -486,9 +586,10 @@ def _run_engine(
             socket.socket.connect = local_only
             try:
                 with redirect_stdout(sys.stderr):
-                    result = translate(config)
+                    result = high_level.translate(config)
             finally:
                 socket.socket.connect = original_connect
+            complete_callbacks(engine.calls, seen)
             if mode == "replay":
                 require(not engine.errors, "; ".join(engine.errors), -32003)
                 require(
@@ -505,40 +606,15 @@ def _run_engine(
                 out_dir.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(result.mono_pdf_path, out_dir / "translated.pdf")
                 with pymupdf.open(out_dir / "translated.pdf") as pdf:
-                    checks = []
-                    for record in records:
-                        if not record.get("callback", True):
-                            continue
-                        target = record["text"]
-                        page_text = normalized_text(pdf[record["page"]].get_text())
-                        has_structural = bool(
-                            TOKEN_RE.search(record["engineProjection"])
-                        )
-                        present = (
-                            None
-                            if has_structural
-                            else normalized_text(target) in page_text
-                        )
-                        checks.append(
-                            {
-                                "unitId": record["unitId"],
-                                "page": record["page"],
-                                "present": present,
-                                "reason": "structural placeholder requires visual review"
-                                if has_structural
-                                else None,
-                            }
-                        )
-                    require(
-                        all(item["present"] is not False for item in checks),
-                        f"Accepted text absent from output PDF: {checks}",
-                        -32003,
+                    checks = pdf_text_checks(
+                        records, [page.get_text() for page in pdf]
                     )
             else:
                 checks = []
         finally:
             ILTranslator.translate_paragraph = original
             ILTranslator.translate = original_translate
+            high_level.Document = original_document
             const.CACHE_FOLDER = old_cache
             const.get_cache_file_path = old_get_cache
             if old_profile is None:
@@ -549,6 +625,7 @@ def _run_engine(
                 os.environ.pop("TIKTOKEN_CACHE_DIR", None)
             else:
                 os.environ["TIKTOKEN_CACHE_DIR"] = old_tiktoken
+            close_source_documents(source_documents)
     finally:
         pass
     require(not engine.errors, "; ".join(engine.errors), -32003)
@@ -609,15 +686,29 @@ def parse(params):
     )
     units = []
     records = []
+    mapping_warnings = []
     called_by_key = {call["key"]: call for call in calls}
     for order, paragraph in enumerate(paragraphs):
         call = called_by_key.get(paragraph["key"])
         source_text = call["requestText"] if call else paragraph["sourceUnicode"]
-        # A raw placeholder token can appear in a source request. The payload
-        # is retained; exact display text must be resolved before acceptance.
+        uncertain = []
         placeholders = (
-            display_mapping(source_text, paragraph["sourceUnicode"]) if call else []
+            display_mapping(
+                source_text,
+                paragraph["sourceUnicode"],
+                call.get("placeholderPayloads", []),
+                uncertain,
+            )
+            if call
+            else []
         )
+        if call and call.get("payloadWarning"):
+            mapping_warnings.append(call["payloadWarning"])
+        if uncertain:
+            mapping_warnings.append(
+                f"PDF placeholder display at page {paragraph['page'] + 1}, "
+                f"{paragraph['key']} used fallback: {', '.join(uncertain)}"
+            )
         unit_id = f"pdf-{order + 1:05d}"
         label = paragraph["layoutLabel"].lower()
         kind = (
@@ -698,10 +789,7 @@ def parse(params):
         warnings.append(
             f"{len(extras)} extractable PDF text line(s) were outside BabelDOC paragraph inventory; retained as original passthrough units"
         )
-    if any(
-        any(p["text"] is None for p in record["placeholders"]) for record in records
-    ):
-        warnings.append("Some structural placeholder display mappings need review")
+    warnings.extend(mapping_warnings)
     return {
         "doc": {
             "format": "pdf",
@@ -773,6 +861,7 @@ def rebuild(params):
         f"PDF replay target language unsupported: {target}",
     )
     records = []
+    display_warnings = []
     for item in raw_records:
         entry = by_order.get(item["order"])
         require(
@@ -799,17 +888,23 @@ def rebuild(params):
                 projection == item["requestText"],
                 f"Skipped source text changed at order {item['order']}",
             )
-        expected = [p["token"] for p in item.get("placeholders", [])]
+        expected = TOKEN_RE.findall(item["requestText"])
         actual = TOKEN_RE.findall(projection)
         require(
             expected == actual, f"Placeholder order mismatch at order {item['order']}"
         )
         if expected:
-            displays = [p.get("text") for p in item["placeholders"]]
-            require(
-                all(isinstance(value, str) for value in displays),
-                f"Placeholder display mapping unresolved at order {item['order']}",
-            )
+            saved = item.get("placeholders") or []
+            displays = []
+            for index, token in enumerate(expected):
+                mapped = saved[index] if index < len(saved) else None
+                if isinstance(mapped, dict) and mapped.get("token") == token and isinstance(mapped.get("text"), str):
+                    displays.append(mapped["text"])
+                else:
+                    displays.append(token)
+                    display_warnings.append(
+                        f"PDF placeholder display unavailable at order {item['order']}, token {token}; retained literal token"
+                    )
             expanded = iter(displays)
             rendered = TOKEN_RE.sub(
                 lambda _token, iterator=expanded: next(iterator), projection
@@ -860,6 +955,10 @@ def rebuild(params):
             "modelRequests": 0,
             "matchedRecords": sum(item.get("callback", True) for item in records),
             "textChecks": checks,
+            "warnings": display_warnings + [
+                f"PDF text extraction did not verify unit {item['unitId']} on page {item['page'] + 1}; visual review needed"
+                for item in checks if not item["present"]
+            ],
             "uncalledParagraphs": sum(
                 item["key"] not in {c["key"] for c in calls} for item in paragraphs
             ),

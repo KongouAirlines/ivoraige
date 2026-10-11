@@ -21,9 +21,10 @@ export function readablePdfText(binding, unit, text) {
   let index = 0
   return text.replace(/<\/?(?:b|i|u|s|f)\d+>/g, token => {
     const replacement = record.placeholders?.[index++]
-    if (replacement?.token !== token || typeof replacement.text !== 'string') {
-      throw new KernelError('PRECONDITION_FAILED', 'PDF placeholder display mapping is unavailable')
-    }
-    return replacement.text
+    if (replacement?.token === token && typeof replacement.text === 'string') return replacement.text
+    // Older bindings may lack display metadata. Preserve the engine token
+    // rather than dropping source content or blocking every output format.
+    const payload = record.placeholderPayloads?.find(item => item.type === 'formula' && item.placeholder === token)
+    return typeof payload?.formula_chars === 'string' ? payload.formula_chars : token
   })
 }

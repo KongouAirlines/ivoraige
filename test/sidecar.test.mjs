@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -156,6 +156,107 @@ test('an aborted active request settles after the child closes', async t => {
   assert.equal(closed, true)
   await sidecar.close()
 })
+
+test('configured work root keeps unrelated files while sidecar sessions are removed', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'ivoraige-work-root-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await writeFile(join(root, 'unrelated'), 'keep')
+  const makeClient = (mode, extras = []) => {
+    const sidecar = new SidecarClient({ command: process.execPath,
+      args: [fixture, mode, ...extras], options: { workDir: root }, timeoutMs: 10_000 })
+    t.after(() => sidecar.close())
+    return sidecar
+  }
+  const owned = () => readdir(root).then(names => names.filter(name => name.startsWith('ivoraige-sidecar-')))
+
+  const normal = makeClient('normal')
+  await normal.request('parse')
+  const normalDir = normal.session.workDir
+  assert.equal(await readFile(join(normalDir, 'sidecar-owned'), 'utf8'), 'configured')
+  await normal.close()
+  await assert.rejects(stat(normalDir), { code: 'ENOENT' })
+
+  const marker = join(root, 'crash-marker')
+  const retry = makeClient('crash-once', [marker])
+  await retry.request('parse')
+  assert.equal((await owned()).length, 1)
+  assert.equal(await readFile(marker, 'utf8'), 'crashed')
+  await retry.close()
+  assert.deepEqual(await owned(), [])
+
+  for (const mode of ['bad-version', 'missing-assets']) {
+    const failed = makeClient(mode)
+    await assert.rejects(failed.request('parse'), { code: 'COMPONENT_MISSING' })
+    await failed.close()
+    assert.deepEqual(await owned(), [])
+  }
+  const missing = new SidecarClient({ command: join(root, 'missing-sidecar.exe'),
+    options: { workDir: root }, timeoutMs: 10_000 })
+  t.after(() => missing.close())
+  await assert.rejects(missing.request('parse'), { code: 'COMPONENT_MISSING' })
+  await missing.close()
+  assert.deepEqual(await owned(), [])
+
+  const hanging = makeClient('hang')
+  const controller = new AbortController()
+  const pending = hanging.request('parse', {}, { signal: controller.signal })
+  const rejected = assert.rejects(pending, error => error.details.canceled === true)
+  const deadline = Date.now() + 5000
+  while (!hanging.capabilities) {
+    if (Date.now() > deadline) throw new Error('Sidecar did not finish configuration')
+    await new Promise(resolve => setTimeout(resolve, 10))
+  }
+  const canceledDir = hanging.session.workDir
+  controller.abort()
+  await rejected
+  await assert.rejects(stat(canceledDir), { code: 'ENOENT' })
+  await hanging.close()
+  assert.deepEqual(await owned(), [])
+  assert.equal(await readFile(join(root, 'unrelated'), 'utf8'), 'keep')
+})
+
+test('pre-aborted request creates no sidecar work directory', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'ivoraige-work-root-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const sidecar = new SidecarClient({ command: process.execPath,
+    args: [fixture], options: { workDir: root } })
+  t.after(() => sidecar.close())
+  const controller = new AbortController()
+  controller.abort()
+  await assert.rejects(sidecar.request('parse', {}, { signal: controller.signal }),
+    error => error.details.canceled === true)
+  assert.deepEqual(await readdir(root), [])
+})
+
+test('Windows cancellation terminates a sidecar descendant before work cleanup',
+  { skip: process.platform !== 'win32' }, async t => {
+    const root = await mkdtemp(join(tmpdir(), 'ivoraige-work-root-'))
+    t.after(() => rm(root, { recursive: true, force: true }))
+    await writeFile(join(root, 'unrelated'), 'keep')
+    const sidecar = new SidecarClient({ command: process.execPath,
+      args: [fixture, 'hang-with-descendant'], options: { workDir: root }, timeoutMs: 10_000 })
+    t.after(() => sidecar.close())
+    const controller = new AbortController()
+    const pending = sidecar.request('parse', {}, { signal: controller.signal })
+    const rejected = assert.rejects(pending, error => error.details.canceled === true)
+    const deadline = Date.now() + 5000
+    let workDir, descendantPid
+    while (!descendantPid) {
+      workDir = sidecar.session?.workDir
+      try { descendantPid = Number(await readFile(join(workDir, 'descendant.pid'), 'utf8')) }
+      catch (error) {
+        if (Date.now() > deadline) throw error
+        await new Promise(resolve => setTimeout(resolve, 10))
+      }
+    }
+    assert.doesNotThrow(() => process.kill(descendantPid, 0))
+    controller.abort()
+    await rejected
+    assert.throws(() => process.kill(descendantPid, 0), { code: 'ESRCH' })
+    await assert.rejects(stat(workDir), { code: 'ENOENT' })
+    assert.equal(await readFile(join(root, 'unrelated'), 'utf8'), 'keep')
+    await sidecar.close()
+  })
 
 test('non-JSON params reject without occupying transport', async t => {
   const sidecar = client(t)

@@ -23,6 +23,7 @@ const taskSchema = z.object({
     reusedUnits: z.number(), reuseRatio: z.number(), tokens: z.record(z.string(),
       z.object({ input: z.number().nullable(), output: z.number().nullable() })) }),
   artifacts: z.array(z.unknown()), createdAt: z.string(), updatedAt: z.string(),
+  warnings: z.array(z.string()).optional(),
   profileId: z.string().optional(), error: z.object({ stage: z.string(), unitId: z.string().optional(), message: z.string(), traceId: z.string().optional() }).optional(),
 })
 const operationTaskSchema = taskSchema.omit({ mode: true, unitIds: true, checkpoints: true, profileId: true })
@@ -71,6 +72,7 @@ const recordSchema = z.object({
     ]) })), revisionSetHash: z.string(), createdAt: z.string() })),
   artifacts: z.array(z.object({ id: z.string(), docId: z.string(), targetLang: z.string(), format: z.string(),
     path: z.string(), snapshotId: z.string(), revisionSetHash: z.string(), createdAt: z.string(),
+    warnings: z.array(z.string()).optional(),
     taskId: z.string().optional(), outputIndex: z.number().optional() })),
   tasks: z.array(taskSchema).optional(),
   operationTasks: z.array(operationTaskSchema).optional(),
@@ -684,16 +686,20 @@ export class Records {
     })
     return clone({ snapshot, document: record.document, sourceBinding: record.sourceBinding, units })
   }
-  async addArtifact(docId, { snapshotId, targetLang, format, path, taskId, outputIndex } = {}) {
+  async addArtifact(docId, { snapshotId, targetLang, format, path, warnings = [], taskId, outputIndex } = {}) {
     await this.ready
     required(language(targetLang) && typeof format === 'string' && format &&
       typeof path === 'string' && path, 'Artifact requires targetLang, format and path')
+    required(Array.isArray(warnings) && warnings.every(value => typeof value === 'string'),
+      'Artifact warnings must be a string array')
     let artifact
     await this.update(docId, current => {
       const snapshot = current.snapshots.find(s => s.id === snapshotId) ?? missing('snapshotId', snapshotId)
       required(snapshot.targetLang === targetLang, 'Snapshot targetLang mismatch')
       artifact = { id: `${docId}.${id()}`, docId, targetLang, format, path, snapshotId,
-        revisionSetHash: snapshot.revisionSetHash, createdAt: now(), ...(taskId ? { taskId, outputIndex } : {}) }
+        revisionSetHash: snapshot.revisionSetHash, createdAt: now(),
+        ...(warnings.length ? { warnings: clone(warnings) } : {}),
+        ...(taskId ? { taskId, outputIndex } : {}) }
       let operationTasks = current.operationTasks
       if (taskId) {
         const task = operationTasks?.find(item => item.id === taskId)
@@ -702,7 +708,9 @@ export class Records {
         if (task.state !== 'running' || task.cursor !== outputIndex) throw new KernelError('CONFLICT', 'Export checkpoint changed')
         operationTasks = operationTasks.map(item => item.id === taskId ? { ...item,
           cursor: item.cursor + 1, progress: { ...item.progress, done: item.cursor + 1 },
-          artifacts: [...item.artifacts, artifact], updatedAt: now() } : item)
+          artifacts: [...item.artifacts, artifact],
+          ...(warnings.length ? { warnings: [...(item.warnings ?? []), ...warnings] } : {}),
+          updatedAt: now() } : item)
       }
       return { ...current, artifacts: [...current.artifacts, artifact], ...(operationTasks ? { operationTasks } : {}) }
     })

@@ -340,7 +340,8 @@ export class Tasks extends Service {
         task = await this.records.updateTask(taskId, current => ({ ...this.withDuration(live, current), state: 'succeeded',
           progress: { ...current.progress, stage: 'complete' }, updatedAt: new Date().toISOString() }))
         this.progress(task, true)
-        this.emit('task.succeeded', { taskId, artifacts: task.artifacts, stats: task.stats })
+        this.emit('task.succeeded', { taskId, artifacts: task.artifacts, stats: task.stats,
+          ...(task.warnings?.length ? { warnings: task.warnings } : {}) })
       }
       this.settle(task)
     } catch (error) {
