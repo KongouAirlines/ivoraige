@@ -7,6 +7,7 @@ process; it has no translation model, credentials, or download path.
 from __future__ import annotations
 
 import json
+import multiprocessing as mp
 import os
 import re
 import shutil
@@ -1045,4 +1046,5 @@ def main():
 
 
 if __name__ == "__main__":
+    mp.freeze_support()
     main()

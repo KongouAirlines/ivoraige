@@ -13,8 +13,18 @@ downloaded assets. The installed BabelDOC 0.6.4 metadata declares
 `AGPL-3.0`; PyMuPDF 1.26.7 declares dual `GNU AFFERO GPL 3.0 or Artifex
 Commercial License`. Before redistributing a bundled sidecar or Python
 dependencies, review the upstream license texts, notices and distribution
-obligations. Independent sidecar packaging and its license review remain a
-later PDF milestone.
+obligations. The Windows installation stage packages a separate PyInstaller
+6.22.3 directory runtime and a separate asset archive. Runtime distribution
+metadata and license files accompany the component; asset provenance and
+full notices are in `sidecars/babeldoc/asset-licenses/`. These artifacts remain
+separate from the base application and are installed only when PDF is selected.
+
+The Windows portable base includes Node.js 26.7.0 and its upstream license
+(`scripts/NODE-LICENSE-v26.7.0.txt`), production npm dependencies and generated
+DSH/WebUI notices. The component installer uses `tar` 7.5.22 under its ISC
+license; its package and transitive notices remain in the production dependency
+tree. Build scripts and pinned lockfiles are included in the source repository;
+private release recipients must retain access to that corresponding source.
 
 The restarted records service now mounts the same pinned DSH storage hub,
 storage-domain and storage-sqlite plugins. SQLite comes from Node's built-in

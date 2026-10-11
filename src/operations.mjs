@@ -6,11 +6,12 @@ import { API_VERSION, validate, paginate, taskView } from './protocol.mjs'
 // The entry layers share this business facade and its parameter/response contract.
 export class Operations extends Service {
   static inject = ['ivoraige.records', 'ivoraige.tasks']
-  constructor(ctx) {
+  constructor(ctx, config = {}) {
     super(ctx, 'ivoraige.operations')
     this.records = ctx.get('ivoraige.records')
     this.tasks = ctx.get('ivoraige.tasks')
     this.modelAdmission = Promise.resolve()
+    this.dataDirectory = config.dataDirectory
   }
   withModelAdmission(callback) {
     const pending = this.modelAdmission.then(callback)
@@ -29,6 +30,11 @@ export class Operations extends Service {
   settings() {
     const service = this.ctx.get('ivoraige.modelSettings')
     if (!service) throw new KernelError('COMPONENT_MISSING', 'Start with a settings directory to configure models')
+    return service
+  }
+  components() {
+    const service = this.ctx.get('ivoraige.components')
+    if (!service) throw new KernelError('COMPONENT_MISSING', 'Component installation is not enabled for this kernel')
     return service
   }
   artifact(artifactId) {
@@ -57,16 +63,24 @@ export class Operations extends Service {
     const r = this.records
     let result
     switch (name) {
+      case 'componentStatus': result = await this.components().status(); break
+      case 'componentCatalog': result = { catalog: await this.components().catalog() }; break
+      case 'componentCredential': result = await this.components().setToken(p.token); break
+      case 'componentInstall': result = await this.components().install(p); break
+      case 'componentLocal': result = await this.components().installLocal({ manifestPath: p.path }); break
+      case 'componentTask': result = { task: await this.components().getTask(p.taskId) }; break
+      case 'componentCancel': result = { task: await this.components().cancel(p.taskId) }; break
       case 'capabilities': {
         const parser = this.ctx.get('ivoraige.parse')
         const components = parser.componentStatus()
         const settingsPages = this.ctx.get('ivoraige.settingsPages')?.list() ?? []
         result = { features: ['documents', 'workbench', 'tasks',
+          ...(this.ctx.get('ivoraige.components') ? ['component-installation'] : []),
           ...(settingsPages.length ? ['settings'] : [])], settingsPages,
           inputFormats: parser.listAdapters().map(id =>
             id === 'markdown' ? 'md' : id === 'babeldoc' ? 'pdf' : id),
           outputFormats: this.ctx.get('ivoraige.outputs').listAdapters(),
-          components }
+          components, dataDirectory: this.dataDirectory }
         break
       }
       case 'importDocument': {

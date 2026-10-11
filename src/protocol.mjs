@@ -12,6 +12,11 @@ const lock = id.nullable()
 const shape = fields => z.object(fields).strict()
 export const parameters = {
   capabilities: shape({}),
+  componentStatus: shape({}), componentCatalog: shape({}),
+  componentCredential: shape({ token: id }),
+  componentInstall: shape({ id: z.literal('babeldoc') }),
+  componentLocal: shape({ path: id }),
+  componentTask: shape({ taskId: id }), componentCancel: shape({ taskId: id }),
   importDocument: shape({ path: id.optional(), contentBase64: z.string().optional(), format: z.enum(['txt', 'md', 'pdf']).optional(),
     title: z.string().optional(), language: lang, sourceId: id.optional(), externalRef: z.string().optional(),
     origin: z.enum(['manual', 'cli', 'mcp', 'zotero']).default('manual') }),

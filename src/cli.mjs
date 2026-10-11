@@ -12,7 +12,8 @@ import { KernelError } from './errors.mjs'
 const usage = `ivoraige [--url URL | --store FILE] [--pdf-config FILE] [--json] COMMAND [arguments] [options]
 Commands: import, documents, units, unit, revisions, edit, accept, unaccept,
   translate, export, snapshots, artifacts, tasks, task, pause, resume, cancel,
-  settings, capabilities, serve, help
+  settings, capabilities, components, serve, help
+Components: status, catalog, credential --token-env NAME, install, local --path MANIFEST, task ID, cancel ID
 Common options: --target-lang LANG, --json, --json-events, --no-wait, --url URL, --store FILE, --pdf-config FILE
 `
 
@@ -22,7 +23,7 @@ function parse(argv) {
   const known = new Set([...boolean, 'url', 'store', 'export-dir', 'settings-dir', 'pdf-config', 'host', 'port', 'static-dir',
     'path', 'format', 'source-id', 'external-ref', 'source-lang', 'title', 'target-lang', 'cursor',
     'limit', 'origin', 'filter', 'text', 'base-revision', 'expected-accepted', 'mode',
-    'units', 'out', 'snapshot', 'on-missing-accepted', 'state', 'kind', 'set', 'ref', 'value'])
+    'units', 'out', 'snapshot', 'on-missing-accepted', 'state', 'kind', 'set', 'ref', 'value', 'token-env'])
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i]
     if (!token.startsWith('--')) { positional.push(token); continue }
@@ -44,6 +45,20 @@ function route(command, args, o) {
   const targetLang = o['target-lang']
   const paging = { cursor: o.cursor, limit: o.limit === undefined ? undefined : Number(o.limit) }
   switch (command) {
+    case 'components': {
+      switch (args[0] ?? 'status') {
+        case 'status': return ['componentStatus', {}, 'GET', '/api/components']
+        case 'catalog': return ['componentCatalog', {}, 'POST', '/api/components/catalog']
+        case 'credential': return ['componentCredential', {
+          token: required(process.env[required(o['token-env'], '--token-env')], 'token environment variable') },
+          'POST', '/api/components/credential']
+        case 'install': return ['componentInstall', { id: 'babeldoc' }, 'POST', '/api/components/install']
+        case 'local': return ['componentLocal', { path: required(o.path, '--path manifest') }, 'POST', '/api/components/local']
+        case 'task': return ['componentTask', { taskId: required(args[1], 'component task ID') }, 'GET', `/api/components/tasks/${args[1]}`]
+        case 'cancel': return ['componentCancel', { taskId: required(args[1], 'component task ID') }, 'POST', `/api/components/tasks/${args[1]}/cancel`]
+        default: throw new KernelError('INVALID_ARGUMENT', 'Unknown components command')
+      }
+    }
     case 'import': return ['importDocument', { path: o.path ?? required(args[0], 'file path'),
       format: o.format, sourceId: o['source-id'], externalRef: o['external-ref'],
       language: required(o['source-lang'], '--source-lang'), title: o.title, origin: 'cli' }, 'POST', '/api/documents/import']
@@ -92,6 +107,7 @@ function route(command, args, o) {
 function clean(value) { return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) }
 function storePath(options) {
   if (options.store ?? process.env.IVORAIGE_STORE) return options.store ?? process.env.IVORAIGE_STORE
+  if (process.env.IVORAIGE_DATA_DIR) return join(process.env.IVORAIGE_DATA_DIR, 'store.sqlite')
   const root = process.platform === 'win32' ?
     (process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local')) :
     (process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'))
@@ -219,6 +235,7 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
       const store = storePath(o)
       await mkdir(dirname(store), { recursive: true })
       app = await createApp({ store, exportDir: o['export-dir'],
+        components: { directory: join(dirname(resolve(store)), 'components') },
         settingsDir: o['settings-dir'] ?? join(dirname(store), 'settings'), pdf: await readPdfConfig(o['pdf-config']) })
       server = await serve(app, { host: o.host ?? '127.0.0.1', port: o.port ? Number(o.port) : 8787,
         staticDir: o['static-dir'] ?? await webDirectory() })
@@ -229,7 +246,9 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
     const [name, params, method, path] = route(command, positional, o)
     const remote = !!o.url
     if (remote && o['pdf-config']) throw new KernelError('INVALID_ARGUMENT', '--pdf-config only applies to a local kernel')
-    const startsTask = ['translate', 'export', 'import'].includes(command)
+    const startsComponent = command === 'components' && ['install', 'local'].includes(positional[0])
+    const startsTask = ['translate', 'export', 'import'].includes(command) || startsComponent
+    if (startsComponent && o['json-events']) throw new KernelError('INVALID_ARGUMENT', 'Component installation uses task polling; use components task ID')
     if (!remote && o['no-wait'] && startsTask)
       throw new KernelError('INVALID_ARGUMENT', '--no-wait requires --url so the live server owns the task')
     if (o['json-events'] && o['no-wait'] && startsTask)
@@ -238,6 +257,7 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
       const store = storePath(o)
       await mkdir(dirname(store), { recursive: true })
       app = await createApp({ store, exportDir: o['export-dir'],
+        components: { directory: join(dirname(resolve(store)), 'components') },
         settingsDir: o['settings-dir'] ?? join(dirname(store), 'settings'), pdf: await readPdfConfig(o['pdf-config']) })
     }
     const invoke = remote ? (_name, p, m, url) => invokeRemote(o.url, m, url, p) :
@@ -245,6 +265,18 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
     if (o['json-events'] && startsTask)
       observer = await observeEvents(app, o.url, stdout, stderr)
     const result = await invoke(name, params, method, path)
+    if (startsComponent) {
+      stdout.write(`${serialize(result)}\n`)
+      if (o['no-wait']) return 0
+      while (true) {
+        const state = await invoke('componentTask', { taskId: result.taskId }, 'GET', `/api/components/tasks/${result.taskId}`)
+        if (!['queued', 'running', 'stopping'].includes(state.task.state)) {
+          stdout.write(`${serialize(state)}\n`)
+          return state.task.state === 'completed' ? 0 : state.task.state === 'killed' ? 5 : 4
+        }
+        await new Promise(done => setTimeout(done, 250))
+      }
+    }
     observer?.setTaskId(result.taskId)
     const pendingImport = command === 'import' && result.taskId && !result.document
     if (o['json-events'] && result.taskId) {
@@ -285,5 +317,5 @@ function invokedAsCli() {
   catch { return false }
 }
 
-if (invokedAsCli())
+if (typeof IVORAIGE_LAUNCH_BUNDLE === 'undefined' && invokedAsCli())
   process.exitCode = await runCli()

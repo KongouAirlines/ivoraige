@@ -2,9 +2,15 @@
 
 面向科研英汉翻译的可组装中间层。核心目标是译文和术语跨任务复用，各输出消费同一份已选定译文。
 
-当前在 `codex/0.1.0-pdf` 分支按 [v2.0 设计](docs/requirements/v2.0/01_design_v2.0.md)继续重建，软件版本为 `0.1.0-dev.0`（未发布）。旧 MVP（M0～M4）已弃用，完整实现及实验代码归档在独立分支 `codex/archive-mvp-0.0.0`，版本／标签为 `0.0.0`／`v0.0.0`，提交 `27eec14`。设计文档的 v2.0 不等于软件发布版本。
+当前在 `codex/0.1.0-installation` 分支按 [v2.0 设计](docs/requirements/v2.0/01_design_v2.0.md)继续重建，软件版本为 `0.1.0-dev.0`（未发布）。旧 MVP（M0～M4）已弃用，完整实现及实验代码归档在独立分支 `codex/archive-mvp-0.0.0`，版本／标签为 `0.0.0`／`v0.0.0`，提交 `27eec14`。设计文档的 v2.0 不等于软件发布版本。
 
 当前工作台支持 TXT／Markdown 导入与 Markdown／JSON 导出；可选 BabelDOC 组件增加**原生文本英文 PDF → 中文单语 PDF**的导入、页码／坐标审校和冻结回放导出。记录、语言隔离修订、适用性检查、DSH 模型与任务由同一内核提供。CLI、HTTP/SSE 与 React WebUI 共用操作。Windows 原生 PDF 内核与浏览器审校、三格式导出下载已有原创样本实测，编辑后两页 PDF 已目检；OCR、三系统 PDF 打包和独立发行仍未验收。MCP、OCR、双语 PDF、EPUB、RAG、Zotero 与词库结构仍待实现。先前文本阶段的 Windows／Linux／macOS Node 24 的 63 项测试与安装包冒烟见 [CI 记录](https://github.com/KongouAirlines/ivaraige/actions/runs/37314672867)；该记录不覆盖本 PDF 分支。范围与进度见 [0.1.0 实施记录](docs/plan/0.1.0/README.md)。
+
+## 安装与首次启动
+
+安装体验在 `codex/0.1.0-installation` 实施：Windows 基础便携包自带运行时，PDF 组件从当前私有仓库 Releases 按需下载，不要求公开源码。启动器提供浏览器打开、已有实例复用和独立用户数据目录；PDF 设置页提供授权、安装、取消和失败重试。产物用法见 [安装指南](docs/plan/0.1.0/installation-guide.md)，实测状态与尚待验收项见 [阶段记录](docs/plan/0.1.0/installation.md)。
+
+开发环境构建后可用 `npm start` 启动同一体验（默认数据目录 `%LOCALAPPDATA%\ivoraige`）。下列 CLI 开发方式继续可用。
 
 ## 启动文本工作台
 

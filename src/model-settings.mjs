@@ -7,6 +7,7 @@ import { AppBoot, ConfigEditor, Context, DshSchema as z, LlmPiAi, LlmRuntime,
 import { isPublicErrorCode, KernelError } from './errors.mjs'
 import { modelPresets } from './model-presets.mjs'
 import { SettingsPages } from './settings-pages.mjs'
+import { ComponentsSettings } from './component-settings.mjs'
 
 const MODEL_NS = 'ivoraige-model'
 const ROUTES_NS = 'llm-pi-ai'
@@ -287,6 +288,12 @@ async function ensureProfile(directory) {
     }
   }
   const configPath = join(profileDir, 'cordis.yml')
+  // Additive managed-profile entry; existing model and credential settings stay intact.
+  const componentPatch = JSON.parse(await readFile(bundlePatch, 'utf8'))
+  if (!componentPatch.some(step => step.insert?.some(item => item.id === 'ivoraige-components'))) {
+    componentPatch.push({ insert: [{ id: 'ivoraige-components', name: 'cordis:componentsSettings' }] })
+    await writeFile(bundlePatch, JSON.stringify(componentPatch) + '\n')
+  }
   if (!existsSync(configPath)) await writeFile(configPath, '[]\n')
   return { profileDir, configPath, patchPath: join(profileDir, 'cordis.patch.yml') }
 }
@@ -304,6 +311,7 @@ export async function bootModelSettings({ directory } = {}) {
     Object.assign(root.loader.builtins, {
       credentials: LocalCredentialProvider, llm: LlmRuntime, piAi: LlmPiAi,
       editor: ConfigEditor, settings: SettingsForms, settingsPages: SettingsPages, modelSettings: ModelSettings,
+      componentsSettings: ComponentsSettings,
     })
   })
   const settings = ctx.get('ivoraige.modelSettings')

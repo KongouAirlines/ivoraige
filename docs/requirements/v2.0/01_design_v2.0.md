@@ -68,7 +68,7 @@ flowchart TB
 
 | 组成部分 | 平台无关性方案 |
 |---|---|
-| Node 内核 | 按平台打包**单文件可执行**。Node v25.5+ 已内置 `node --build-sea`，无需 postject 手工流程；每平台产出 `ivoraige-linux-x64` / `ivoraige-win-x64.exe` / `ivoraige-macos-arm64` 等。Bun `--compile --target` 跨编译作为备选路线，但与 DSH vendor 的兼容性未验证，**不作为默认**。 |
+| Node 内核 | 目标为按平台提供无需另装运行时的发行包。0.1.0 Windows 首期采用自带 Node 的便携目录包：本次 Node 26.7 ESM SEA 探针虽能构建，但启动遇到依赖中动态 `require('process')` 的兼容问题，CJS 探针又受顶层 await／import.meta 限制。保留 SEA 后续优化，不把单文件形式作为本阶段可用性的前提。Bun 与 DSH vendor 的兼容性未验证，不作为默认。 |
 | Python 侧车（BabelDOC／MinerU） | PyInstaller 按平台构建可选组件，单文件形式待实际依赖闭包验证。内核通过子进程 + JSON-RPC over stdio 调用；仅所选实现需要对应 sidecar，纯文本使用无需安装 Python 组件。 |
 | 原生依赖 | `node:sqlite` 为 Node 内置，无原生编译负担；其余依赖选纯 JS 实现。这是选 storage-sqlite / node:sqlite 而非 better-sqlite3 的原因。 |
 

@@ -7,6 +7,13 @@ import { serialize, errorEnvelope } from './protocol.mjs'
 
 const id = '([A-Za-z0-9_.-]+)'
 const routes = [
+  ['GET', /^\/api\/components$/, 'componentStatus'],
+  ['POST', /^\/api\/components\/catalog$/, 'componentCatalog'],
+  ['POST', /^\/api\/components\/credential$/, 'componentCredential'],
+  ['POST', /^\/api\/components\/install$/, 'componentInstall'],
+  ['POST', /^\/api\/components\/local$/, 'componentLocal'],
+  ['GET', new RegExp(`^/api/components/tasks/${id}$`), 'componentTask', ['taskId']],
+  ['POST', new RegExp(`^/api/components/tasks/${id}/cancel$`), 'componentCancel', ['taskId']],
   ['POST', /^\/api\/documents\/import$/, 'importDocument'],
   ['GET', /^\/api\/documents$/, 'listDocuments'],
   ['GET', new RegExp(`^/api/documents/${id}$`), 'getDocument', ['docId']],
@@ -111,7 +118,7 @@ function events(req, res, app, taskId, activeEvents) {
   res.once('close', cleanup)
 }
 
-export async function serve(app, { host = '127.0.0.1', port = 8787, staticDir, allowedHosts = [] } = {}) {
+export async function serve(app, { host = '127.0.0.1', port = 8787, staticDir, allowedHosts = [], instance } = {}) {
   if (!loopback(host)) throw new KernelError('INVALID_ARGUMENT',
     'Non-loopback listening requires DSH token authentication, which is not configured')
   if (!Number.isInteger(port) || port < 0 || port > 65535)
@@ -131,6 +138,9 @@ export async function serve(app, { host = '127.0.0.1', port = 8787, staticDir, a
       }
       const url = new URL(req.url, `http://${req.headers.host}`)
       const pathname = url.pathname
+      if (req.method === 'GET' && pathname === '/api/instance' && instance) {
+        send(res, 200, instance); return
+      }
       if (req.method === 'GET' && (pathname === '/api/events' || /^\/api\/tasks\/[A-Za-z0-9_.-]+\/events$/.test(pathname))) {
         events(req, res, app, pathname === '/api/events' ? undefined : pathname.split('/')[3], activeEvents); return
       }
