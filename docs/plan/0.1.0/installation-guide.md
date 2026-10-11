@@ -26,6 +26,17 @@
 
 离线补充方式：从同一个 Release 下载 `components-manifest.json` 以及清单中的组件、资源归档，放在同一文件夹。在 PDF 设置页填写**清单文件**的完整路径并选择本地安装。程序使用与在线下载相同的校验和激活流程；无需手动解压组件归档。
 
+发行包启动器默认启用 Node 自带的环境代理支持，沿用已有 `HTTP_PROXY`／`HTTPS_PROXY`，并让本地工作台绕过代理。未配置代理时正常直连；显式设置 `NODE_USE_ENV_PROXY=0` 可禁用。若需要临时指定代理，使用自己的代理地址后启动：
+
+```powershell
+$env:NODE_USE_ENV_PROXY = '1'
+$env:HTTPS_PROXY = 'http://127.0.0.1:7897'
+$env:NO_PROXY = 'localhost,127.0.0.1,::1'
+.\ivoraige.cmd
+```
+
+源码启动时需自行启用 `NODE_USE_ENV_PROXY=1`；本机直连大附件曾中断，因此代理路径也纳入实际下载验证。见 [Node 官方代理说明](https://nodejs.org/api/http.html#built-in-proxy-support)。下载失败可以重新安装或使用上述本地包方式，不影响已导入文档。
+
 安装成功表示组件文件已经就位。第一次实际导入／导出才检查 BabelDOC 运行与资产；当前支持原生文本英文 PDF 到中文单语 PDF，扫描件 OCR、双语 PDF 和其他平台的独立组件仍未验收。具体操作和解析边界见 [PDF 指南](pdf-guide.md)。
 
 ## 数据、升级与恢复

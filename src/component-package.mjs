@@ -127,8 +127,13 @@ export async function downloadAsset(fetcher, repository, asset, token, path, sig
     }
     callback(null, chunk)
   } })
-  await pipeline(Readable.fromWeb(response.body), meter, createWriteStream(path, { flags: 'wx' }),
-    { signal })
+  try {
+    await pipeline(Readable.fromWeb(response.body), meter, createWriteStream(path, { flags: 'wx' }),
+      { signal })
+  } catch (error) {
+    if (signal?.aborted || error instanceof KernelError || error.code === 'ENOSPC') throw error
+    throw upstream('组件下载或写入中断，请检查网络、代理和磁盘权限后重试。也可从同一 Release 下载完整归档后选择本地安装。')
+  }
   const digest = hash.digest('hex')
   onProgress?.(size)
   if (expected && (size !== expected.size || digest !== expected.sha256.toLowerCase())) {

@@ -8,7 +8,7 @@ import * as tar from 'tar'
 import { JobsLocal } from '../dist/dsh.mjs'
 import { bootModelSettings } from '../src/model-settings.mjs'
 import { Components } from '../src/components.mjs'
-import { extractVerifiedArchive, inside, validateManifest } from '../src/component-package.mjs'
+import { downloadAsset, extractVerifiedArchive, inside, validateManifest } from '../src/component-package.mjs'
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 
@@ -43,6 +43,21 @@ async function boot(directory, fetcher) {
     repository: 'KongouAirlines/ivaraige', releaseTag: 'v0.1.0-dev.0', fetcher })
   return { ...profile, components: profile.ctx.get('ivoraige.components') }
 }
+
+test('interrupted asset body reports actionable download guidance without raw network details', async t => {
+  const directory = await testDirectory('interrupted-download')
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const fetcher = async () => new Response(new ReadableStream({
+    start(controller) { controller.error(new TypeError('terminated: private signed URL')) },
+  }))
+  await assert.rejects(downloadAsset(fetcher, 'owner/repo', { id: 1 }, 'test-token',
+    join(directory, 'archive.tar.gz')), error => {
+    assert.equal(error.code, 'UPSTREAM_FAILURE')
+    assert.match(error.message, /代理/)
+    assert.doesNotMatch(error.message, /private signed URL|test-token/)
+    return true
+  })
+})
 
 test('local manifest and SHA-256 verified PDF install persist through DSH settings', async t => {
   const directory = await testDirectory('local')

@@ -76,6 +76,8 @@ try {
   await writeFile(launcher, [
     '@echo off',
     'setlocal',
+    'if not defined NODE_USE_ENV_PROXY set "NODE_USE_ENV_PROXY=1"',
+    'set "NO_PROXY=localhost,127.0.0.1,::1,%NO_PROXY%"',
     'set "IVORAIGE_APP_ROOT=%~dp0app"',
     '"%~dp0runtime\\node.exe" "%~dp0app\\src\\launch.mjs" %*',
     'exit /b %errorlevel%',

@@ -70,6 +70,7 @@ PDF P5 原先把双语和分发并列；本计划承接其分发部分，双语�
 - 独立发行运行时追加一次 DeepSeek Flash 翻译：112 输入／6 输出 token，累计共享预算 13/30 次；人工编辑接受后两次三格式冻结导出均零调用，快照一致。记录在 `live-report.json`。修复冻结 Python 缺少 `multiprocessing.freeze_support()`、bitstring 动态模块和 tiktoken 插件遗漏；未改 BabelDOC 解析策略。
 - 基础 ZIP 约 62.6 MiB；可选 PDF 运行时 201,096,363 字节、资源 235,512,400 字节，合计约 416.4 MiB。完整上游 Node／Python／Python 依赖／字体／模型／CMap／分词器许可与来源随对应包保存。末次归档更新仅补 Python 许可，运行代码和样本使用的资产不变。
 - 最终 npm 包隔离安装验证 51 文件通过；自定义 `IVORAIGE_DATA_DIR` 下 CLI 与默认启动使用同一数据库的回归 2/2 通过。私有 Release 在线下载安装在上传产物后单独记录。
+- 私有大附件直连探针失败后，补充下载中断的可操作提示及回归，相关测试 15/15 通过。发行启动器默认使用已有 HTTP(S) 代理环境配置并绕过本地工作台，保留显式禁用选项；实际 CMD 启动、文本能力及已有实例复用通过。代理下载中的取消也实际通过；详细网络诊断不暴露凭据或附件签名链接。
 - 纯净 Windows 验收保留待完成：本机 Docker 29.5.2 仅配置 Linux 容器，daemon 未启动；Linux 容器不能验证 Windows 发行包和桌面浏览器启动。用户明确同意不适用时保留待验收。隔离 PATH／用户目录的本机实测不等同于无开发工具的 Windows Sandbox／VM。
 
 本机详细日志保存在忽略目录 `evaluation/runs/installation-ui-0.1.0/` 与 `evaluation/runs/distribution-0.1.0-dev.0/`；随提交保留可复现脚本 `scripts/smoke-distribution.mjs`，不提交测试数据库、模型凭据或临时运行产物。
