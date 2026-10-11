@@ -1,8 +1,8 @@
 # PDF 数据库与受管理原件迁移
 
 - ID: pdf-store-relocation
-- 状态: 待评估
-- 实施分支／PR: 未安排
+- 状态: 处理中
+- 实施分支／PR: codex/0.1.0-pdf-source-ownership；[PR #10](https://github.com/KongouAirlines/ivaraige/pull/10)
 - 类型: 改进
 - 发现依据: 2026-10-08，审阅已合入的 [PDF PR #7](https://github.com/KongouAirlines/ivaraige/pull/7) 与本地 `src/adapters/pdf.mjs`、`test/pdf-import-tasks.test.mjs`；本次为代码路径推断，未执行跨目录迁移验收。
 - 目标分支: main
@@ -24,3 +24,4 @@ PDF 导入把受管理副本放在数据库旁的 `pdf/sources/`，但 `sourceBi
 ## 处理记录
 
 - 2026-10-08：PR #9 审阅时登记代码可推导的迁移限制；未改动 PDF 生产实现，待需求触发后评估。
+- 2026-10-08：当前实施分支在导出时保留冻结绑定，优先解析新 store 的私有副本，必要时按受控文件名读取本地旧副本。Windows 定向测试复制数据库与 `pdf/` 后移除旧目录原件，冻结 PDF 导出成功且模型调用为零；待合入和其余平台验证。

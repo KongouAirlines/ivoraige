@@ -56,7 +56,8 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
     await ctx.plugin(Parse)
     await ctx.plugin(TxtSource)
     await ctx.plugin(MarkdownSource)
-    if (pdf !== undefined) await ctx.plugin(Pdf, { ...pdf, directory: join(dirname(storeLock.path), 'pdf') })
+    if (pdf !== undefined) await ctx.plugin(Pdf, { ...pdf,
+      directory: join(dirname(storeLock.path), 'pdf'), storePath: storeLock.path })
     if (store !== undefined) {
       await ctx.plugin(Storage)
       await ctx.plugin(StorageSqlite, { path: storeLock.path })
