@@ -1,7 +1,7 @@
 # PDF 公式映射、payload 与冻结回放一致性
 
 - ID: pdf-formula-replay
-- 状态: 处理中
+- 状态: 已解决
 - 实施分支／PR: [codex/0.1.0-pdf-formula-replay](https://github.com/KongouAirlines/ivaraige/tree/codex/0.1.0-pdf-formula-replay)，依赖 PR #10
 - 类型: 缺陷
 - 发现依据: 2026-10-08，[Issue #11](https://github.com/KongouAirlines/ivaraige/issues/11)，PR #7 合并后的 `a683f9b`；回调在 tracker 完成前复制 position，丢失 payload；相邻公式映射可能持久化为 null。
@@ -32,3 +32,5 @@
 
 - 2026-10-08：严格实现曾完成 Windows 真实 BabelDOC 两页、14 单位验收，模型调用 0；当时 Node 190/190、Python 13/13 与 package smoke 通过。这些数字属于已被兼容性策略取代的实现，不作为现行验收结果。证据及限制见 [PDF 实施记录](../0.1.0/pdf.md)。
 - 2026-10-08：兼容性修订保留按位置关联 payload 和关闭 BabelDOC 来源句柄，改用显示回退及警告；冻结回放仍核对原始请求和 token 顺序，接受引擎自身标点处理，并把 PDF 文本提取缺失作为未验证证据。修订后 Python sidecar 回归 12/12 通过；真实 PDF 与全套 Node 验收由本分支另行记录，待合入 main。
+
+- 2026-10-11：已核对修复随 PR #10／#12 合入 main/4df1d72；最终三平台 Node24 CI（Python、Node、package smoke）通过：[run 38077245588](https://github.com/KongouAirlines/ivaraige/actions/runs/38077245588)。真实 Windows PDF 证据见 [实施记录](../0.1.0/pdf.md)。按本事项范围关闭；不扩大为上游解析质量或三平台原生 PDF 发行保证。

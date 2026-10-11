@@ -1,7 +1,7 @@
 # PDF 子进程取消后的临时目录回收
 
 - ID: pdf-sidecar-work-cleanup
-- 状态: 处理中
+- 状态: 已解决
 - 实施分支／PR: [codex/0.1.0-pdf-formula-replay](https://github.com/KongouAirlines/ivaraige/tree/codex/0.1.0-pdf-formula-replay)，依赖 PR #10
 - 类型: 改进
 - 发现依据: 2026-10-08，[Issue #11](https://github.com/KongouAirlines/ivaraige/issues/11) 及 PR #7 的清理限制；强杀 Python 无法执行其 finally。
@@ -26,3 +26,5 @@
 - 2026-10-08：Node 为每次 spawn 创建目录，并通过 configure.options.workDir 传给 Python；模拟 sidecar 生命周期测试 13/13 通过。待真实引擎验收及合入 main。
 
 - 2026-10-08：Windows 真实 BabelDOC 两页、14 单位验收完成，模型调用 0；完整 Node 190/190、Python 13/13 与 package smoke 通过。证据及限制见 [PDF 实施记录](../0.1.0/pdf.md)，待合入 main。
+
+- 2026-10-11：已核对修复随 PR #10／#12 合入 main/4df1d72；最终三平台 Node24 CI（Python、Node、package smoke）通过：[run 38077245588](https://github.com/KongouAirlines/ivaraige/actions/runs/38077245588)。真实 Windows PDF 证据见 [实施记录](../0.1.0/pdf.md)。按本事项范围关闭；不扩大为上游解析质量或三平台原生 PDF 发行保证。
