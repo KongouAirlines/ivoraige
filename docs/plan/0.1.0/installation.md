@@ -1,6 +1,6 @@
 # 0.1.0 安装与首次启动体验规划
 
-日期：2026-10-11。状态：实施中。实施分支：`codex/0.1.0-installation`；基线：PR #10／#12 已合入的 `main/4df1d72`。软件版本仍为 `0.1.0-dev.0`。本阶段先验收 Windows，保留三平台目标；不把 Node 三平台 CI 等同于原生 PDF 发行验证。
+日期：2026-10-11。状态：实现与本机验收完成，干净 Windows 环境待验收。实施分支：`codex/0.1.0-installation`；基线：PR #10／#12 已合入的 `main/4df1d72`。软件版本仍为 `0.1.0-dev.0`。本阶段先验收 Windows，保留三平台目标；不把 Node 三平台 CI 等同于原生 PDF 发行验证。
 
 ## 目标与边界
 
@@ -71,6 +71,8 @@ PDF P5 原先把双语和分发并列；本计划承接其分发部分，双语�
 - 基础 ZIP 约 62.6 MiB；可选 PDF 运行时 201,096,363 字节、资源 235,512,400 字节，合计约 416.4 MiB。完整上游 Node／Python／Python 依赖／字体／模型／CMap／分词器许可与来源随对应包保存。末次归档更新仅补 Python 许可，运行代码和样本使用的资产不变。
 - 最终 npm 包隔离安装验证 51 文件通过；自定义 `IVORAIGE_DATA_DIR` 下 CLI 与默认启动使用同一数据库的回归 2/2 通过。私有 Release 在线下载安装在上传产物后单独记录。
 - 私有大附件直连探针失败后，补充下载中断的可操作提示及回归，相关测试 15/15 通过。发行启动器默认使用已有 HTTP(S) 代理环境配置并绕过本地工作台，保留显式禁用选项；实际 CMD 启动、文本能力及已有实例复用通过。代理下载中的取消也实际通过；详细网络诊断不暴露凭据或附件签名链接。
+- [私有预发布 v0.1.0-dev.0](https://github.com/KongouAirlines/ivaraige/releases/tag/v0.1.0-dev.0) 已建立。`private-release-smoke-proxy-2/evidence.json` 记录真实 GitHub 清单读取、436,608,763 字节运行时／资源下载、SHA-256 校验、解压及激活全部完成；使用既有 gh 授权，不内置或打印维护者令牌。重启时移除下载令牌并让组件服务的网络调用直接失败，已安装组件仍读回，PDF 输入／输出能力存在，未触发远端查询。在线归档与本地 PDF 闭环所用运行代码、资产相同，最终归档仅增加 Python 许可。
+- 基础 ZIP 当前附件构建对应 `8a1bffc58901172c6a0ee94a883414c739d2e01a`，SHA-256 为 `db0880113b591e6e8d4afd80936a5717ffc41f18acd6af5217337491a942497a`；Release 说明链接该精确源码，tag 保留首轮实现位置。在线验收记录在产物生成后追加，不修改既有 tag。
 - 纯净 Windows 验收保留待完成：本机 Docker 29.5.2 仅配置 Linux 容器，daemon 未启动；Linux 容器不能验证 Windows 发行包和桌面浏览器启动。用户明确同意不适用时保留待验收。隔离 PATH／用户目录的本机实测不等同于无开发工具的 Windows Sandbox／VM。
 
 本机详细日志保存在忽略目录 `evaluation/runs/installation-ui-0.1.0/` 与 `evaluation/runs/distribution-0.1.0-dev.0/`；随提交保留可复现脚本 `scripts/smoke-distribution.mjs`，不提交测试数据库、模型凭据或临时运行产物。
