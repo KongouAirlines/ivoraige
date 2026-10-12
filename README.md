@@ -8,7 +8,7 @@
 
 ## 安装与首次启动
 
-安装体验在 `codex/0.1.0-installation` 实施：Windows 基础便携包自带运行时，PDF 组件从当前私有仓库 Releases 按需下载，不要求公开源码。启动器提供浏览器打开、已有实例复用和独立用户数据目录；PDF 设置页提供授权、安装、取消和失败重试。产物用法见 [安装指南](docs/plan/0.1.0/installation-guide.md)，实测状态与尚待验收项见 [阶段记录](docs/plan/0.1.0/installation.md)。
+安装体验在 `codex/0.1.0-installation` 实施：Windows 基础便携包自带运行时，PDF 组件从当前私有仓库 Releases 按需下载，不要求公开源码。启动器提供浏览器打开、已有实例复用和独立用户数据目录；PDF 设置页提供授权、安装、取消和失败重试。产物用法见 [安装指南](docs/plan/0.1.0/installation-guide.md)。构建、沙盒验收和阶段记录保留在源码的 `docs/plan/0.1.0/`，不随用户发行包分发。
 
 开发环境构建后可用 `npm start` 启动同一体验（默认数据目录 `%LOCALAPPDATA%\ivoraige`）。下列 CLI 开发方式继续可用。
 

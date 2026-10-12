@@ -65,7 +65,7 @@ try {
   for (const name of ['README.md', 'THIRD_PARTY.md']) await copyFile(join(root, name), join(appDir, name))
   const userDocs = join(appDir, 'docs', 'plan', '0.1.0')
   await mkdir(userDocs, { recursive: true })
-  for (const name of ['installation-guide.md', 'installation.md', 'workbench-guide.md', 'pdf-guide.md', 'settings-guide.md']) {
+  for (const name of ['installation-guide.md', 'workbench-guide.md', 'pdf-guide.md', 'settings-guide.md']) {
     await copyFile(join(root, 'docs', 'plan', '0.1.0', name), join(userDocs, name))
   }
 

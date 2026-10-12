@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, realpath, rename, rm, stat } from 'node:fs/pr
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { Transform } from 'node:stream'
+import { lt } from 'semver'
 import { Service } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
 import { COMPONENT_SETTINGS_NS } from './component-settings.mjs'
@@ -179,6 +180,11 @@ export class Components extends Service {
     if (input.source === 'local') manifest = await loadManifest(input.manifestPath)
     else ({ manifest, release, token } = await this.release(signal))
     const component = findComponent(manifest, input)
+    const installed = await this.getInstalledPdf()
+    if (installed && lt(component.version, installed.version)) {
+      throw new KernelError('PRECONDITION_FAILED',
+        `Cannot downgrade PDF component from ${installed.version} to ${component.version}; install the same or a newer version`)
+    }
     const root = join(this.directory, 'versions', component.id, component.version,
       `${component.platform}-${component.arch}`)
     const stage = await mkdtemp(join(this.directory, '.install-'))

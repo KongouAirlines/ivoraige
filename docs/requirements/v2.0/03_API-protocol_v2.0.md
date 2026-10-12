@@ -259,6 +259,8 @@ capabilities 的 `dataDirectory` 为可选的本机数据根目录，供首次�
 
 CLI 对应 `components status|catalog|credential --token-env NAME|install|local --path MANIFEST|task ID|cancel ID`，共同参数沿用 §5。`install`／`local` 默认等待，完成退出 0、失败 4、取消 5；服务模式 `--url` 可使用 `--no-wait`。安装过程不支持 `--json-events`。令牌从指定环境变量读取，不要求在命令行明文传递。
 
+0.1.0 清单契约：`version` 必须是严格 SemVer（允许 prerelease 与 build metadata，不接受 `v` 前缀、范围或不完整版本），每个 `(id, platform, arch)` 只允许一个候选版本；不同平台可并列。catalog 和本地／远程安装均在读取清单时拒绝重复候选，不由数组顺序隐式选版本。入口仍不提供版本选择参数。普通安装在下载／激活前按 SemVer 优先级比较当前有效已选组件，拒绝更旧版本并保留原选择；允许升级和同版本修复。build metadata 不改变优先级。未提供显式降级／rollback 操作。
+
 独立启动器默认使用用户数据目录，`--data-dir` 可覆盖；同一目录已有工作台时复用实例。仅启动器会提供 `GET /api/instance` 的随机实例标识，用于排除遗留端口记录；它不是授权凭据，服务仍仅监听本机回环地址。
 
 ## 4. SSE 事件类型

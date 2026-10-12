@@ -4,6 +4,8 @@
 
 PR #10／#12 已合入 main/4df1d72。`codex/0.1.0-installation` 实施 Windows 基础程序、自带运行时、首次启动引导及按需 PDF 组件，发行源固定为现有私有仓库 Releases；不要求公开源码，不首次下载全部插件。操作见 [安装指南](installation-guide.md)，I0～I4 的实测证据和剩余条件见 [安装记录](installation.md)。2026-10-12 Windows Sandbox 离线文本／PDF 闭环通过，PR #17 待 review；完整安装程序留到 Issue #16，MCP 和双语 PDF 保留后续。
 
+发行构建、Windows Sandbox 配置与报告回传步骤单列于[维护者指南](installation-maintenance.md)，不随用户发行包分发；用户指南只保留安装与使用流程。
+
 ## 下一阶段：PDF（2026-10-06）
 
 按用户指定，以本地 `main` 的 `4702943` 新建 `codex/0.1.0-pdf`，优先推进 PDF 导入、翻译审校与冻结回放导出。Windows 原生文本英译中单语 PDF 的内核闭环、浏览器审校与三格式导出下载均有实际运行证据；两页编辑后 PDF 已目检。范围、阶段、证据与限制见 [PDF 实施计划](pdf.md)，操作见 [PDF 工作台指南](pdf-guide.md)。MCP 仍为待办，旧 MVP 验收不计入本分支。

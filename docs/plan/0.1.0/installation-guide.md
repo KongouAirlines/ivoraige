@@ -22,6 +22,8 @@
 2. 保存具有当前私有仓库 **Contents read** 权限的 GitHub 访问令牌。凭据通过 DSH 保存，不会跟随附件的跨主机下载跳转传递。
 3. 点击“检查可用版本”，查看平台、版本及总下载量，再点击“安装 BabelDOC”。安装读取固定 tag `v0.1.0-dev.0`，不自动追踪 latest。
 4. 可以取消安装；失败后修正网络、凭据或磁盘问题再试。失败的安装不会替换已选定的可用版本。
+
+普通安装允许升级或重新安装同版本以修复组件，不支持降级。若清单中的版本低于当前已选版本，会停止安装并保留现有组件；请取得相同或更新版本的清单。
 5. 成功后先保存编辑、等待翻译／导出结束，再在命令窗口按 Ctrl+C，重新双击启动。组件会从已保存配置装配，不需要手写 JSON 或运行 Python 准备脚本。
 
 离线补充方式：从同一个 Release 下载 `components-manifest.json` 以及清单中的组件、资源归档，放在同一文件夹。在 PDF 设置页填写**清单文件**的完整路径并选择本地安装。程序使用与在线下载相同的校验和激活流程；无需手动解压组件归档。
@@ -44,32 +46,3 @@ $env:NO_PROXY = 'localhost,127.0.0.1,::1'
 替换程序时先正常退出，将新版解压到另一个程序目录，继续使用同一数据目录。不要用程序目录覆盖数据目录。数据库、PDF 原件、修订、快照、设置、凭据和组件都保存在数据目录中；备份时先退出，再复制整个目录。
 
 安装任务使用 DSH jobs，退出会取消尚未完成的安装；下次重新发起，不续传下载。组件按版本保存，首期不自动更新或清理旧版本。已安装组件启动时不查询远端版本；离线使用仍取决于完整的本地 PDF 资产和翻译模型本身是否需要网络。
-
-## 维护者构建
-
-基础包与 PDF 组件分别构建，构建者需要工具链；终端用户只需下载产物。实现、证据和未完成验收见 [安装阶段记录](installation.md)。不要把仅缩减 PATH 的开发机探针称为干净系统验收。
-
-Windows x64 基础包固定使用 Node 26.7.0 构建，应用源码的最低 Node 要求仍为 24：
-
-```powershell
-npm ci
-npm run setup:dsh
-npm run build:distribution
-```
-
-PDF 构建使用 Python 3.13、锁定的 BabelDOC 0.6.4／PyMuPDF 1.26.7 和 PyInstaller 6.22.3。维护者先用开发准备脚本取得 BabelDOC 所需缓存，再构建独立组件：
-
-```powershell
-.\scripts\setup-pdf.ps1
-.\scripts\build-pdf-component.ps1
-```
-
-产物在 `evaluation/runs/distribution-0.1.0-dev.0/`；`components/` 内的清单、运行时归档及资源归档必须一起上传到相同的私有 Release。基础包包含 Node 和前端许可，PDF 包含 Python 依赖许可，资源包包含 `assets/licenses/` 的来源映射及上游声明。构建后运行 `scripts/smoke-distribution.mjs` 检查实际发行内容，不用源码环境替代它。
-
-### Windows Sandbox 验收
-
-准备专用输入目录，放入基础 ZIP、组件清单与两个组件归档，以及 `scripts/run-sandbox-acceptance.ps1` 和 `scripts/smoke-distribution.mjs`。可放入原创 `fixture.pdf`；缺省使用脚本生成的单页样本。只读映射该目录到沙盒 `C:\Input`，将独立结果目录可写映射到 `C:\Results`，关闭网络即可运行本地组件验收。不要映射账户配置或整个源码工作区。
-
-沙盒 `LogonCommand` 使用 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Input\run-sandbox-acceptance.ps1`。脚本在沙盒本地解压到 `C:\Package`，使用内置 Node 执行验收，数据写入 `C:\Acceptance`。每轮使用新沙盒。
-
-`C:\Results` 自动回传 `report.json`、`environment.json`、分离的 stdout／stderr、退出码、`evidence.json` 和已下载的产物；失败时也会回传已有证据。stdout 提供阶段进度。`report.json` 的 `passed` 为真且进程退出码为零才表示这轮通过；脚本进程被强制终止时可能仅有未完成的进度记录。基础 smoke 的 `cleanVmAcceptance: false` 是其默认环境标签，是否为真实沙盒需结合运行环境记录确认，不能单凭启动脚本名宣称干净系统验收。

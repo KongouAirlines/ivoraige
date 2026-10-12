@@ -12,18 +12,18 @@ import { downloadAsset, extractVerifiedArchive, inside, validateManifest } from 
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 
-async function fixture(directory) {
+async function fixture(directory, version = '0.6.4') {
   const source = join(directory, 'source')
-  await mkdir(source)
+  await mkdir(source, { recursive: true })
   await writeFile(join(source, 'babeldoc-sidecar.exe'), 'mock sidecar')
-  await writeFile(join(source, 'component.json'), JSON.stringify({ id: 'babeldoc', version: '0.6.4',
+  await writeFile(join(source, 'component.json'), JSON.stringify({ id: 'babeldoc', version,
     platform: process.platform, arch: process.arch, protocolVersion: 1,
     command: 'babeldoc-sidecar.exe', args: [], modelDirs: { babeldoc: 'assets' } }))
   const archive = join(directory, 'babeldoc.tar.gz')
   await tar.c({ gzip: true, file: archive, cwd: source }, ['component.json', 'babeldoc-sidecar.exe'])
   const bytes = await readFile(archive)
   const descriptor = { name: 'babeldoc.tar.gz', size: bytes.length, sha256: hash(bytes) }
-  const manifest = { schemaVersion: 1, components: [{ id: 'babeldoc', version: '0.6.4',
+  const manifest = { schemaVersion: 1, components: [{ id: 'babeldoc', version,
     platform: process.platform, arch: process.arch, protocolVersion: 1, package: descriptor }] }
   const manifestPath = join(directory, 'components-manifest.json')
   await writeFile(manifestPath, JSON.stringify(manifest))
@@ -113,6 +113,92 @@ test('a failed upgrade preserves the active PDF selection', async t => {
   await app.components.jobs.wait(next.taskId, 30_000)
   assert.equal(app.components.getTask(next.taskId).state, 'failed')
   assert.equal((await app.components.status()).installed.version, '0.6.4')
+})
+
+test('local and release installs reject semver downgrades and retain the active selection', async t => {
+  for (const source of ['local', 'release']) await t.test(source, async t => {
+    const directory = await testDirectory(`versions-${source}`)
+    let candidate = await fixture(directory, '0.6.9-rc.2')
+    let archiveRequests = 0
+    const fetcher = async url => {
+      const manifestBytes = Buffer.from(JSON.stringify(candidate.manifest))
+      if (url.includes('/releases/tags/')) return new Response(JSON.stringify({ assets: [
+        { id: 1, name: 'components-manifest.json', size: manifestBytes.length },
+        { id: 2, name: 'babeldoc.tar.gz', size: candidate.bytes.length },
+      ] }))
+      if (url.endsWith('/1')) return new Response(manifestBytes)
+      archiveRequests++
+      return new Response(candidate.bytes)
+    }
+    let app = await boot(directory, fetcher)
+    t.after(async () => { await app.dispose(); await rm(directory, { recursive: true, force: true }) })
+    await app.components.setToken('test-install-token')
+    async function install() {
+      const { taskId } = source === 'local' ? app.components.installLocal({ manifestPath: candidate.manifestPath }) : app.components.install()
+      await app.components.jobs.wait(taskId, 30_000)
+      return app.components.getTask(taskId)
+    }
+    for (const version of ['0.6.9-rc.2', '0.6.9', '0.6.10', '0.6.10']) {
+      candidate = await fixture(directory, version)
+      const result = await install()
+      assert.equal(result.state, 'completed', result.error)
+    }
+    const installed = await app.components.getInstalledPdf()
+    const before = archiveRequests
+    for (const version of ['0.6.9', '0.6.10-rc.1']) {
+      candidate = await fixture(directory, version)
+      const result = await install()
+      assert.equal(result.state, 'failed')
+      assert.match(result.error, /Cannot downgrade/)
+      assert.equal((await app.components.getInstalledPdf()).root, installed.root)
+    }
+    assert.equal(archiveRequests, before, 'Reject downgrade before downloading archives')
+    assert.equal(await readFile(installed.command, 'utf8'), 'mock sidecar')
+    assert.deepEqual((await readdir(join(directory, 'components'))).filter(name => name.startsWith('.install-')), [])
+    await app.dispose()
+    app = await boot(directory, fetcher)
+    assert.equal((await app.components.getInstalledPdf()).version, '0.6.10')
+  })
+})
+
+test('manifest requires strict semver and one version per component platform', () => {
+  const row = { id: 'babeldoc', version: '0.6.4', platform: 'win32', arch: 'x64', protocolVersion: 1,
+    package: { name: 'babeldoc.tar.gz', size: 1, sha256: '0'.repeat(64) } }
+  for (const version of ['latest', 'v0.6.4', '0.6', '01.6.4', '0.6.4-01']) {
+    assert.throws(() => validateManifest({ schemaVersion: 1, components: [{ ...row, version }] }), /semver/)
+  }
+  assert.equal(validateManifest({ schemaVersion: 1, components: [{ ...row, version: '0.6.4-rc.1+build.2' }] }).components.length, 1)
+  for (const version of ['0.6.4', '0.6.5']) {
+    assert.throws(() => validateManifest({ schemaVersion: 1, components: [row, { ...row, version }] }), /Only one component version/)
+  }
+  assert.equal(validateManifest({ schemaVersion: 1, components: [row, { ...row, platform: 'linux' }] }).components.length, 2)
+})
+
+test('catalog and both installation sources reject a multi-version manifest before archive download', async t => {
+  const directory = await testDirectory('ambiguous-catalog')
+  const { manifest, manifestPath } = await fixture(directory)
+  manifest.components.push({ ...manifest.components[0], version: '0.6.5' })
+  const bytes = Buffer.from(JSON.stringify(manifest))
+  await writeFile(manifestPath, bytes)
+  const fetcher = async url => {
+    if (url.includes('/releases/tags/')) return new Response(JSON.stringify({ assets: [
+      { id: 1, name: 'components-manifest.json', size: bytes.length },
+    ] }))
+    assert.ok(url.endsWith('/1'), 'No package asset may be requested')
+    return new Response(bytes)
+  }
+  const app = await boot(directory, fetcher)
+  t.after(async () => { await app.dispose(); await rm(directory, { recursive: true, force: true }) })
+  await app.components.setToken('test-catalog-token')
+  await assert.rejects(app.components.catalog(), /Only one component version/)
+  for (const source of ['local', 'release']) {
+    const { taskId } = source === 'local' ? app.components.installLocal({ manifestPath }) : app.components.install()
+    await app.components.jobs.wait(taskId, 30_000)
+    const task = app.components.getTask(taskId)
+    assert.equal(task.state, 'failed')
+    assert.match(task.error, /Only one component version/)
+  }
+  assert.equal(await app.components.getInstalledPdf(), null)
 })
 
 test('local installation extracts the verified staged bytes when the source changes', async t => {

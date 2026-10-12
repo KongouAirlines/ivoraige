@@ -5,6 +5,7 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import { Readable, Transform } from 'node:stream'
 import * as tar from 'tar'
+import { valid } from 'semver'
 import { KernelError } from './errors.mjs'
 
 export const MANIFEST_NAME = 'components-manifest.json'
@@ -12,6 +13,8 @@ export const TOKEN_REF = 'IVORAIGE_COMPONENTS_GITHUB_TOKEN'
 const MAX_MANIFEST_BYTES = 1024 * 1024
 const HASH = /^[0-9a-f]{64}$/i
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+const validVersion = value => typeof value === 'string' &&
+  /^[0-9][A-Za-z0-9.+-]*$/.test(value) && valid(value) !== null
 const DEFAULT_REPOSITORY = 'KongouAirlines/ivaraige'
 
 const invalid = message => new KernelError('INVALID_ARGUMENT', message)
@@ -31,14 +34,15 @@ export function validateManifest(value) {
   const keys = new Set()
   const components = value.components.map((item, index) => {
     if (!item || typeof item !== 'object') throw invalid(`Invalid component at index ${index}`)
-    for (const field of ['id', 'version', 'platform', 'arch']) {
+    for (const field of ['id', 'platform', 'arch']) {
       if (typeof item[field] !== 'string' || !SAFE_NAME.test(item[field])) {
         throw invalid(`Invalid component ${field} at index ${index}`)
       }
     }
+    if (!validVersion(item.version)) throw invalid(`Invalid component semver at index ${index}`)
     if (item.protocolVersion !== 1) throw invalid(`Unsupported component protocol at index ${index}`)
-    const key = [item.id, item.version, item.platform, item.arch].join('/')
-    if (keys.has(key)) throw invalid(`Duplicate component ${key}`)
+    const key = [item.id, item.platform, item.arch].join('/')
+    if (keys.has(key)) throw invalid(`Only one component version is allowed for ${key}`)
     keys.add(key)
     for (const label of ['package', 'assets']) {
       const asset = item[label]
@@ -153,7 +157,7 @@ export function findComponent(manifest, { id = 'babeldoc', version, platform = p
   const matches = manifest.components.filter(row => row.id === id && row.platform === platform &&
     row.arch === arch && (version === undefined || row.version === version))
   if (matches.length !== 1) throw new KernelError('NOT_FOUND',
-    matches.length ? 'Multiple component versions match; select a version' :
+    matches.length ? 'Component manifest must contain one version per platform and architecture' :
       `No ${id} component matches ${platform}/${arch}${version ? ` version ${version}` : ''}`)
   return matches[0]
 }
@@ -204,11 +208,12 @@ export async function extractVerifiedArchive(archive, stage, signal, { assetsOnl
 
 export async function inspectComponent(root, expected) {
   const config = JSON.parse(await readFile(join(root, 'component.json'), 'utf8'))
-  for (const field of ['id', 'version', 'platform', 'arch']) {
+  for (const field of ['id', 'platform', 'arch']) {
     if (typeof config[field] !== 'string' || !SAFE_NAME.test(config[field])) {
       throw invalid(`Invalid installed component ${field}`)
     }
   }
+  if (!validVersion(config.version)) throw invalid('Invalid installed component semver')
   for (const field of ['id', 'version', 'platform', 'arch', 'protocolVersion']) {
     if (config[field] !== expected[field]) throw invalid(`Installed component ${field} differs from release manifest`)
   }
