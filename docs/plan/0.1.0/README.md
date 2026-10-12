@@ -2,7 +2,7 @@
 
 ## 安装与首次启动体验（2026-10-11）
 
-PR #10／#12 已合入 main/4df1d72。`codex/0.1.0-installation` 实施 Windows 基础程序、自带运行时、首次启动引导及按需 PDF 组件，发行源固定为现有私有仓库 Releases；不要求公开源码，不首次下载全部插件。操作见 [安装指南](installation-guide.md)，I0～I4 的实测证据和剩余条件见 [安装记录](installation.md)。Windows Sandbox／VM 干净系统验收仍待完成；MCP 和双语 PDF 保留后续。
+PR #10／#12 已合入 main/4df1d72。`codex/0.1.0-installation` 实施 Windows 基础程序、自带运行时、首次启动引导及按需 PDF 组件，发行源固定为现有私有仓库 Releases；不要求公开源码，不首次下载全部插件。操作见 [安装指南](installation-guide.md)，I0～I4 的实测证据和剩余条件见 [安装记录](installation.md)。2026-10-12 Windows Sandbox 离线文本／PDF 闭环通过，PR #17 待 review；完整安装程序留到 Issue #16，MCP 和双语 PDF 保留后续。
 
 ## 下一阶段：PDF（2026-10-06）
 

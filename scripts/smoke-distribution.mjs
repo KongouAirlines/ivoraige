@@ -89,7 +89,10 @@ async function makePdfFixture(path) {
   await writeFile(path, pdf)
 }
 
-function check(name, details = {}) { evidence.checks.push({ name, ...details }) }
+function check(name, details = {}) {
+  evidence.checks.push({ name, ...details })
+  console.log(JSON.stringify({ event: 'check', name, ...details }))
+}
 function digest(bytes) { return createHash('sha256').update(bytes).digest('hex') }
 function delay(ms) { return new Promise(done => setTimeout(done, ms)) }
 function command() {
@@ -121,6 +124,7 @@ async function startServer() {
   const startupMs = Date.now() - started
   evidence.launches.push({ packageDirectory: activePackageDirectory, startupMs })
   evidence.startupMs ??= startupMs
+  console.log(JSON.stringify({ event: 'launcher-ready', packageDirectory: activePackageDirectory, startupMs }))
   return { child: process.child, url, get stderr() { return process.stderr }, async close() {
     if (process.child.exitCode !== null) return
     await new Promise((done, fail) => {
@@ -176,13 +180,18 @@ async function page(base, path) {
   } while (cursor)
   return items
 }
+let downloadIndex = 0
 async function download(base, artifact) {
   const response = await fetch(new URL(`/api/artifacts/${encodeURIComponent(artifact.id)}/download`, base),
     { signal: AbortSignal.timeout(120_000) })
   assert.equal(response.status, 200, `Download ${artifact.id}`)
   const bytes = Buffer.from(await response.arrayBuffer())
   assert.ok(bytes.length > 0, `Artifact ${artifact.id} is empty`)
+  const file = `${++downloadIndex}.${artifact.format}`
+  await mkdir(join(workDirectory, 'downloads'), { recursive: true })
+  await writeFile(join(workDirectory, 'downloads', file), bytes)
   return { id: artifact.id, format: artifact.format, bytes: bytes.length, sha256: digest(bytes),
+    file,
     pdfHeader: artifact.format === 'pdf' ? bytes.subarray(0, 5).toString('ascii') : undefined,
     content: artifact.format === 'pdf' ? undefined : bytes.toString('utf8') }
 }
@@ -305,6 +314,7 @@ try {
 
   if (componentManifest) {
     const requested = await invoke(server.url, 'POST', '/api/components/local', { path: componentManifest })
+    console.log(JSON.stringify({ event: 'component-install-started', taskId: requested.taskId }))
     const installation = await waitComponent(server.url, requested.taskId)
     check('local-pdf-install', { taskId: requested.taskId, state: installation.state,
       manifest: basename(componentManifest) })
@@ -323,6 +333,7 @@ try {
         path: pdfPath, format: 'pdf', language: 'en', sourceId: 'distribution:pdf',
         title: 'Distribution smoke PDF',
       })
+      console.log(JSON.stringify({ event: 'pdf-import-started', taskId: pdfImport.taskId }))
       const pdfTask = await waitTask(server.url, pdfImport.taskId, 10 * 60_000)
       const pdfDocId = pdfTask.result.document.id
       const acceptedPdf = await humanAcceptAll(server.url, pdfDocId)

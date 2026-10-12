@@ -124,6 +124,7 @@ def main() -> None:
     import babeldoc.const as babeldoc_const
     import pymupdf
     import PyInstaller
+    from PyInstaller.utils.hooks import collect_delvewheel_libs_directory
 
     if babeldoc_const.__version__ != COMPONENT_VERSION or pymupdf.VersionBind != PYMUPDF_VERSION:
         raise RuntimeError(
@@ -131,6 +132,11 @@ def main() -> None:
         )
     if PyInstaller.__version__ != PYINSTALLER_VERSION:
         raise RuntimeError(f"PyInstaller {PYINSTALLER_VERSION} required; found {PyInstaller.__version__}")
+    # hyperscan's extension loads its hashed VC runtime from this sibling wheel
+    # directory. --collect-all hyperscan does not include delvewheel .libs files.
+    delvewheel_data, delvewheel_binaries = collect_delvewheel_libs_directory("hyperscan")
+    if not delvewheel_binaries:
+        raise RuntimeError("hyperscan.libs DLLs are missing from the build Python environment")
 
     runs = (ROOT / "evaluation/runs").resolve()
     distribution = checked_path(runs / f"distribution-{VERSION}", runs, "component output")
@@ -155,8 +161,12 @@ def main() -> None:
         "--collect-all", "onnxruntime", "--collect-all", "cv2", "--collect-all", "tiktoken",
         "--collect-all", "bitstring", "--collect-all", "bitarray",
         "--hidden-import", "tiktoken_ext.openai_public",
-        str(ROOT / "sidecars/babeldoc/server.py"),
     ]
+    for source, destination in delvewheel_data:
+        pyinstaller.extend(["--add-data", f"{source}{os.pathsep}{destination}"])
+    for source, destination in delvewheel_binaries:
+        pyinstaller.extend(["--add-binary", f"{source}{os.pathsep}{destination}"])
+    pyinstaller.append(str(ROOT / "sidecars/babeldoc/server.py"))
     if args.reuse_pyinstaller_build:
         if not (built / "babeldoc-sidecar.exe").is_file():
             raise RuntimeError(f"Cannot reuse missing PyInstaller output: {built}")
@@ -164,6 +174,11 @@ def main() -> None:
         run(pyinstaller, ROOT)
     if not (built / "babeldoc-sidecar.exe").is_file():
         raise RuntimeError("PyInstaller did not produce babeldoc-sidecar.exe")
+    bundled_hyperscan_libs = [built / "_internal" / destination / Path(source).name
+                              for source, destination in delvewheel_binaries]
+    missing_hyperscan_libs = [str(path) for path in bundled_hyperscan_libs if not path.is_file()]
+    if missing_hyperscan_libs:
+        raise RuntimeError(f"PyInstaller output omits hyperscan DLLs; rebuild without --reuse-pyinstaller-build: {missing_hyperscan_libs}")
     shutil.copytree(built, stage, dirs_exist_ok=True)
     (stage / "requirements.lock").write_bytes((ROOT / "sidecars/babeldoc/requirements.lock").read_bytes())
     (stage / "README.md").write_text(
@@ -249,6 +264,8 @@ def main() -> None:
         "runtime": {"python": sys.version.split()[0], "babeldoc": babeldoc_const.__version__,
                     "pymupdf": pymupdf.VersionBind, "pyinstaller": PyInstaller.__version__},
         "pyinstallerBuildReused": args.reuse_pyinstaller_build,
+        "hyperscanDelvewheelBinaries": [str(path.relative_to(built)).replace("\\", "/")
+                                        for path in bundled_hyperscan_libs],
         "component": component,
         "pythonLicense": "PYTHON-LICENSE.txt",
         "package": package,

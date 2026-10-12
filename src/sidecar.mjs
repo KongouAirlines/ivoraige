@@ -271,7 +271,12 @@ export class SidecarClient {
       }
       session.pending = null
       clearTimeout(pending.timer)
-      if (message.error) pending.reject(remoteError(message.error))
+      if (message.error) {
+        const error = remoteError(message.error)
+        // Keep Python diagnostics in the local cause chain, outside public RPC details.
+        if (session.stderr) error.cause = new Error(session.stderr)
+        pending.reject(error)
+      }
       else pending.resolve(message.result)
     }
   }

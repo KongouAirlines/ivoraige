@@ -47,6 +47,17 @@ test('sidecar error codes and malformed stdout map to kernel errors', async t =>
   }
 })
 
+test('remote failure keeps Python diagnostics in local cause, not public details', async t => {
+  const sidecar = client(t, 'diagnostic-error')
+  await assert.rejects(sidecar.request('rebuild'), error => {
+    assert.equal(error.code, 'UPSTREAM_FAILURE')
+    assert.match(error.cause?.message, /Python traceback: held PDF output/)
+    assert.doesNotMatch(JSON.stringify(error.details), /Python traceback/)
+    assert.equal(error.message, 'rebuild failed')
+    return true
+  })
+})
+
 test('one process crash is retried once; two crashes fail', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-sidecar-'))
   try {

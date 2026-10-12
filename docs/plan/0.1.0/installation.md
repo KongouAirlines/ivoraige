@@ -1,6 +1,6 @@
 # 0.1.0 安装与首次启动体验规划
 
-日期：2026-10-11。状态：实现与本机验收完成，干净 Windows 环境待验收。实施分支：`codex/0.1.0-installation`；基线：PR #10／#12 已合入的 `main/4df1d72`。软件版本仍为 `0.1.0-dev.0`。本阶段先验收 Windows，保留三平台目标；不把 Node 三平台 CI 等同于原生 PDF 发行验证。
+日期：2026-10-12。状态：实现、本机验收与 Windows Sandbox 离线闭环通过，PR #17 待 review。实施分支：`codex/0.1.0-installation`；基线：PR #10／#12 已合入的 `main/4df1d72`。软件版本仍为 `0.1.0-dev.0`。本阶段先验收 Windows，保留三平台目标；不把 Node 三平台 CI 等同于原生 PDF 发行验证。
 
 ## 目标与边界
 
@@ -76,3 +76,14 @@ PDF P5 原先把双语和分发并列；本计划承接其分发部分，双语�
 - 纯净 Windows 验收保留待完成：本机 Docker 29.5.2 仅配置 Linux 容器，daemon 未启动；Linux 容器不能验证 Windows 发行包和桌面浏览器启动。用户明确同意不适用时保留待验收。隔离 PATH／用户目录的本机实测不等同于无开发工具的 Windows Sandbox／VM。
 
 本机详细日志保存在忽略目录 `evaluation/runs/installation-ui-0.1.0/` 与 `evaluation/runs/distribution-0.1.0-dev.0/`；随提交保留可复现脚本 `scripts/smoke-distribution.mjs`，不提交测试数据库、模型凭据或临时运行产物。
+
+## Windows Sandbox 补充验收（2026-10-12，PR #17）
+
+- 真实 Windows 11 Enterprise x64 Sandbox，build 26100，PowerShell 5.1.26100.9549；未发现预装 Node／Python／Git，网络禁用，只读映射发行包和组件。首次失败不是驱动缺失：受管理来源的双哈希长文件名被 BabelDOC 重复用于工作目录及输出名，PyMuPDF 保存路径过长；异常栈持有输出句柄，后续 `rmtree` 的 WinError 32 又覆盖了原异常。另确认冻结子进程缺少 Hyperscan wheel 的 `hyperscan.libs` DLL。
+- 每次调用把来源复制到私有运行目录的 `input.pdf`，保持受管理原件、来源绑定与冻结快照不变；不修改上游解析／翻译算法，不要求用户修改系统长路径策略。清理失败不覆盖已有引擎异常，成功路径的清理错误仍报告。构建使用 PyInstaller 的 delvewheel 收集方法带入 Hyperscan DLL；冻结 EXE 已检查包含短路径代码。
+- `scripts/run-sandbox-acceptance.ps1` 使用系统 ZIP 接口与独立进程重定向，规避沙盒 PowerShell Archive 模块缺少语言资源和 native stderr 触发提前退出；失败也在 finally 回传环境、退出码、日志、证据与已下载产物。`output-4` 实际失败且完整自动回传，`output-5` 修复后 exit 0、报告通过，无需手动复制。
+- `output-5` 完成 11 项检查：文本功能、静态 WebUI、实例复用、导入／人工接受／冻结输出、同版本程序目录替换、重启读回、本地 PDF 安装、两页样本 12 个单元的 PDF／MD／JSON 导出、重启编辑后的冻结重导出。整个沙盒过程零模型请求；没有新增 DeepSeek 调用，共享预算仍 13/30。基础启动 559～1340 毫秒。
+- 首轮／重导出 PDF 均 38,711 字节，MD／JSON 摘要一致。PDF 两页以 Poppler 渲染到最长边 1200 像素，逐页 PNG SHA-256 相同：`0ce99c1e0276ce6cf4f6bf648123cb0ee09df05c62004d1216e948e7234ed8c3`、`8ae980a2fff6d00dbe929e15f527861f0d454bf76d51285989b4ad75ee72f77a`。目检保留公式、图注及双栏；人工前缀测试不是科学翻译质量评价，个别英文换行效果仍属于上游排版边界。
+- 本次定向回归：Python 14/14、sidecar 15/15、PDF／任务／导出／诊断 40/40；不冒称重新执行了此前全部 212 项。证据在忽略目录 `evaluation/runs/sandbox-0.1.0/output-4/`、`output-5/` 和 `evaluation/runs/sandbox-diagnosis-0.1.0/`。
+- 修复组件归档 SHA-256：`d0174cabaffdd5c45ece2e907131752dfed346fa4a85a4c2b9eae2237359b30f`；资产归档 `4b9dc761f2e97703ab226059cd96ef0b28b7029505388be7ddbefec6c8157020`。以配套清单安装。此前 10 月 11 日的 Release 摘要是历史记录，当前附件应以 Release 说明及清单为准。
+- 本轮是沙盒离线 HTTP 闭环与静态资源验证；私有在线下载、交互式浏览器体验沿用前述本机证据，没有宣称本轮在沙盒重新验证它们。完整安装程序需求留到 Issue #16 细化，暂不实现或预设方案；MCP、跨版本迁移、其他 OS 原生发行、OCR 和双语仍不在本次完成范围。

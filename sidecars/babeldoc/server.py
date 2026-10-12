@@ -379,6 +379,14 @@ def validate_options(options):
     return pages, min_length
 
 
+def stage_engine_input(source: Path, task_work: Path) -> Path:
+    """Keep upstream's repeated input stem short without changing source identity."""
+    task_work.mkdir(parents=True, exist_ok=True)
+    staged = task_work / "input.pdf"
+    shutil.copyfile(source, staged)
+    return staged
+
+
 def _run_engine(
     input_pdf: Path,
     config_id: dict,
@@ -421,6 +429,7 @@ def _run_engine(
     STATE["run_index"] = STATE.get("run_index", 0) + 1
     task_work = work / f"run-{STATE['run_index']}"
     STATE["active_run_work"] = task_work
+    input_pdf = stage_engine_input(input_pdf, task_work)
     old_profile = os.environ.get("USERPROFILE")
     old_tiktoken = os.environ.get("TIKTOKEN_CACHE_DIR")
     old_cache = const.CACHE_FOLDER
@@ -647,7 +656,15 @@ def run_engine(
     finally:
         task_work = STATE.pop("active_run_work", None)
         if task_work is not None and task_work.exists():
-            shutil.rmtree(task_work)
+            original_error = sys.exception()
+            try:
+                shutil.rmtree(task_work)
+            except OSError:
+                if original_error is None:
+                    raise
+                # An upstream traceback can retain an open PDF. Preserve that
+                # failure; the session is removed after the sidecar exits.
+                traceback.print_exc(file=sys.stderr)
 
 
 def parse(params):
