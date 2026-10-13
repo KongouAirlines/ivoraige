@@ -13,10 +13,11 @@ function resourceError(error) {
   return new ProtocolError(body.error.code === 'NOT_FOUND' ? -32002 : -32603, body.error.message, body)
 }
 
-export function createMcpServer(app, { signal } = {}) {
+export function createMcpServer(app, { signal, listChanged = true, watchRegistry = true } = {}) {
   const registry = app.mcp
   if (!registry) throw new KernelError('COMPONENT_MISSING', 'MCP entry is not enabled')
-  const server = new McpServer({ name: 'ivoraige', version: '0.1.0-dev.0' })
+  const server = new McpServer({ name: 'ivoraige', version: '0.1.0-dev.0' },
+    { capabilities: { tools: { listChanged }, resources: { listChanged } } })
   const activeTools = new Map(), activeResources = new Map()
   function sync(collection, active, register) {
     for (const [name, item] of active) if (collection.get(name) !== item.definition) {
@@ -40,13 +41,20 @@ export function createMcpServer(app, { signal } = {}) {
       }))
   }
   refresh()
-  server.server.onclose = registry.subscribe(refresh)
+  if (watchRegistry) server.server.onclose = registry.subscribe(refresh)
   return server
 }
 
 export function createMcpHttp(app) {
-  const handler = createMcpHandler(({ requestInfo }) => createMcpServer(app, { signal: requestInfo?.signal }), { maxRequestBodySize: 10 * 1024 * 1024 })
-  return { handle: toNodeHandler(handler, { maxRequestBodySize: 10 * 1024 * 1024 }), close: () => handler.close() }
+  const handler = createMcpHandler(({ requestInfo, era }) => createMcpServer(app,
+    { signal: requestInfo?.signal, listChanged: era !== 'legacy', watchRegistry: false }), { maxRequestBodySize: 10 * 1024 * 1024 })
+  // HTTP server instances last one request; discovery subscriptions outlive them.
+  const unsubscribe = app.mcp.subscribe(kind => {
+    if (kind === 'tools') handler.notify.toolsChanged()
+    else if (kind === 'resources') handler.notify.resourcesChanged()
+  })
+  return { handle: toNodeHandler(handler, { maxRequestBodySize: 10 * 1024 * 1024 }),
+    close: () => { unsubscribe(); return handler.close() } }
 }
 
 export async function runMcpStdio(app, { stdin = process.stdin, stdout = process.stdout } = {}) {

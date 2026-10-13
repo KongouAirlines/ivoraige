@@ -38,3 +38,8 @@
 - 本次不更新现有私有 Release 附件，不宣称其他 OS 的独立 PDF 包或新的 Sandbox 验收。指南版本绑定仍按 `release-documentation-binding` 留在发版前处理。
 
 - Windows 本地分发包构建通过；使用包内 `runtime/node.exe` 和生产依赖启动 stdio，正式 SDK 客户端发现 31 个已挂载工具，capabilities 调用成功。未安装 PDF 时仅报告 txt/md 输入和 md/json 输出。
+
+### 独立审查修复：HTTP 插件通知
+
+HTTP 注册表变化改接 SDK handler 的服务级通知通道，工具和资源分别通知；每个请求只读取注册定义，不创建长期注册表监听。服务关闭或端口绑定失败时撤销订阅。旧协议无状态 HTTP 显式报告 `listChanged: false`，现代协议客户端订阅后接收装载／卸载通知；stdio 保留原连接内通知。独立审查的示例参数 `versionNegotiation: "auto"` 实际仍走旧协议，本轮按 SDK 正式形状 `{ mode: "auto" }` 验证现代协议，并同时覆盖旧协议声明。没有改变 PDF／翻译业务插件，也未调用真实模型。
+`node --test test/mcp.test.mjs test/entries.test.mjs`：23/23 通过，覆盖现代协议装载／卸载通知、旧协议声明、请求后订阅数量、启动失败与关闭清理，以及 HTTP／CLI／stdio 既有路径。

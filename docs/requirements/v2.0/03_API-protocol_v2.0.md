@@ -290,7 +290,7 @@ CLI 对应 `components status|catalog|credential --token-env NAME|install|local 
 
 **当前实现（0.1.0 开发阶段）**：CLI `mcp --stdio` 独立启动持有数据库的内核；常驻 `serve` 与桌面启动器默认在 `/mcp` 提供 Streamable HTTP，`serve --no-mcp` 可关闭。两种传输使用同一内核操作和参数 schema。MCP tool 成功结果以 `structuredContent` 返回完整业务对象，并在文本 content 中提供其 JSON；业务失败设置 `isError: true`，`structuredContent` 为与 REST／CLI 共用的 `{ apiVersion, error: { code, message, details } }`。输入 schema 不符由 MCP SDK 返回协议级校验错误，不保证包装为业务错误。资源读取失败返回 MCP 协议错误，并附公开的业务错误信息。
 
-MCP 是可选入口服务 `ivoraige.mcp`，不拥有文档或 PDF 业务逻辑。能力插件通过 `registry.registerTool(name, { description, inputSchema, invoke(input, { signal }) })` 与 `registry.registerResource(name, { template, metadata, read(uri, variables) })` 注册，并把注销函数交给 Cordis `ctx.effect()`；插件卸载时已注册能力从活动客户端移除，SDK 发出列表变化通知。`createApp({ mcp: false })` 不装配此入口；`serve` 的 `mcp: false`／CLI `--no-mcp` 关闭 HTTP 挂载。当前文档／任务工具由内核操作插件贡献，组件工具由可选组件插件贡献；格式能力仍由既有输入／输出适配器提供，MCP 运行时不识别特定 PDF 引擎。
+MCP 是可选入口服务 `ivoraige.mcp`，不拥有文档或 PDF 业务逻辑。能力插件通过 `registry.registerTool(name, { description, inputSchema, invoke(input, { signal }) })` 与 `registry.registerResource(name, { template, metadata, read(uri, variables) })` 注册，并把注销函数交给 Cordis `ctx.effect()`；插件卸载时已注册能力从后续查询中移除。stdio 通过连接内 SDK 通知；现代 HTTP 协议通过 SDK 的 `subscriptions/listen` 通道向已订阅客户端推送工具／资源列表变化，注册表订阅随 HTTP 服务关闭而释放。旧协议无状态 HTTP 不支持跨请求通知，声明 `listChanged: false`，客户端应主动重新查询列表。`createApp({ mcp: false })` 不装配此入口；`serve` 的 `mcp: false`／CLI `--no-mcp` 关闭 HTTP 挂载。当前文档／任务工具由内核操作插件贡献，组件工具由可选组件插件贡献；格式能力仍由既有输入／输出适配器提供，MCP 运行时不识别特定 PDF 引擎。
 
 | 当前 tool（均加 `ivoraige_` 前缀） | 对应内核操作 | 备注 |
 |---|---|---|

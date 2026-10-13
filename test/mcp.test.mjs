@@ -15,7 +15,7 @@ const targetLang = 'zh'
 const upload = (content, format = 'txt') => ({
   contentBase64: Buffer.from(content).toString('base64'), format, language: 'en', origin: 'mcp',
 })
-const client = () => new Client({ name: 'ivoraige-integration-test', version: '1.0.0' })
+const client = options => new Client({ name: 'ivoraige-integration-test', version: '1.0.0' }, options)
 const body = response => {
   assert.equal(response.content?.[0]?.type, 'text')
   const parsed = JSON.parse(response.content[0].text)
@@ -57,8 +57,8 @@ async function fixture(t, options = {}) {
   })
   return {
     get app() { return app }, get server() { return server }, directory, store, exportDir,
-    async connect() {
-      const connection = client()
+    async connect(options) {
+      const connection = client(options)
       await connection.connect(new StreamableHTTPClientTransport(new URL(`${server.url}/mcp`)))
       connections.push(connection)
       return connection
@@ -173,7 +173,19 @@ test('MCP translation uses a local mock model and frozen replay never invokes it
 
 test('a Cordis plugin adds and removes MCP tools and resources on a live connection', async t => {
   const f = await fixture(t)
-  const connection = await f.connect()
+  const changes = { tools: 0, resources: 0 }
+  const connection = await f.connect({ versionNegotiation: { mode: 'auto' }, listChanged:
+    Object.fromEntries(Object.keys(changes).map(kind => [kind, {
+      autoRefresh: false, debounceMs: 0, onChanged: error => { assert.ifError(error); changes[kind]++ },
+    }])) })
+  assert.equal(connection.getServerCapabilities().tools.listChanged, true)
+  const waitChanges = async count => {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if (changes.tools >= count && changes.resources >= count) return
+      await new Promise(resolveWait => setTimeout(resolveWait, 20))
+    }
+    assert.fail(`Missing plugin notifications: ${JSON.stringify(changes)}`)
+  }
   const plugin = await f.app.ctx.plugin({
     inject: ['ivoraige.mcp'],
     apply(ctx) {
@@ -189,12 +201,21 @@ test('a Cordis plugin adds and removes MCP tools and resources on a live connect
     },
   })
   try {
+    await waitChanges(1)
     assert.ok((await connection.listTools()).tools.some(item => item.name === 'test_echo'))
     assert.equal(body(await connection.callTool({ name: 'test_echo', arguments: { value: 'plugin' } })).value, 'plugin')
     assert.equal((await connection.readResource({ uri: 'ivoraige://test/plugin' })).contents[0].text, 'plugin')
   } finally { await plugin.dispose() }
+  await waitChanges(2)
   assert.ok(!(await connection.listTools()).tools.some(item => item.name === 'test_echo'))
   await assert.rejects(connection.readResource({ uri: 'ivoraige://test/plugin' }))
+  const legacy = await f.connect()
+  assert.equal(legacy.getServerCapabilities().tools.listChanged, false)
+  assert.equal(legacy.getServerCapabilities().resources.listChanged, false)
+  assert.equal(f.app.mcp.listeners.size, 1, 'requests must not accumulate registry subscriptions')
+  await assert.rejects(serve(f.app, { port: Number(new URL(f.server.url).port) }), { code: 'EADDRINUSE' })
+  assert.equal(f.app.mcp.listeners.size, 1, 'failed HTTP startup must release its subscription')
+  t.after(() => assert.equal(f.app.mcp.listeners.size, 0, 'HTTP shutdown must release registry subscriptions'))
 })
 
 test('aborting MCP task long-poll releases its subscriber but keeps the task', async t => {

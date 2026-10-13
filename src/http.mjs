@@ -192,10 +192,15 @@ export async function serve(app, { host = '127.0.0.1', port = 8787, staticDir, a
       send(res, result.status, result.body)
     }
   })
-  await new Promise((resolveListen, rejectListen) => {
-    server.once('error', rejectListen)
-    server.listen(port, host, resolveListen)
-  })
+  try {
+    await new Promise((resolveListen, rejectListen) => {
+      server.once('error', rejectListen)
+      server.listen(port, host, resolveListen)
+    })
+  } catch (error) {
+    await mcpEndpoint?.close()
+    throw error
+  }
   const address = server.address()
   return { url: `http://${host.includes(':') ? `[${host}]` : host}:${address.port}`,
     close: async () => {

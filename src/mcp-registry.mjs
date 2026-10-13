@@ -14,9 +14,10 @@ export class McpRegistry extends Service {
   register(collection, name, definition) {
     if (collection.has(name)) throw new KernelError('CONFLICT', `MCP capability already registered: ${name}`)
     collection.set(name, definition)
-    this.changed()
-    return () => { if (collection.get(name) === definition) { collection.delete(name); this.changed() } }
+    const kind = collection === this.tools ? 'tools' : 'resources'
+    this.changed(kind)
+    return () => { if (collection.get(name) === definition) { collection.delete(name); this.changed(kind) } }
   }
   subscribe(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener) }
-  changed() { for (const listener of this.listeners) listener() }
+  changed(kind) { for (const listener of this.listeners) listener(kind) }
 }

@@ -38,3 +38,5 @@ TXT／Markdown 导入可直接返回完成结果；PDF 导入返回持久任务�
 当前还提供快照列表／读取／删除与任务列表工具。设置服务存在时才显示 `ivoraige_settings_get`、`ivoraige_settings_update`、`ivoraige_credential_set`；组件安装服务存在时才显示 `ivoraige_component_*` 工具。设置修改、保存模型凭据／仓库令牌和安装组件拥有本机内核的完整写入能力，应在用户明确要求后调用。服务仅限回环访问，但同机可访问该端口的客户端将获得这些工具；请控制本机客户端的访问。当前没有 RAG、术语库或独立文本翻译工具。
 
 完整当前工具映射见 [v2.0 API 协议 §6](../../requirements/v2.0/03_API-protocol_v2.0.md#6-mcp-tools-映射)。成功工具响应的 `structuredContent` 是带 `apiVersion` 的内核业务对象，文本 content 是同一对象的 JSON。业务错误标记 `isError: true`，并在 `structuredContent` 中返回 `{ apiVersion, error: { code, message, details } }`；参数违反工具输入 schema 时由 MCP SDK 返回协议级校验错误。资源失败返回 MCP 协议错误。若任务失败，查询任务状态和其中的错误信息。
+
+插件装卸后，支持现代协议订阅的 HTTP 客户端会收到工具／资源列表变化通知；使用官方 JS SDK 2.x 时配置 `versionNegotiation: { mode: "auto" }` 和 `listChanged` 回调。旧协议无状态 HTTP 不推送变化（`listChanged: false`），需要重新查询列表；stdio 保留连接内通知。
