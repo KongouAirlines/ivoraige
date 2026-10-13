@@ -191,3 +191,7 @@ Windows CI 补充暴露详情页首次提交后的草稿初始化与输入竞争
 ## MCP 阶段启动（2026-10-13）
 
 PR #17 已合入 `main/0a185d4`，安装阶段不再等待 review。从该主线建立 `codex/0.1.0-mcp`；下一阶段按 [MCP 接入计划](mcp.md) 补齐 stdio 与 Streamable HTTP，共用现有内核。当前仅完成计划和基线核对，尚未实现 MCP。
+
+## MCP 双入口实现（2026-10-13）
+
+`codex/0.1.0-mcp` 已实现 stdio 与 Streamable HTTP，能力由 Cordis 插件注册，入口不包含 PDF 引擎业务。Windows 本机完整测试 229/229，官方 SDK 双 transport 与真实 DSH 客户端闭环通过；真实 BabelDOC 经 MCP 导入、人工接受、三格式冻结输出及数据目录迁移后重放通过，零模型导出。详见 [阶段证据及限制](mcp.md) 和 [使用指南](mcp-guide.md)。当前待 PR review／合入，不把本次结果扩大为所有 AI 客户端或三平台 PDF 发行验收。

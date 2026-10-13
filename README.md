@@ -85,3 +85,5 @@ SQLite 数据库及其 `.owner.sqlite` 所有权文件须位于支持 SQLite 文
 - [v2.0 UI 设计](docs/requirements/v2.0/02_UI-design_v2.0.md)
 - [v2.0 API 协议](docs/requirements/v2.0/03_API-protocol_v2.0.md)
 - [历史复盘](docs/plan/mvp/retrospective.md)
+
+MCP 客户端连接与插件入口说明见 [MCP 使用指南](docs/plan/0.1.0/mcp-guide.md)。

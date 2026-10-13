@@ -85,3 +85,8 @@ not read model credentials. The current workbench persists a named credential
 reference and DSH model settings, while explicit translation configuration
 remains available for examples and tests. When a provider omits usage, the
 business task records unknown (`null`) rather than zero.
+
+The MCP entry uses the official `@modelcontextprotocol/server` 2.3.1 and
+`@modelcontextprotocol/node` 2.1.1 packages (Apache-2.0), kept as production
+npm dependencies with their license files. The official client 2.3.1 is a
+development-only dependency for protocol and package acceptance tests.
