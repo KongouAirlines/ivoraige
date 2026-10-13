@@ -4,40 +4,41 @@ Guidance for AI coding agents working in this repository. Human-facing documenta
 
 ## What this project is
 
-ivoraige is a composable translation middleware. First application: English↔Chinese scientific translation. Two goals outrank everything else:
+ivoraige is composable translation and file-processing infrastructure for people and AI. Learners, students, researchers, and volunteer and hobby translators can assemble only the capabilities they need, including for novels and other mixed-format work. English↔Chinese scientific translation is an early application, not the sole product center. Composition and reuse guide product design. Within translation workflows, two invariants apply:
 
 1. **Translate once.** A text is translated a single time per (content, language direction, constraints); every output (PDF, Markdown, JSON, EPUB, RAG, workbench) consumes the same accepted revisions. Never let an export or rebuild path invoke a translation model.
 2. **Terminology persists.** Term bases survive individual tasks and are reused across tasks, with explicit applicability scope (see `docs/requirements/amendments/0001-term-applicability.md`).
 
-## Current state
+## Baselines and current evidence
 
-- MVP (M0–M4) is historical evidence. At the user's explicit request, `codex/restart-v2` restarted the business kernel from the v2.0 baseline at `12b8f37`; old business services/CLI/tests were removed. The retired MVP is version `0.0.0` on independent branch `codex/archive-mvp-0.0.0` (tag `v0.0.0`, commit `27eec14`). The active PDF substage is `codex/0.1.0-pdf`, based on local `main` at `4702943`; it does not merge unrelated next-stage work. Retain the verified DSH bridge/build method; legacy experiments live only on the archive branch. The current software is `0.1.0-dev.0` (unreleased), independent of the v2.0 design document version. Track current capabilities and tests in `docs/plan/0.1.0/README.md` and `pdf.md`; do not count old acceptance results as new implementation progress. Name future implementation branches by software version.
-- Active design baseline is **v2.0** in `docs/requirements/v2.0/`:
-  - `01_design_v2.0.md` — architecture, data model, reuse key, frozen export snapshots, milestones M5–M8.
-  - `02_UI-design_v2.0.md` — WebUI (shell layout, theming, per-plugin pages, PDF page, DeepL-style text page, workbench).
-  - `03_API-protocol_v2.0.md` — REST/SSE/MCP/CLI protocol, error codes, Python sidecar JSON-RPC, asset management, concurrency locks.
-- Current capabilities: TXT/Markdown import, DSH domain/SQLite persistence, language-scoped revisions/acceptance and applicability checks, frozen snapshots, MD/JSON export, and durable import/translation/export tasks. Optional BabelDOC adds native-text English PDF capture, managed binary sources, page/bbox source binding, PDF replay output, and PDF import tasks. `createApp({store})` enables records; without a store it remains parse-only. `createApp({store,settingsDir})` boots DSH profile/settings/config-editor, credentials, model and jobs; explicit `translation` configuration remains available for examples/tests. CLI, HTTP/SSE and React WebUI share kernel operations; MCP remains pending. Default tests use a local mock provider; Windows native PDF en→zh mono acceptance has run with 12 model requests and zero model requests on frozen replay (see `docs/plan/0.1.0/pdf.md`). Windows browser PDF review/export and a two-page visual check have passed. Bilingual PDF, OCR, cross-engine mapping and three-OS PDF packaging remain pending. Earlier Node 24 CI passed 63 text-stage tests and package smoke on Windows, Linux and macOS for `c28c583` ([run 37314672867](https://github.com/KongouAirlines/ivaraige/actions/runs/37314672867)); this is not PDF-branch CI. Full scientific quality evaluation and terminology assembly remain pending. No migration from the retired MVP store.
-- Requirements v1.0 (`docs/requirements/v1.0/`) is the frozen feature baseline (44 items, F-01–F-44). Do not renumber or reprioritize.
-- Design constraints C1–C8 are registered in `01_design_v2.0.md` §0. They are decided, not open: three OS targets; CLI + MCP + WebUI on one kernel; single-deployment packaging; DSH plugin reuse for AI infrastructure (C8); term-base schema deferred (C7).
+- Software is `0.1.0-dev.0` (unreleased); v2.0 is the design document version. The retired MVP is version `0.0.0` on `codex/archive-mvp-0.0.0` and tag `v0.0.0`. Do not count its acceptance results as current implementation progress or restore its business layer by default.
+- For current capabilities and limits use [the 0.1.0 capability map](docs/plan/0.1.0/capabilities.md); for implementation and verification use [the development guide](docs/plan/0.1.0/development-guide.md) and the relevant stage record.
+- The active design baseline is [v2.0](docs/requirements/v2.0/01_design_v2.0.md), with [UI](docs/requirements/v2.0/02_UI-design_v2.0.md) and [process/entry protocol](docs/requirements/v2.0/03_API-protocol_v2.0.md). Requirements [v1.0](docs/requirements/v1.0/) remains frozen (F-01–F-44); do not renumber or reprioritize. C1–C8 in v2.0 §0 are decided constraints, including three OS targets, one kernel for CLI/MCP/WebUI, deployment, DSH reuse, and deferred term-base schema.
 
 ## Architecture invariants (do not violate)
 
-1. **Entries contain no logic.** CLI, MCP server, and WebUI only forward to kernel services. New capability = kernel service + one registration per entry.
+1. **Entries contain no business logic.** CLI, MCP server, and WebUI expose installed kernel operations through their protocols. Add a capability to its owning service or adapter, then register it in relevant entries; an entry must not import a concrete format or provider implementation.
 2. **Export never translates.** Output adapters cannot obtain the LLM service (Cordis `inject` does not provide it). This is a mechanism, not a discipline.
 3. **Frozen snapshots.** Every export task freezes an `ExportSnapshot` at acceptance time; all formats in one task share one `snapshotId`. Editing during export must not change in-flight outputs. Schema and lifecycle: `03_API-protocol_v2.0.md` §2/§3.3.
 4. **Reuse requires applicability, not just key match.** `reuseKey` is a lookup index only; reuse also requires the applicability check (source revision, effective context, effective target, term constraint set). See `01_design_v2.0.md` §3.2.
 5. **Term scope before match.** Term resolution filters by applicability scope first, then form/language/sense. Project-library priority never overrides scope (amendment 0001).
 6. **AI infrastructure comes from DSH plugins.** Model access (`dsh-llm` + `dsh-llm-pi-ai`), credentials, settings, storage, jobs: mount the corresponding DSH plugin. Write no parallel implementation. Only the translation business layer (term assembly, reuse, same-source output, source binding) is ours.
-7. **Python only through the sidecar protocol.** The kernel never imports Python. The current BabelDOC development sidecar speaks NDJSON JSON-RPC 2.0 over stdio (`03_API-protocol_v2.0.md` §7); a separate MinerU sidecar and PyInstaller distribution remain future work.
+7. **Python only through the sidecar protocol.** The kernel never imports Python. The BabelDOC sidecar speaks NDJSON JSON-RPC 2.0 over stdio (`03_API-protocol_v2.0.md` §7), with development and packaged Windows runtimes; a separate MinerU sidecar and other-platform packaging remain future work.
 8. **Usage unknown ≠ zero.** When a provider omits token usage, record it as unknown/null, never 0.
 9. **Cross-engine mapping is unverified.** MinerU parsing feeding BabelDOC rebuild requires a separately verified many-to-many source binding. Until then, the BabelDOC capture path is the only PDF route; do not claim otherwise.
 
+## Composition and capability ownership
+
+Follow [ADR-0002](docs/decisions/0002-plugin-composition-0.1.0.md). The composition root may know concrete plugins and installation choices; shared services depend on declared contracts, not a particular format, provider, entry, or sidecar. Format-specific source binding, validation, and replay belong to adapters. Providers and bridges contribute through a narrow registration or service contract rather than adding branches to shared operations. Plugin boundaries follow independently selectable capabilities and lifecycle ownership, not every function.
+
+Declare required and optional dependencies, availability behavior, registration, and cleanup for each added capability. Missing optional components must leave unrelated capabilities usable and give a specific unavailable result when selected. Register listeners, routes, adapters, jobs, subprocesses, and UI contributions with their disposer; close owned work before its dependency is disposed. Do not assume runtime hot unload is required for every component: test the lifecycle the product actually supports, including restart activation where applicable. Prefer a mature upstream plugin/tool over parallel infrastructure; verify its real contract before claiming support. If a format issue comes from our invocation timing or data adaptation, fix that boundary; do not implement a parallel upstream parser or reject usable input to conceal an upstream limitation. Validate source ownership, protocol integrity and frozen-output correctness at their owning boundary, while reporting recoverable quality limitations. Add only the abstraction needed by a working composition, and verify both selected and absent capability paths.
+
 ## Repository layout
 
-- `src/` — restarted kernel composition, parsing services/adapters, and retained `dsh-bridge.ts`. Only installed and tested capabilities are available; rebuild business services in stages.
+- `src/` — kernel composition, services, adapters, and the DSH bridge; availability follows installed and tested capabilities.
 - `src/records.mjs` / `basis.mjs` — per-document atomic records and reuse applicability; one kernel owns each SQLite file. `src/export.mjs` renders only resolved frozen snapshots. Output adapters receive data, never the Cordis context.
 - `src/tasks.mjs` / `translation-model.mjs` — document translation orchestration over DSH jobs and llm. Revisions and unit checkpoints commit together; startup pauses unfinished tasks for explicit resume. Close tasks before disposing the storage context. Unsupported term assembly must fail explicitly.
-- `src/adapters/pdf.mjs` / `src/sidecar.mjs` / `sidecars/babeldoc/` — optional PDF source/replay adapter and Python subprocess protocol. Windows development setup is `scripts/setup-pdf.ps1`; usage and limits are in `docs/plan/0.1.0/pdf-guide.md`. Import tasks may be canceled but not resumed.
+- `src/adapters/pdf.mjs` / `src/sidecar.mjs` / `sidecars/babeldoc/` — optional PDF source/replay adapter and Python subprocess protocol. Windows development setup is `scripts/setup-pdf.ps1`; user guidance is in `docs/plan/0.1.0/pdf-guide.md`, developer setup in `pdf-development.md`. Import tasks may be canceled but not resumed.
 - `test/` — `node --test` suites; must stay green.
 - `experiments/` — archive pointer only; old verification rigs are on `codex/archive-mvp-0.0.0` and the `v0.0.0` tag. Ignored local vendor/dependency caches may remain here.
 - `evaluation/private/` — copyrighted originals, extracted text, alignment data. Git-ignored by convention; work directly inside it, do not commit its contents.
@@ -65,6 +66,7 @@ Node >= 24. Type "module" (ESM). Do not downgrade the engines field without veri
 - **Proportionate verification.** After a change, verify the affected path (run the suite or a smoke command). Do not re-verify untouched artifacts, re-scan the whole corpus, or add hash gates to routine file passing. Existing import hashes are reused as-is.
 - **Originals are read-only.** Modify derived data, never the copyrighted originals in `evaluation/private/`.
 - **No scope creep.** Do the requested task. Surface additional issues once, at the end; do not fold them into the change.
+- **Keep user guidance in sync.** When behavior or setup changes, update `README.md` (English) and `README.zh-CN.md` together and the relevant user guide; put observed verification in the versioned stage record. `AGENTS.md` is for agent operations, not a substitute for user documentation or a running feature-status log.
 
 ## Follow-up tracking
 
