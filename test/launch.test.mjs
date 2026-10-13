@@ -1,10 +1,50 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, readFile } from 'node:fs/promises'
+import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { launch } from '../src/launch.mjs'
 import { runCli } from '../src/cli.mjs'
+
+test('a second launch waits for a slow first instance and reports a bounded conflict', async t => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'ivoraige-launch-race-'))
+  const first = await launch({ dataDir, open: false })
+  t.after(async () => { await first.close(); await rm(dataDir, { recursive: true, force: true }) })
+  const path = join(dataDir, 'instance.json')
+  const saved = await readFile(path)
+  await rm(path)
+  const publish = new Promise(resolve => setTimeout(resolve, 2500)).then(() => writeFile(path, saved))
+  const second = await launch({ dataDir, open: false })
+  await publish
+  assert.equal(second.reused, true)
+  assert.equal(second.url, first.url)
+  await rm(path)
+  const started = performance.now()
+  await assert.rejects(launch({ dataDir, open: false }), error => {
+    assert.equal(error.code, 'CONFLICT')
+    assert.match(error.message, /请稍后重试/)
+    return true
+  })
+  assert.ok(performance.now() - started < 13_000)
+})
+
+test('component repository environment is overridable by explicit composition', async t => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'ivoraige-repository-'))
+  const previous = process.env.IVORAIGE_COMPONENTS_REPOSITORY
+  let running
+  t.after(async () => {
+    await running?.close()
+    if (previous === undefined) delete process.env.IVORAIGE_COMPONENTS_REPOSITORY
+    else process.env.IVORAIGE_COMPONENTS_REPOSITORY = previous
+    await rm(dataDir, { recursive: true, force: true })
+  })
+  process.env.IVORAIGE_COMPONENTS_REPOSITORY = 'example/components'
+  running = await launch({ dataDir, open: false })
+  assert.equal((await (await fetch(`${running.url}/api/components`)).json()).repository, 'example/components')
+  await running.close()
+  running = await launch({ dataDir, open: false, components: { repository: 'explicit/components' } })
+  assert.equal((await (await fetch(`${running.url}/api/components`)).json()).repository, 'explicit/components')
+})
 
 test('first launch keeps text usable without PDF and reuses the same running workbench', async t => {
   const dataDir = await mkdtemp(join(tmpdir(), 'ivoraige-launch-'))

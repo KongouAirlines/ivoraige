@@ -349,3 +349,25 @@ test('canceling a remote install stops the DSH job without changing selection', 
   assert.equal(app.components.getTask(taskId).state, 'killed')
   assert.equal((await app.components.status()).installed, null)
 })
+
+test('DSH job saturation maps to CONFLICT without starting an installation', async t => {
+  const directory = await testDirectory('job-limit')
+  const app = await boot(directory)
+  let finish
+  const done = new Promise(resolve => { finish = resolve })
+  const jobs = app.components.jobs
+  const taskId = jobs.start({ kind: 'other-work', label: 'Hold the owner slot',
+    run: () => ({ done, cancel: () => finish({ status: 'completed' }) }) })
+  t.after(async () => {
+    finish({ status: 'completed' })
+    await jobs.wait(taskId, 30_000)
+    await app.dispose()
+    await rm(directory, { recursive: true, force: true })
+  })
+  assert.throws(() => app.components.install(), error => {
+    assert.equal(error.code, 'CONFLICT')
+    assert.match(error.message, /Wait for the active task/)
+    return true
+  })
+  assert.equal((await app.components.status()).task, null)
+})

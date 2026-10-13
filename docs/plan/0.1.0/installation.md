@@ -94,3 +94,12 @@ PDF P5 原先把双语和分发并列；本计划承接其分发部分，双语�
 - 清单统一限制每个 `(id, platform, arch)` 一个候选版本，catalog、本地和远程安装均在读取时拒绝重复候选；不同平台可并列。没有扩展 CLI／UI 版本选择器。协议 §3.8 同步此契约。
 - 用户安装指南移除构建和沙盒操作；新增 `installation-maintenance.md` 保存维护者步骤。ZIP／npm 包均排除该文档、内部 `installation.md` 和沙盒验收脚本。运行时没有报告回传逻辑。
 - 本轮组件／入口／设置页回归 24/24；npm 隔离包 50 文件 smoke 通过；真实 Windows 基础 ZIP 构建及内置启动探针通过。PDF 引擎与组件归档未变，沿用上一轮 Sandbox 验收，不宣称本轮重跑 PDF 排版。
+
+## 后续 Minor 审阅修复（2026-10-13，PR #17）
+
+- 组件仓库可通过 `IVORAIGE_COMPONENTS_REPOSITORY` 配置，默认不变，显式组合配置优先。CLI 与启动器共用独立数据目录模块，保留 CLI 的 `--store`／`IVORAIGE_STORE` 优先级，删除未使用的 `IVORAIGE_LAUNCH_BUNDLE` 条件。
+- 第二次启动遇到存储占用时最多等待约 10 秒，探测请求使用剩余期限；超时提示稍后重试。测试覆盖首次实例超过两秒才就绪以及始终占用时的超时。
+- 当前固定 DSH jobs-local 对并发满额仅抛普通 Error，保留文本到 CONFLICT 的兼容映射，注明依赖并以真实 DSH 满额任务验证，不新增任务调度实现。
+- Windows 本机 Node 26.7.0 完整 `npm test` 222/222；npm 隔离包 smoke 通过，51 文件。没有重跑 Sandbox／PDF 布局或新增模型调用。既有 PDF 验收证据保留在上文。
+- 指南链接版本绑定按用户决定登记为 [release-documentation-binding](../follow-ups/release-documentation-binding.md)，在 MCP 等工作完成后、发版前收尾；未来拆仓时再评估文档分发。
+- 本轮仅更新源码与文档，未替换私有预发布附件；现有基础 ZIP 仍对应 bdd1854。

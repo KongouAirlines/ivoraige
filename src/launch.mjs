@@ -3,17 +3,13 @@ import { spawn } from 'node:child_process'
 import { mkdir, readFile, writeFile, rm, realpath } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { homedir } from 'node:os'
+import { defaultDataDirectory } from './data-directory.mjs'
+import { KernelError } from './errors.mjs'
+export { defaultDataDirectory } from './data-directory.mjs'
 import { isSea } from 'node:sea'
 import { createApp } from './app.mjs'
 import { serve } from './http.mjs'
 import { runCli } from './cli.mjs'
-
-export function defaultDataDirectory() {
-  return process.env.IVORAIGE_DATA_DIR ?? join(process.platform === 'win32'
-    ? process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local')
-    : process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'), 'ivoraige')
-}
 
 export function openBrowser(url) {
   // Only a locally generated loopback URL reaches the platform opener.
@@ -25,12 +21,12 @@ export function openBrowser(url) {
   child.unref()
 }
 
-async function existingInstance(path) {
+async function existingInstance(path, timeout = 1500) {
   try {
     const saved = JSON.parse(await readFile(path, 'utf8'))
     const url = new URL(saved.url)
     if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1') return
-    const response = await fetch(new URL('/api/instance', url), { signal: AbortSignal.timeout(1500) })
+    const response = await fetch(new URL('/api/instance', url), { signal: AbortSignal.timeout(timeout) })
     if (response.ok && (await response.json()).id === saved.id) return saved.url
   } catch { /* A stale instance record is replaced after acquiring the store lock. */ }
 }
@@ -67,11 +63,15 @@ export async function launch({ dataDir = defaultDataDirectory(), open = true, po
     await app?.dispose()
     if (error.code === 'CONFLICT') {
       // A second launch may race the first between store lock and HTTP startup.
-      for (let attempt = 0; attempt < 10; attempt++) {
-        await new Promise(done => setTimeout(done, 200))
-        const url = await existingInstance(instancePath)
+      const deadline = performance.now() + 10_000
+      while (performance.now() < deadline) {
+        await new Promise(done => setTimeout(done, Math.min(200, deadline - performance.now())))
+        const remaining = Math.ceil(deadline - performance.now())
+        if (remaining <= 0) break
+        const url = await existingInstance(instancePath, Math.min(1500, remaining))
         if (url) { if (open) opener(url); return { url, reused: true, close: async () => {} } }
       }
+      throw new KernelError('CONFLICT', '已有实例正在启动或占用数据目录，请稍后重试。', {}, { cause: error })
     }
     throw error
   }

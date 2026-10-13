@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { fileURLToPath } from 'node:url'
 import { dirname, join, resolve } from 'node:path'
-import { homedir } from 'node:os'
+import { defaultDataDirectory } from './data-directory.mjs'
 import { mkdir, readFile, stat } from 'node:fs/promises'
 import { realpathSync } from 'node:fs'
 import { createApp } from './app.mjs'
@@ -107,11 +107,7 @@ function route(command, args, o) {
 function clean(value) { return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) }
 function storePath(options) {
   if (options.store ?? process.env.IVORAIGE_STORE) return options.store ?? process.env.IVORAIGE_STORE
-  if (process.env.IVORAIGE_DATA_DIR) return join(process.env.IVORAIGE_DATA_DIR, 'store.sqlite')
-  const root = process.platform === 'win32' ?
-    (process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local')) :
-    (process.env.XDG_DATA_HOME ?? join(homedir(), '.local', 'share'))
-  return join(root, 'ivoraige', 'store.sqlite')
+  return join(defaultDataDirectory(), 'store.sqlite')
 }
 // Relative filesystem paths in the optional PDF config are based on the config file.
 // Bare command names (for example "python") remain available through PATH.
@@ -317,5 +313,5 @@ function invokedAsCli() {
   catch { return false }
 }
 
-if (typeof IVORAIGE_LAUNCH_BUNDLE === 'undefined' && invokedAsCli())
+if (invokedAsCli())
   process.exitCode = await runCli()

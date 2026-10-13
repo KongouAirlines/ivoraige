@@ -63,7 +63,7 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
       await ctx.plugin(JobsLocal, { maxConcurrentJobsPerOwner: 1 })
       if (components !== undefined) {
         const { Components } = await import('./components.mjs')
-        await ctx.plugin(Components, { repository: 'KongouAirlines/ivaraige',
+        await ctx.plugin(Components, { repository: process.env.IVORAIGE_COMPONENTS_REPOSITORY ?? 'KongouAirlines/ivaraige',
           releaseTag: process.env.IVORAIGE_RELEASE_TAG ?? 'v0.1.0-dev.0', ...components })
         pdf ??= await ctx.get('ivoraige.components').getInstalledPdf() ?? undefined
       }

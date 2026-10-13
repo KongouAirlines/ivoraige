@@ -129,6 +129,8 @@ export class Components extends Service {
         run: job => ({ cancel: () => controller.abort(),
           done: this.runInstall(input, job, controller.signal, state) }) })
     } catch (error) {
+      // Pinned DSH jobs-local start() exposes only a plain Error for saturation.
+      // Keep this upstream message dependency covered by the real job-limit test.
       if (/background job limit reached/.test(error.message)) {
         throw new KernelError('CONFLICT', 'Wait for the active task before installing a component')
       }
