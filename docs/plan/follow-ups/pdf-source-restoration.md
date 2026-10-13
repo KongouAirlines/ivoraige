@@ -1,7 +1,7 @@
 # PDF 受管理原件重新导入恢复
 
 - ID: pdf-source-restoration
-- 状态: 处理中
+- 状态: 已解决
 - 实施分支／PR: codex/0.1.0-pdf-source-ownership；[PR #10](https://github.com/KongouAirlines/ivaraige/pull/10)
 - 类型: 缺陷
 - 发现依据: 2026-10-08，[Issue #11](https://github.com/KongouAirlines/ivaraige/issues/11) 与 PR #10 的 `4789fcc`：损坏的受管理副本使正确原件重导入失败；升级后旧 digest-only 来源缺失时，新导入路径不能恢复旧快照。
@@ -25,3 +25,5 @@
 ## 处理记录
 
 - 2026-10-08：`codex/0.1.0-pdf-source-ownership` 实施修复与回归测试；Windows 定向测试通过，待合入和其余平台验证。
+
+- 2026-10-11：已核对修复随 PR #10／#12 合入 main/4df1d72；最终三平台 Node24 CI（Python、Node、package smoke）通过：[run 38077245588](https://github.com/KongouAirlines/ivaraige/actions/runs/38077245588)。真实 Windows PDF 证据见 [实施记录](../0.1.0/pdf.md)。按本事项范围关闭；不扩大为上游解析质量或三平台原生 PDF 发行保证。

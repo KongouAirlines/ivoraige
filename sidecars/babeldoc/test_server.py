@@ -296,6 +296,31 @@ class BindingTests(unittest.TestCase):
             self.assertEqual(cache.joinpath("retained").read_text(encoding="utf-8"), "shared")
             self.assertEqual(output.read_bytes(), b"published")
 
+    def test_engine_input_uses_short_stem_and_preserves_managed_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / ("a" * 64 + "-" + "b" * 64 + ".pdf")
+            source.write_bytes(b"%PDF-original")
+            staged = server.stage_engine_input(source, root / "run-1")
+            self.assertEqual(staged.name, "input.pdf")
+            self.assertEqual(staged.read_bytes(), source.read_bytes())
+            staged.write_bytes(b"derived")
+            self.assertEqual(source.read_bytes(), b"%PDF-original")
+
+    def test_cleanup_failure_does_not_replace_engine_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def failing_engine(*_args):
+                server.STATE["active_run_work"] = root
+                raise ValueError("original engine save failure")
+            with patch.dict(server.STATE, {}, clear=True), \
+                    patch.object(server, "_run_engine", side_effect=failing_engine), \
+                    patch.object(server.shutil, "rmtree", side_effect=PermissionError("held PDF")), \
+                    patch.object(server.traceback, "print_exc") as log:
+                with self.assertRaisesRegex(ValueError, "original engine save failure"):
+                    server.run_engine(Path("source.pdf"), {}, "replay")
+                log.assert_called_once()
+
     def test_only_input_pdf_documents_are_owned_by_engine(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
             source = Path(directory) / "source.pdf"

@@ -1,7 +1,7 @@
 # PDF 受管理原件的路径边界
 
 - ID: pdf-managed-source-containment
-- 状态: 处理中
+- 状态: 已解决
 - 实施分支／PR: codex/0.1.0-pdf-source-ownership；[PR #10](https://github.com/KongouAirlines/ivaraige/pull/10)
 - 类型: 改进
 - 发现依据: 2026-10-08，审阅 [PDF PR #7](https://github.com/KongouAirlines/ivaraige/pull/7) 后检查本地 `src/adapters/pdf.mjs` 的 `verifySource()`／`rebuild()` 与 `sidecars/babeldoc/server.py` 的来源读取；以下为代码路径观察，未做篡改 SQLite 的运行探针。
@@ -27,3 +27,5 @@ PR #9 只改设置，不修改 PDF 生产实现。重新评估触发条件：支
 
 - 2026-10-08：PR #9 审阅时登记路径归属缺少校验的静态证据；未改动 PDF 生产实现，未声称存在公开 API 的直接利用路径。
 - 2026-10-08：当前实施分支导出只接受摘要格式匹配的受管理文件名，在当前 store 的 `pdf/sources/` 解析有效路径，并校验真实路径与摘要。Windows 定向测试拒绝伪造外部路径及指向目录外的 junction；待合入和其余平台验证。
+
+- 2026-10-11：已核对修复随 PR #10／#12 合入 main/4df1d72；最终三平台 Node24 CI（Python、Node、package smoke）通过：[run 38077245588](https://github.com/KongouAirlines/ivaraige/actions/runs/38077245588)。真实 Windows PDF 证据见 [实施记录](../0.1.0/pdf.md)。按本事项范围关闭；不扩大为上游解析质量或三平台原生 PDF 发行保证。

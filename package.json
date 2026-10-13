@@ -23,6 +23,8 @@
     "examples/pdf-windows.json",
     "docs/plan/0.1.0/pdf-guide.md",
     "docs/plan/0.1.0/settings-guide.md",
+    "docs/plan/0.1.0/installation-guide.md",
+    "docs/plan/0.1.0/workbench-guide.md",
     "docs/plan/0.1.0/pdf.md",
     "README.md",
     "THIRD_PARTY.md"
@@ -31,6 +33,8 @@
     "node": ">=24"
   },
   "scripts": {
+    "start": "node src/launch.mjs",
+    "build:distribution": "npm run build && node scripts/build-distribution.mjs",
     "setup:dsh": "node scripts/setup-dsh.mjs",
     "build": "node scripts/build.mjs && node scripts/build-web.mjs",
     "test": "npm run build && node --test test/*.test.mjs",
@@ -49,6 +53,7 @@
     "react-dom": "18.3.1",
     "resolve.exports": "2.0.3",
     "semver": "7.8.5",
+    "tar": "7.5.22",
     "yaml": "2.9.0",
     "zod": "4.4.3"
   },

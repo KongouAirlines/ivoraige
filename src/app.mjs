@@ -18,7 +18,10 @@ import { Pdf } from './adapters/pdf.mjs'
 import { SettingsPages } from './settings-pages.mjs'
 
 // Composition only: business capabilities live in Cordis services.
-export async function createApp({ store, exportDir, translation, settingsDir, pdf } = {}) {
+export async function createApp({ store, exportDir, translation, settingsDir, pdf, components } = {}) {
+  if (components !== undefined && (!settingsDir || !components || typeof components !== 'object' || Array.isArray(components))) {
+    throw new KernelError('INVALID_ARGUMENT', 'Component installation requires a settings directory and configuration')
+  }
   if (pdf !== undefined && (!store || !pdf || typeof pdf !== 'object' || Array.isArray(pdf))) {
     throw new KernelError('INVALID_ARGUMENT', 'PDF configuration requires a store and a component configuration')
   }
@@ -56,9 +59,17 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
     await ctx.plugin(Parse)
     await ctx.plugin(TxtSource)
     await ctx.plugin(MarkdownSource)
-    if (pdf !== undefined) await ctx.plugin(Pdf, { ...pdf,
-      directory: join(dirname(storeLock.path), 'pdf'), storePath: storeLock.path })
     if (store !== undefined) {
+      await ctx.plugin(JobsLocal, { maxConcurrentJobsPerOwner: 1 })
+      if (components !== undefined) {
+        const { Components } = await import('./components.mjs')
+        await ctx.plugin(Components, { repository: process.env.IVORAIGE_COMPONENTS_REPOSITORY ?? 'KongouAirlines/ivaraige',
+          releaseTag: process.env.IVORAIGE_RELEASE_TAG ?? 'v0.1.0-dev.0', ...components })
+        pdf ??= await ctx.get('ivoraige.components').getInstalledPdf() ?? undefined
+      }
+      if (pdf !== undefined) await ctx.plugin(Pdf, { ...pdf,
+        directory: join(dirname(storeLock.path), 'pdf'), storePath: storeLock.path })
+      else if (components !== undefined) ctx.effect(() => ctx.get('ivoraige.settingsPages').register({ id: 'pdf', label: 'PDF', order: 20 }))
       await ctx.plugin(Storage)
       await ctx.plugin(StorageSqlite, { path: storeLock.path })
       await ctx.plugin(StorageDomain, { backend: 'sqlite' })
@@ -79,10 +90,9 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
       } else if (settingsDir !== undefined) {
         await ctx.plugin(TranslationModel, { select: () => ctx.get('ivoraige.modelSettings')?.resolve() })
       }
-      await ctx.plugin(JobsLocal, { maxConcurrentJobsPerOwner: 1 })
       await ctx.plugin(Tasks)
       await ctx.get('ivoraige.tasks').ready
-      await ctx.plugin(Operations)
+      await ctx.plugin(Operations, { dataDirectory: dirname(storeLock.path) })
     }
     return {
       ctx,
@@ -93,9 +103,11 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
       tasks: ctx.get('ivoraige.tasks'),
       operations: ctx.get('ivoraige.operations'),
       settings: ctx.get('ivoraige.modelSettings'),
+      components: ctx.get('ivoraige.components'),
       dispose: async () => {
         let failure
         try { await ctx.get('ivoraige.tasks')?.close() } catch (error) { failure = error }
+        try { await ctx.get('ivoraige.components')?.close() } catch (error) { failure ??= error }
         try { await ctx.fiber.dispose() } catch (error) { failure ??= error }
         try { storeLock?.release() } catch (error) { failure ??= error }
         if (failure) throw failure

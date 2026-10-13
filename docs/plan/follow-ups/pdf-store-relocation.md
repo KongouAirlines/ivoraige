@@ -2,7 +2,7 @@
 
 - ID: pdf-store-relocation
 - 状态: 处理中
-- 实施分支／PR: codex/0.1.0-pdf-source-ownership；[PR #10](https://github.com/KongouAirlines/ivaraige/pull/10)
+- 实施分支／PR: codex/0.1.0-pdf-source-ownership；[PR #10](https://github.com/KongouAirlines/ivaraige/pull/10)、[PR #12](https://github.com/KongouAirlines/ivaraige/pull/12)；安装验证 codex/0.1.0-installation
 - 类型: 改进
 - 发现依据: 2026-10-08，审阅已合入的 [PDF PR #7](https://github.com/KongouAirlines/ivaraige/pull/7) 与本地 `src/adapters/pdf.mjs`、`test/pdf-import-tasks.test.mjs`；本次为代码路径推断，未执行跨目录迁移验收。
 - 目标分支: main
@@ -22,6 +22,11 @@ PDF 导入把受管理副本放在数据库旁的 `pdf/sources/`，但 `sourceBi
 - 三入口及三平台安装包场景下，路径处理与源文件所有权有实际验证。
 
 ## 处理记录
+
+- 2026-10-12：PR #17 在无开发工具的 Windows Sandbox 完成同版本程序目录替换、数据保留、本地 PDF 组件安装和重启后的冻结重导出。修复引擎工作副本名称过长与 Hyperscan DLL 打包遗漏，详见[安装记录](../0.1.0/installation.md)。本轮零模型调用；该项继续“处理中”，等待合入且仍保留数据根迁移、MCP 与其他平台的验收条件。
+
+- 2026-10-11：PR #10／#12 已合入 `main/4df1d72`。安装分支补充程序目录与数据目录分离，Windows 发行包实际替换程序目录后沿用原数据根，文本修订及冻结输出可读回；验证脚本为 `scripts/smoke-distribution.mjs`，阶段证据见[安装记录](../0.1.0/installation.md)。此为同版本程序替换，不冒充数据根迁移或跨版本升级。三平台安装包、MCP 入口和干净 Windows 环境仍未完成，保留“处理中”。
+- 同次 Windows 发行验收已补齐本地组件安装、PDF 导入、重启后快照读回、编辑后的三格式冻结重放；MD／JSON 字节相同，PDF 两页渲染相同，导出模型调用为零。本次安装变更待合入 main，不扩大为三平台完成。
 
 - 2026-10-11：PR #12 补充直接挂载 PDF 插件的相对自定义目录回归，搬迁后仍用保存的文件名在新根读取；允许旧 owner 前缀，不把冻结绑定改成当前绝对路径。Windows 定向测试通过，待合入 main；此结果不代表三平台安装包验收。
 

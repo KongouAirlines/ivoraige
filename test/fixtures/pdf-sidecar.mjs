@@ -22,7 +22,10 @@ for await (const line of createInterface({ input: process.stdin })) {
     workDir = params.options?.workDir
     if (params.options?.workDir) writeFileSync(join(params.options.workDir, 'sidecar-owned'), 'configured')
     if (mode === 'missing-assets') fail(id, -32002, 'weights missing')
-    else reply(id, {})
+    else {
+      if (mode === 'diagnostic-error') process.stderr.write('Python traceback: held PDF output\n')
+      reply(id, {})
+    }
     continue
   }
   if (method === 'shutdown') {
@@ -43,6 +46,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     continue
   }
   if (mode === 'remote-error') { fail(id, -32001, 'parse failed'); continue }
+  if (mode === 'diagnostic-error') { fail(id, -32003, 'rebuild failed'); continue }
   if (mode === 'rebuild-error') { fail(id, -32003, 'rebuild failed'); continue }
   if (mode === 'slow') await new Promise(resolve => setTimeout(resolve, 80))
   send({ method: 'progress', params: { stage: method, done: 1, total: 2 } })
