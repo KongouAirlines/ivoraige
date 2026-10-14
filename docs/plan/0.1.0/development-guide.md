@@ -13,7 +13,13 @@ npm run build
 npm start
 ```
 
-启动器打开浏览器，默认数据目录为 Windows 的 `%LOCALAPPDATA%\ivoraige`，与源码分开。需要隔离开发数据时：
+启动器打开浏览器，数据目录与源码分开，默认位置按平台决定：
+
+- Windows：`%LOCALAPPDATA%\ivoraige`；未设置 `LOCALAPPDATA` 时使用用户目录下的 `AppData\Local\ivoraige`。
+- Linux/macOS：`$XDG_DATA_HOME/ivoraige`；未设置 `XDG_DATA_HOME` 时使用 `~/.local/share/ivoraige`。
+- 设置 `IVORAIGE_DATA_DIR` 可直接覆盖整个默认数据目录。
+
+需要隔离开发数据时：
 
 ```powershell
 node src/cli.mjs serve --store ./evaluation/runs/workbench/store.sqlite
