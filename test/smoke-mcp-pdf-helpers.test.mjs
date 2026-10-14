@@ -1,6 +1,43 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { assertArtifactFormats, closeBestEffort } from '../scripts/smoke-mcp-pdf-helpers.mjs'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { assertArtifactFormats, closeBestEffort, createRunDirectory, writeAcceptanceReport } from '../scripts/smoke-mcp-pdf-helpers.mjs'
+
+test('PDF smoke repeats use distinct directories and preserve previous evidence', async () => {
+  const parent = await mkdtemp(join(tmpdir(), 'ivoraige-mcp-smoke-test-'))
+  try {
+    const first = await createRunDirectory(parent)
+    const evidence = join(first, 'report.json')
+    await writeFile(evidence, 'first run')
+    const second = await createRunDirectory(parent)
+    assert.notEqual(first, second)
+    assert.equal(await readFile(evidence, 'utf8'), 'first run')
+    assert.ok(first.startsWith(parent))
+    assert.ok(second.startsWith(parent))
+  } finally {
+    await rm(parent, { recursive: true, force: true })
+  }
+})
+
+test('PDF smoke report write failure fails acceptance and preserves both errors', async () => {
+  const primary = Error('PDF replay failed')
+  const writeError = Error('report write failed')
+  const write = async () => { throw writeError }
+  const report = { passed: false, error: { name: primary.name, message: primary.message } }
+  const failure = await writeAcceptanceReport(report, 'report.json', primary, write)
+  assert.ok(failure instanceof AggregateError)
+  assert.deepEqual(failure.errors, [primary, writeError])
+  assert.equal(report.passed, false)
+  assert.equal(report.error.message, primary.message)
+  assert.equal(report.reportWriteError.message, writeError.message)
+
+  const otherwisePassed = { passed: true }
+  assert.equal(await writeAcceptanceReport(otherwisePassed, 'report.json', undefined, write), writeError)
+  assert.equal(otherwisePassed.passed, false)
+  assert.equal(otherwisePassed.error.message, writeError.message)
+})
 
 test('PDF smoke requires each requested artifact exactly once', () => {
   const artifacts = formats => formats.map(format => ({ format }))

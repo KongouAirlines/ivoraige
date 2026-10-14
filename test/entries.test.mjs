@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { serve } from '../src/http.mjs'
+import { McpRegistry } from '../src/mcp-registry.mjs'
 import { KernelError } from '../src/errors.mjs'
 import { runCli } from '../src/cli.mjs'
 import { createApp } from '../src/app.mjs'
@@ -341,5 +342,55 @@ test('CLI revisions, snapshots and artifacts honor limit and continuation cursor
       assert.ok(seen.length <= expected.length, `${command} repeated a page`)
     } while (cursor)
     assert.deepEqual(seen, expected, command)
+  }
+})
+
+
+test('non-MCP --stdio is rejected with the ordinary JSON error contract', async () => {
+  let out = '', err = ''
+  const code = await runCli(['documents', 'missing', '--json', '--stdio'], {
+    stdout: { write: chunk => { out += chunk } }, stderr: { write: chunk => { err += chunk } },
+  })
+  assert.equal(code, 2)
+  assert.equal(JSON.parse(out).error.code, 'INVALID_ARGUMENT')
+  assert.match(err, /only supported by mcp/)
+})
+
+test('CLI releases SSE, HTTP port and SQLite even when MCP endpoint close fails', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-mcp-close-failure-'))
+  const store = join(directory, 'store.sqlite')
+  const subscribe = McpRegistry.prototype.subscribe
+  const failure = new Error('Injected MCP endpoint close failure')
+  t.mock.method(McpRegistry.prototype, 'subscribe', function (listener) {
+    const unsubscribe = subscribe.call(this, listener)
+    return () => { unsubscribe(); throw failure }
+  })
+  let started
+  const ready = new Promise(resolveReady => { started = resolveReady })
+  const previousTerm = new Set(process.listeners('SIGTERM'))
+  const running = runCli(['serve', '--store', store, '--port', '0'], {
+    stdout: { write: text => started(text.trim()) }, stderr: { write() {} },
+  })
+  const rejected = assert.rejects(running, error => error === failure)
+  let response
+  try {
+    const url = await ready
+    response = await fetch(`${url}/api/events`)
+    const body = response.text()
+    process.emit('SIGINT')
+    await rejected
+    await body
+    await assert.rejects(fetch(`${url}/api/documents`))
+    const probe = createServer()
+    await new Promise((resolveListen, rejectListen) => {
+      probe.once('error', rejectListen)
+      probe.listen(Number(new URL(url).port), '127.0.0.1', resolveListen)
+    })
+    await new Promise(resolveClose => probe.close(resolveClose))
+    const reopened = await createApp({ store })
+    await reopened.dispose()
+  } finally {
+    for (const listener of process.listeners('SIGTERM')) if (!previousTerm.has(listener)) process.off('SIGTERM', listener)
+    await rm(directory, { recursive: true, force: true })
   }
 })

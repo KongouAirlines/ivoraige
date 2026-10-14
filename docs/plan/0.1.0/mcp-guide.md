@@ -44,4 +44,4 @@ TXT／Markdown 导入可直接返回完成结果；PDF 导入返回持久任务�
 
 ### 开发验收依赖
 
-零模型调用的真实 PDF 回放验收脚本 `scripts/smoke-mcp-pdf.mjs` 需要可用的 BabelDOC 配置及 Poppler `pdftoppm`（在 PATH 中，或通过 `PDFTOPPM_PATH` 指定可执行文件）。Poppler 只用于开发验收，不是 MCP 或正式应用的新增运行依赖。使用新的输出目录；脚本检查 PDF/MD/JSON 三种产物齐全，接受新的修订后重放旧快照，并比较同一环境下的逐页渲染摘要及 MD/JSON 字节。环境缺少渲染工具或比较失败时，验收失败并写入报告，不跳过 PDF 断言。
+零模型调用的真实 PDF 回放验收脚本 `scripts/smoke-mcp-pdf.mjs` 需要可用的 BabelDOC 配置及 Poppler `pdftoppm`（在 PATH 中，或通过 `PDFTOPPM_PATH` 指定可执行文件）。Poppler 只用于开发验收，不是 MCP 或正式应用的新增运行依赖。传入目录作为验收父目录，每次自动创建独立的 `run-*` 子目录，并打印实际报告路径，重复执行会保留既有证据；脚本检查 PDF/MD/JSON 三种产物齐全，接受新的修订后重放旧快照，并比较同一环境下的逐页渲染摘要及 MD/JSON 字节。环境缺少渲染工具或比较失败时，验收失败并写入报告，不跳过 PDF 断言。

@@ -34,7 +34,7 @@
 - 真实 DSH 0.2.0-rc.2 headless 通过 HTTP 自动调用 import → translate → task_status → export；独立观察客户端确认导出任务 succeeded，MD/JSON 共用 snapshotId 且读取字节成功。原创一句英文经 DeepSeek Flash 翻译，内部模型 **1 次，108 输入/8 输出 tokens**；重建不调用模型。真实 AI 客户端 stdio 未单独运行，stdio 使用正式 SDK 客户端和独立进程验证。
 - 预算审计：本阶段模型调度尝试共 **17**（9 次受限网络失败、2 次首次联网但 harness 上下文配置过小的调用、5 次成功 harness 推理、1 次内核翻译）。加先前 13，按保守口径达到原授权 **30/30**；失败是否实际计费未知，不将未知用量写零。2 次已返回用量为合计 14,210 输入/6 输出；成功 harness 5 次合计非缓存输入 5,413、缓存读取 65,408、输出 777（按 DSH 原始字段保留），内核翻译另外计数。不再调用真实模型。
 - 真实 BabelDOC 0.6.4：经 MCP 导入原创两页样本，本轮识别 **13 单元**；人工以源文作为接受内容，导出 PDF/MD/JSON，关闭后移动完整数据目录，再启动、编辑草稿并重放同一快照。MD/JSON 字节完全相同；PDF 元数据导致文件摘要不同，但两页 Poppler 1200px 渲染摘要逐页相同：`020dc5e9380c02b57d8a00a4b06dcfabf9c39dbc4131ebd051ed6bd0bbc7976a`、`f0b7acc0f1ef985cdaaba32a5fe3141080df317d94a415332ee61e0921d39a03`。目检保留公式、图注、重复段落与双栏；源文重放不是翻译质量评价，个别英文断词仍按上游边界保留。Poppler 报 Symbol/ArialUnicode display font 提示，渲染成功且公式可见。新增模型调用 **0**。
-- 可复现 PDF 入口：`node scripts/smoke-mcp-pdf.mjs SOURCE.pdf PDF_CONFIG.json evaluation/runs/mcp-pdf-0.1.0`（输出目录应为新的验收目录）。忽略目录 `evaluation/runs/mcp-0.1.0/` 保存测试、DSH 调度/用量、真实客户端导出观察记录；`evaluation/runs/mcp-pdf-0.1.0/` 保存 PDF 报告与渲染。没有提交凭据、用户数据库或私有原文。
+- 可复现 PDF 入口：`node scripts/smoke-mcp-pdf.mjs SOURCE.pdf PDF_CONFIG.json evaluation/runs/mcp-pdf-0.1.0`（当前脚本在给定父目录内自动创建独立的 `run-*` 子目录）。忽略目录 `evaluation/runs/mcp-0.1.0/` 保存测试、DSH 调度/用量、真实客户端导出观察记录；`evaluation/runs/mcp-pdf-0.1.0/` 保存 PDF 报告与渲染。没有提交凭据、用户数据库或私有原文。
 - 本次不更新现有私有 Release 附件，不宣称其他 OS 的独立 PDF 包或新的 Sandbox 验收。指南版本绑定仍按 `release-documentation-binding` 留在发版前处理。
 
 - Windows 本地分发包构建通过；使用包内 `runtime/node.exe` 和生产依赖启动 stdio，正式 SDK 客户端发现 31 个已挂载工具，capabilities 调用成功。未安装 PDF 时仅报告 txt/md 输入和 md/json 输出。
@@ -54,3 +54,11 @@ HTTP 注册表变化改接 SDK handler 的服务级通知通道，工具和资�
 - Windows 真实 BabelDOC 原创两页样本导入 13 个单元；接受新修订后旧快照 PDF 两页渲染摘要相同，MD/JSON 字节相同，新增模型请求 0。报告保存在忽略目录 `evaluation/runs/mcp-pdf-review-0.1.0/report.json`。本次为回放一致性验证，不新增翻译质量或跨平台 PDF 验收声明。
 - 上述修复待本 PR 合入 main；既有 follow-up 不标记完成。
 - 全量 `npm test`：235 项中 234 通过；唯一失败为既有 `followups.test.mjs` 临时 Git 目录删除 EPERM。单独复测原失败用例通过、另一用例出现同类清理错误；未宣称全量通过。新增 [windows-followups-fixture-cleanup](../follow-ups/windows-followups-fixture-cleanup.md) 记录，未扩展本轮实现范围。
+
+## 第二轮审阅修复（2026-10-15）
+
+HTTP 关闭时即使 MCP endpoint 抛错，仍尝试结束 SSE 并关闭监听端口，最后传播首个清理错误；CLI finally 和启动器失败分支继续释放内核。MCP 订阅注销失败也不跳过 SDK handler 关闭。新增真实 CLI 故障注入，验证 SSE 结束、原端口重新绑定和 SQLite 重新打开。
+
+`--stdio` 限于 `mcp` 命令，其他命令返回标准 INVALID_ARGUMENT JSON 错误。PDF 验收每次在父目录创建独立 run 子目录；报告写入失败时控制台结果为 passed:false，进程失败且保留验收与写入错误。
+
+Windows 本地 `npm test` 239/239 通过（含构建）；针对性入口/MCP/启动器 33/33 通过。实际脚本连续两次使用缺失配置验证失败路径，创建不同 run 目录并分别留下 passed:false 报告；助手测试覆盖目录隔离、历史证据保留及报告写入失败。本轮未重跑未修改的 BabelDOC 渲染路径，沿用上一轮真实回放证据，新增模型请求 0。既有 windows-followups-fixture-cleanup 本轮未复现，不据此确认原因或关闭。

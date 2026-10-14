@@ -10,19 +10,18 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { createApp } from '../src/app.mjs'
 import { serve } from '../src/http.mjs'
 import { readPdfConfig } from '../src/cli.mjs'
-import { assertArtifactFormats, closeBestEffort, PDF_EXPORT_FORMATS } from './smoke-mcp-pdf-helpers.mjs'
+import { assertArtifactFormats, closeBestEffort, createRunDirectory, errorSummary, PDF_EXPORT_FORMATS, writeAcceptanceReport } from './smoke-mcp-pdf-helpers.mjs'
 
 const [sourceArg, configArg, outputArg] = process.argv.slice(2)
 if (!sourceArg || !configArg) throw Error('Usage: node scripts/smoke-mcp-pdf.mjs SOURCE.pdf PDF_CONFIG.json [OUTPUT_DIR]')
-const root = resolve(outputArg ?? 'evaluation/runs/mcp-pdf-0.1.0')
-await mkdir(root, { recursive: true })
+const root = await createRunDirectory(outputArg ?? 'evaluation/runs/mcp-pdf-0.1.0')
+const reportPath = join(root, 'report.json')
+console.log(`Acceptance output: ${root}`)
 let data = join(root, 'data'), app, server, client, calls = 0
 const report = { createdAt: new Date().toISOString(), source: resolve(sourceArg), modelCalls: 0, passed: false }
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 const execFileAsync = promisify(execFile)
 const outputs = PDF_EXPORT_FORMATS.map(format => ({ format }))
-const errorSummary = error => ({ name: error.name, message: error.message,
-  ...(error instanceof AggregateError ? { causes: error.errors.map(item => ({ name: item.name, message: item.message })) } : {}) })
 async function rasterDigests(pdfBytes) {
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-pdf-raster-'))
   try {
@@ -128,11 +127,8 @@ try {
   }
   report.modelCalls = calls
   report.passed = !failure && calls === 0
-  try { await writeFile(join(root, 'report.json'), JSON.stringify(report, null, 2) + '\n') }
-  catch (error) {
-    if (!failure) failure = error
-    else console.error('Could not write acceptance report:', error)
-  }
+  failure = await writeAcceptanceReport(report, reportPath, failure)
+  console.log(`Acceptance report: ${reportPath}`)
   console.log(JSON.stringify(report))
 }
 if (failure) throw failure

@@ -198,14 +198,19 @@ export async function serve(app, { host = '127.0.0.1', port = 8787, staticDir, a
       server.listen(port, host, resolveListen)
     })
   } catch (error) {
-    await mcpEndpoint?.close()
+    try { await mcpEndpoint?.close() } catch (cleanupError) { console.error('MCP cleanup failed:', cleanupError) }
     throw error
   }
   const address = server.address()
   return { url: `http://${host.includes(':') ? `[${host}]` : host}:${address.port}`,
     close: async () => {
-      await mcpEndpoint?.close()
-      for (const response of activeEvents) response.end()
-      return new Promise((resolveClose, rejectClose) => server.close(error => error ? rejectClose(error) : resolveClose()))
+      let failure
+      try { await mcpEndpoint?.close() } catch (error) { failure = error }
+      for (const response of activeEvents) {
+        try { response.end() } catch (error) { failure ??= error }
+      }
+      try { await new Promise((resolveClose, rejectClose) => server.close(error => error ? rejectClose(error) : resolveClose())) }
+      catch (error) { failure ??= error }
+      if (failure) throw failure
     } }
 }

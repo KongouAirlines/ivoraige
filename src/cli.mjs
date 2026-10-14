@@ -222,10 +222,12 @@ async function observeEvents(app, base, stdout, stderr) {
 }
 
 export async function runCli(argv = process.argv.slice(2), { stdout = process.stdout, stderr = process.stderr } = {}) {
-  let app, server, observer
+  let app, server, observer, mcpStdio = false
   try {
     const { positional, options: o } = parse(argv)
     const command = positional.shift() ?? 'help'
+    mcpStdio = command === 'mcp' && !!o.stdio
+    if (o.stdio && command !== 'mcp') throw new KernelError('INVALID_ARGUMENT', '--stdio is only supported by mcp')
     if (command === 'help' || o.help) { stdout.write(usage); return 0 }
     if (command === 'mcp' && (!o.stdio || o.url))
       throw new KernelError('INVALID_ARGUMENT', 'Use mcp --stdio for a local kernel, or connect an HTTP MCP client to the running /mcp endpoint')
@@ -305,13 +307,15 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
     return 0
   } catch (error) {
     const mapped = errorEnvelope(error)
-    if (argv.includes('--json') && !argv.includes('--stdio')) stdout.write(`${serialize(mapped.body)}\n`)
+    if (argv.includes('--json') && !mcpStdio) stdout.write(`${serialize(mapped.body)}\n`)
     stderr.write(`${mapped.body.error.message}\n`)
     return mapped.exitCode
   } finally {
-    observer?.close()
-    await server?.close()
-    await app?.dispose()
+    let failure
+    try { observer?.close() } catch (error) { failure = error }
+    try { await server?.close() } catch (error) { failure ??= error }
+    try { await app?.dispose() } catch (error) { failure ??= error }
+    if (failure) throw failure
   }
 }
 

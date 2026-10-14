@@ -54,7 +54,12 @@ export function createMcpHttp(app) {
     else if (kind === 'resources') handler.notify.resourcesChanged()
   })
   return { handle: toNodeHandler(handler, { maxRequestBodySize: 10 * 1024 * 1024 }),
-    close: () => { unsubscribe(); return handler.close() } }
+    close: async () => {
+      let failure
+      try { unsubscribe() } catch (error) { failure = error }
+      try { await handler.close() } catch (error) { failure ??= error }
+      if (failure) throw failure
+    } }
 }
 
 export async function runMcpStdio(app, { stdin = process.stdin, stdout = process.stdout } = {}) {
