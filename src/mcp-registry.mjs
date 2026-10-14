@@ -19,5 +19,10 @@ export class McpRegistry extends Service {
     return () => { if (collection.get(name) === definition) { collection.delete(name); this.changed(kind) } }
   }
   subscribe(listener) { this.listeners.add(listener); return () => this.listeners.delete(listener) }
-  changed(kind) { for (const listener of this.listeners) listener(kind) }
+  changed(kind) {
+    for (const listener of this.listeners) {
+      try { listener(kind) }
+      catch (error) { console.warn('MCP discovery listener failed:', error) }
+    }
+  }
 }

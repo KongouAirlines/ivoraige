@@ -43,3 +43,14 @@
 
 HTTP 注册表变化改接 SDK handler 的服务级通知通道，工具和资源分别通知；每个请求只读取注册定义，不创建长期注册表监听。服务关闭或端口绑定失败时撤销订阅。旧协议无状态 HTTP 显式报告 `listChanged: false`，现代协议客户端订阅后接收装载／卸载通知；stdio 保留原连接内通知。独立审查的示例参数 `versionNegotiation: "auto"` 实际仍走旧协议，本轮按 SDK 正式形状 `{ mode: "auto" }` 验证现代协议，并同时覆盖旧协议声明。没有改变 PDF／翻译业务插件，也未调用真实模型。
 `node --test test/mcp.test.mjs test/entries.test.mjs`：23/23 通过，覆盖现代协议装载／卸载通知、旧协议声明、请求后订阅数量、启动失败与关闭清理，以及 HTTP／CLI／stdio 既有路径。
+
+## PR #18 审阅修复（2026-10-14）
+
+- PDF 验收脚本在首次导出和重放时均断言 PDF/MD/JSON 恰好各一份，并校验快照归属。重启、迁移目录后接受一份不同的新修订，再重放旧快照；PDF 使用同一 Poppler 环境的 1200px 逐页 PPM 摘要比较（含页数），MD/JSON 比较字节。渲染工具仅为开发验收依赖。
+- 注册表同步通知逐监听器隔离异常并记录 stderr，避免插件注册／注销状态与返回结果不一致；公共操作注册辅助函数独立于通用注册表，能力定义和 Cordis 依赖仍由各插件持有。
+- stdio 带外错误只报告，实际传输关闭、stdin EOF／关闭及退出信号结束会话。保留 SDK 自身的关闭回调，避免损坏输出流时遗留内核。
+- 脚本与测试拆卸在单步关闭失败后继续释放后续资源；脚本保证尝试写报告并保留原始失败。`readFile` 现在用于读取页面渲染产物，不再是未使用导入。
+- MCP／入口及验收辅助回归 29/29 通过，涵盖通知异常、报错后继续请求、实际传输关闭、失败清理与缺失／重复格式。构建及隔离 npm 包 smoke 通过（58 文件）。
+- Windows 真实 BabelDOC 原创两页样本导入 13 个单元；接受新修订后旧快照 PDF 两页渲染摘要相同，MD/JSON 字节相同，新增模型请求 0。报告保存在忽略目录 `evaluation/runs/mcp-pdf-review-0.1.0/report.json`。本次为回放一致性验证，不新增翻译质量或跨平台 PDF 验收声明。
+- 上述修复待本 PR 合入 main；既有 follow-up 不标记完成。
+- 全量 `npm test`：235 项中 234 通过；唯一失败为既有 `followups.test.mjs` 临时 Git 目录删除 EPERM。单独复测原失败用例通过、另一用例出现同类清理错误；未宣称全量通过。新增 [windows-followups-fixture-cleanup](../follow-ups/windows-followups-fixture-cleanup.md) 记录，未扩展本轮实现范围。

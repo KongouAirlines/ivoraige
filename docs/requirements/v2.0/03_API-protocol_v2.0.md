@@ -292,6 +292,8 @@ CLI 对应 `components status|catalog|credential --token-env NAME|install|local 
 
 MCP 是可选入口服务 `ivoraige.mcp`，不拥有文档或 PDF 业务逻辑。能力插件通过 `registry.registerTool(name, { description, inputSchema, invoke(input, { signal }) })` 与 `registry.registerResource(name, { template, metadata, read(uri, variables) })` 注册，并把注销函数交给 Cordis `ctx.effect()`；插件卸载时已注册能力从后续查询中移除。stdio 通过连接内 SDK 通知；现代 HTTP 协议通过 SDK 的 `subscriptions/listen` 通道向已订阅客户端推送工具／资源列表变化，注册表订阅随 HTTP 服务关闭而释放。旧协议无状态 HTTP 不支持跨请求通知，声明 `listChanged: false`，客户端应主动重新查询列表。`createApp({ mcp: false })` 不装配此入口；`serve` 的 `mcp: false`／CLI `--no-mcp` 关闭 HTTP 挂载。当前文档／任务工具由内核操作插件贡献，组件工具由可选组件插件贡献；格式能力仍由既有输入／输出适配器提供，MCP 运行时不识别特定 PDF 引擎。
 
+注册表通知监听器的同步异常记录到 stderr，不回滚已完成的注册／注销，也不阻止其他监听器接收通知。stdio SDK 的带外 `onerror` 只报告错误；会话在 stdin EOF／关闭、传输实际关闭或退出信号时结束，诊断日志不得写入协议 stdout。
+
 | 当前 tool（均加 `ivoraige_` 前缀） | 对应内核操作 | 备注 |
 |---|---|---|
 | `capabilities` | `capabilities` | 已安装格式、组件、数据目录 |

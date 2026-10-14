@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises'
-import { parameters } from './protocol.mjs'
+import { registerTools } from './mcp-tools.mjs'
 import { KernelError } from './errors.mjs'
 
 const tools = {
@@ -27,14 +27,6 @@ const tools = {
 
 }
 
-function registerTools(ctx, definitions) {
-  const registry = ctx.get('ivoraige.mcp')
-  const operations = ctx.get('ivoraige.operations')
-  for (const [name, [operation, description]] of Object.entries(definitions)) {
-    ctx.effect(() => registry.registerTool(`ivoraige_${name}`, { description, inputSchema: parameters[operation],
-      invoke: (input, context) => operations.invoke(operation, input, { signal: context.signal }) }))
-  }
-}
 
 export const inject = ['ivoraige.mcp', 'ivoraige.operations']
 export function apply(ctx) {

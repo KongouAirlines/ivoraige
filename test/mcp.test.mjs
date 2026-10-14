@@ -1,7 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { request } from 'node:http'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { PassThrough } from 'node:stream'
+import { runMcpStdio } from '../src/mcp.mjs'
+import { mkdtemp, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -50,10 +52,13 @@ async function fixture(t, options = {}) {
   let server = await serve(app, { port: 0 })
   const connections = []
   t.after(async () => {
-    await Promise.all(connections.map(connection => connection.close()))
-    await server?.close()
-    await app?.dispose()
-    await rm(directory, { recursive: true, force: true })
+    const errors = []
+    const attempt = async action => { try { await action() } catch (error) { errors.push(error) } }
+    await Promise.all(connections.map(connection => attempt(() => connection.close())))
+    await attempt(() => server?.close())
+    await attempt(() => app?.dispose())
+    await attempt(() => rm(directory, { recursive: true, force: true }))
+    if (errors.length) throw new AggregateError(errors, 'MCP fixture cleanup failed')
   })
   return {
     get app() { return app }, get server() { return server }, directory, store, exportDir,
@@ -361,4 +366,71 @@ test('spawned CLI stdio speaks MCP and releases its SQLite store on EOF', async 
   }
   try { assert.equal(reopened.records.getDocument(docId).id, docId) }
   finally { await reopened.dispose() }
+})
+
+
+test('discovery listener failure does not break registration or disposal', async t => {
+  const f = await fixture(t)
+  const warnings = []
+  t.mock.method(console, 'warn', (...args) => warnings.push(args))
+  const changes = []
+  const unsubFail = f.app.mcp.subscribe(() => { throw new Error('Disconnected subscriber') })
+  const unsubOk = f.app.mcp.subscribe(kind => changes.push(kind))
+  try {
+    const dispose = f.app.mcp.registerTool('test_listener', { description: 'test' })
+    assert.ok(f.app.mcp.tools.has('test_listener'))
+    dispose()
+    assert.equal(f.app.mcp.tools.has('test_listener'), false)
+    assert.deepEqual(changes, ['tools', 'tools'])
+    assert.equal(warnings.length, 2)
+  } finally { unsubFail(); unsubOk() }
+})
+
+test('stdio reports a recoverable stream error and keeps serving until EOF', async t => {
+  const f = await fixture(t)
+  const stdin = new PassThrough(), stdout = new PassThrough()
+  const errors = []
+  t.mock.method(console, 'error', (...args) => errors.push(args))
+  let output = ''
+  stdout.on('data', chunk => { output += chunk.toString() })
+  const running = runMcpStdio(f.app, { stdin, stdout })
+  try {
+    stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {
+      protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'test', version: '1' },
+    } }) + '\n')
+    for (let i = 0; i < 100 && !output.includes('"id":1'); i++) await new Promise(r => setTimeout(r, 10))
+    assert.ok(output.split('\n').filter(Boolean).map(line => JSON.parse(line)).some(message => message.id === 1 && message.result))
+    stdin.emit('error', new Error('Recoverable input error'))
+    stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }) + '\n')
+    for (let i = 0; i < 100 && !output.includes('"id":2'); i++) await new Promise(r => setTimeout(r, 10))
+    assert.ok(errors.length > 0)
+    assert.ok(output.split('\n').filter(Boolean).map(line => JSON.parse(line)).some(message => message.id === 2 && message.result.tools.length))
+  } finally { stdin.end(); await running; stdout.destroy() }
+})
+
+
+test('fixture releases server, store and directory after client cleanup fails', async () => {
+  let cleanup
+  const f = await fixture({ after: callback => { cleanup = callback } })
+  const connection = await f.connect()
+  const close = connection.close.bind(connection)
+  connection.close = async () => { await close(); throw new Error('Injected close failure') }
+  await assert.rejects(cleanup, /MCP fixture cleanup failed/)
+  await assert.rejects(stat(f.directory), { code: 'ENOENT' })
+  await assert.rejects(fetch(f.server.url))
+})
+
+
+test('stdio stops when the SDK closes a broken output transport', async t => {
+  const f = await fixture(t)
+  const stdin = new PassThrough(), stdout = new PassThrough()
+  t.mock.method(console, 'error', () => {})
+  const running = runMcpStdio(f.app, { stdin, stdout })
+  let timeout
+  try {
+    stdout.emit('error', new Error('Broken output'))
+    await Promise.race([running, new Promise((_, reject) => {
+      timeout = setTimeout(() => reject(new Error('stdio did not stop after transport close')), 1000)
+    })])
+  } finally { clearTimeout(timeout); stdin.end(); await running; stdout.destroy() }
 })

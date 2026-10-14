@@ -61,7 +61,9 @@ export async function runMcpStdio(app, { stdin = process.stdin, stdout = process
   let stop
   const stopped = new Promise(resolve => { stop = resolve })
   const transport = new StdioServerTransport(stdin, stdout)
-  const handle = serveStdio(() => createMcpServer(app), { transport, onerror: stop })
+  const handle = serveStdio(() => createMcpServer(app), { transport, onerror: error => console.error('MCP stdio error:', error) })
+  const onclose = transport.onclose
+  transport.onclose = () => { try { onclose?.() } finally { stop() } }
   stdin.once('end', stop)
   stdin.once('close', stop)
   process.once('SIGINT', stop)

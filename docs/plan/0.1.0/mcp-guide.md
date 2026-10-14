@@ -40,3 +40,8 @@ TXT／Markdown 导入可直接返回完成结果；PDF 导入返回持久任务�
 完整当前工具映射见 [v2.0 API 协议 §6](../../requirements/v2.0/03_API-protocol_v2.0.md#6-mcp-tools-映射)。成功工具响应的 `structuredContent` 是带 `apiVersion` 的内核业务对象，文本 content 是同一对象的 JSON。业务错误标记 `isError: true`，并在 `structuredContent` 中返回 `{ apiVersion, error: { code, message, details } }`；参数违反工具输入 schema 时由 MCP SDK 返回协议级校验错误。资源失败返回 MCP 协议错误。若任务失败，查询任务状态和其中的错误信息。
 
 插件装卸后，支持现代协议订阅的 HTTP 客户端会收到工具／资源列表变化通知；使用官方 JS SDK 2.x 时配置 `versionNegotiation: { mode: "auto" }` 和 `listChanged` 回调。旧协议无状态 HTTP 不推送变化（`listChanged: false`），需要重新查询列表；stdio 保留连接内通知。
+
+
+### 开发验收依赖
+
+零模型调用的真实 PDF 回放验收脚本 `scripts/smoke-mcp-pdf.mjs` 需要可用的 BabelDOC 配置及 Poppler `pdftoppm`（在 PATH 中，或通过 `PDFTOPPM_PATH` 指定可执行文件）。Poppler 只用于开发验收，不是 MCP 或正式应用的新增运行依赖。使用新的输出目录；脚本检查 PDF/MD/JSON 三种产物齐全，接受新的修订后重放旧快照，并比较同一环境下的逐页渲染摘要及 MD/JSON 字节。环境缺少渲染工具或比较失败时，验收失败并写入报告，不跳过 PDF 断言。
