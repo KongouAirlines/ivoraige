@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { request } from 'node:http'
 import { PassThrough } from 'node:stream'
-import { runMcpStdio } from '../src/mcp.mjs'
+import { createMcpHttp, runMcpStdio } from '../src/mcp.mjs'
 import { mkdtemp, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -12,6 +12,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { Service, z } from '../dist/dsh.mjs'
 import { createApp } from '../src/app.mjs'
 import { serve } from '../src/http.mjs'
+import { KernelError } from '../src/errors.mjs'
 
 const targetLang = 'zh'
 const upload = (content, format = 'txt') => ({
@@ -83,6 +84,8 @@ test('SDK HTTP clients share documents, frozen outputs, and durable tasks', asyn
   const second = await f.connect()
   const listing = await first.listTools()
   const names = listing.tools.map(tool => tool.name)
+  const unitTemplate = (await first.listResourceTemplates()).resourceTemplates.find(item => item.name === 'Unit')
+  assert.match(unitTemplate.description, /targetLang.*required/)
   for (const name of ['capabilities', 'import', 'units_list', 'unit_update', 'revision_accept',
     'export', 'task_status', 'snapshots_list', 'artifacts_list']) assert.ok(names.includes(`ivoraige_${name}`), name)
   assert.ok(!names.includes('ivoraige_settings_update'))
@@ -100,6 +103,12 @@ test('SDK HTTP clients share documents, frozen outputs, and durable tasks', asyn
   const units = (await call(second, 'units_list', { docId, targetLang })).items
   assert.equal(units.length, 2)
   const unitId = units[0].id
+  await assert.rejects(first.readResource({ uri: `ivoraige://docs/${docId}/units/${unitId}` }),
+    error => error.code === -32602 && /Resource not found/.test(error.message))
+  await assert.rejects(first.readResource({ uri: `ivoraige://docs/${docId}/units/${unitId}?targetLang=` }),
+    error => error.code === -32602 && /Resource not found/.test(error.message))
+  await assert.rejects(first.readResource({ uri: `ivoraige://docs/${docId}/units/${unitId}?targetLang=auto` }),
+    error => error.code === -32602 && error.data?.error?.code === 'INVALID_ARGUMENT')
   await assert.rejects(first.readResource({ uri: 'ivoraige://docs/missing-document' }),
     error => /not found/i.test(error.message))
   await assert.rejects(first.readResource({ uri: 'ivoraige://artifacts/missing-artifact' }),
@@ -327,6 +336,7 @@ test('HTTP MCP obeys Host and Origin gates and can be disabled', async t => {
   const app = await createApp({ store: join(directory, 'store.sqlite'), mcp: false })
   try {
     assert.equal(app.mcp, undefined)
+    assert.throws(() => createMcpHttp(app), error => error instanceof KernelError && error.code === 'COMPONENT_MISSING')
     assert.ok((await app.operations.invoke('capabilities')).inputFormats.includes('txt'))
     const listener = await serve(app, { port: 0, mcp: false })
     try { assert.equal((await fetch(`${listener.url}/mcp`, { method: 'POST' })).status, 404) }

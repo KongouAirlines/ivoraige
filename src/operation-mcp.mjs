@@ -33,8 +33,8 @@ export function apply(ctx) {
   registerTools(ctx, tools)
   const registry = ctx.get('ivoraige.mcp')
   const app = { operations: ctx.get('ivoraige.operations') }
-  const resource = (name, template, operation, args) => ctx.effect(() => registry.registerResource(name,
-    { template, metadata: { mimeType: 'text/markdown' }, read: async (uri, variables) => {
+  const resource = (name, template, operation, args, description) => ctx.effect(() => registry.registerResource(name,
+    { template, metadata: { mimeType: 'text/markdown', ...(description ? { description } : {}) }, read: async (uri, variables) => {
       const body = await app.operations.invoke(operation, args(variables))
       return { contents: [{ uri: uri.href, mimeType: 'text/markdown', text: `# ${name}\n\n\u0060\u0060\u0060json\n${JSON.stringify(body, null, 2)}\n\u0060\u0060\u0060\n` }] }
     } }))
@@ -43,7 +43,7 @@ export function apply(ctx) {
     // Unit ids carry document identity; do not return a unit from a different URI document.
     if (!unitId.startsWith(`${docId}.`)) throw new KernelError('NOT_FOUND', 'Unit does not belong to this document')
     return { unitId, targetLang }
-  })
+  }, 'Read one unit and its language-specific revisions. The targetLang query parameter is required (BCP-47 language tag).')
   resource('Task', 'ivoraige://tasks/{taskId}', 'getTask', ({ taskId }) => ({ taskId }))
   ctx.effect(() => registry.registerResource('Artifact', { template: 'ivoraige://artifacts/{artifactId}',
     metadata: { description: 'Read an existing export; this never regenerates or translates.' }, read: async (uri, { artifactId }) => {

@@ -3,7 +3,23 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { assertArtifactFormats, closeBestEffort, createRunDirectory, writeAcceptanceReport } from '../scripts/smoke-mcp-pdf-helpers.mjs'
+import { assertArtifactFormats, closeBestEffort, createRunDirectory, listAllUnits, writeAcceptanceReport } from '../scripts/smoke-mcp-pdf-helpers.mjs'
+
+test('PDF smoke traverses all unit pages before acceptance and post-restart editing', async () => {
+  const units = Array.from({ length: 101 }, (_, index) => ({ id: `unit-${index}`, translatable: index === 100 }))
+  const calls = []
+  const call = async (name, args) => {
+    calls.push({ name, args })
+    const start = args.cursor ? Number(args.cursor) : 0
+    const items = units.slice(start, start + 100)
+    return { items, ...(start + 100 < units.length ? { nextCursor: String(start + 100) } : {}) }
+  }
+  const listed = await listAllUnits(call, 'doc', 'zh')
+  assert.equal(listed.length, 101)
+  assert.equal(listed.find(item => item.translatable).id, 'unit-100')
+  assert.ok(calls.every(({ name, args }) => name === 'units_list' && args.docId === 'doc' && args.targetLang === 'zh'))
+  assert.deepEqual(calls.map(({ args }) => args.cursor), [undefined, '100'])
+})
 
 test('PDF smoke repeats use distinct directories and preserve previous evidence', async () => {
   const parent = await mkdtemp(join(tmpdir(), 'ivoraige-mcp-smoke-test-'))

@@ -10,7 +10,9 @@ function result(body, isError = false) {
 
 function resourceError(error) {
   const { body } = errorEnvelope(error)
-  return new ProtocolError(body.error.code === 'NOT_FOUND' ? -32002 : -32603, body.error.message, body)
+  const code = body.error.code === 'NOT_FOUND' ? -32002
+    : body.error.code === 'INVALID_ARGUMENT' ? -32602 : -32603
+  return new ProtocolError(code, body.error.message, body)
 }
 
 export function createMcpServer(app, { signal, listChanged = true, watchRegistry = true } = {}) {
@@ -46,6 +48,7 @@ export function createMcpServer(app, { signal, listChanged = true, watchRegistry
 }
 
 export function createMcpHttp(app) {
+  if (!app.mcp) throw new KernelError('COMPONENT_MISSING', 'MCP entry is not enabled')
   const handler = createMcpHandler(({ requestInfo, era }) => createMcpServer(app,
     { signal: requestInfo?.signal, listChanged: era !== 'legacy', watchRegistry: false }), { maxRequestBodySize: 10 * 1024 * 1024 })
   // HTTP server instances last one request; discovery subscriptions outlive them.
@@ -74,8 +77,7 @@ export async function runMcpStdio(app, { stdin = process.stdin, stdout = process
   process.once('SIGINT', stop)
   process.once('SIGTERM', stop)
   try {
-    const error = await stopped
-    if (error instanceof Error) throw error
+    await stopped
   }
   finally {
     stdin.off('end', stop); stdin.off('close', stop)

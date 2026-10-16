@@ -31,7 +31,7 @@ ivoraige 的 MCP 入口把已装插件贡献的内核能力提供给本机 AI �
 
 TXT／Markdown 导入可直接返回完成结果；PDF 导入返回持久任务。翻译 `ivoraige_translate` 和导出 `ivoraige_export` 也返回任务句柄。用 `ivoraige_task_status` 查询，或传 `waitSeconds` 在 0～60 秒内等待一次状态变化；仍未结束就继续查询。HTTP 连接实际断开只停止当次等待，不会取消持久任务。旧协议客户端仅发送取消通知而不断开请求时，无状态 HTTP 不关联跨请求取消；当次等待最多在 `waitSeconds` 到期后结束。明确取消须调用 `ivoraige_task_cancel`。暂停与恢复分别使用 `ivoraige_task_pause`、`ivoraige_task_resume`，以任务当前生命周期为准；翻译或恢复可能产生模型用量。
 
-审校可按 `ivoraige_documents_list` → `ivoraige_units_list`／`ivoraige_unit_get` → `ivoraige_revisions_list` 查看文档和语言范围内的版本。`ivoraige_unit_update` 保存人工修订时传最新的 `baseRevisionId`，没有现存修订时传 `null`；`ivoraige_revision_accept` 和 `ivoraige_unit_unaccept` 使用最新的 `expectedAcceptedRevisionId`。收到 `CONFLICT` 后重读单位／修订再编辑，不能覆盖别人的修改。导出从已接受修订或指定 `snapshotId` 建立冻结输出；同一导出任务的格式共用快照，导出不调用翻译模型。
+审校可按 `ivoraige_documents_list` → `ivoraige_units_list`／`ivoraige_unit_get` → `ivoraige_revisions_list` 查看文档和语言范围内的版本。单位列表、单位资源和修订查询须指定 `targetLang`（BCP-47 语言标签）；缺少或留空查询参数的单位资源 URI 不匹配资源模板，非法语言标签会返回参数错误。`ivoraige_unit_update` 保存人工修订时传最新的 `baseRevisionId`，没有现存修订时传 `null`；`ivoraige_revision_accept` 和 `ivoraige_unit_unaccept` 使用最新的 `expectedAcceptedRevisionId`。收到 `CONFLICT` 后重读单位／修订再编辑，不能覆盖别人的修改。导出从已接受修订或指定 `snapshotId` 建立冻结输出；同一导出任务的格式共用快照，导出不调用翻译模型。
 
 `ivoraige_artifacts_list` 可查到已保存产物，随后读取 `ivoraige://artifacts/{artifactId}` 资源，得到 MIME 类型和 base64 二进制内容。文档、单位、任务资源分别是 `ivoraige://docs/{docId}`、`ivoraige://docs/{docId}/units/{unitId}?targetLang={language}`、`ivoraige://tasks/{taskId}`；它们返回包含 JSON 的 Markdown。资源本身不枚举 ID，先通过对应列表工具取得 ID。读取产物资源只读取已有字节，不重新导出。
 
@@ -44,4 +44,4 @@ TXT／Markdown 导入可直接返回完成结果；PDF 导入返回持久任务�
 
 ### 开发验收依赖
 
-零模型调用的真实 PDF 回放验收脚本 `scripts/smoke-mcp-pdf.mjs` 需要可用的 BabelDOC 配置及 Poppler `pdftoppm`（在 PATH 中，或通过 `PDFTOPPM_PATH` 指定可执行文件）。Poppler 只用于开发验收，不是 MCP 或正式应用的新增运行依赖。传入目录作为验收父目录，每次自动创建独立的 `run-*` 子目录，并打印实际报告路径，重复执行会保留既有证据；脚本检查 PDF/MD/JSON 三种产物齐全，接受新的修订后重放旧快照，并比较同一环境下的逐页渲染摘要及 MD/JSON 字节。环境缺少渲染工具或比较失败时，验收失败并写入报告，不跳过 PDF 断言。
+零模型调用的真实 PDF 回放验收脚本 `scripts/smoke-mcp-pdf.mjs` 需要可用的 BabelDOC 配置及 Poppler `pdftoppm`（在 PATH 中，或通过 `PDFTOPPM_PATH` 指定可执行文件）。Poppler 只用于开发验收，不是 MCP 或正式应用的新增运行依赖。传入目录作为验收父目录，每次自动创建独立的 `run-*` 子目录，并打印实际报告路径，重复执行会保留既有证据；脚本遍历所有单位分页，检查 PDF/MD/JSON 三种产物齐全，接受新的修订后重放旧快照，并比较同一环境下的逐页渲染摘要及 MD/JSON 字节。环境缺少渲染工具或比较失败时，验收失败并写入报告，不跳过 PDF 断言。

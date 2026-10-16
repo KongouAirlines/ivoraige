@@ -4,6 +4,17 @@ import { join, resolve } from 'node:path'
 
 export const PDF_EXPORT_FORMATS = ['pdf', 'md', 'json']
 
+export async function listAllUnits(call, docId, targetLang) {
+  const items = []
+  let cursor
+  do {
+    const page = await call('units_list', { docId, targetLang, ...(cursor ? { cursor } : {}) })
+    items.push(...page.items)
+    cursor = page.nextCursor
+  } while (cursor)
+  return items
+}
+
 export async function createRunDirectory(parent) {
   const directory = resolve(parent)
   await mkdir(directory, { recursive: true })

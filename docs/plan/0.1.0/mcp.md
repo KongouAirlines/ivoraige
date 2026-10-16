@@ -62,3 +62,10 @@ HTTP 关闭时即使 MCP endpoint 抛错，仍尝试结束 SSE 并关闭监听�
 `--stdio` 限于 `mcp` 命令，其他命令返回标准 INVALID_ARGUMENT JSON 错误。PDF 验收每次在父目录创建独立 run 子目录；报告写入失败时控制台结果为 passed:false，进程失败且保留验收与写入错误。
 
 Windows 本地 `npm test` 239/239 通过（含构建）；针对性入口/MCP/启动器 33/33 通过。实际脚本连续两次使用缺失配置验证失败路径，创建不同 run 目录并分别留下 passed:false 报告；助手测试覆盖目录隔离、历史证据保留及报告写入失败。本轮未重跑未修改的 BabelDOC 渲染路径，沿用上一轮真实回放证据，新增模型请求 0。既有 windows-followups-fixture-cleanup 本轮未复现，不据此确认原因或关闭。
+
+## PR #18 后续审阅修复（2026-10-16）
+
+- HTTP MCP 工厂在订阅前检查可选入口是否安装，缺失时返回 `COMPONENT_MISSING`。Unit 资源发现元数据声明 `targetLang` 必填；SDK 2.3.1 对缺少或留空查询参数的 URI 在模板匹配阶段返回 `Resource not found`／`-32602`，非法语言标签进入内核校验，返回 `INVALID_ARGUMENT`／`-32602`，业务错误保留在 data。MCP 资源错误映射与协议文字同步。
+- 真实 PDF 验收脚本在首次修订接受与重启后挑选编辑单元两处均遍历 `nextCursor`，覆盖超过默认 100 单元及首批无可翻译单元的情形。README 同步 MCP 已实现状态。stdio 去除不会收到错误值的等待分支，实际流错误仍沿用 SDK 错误处理和关闭路径。
+- SDK 2.3.1 的 `registration.remove()` 同步调用 `update({ name: null })` 并删除内部注册项；其 HTTP handler 设置 `onclose` 时保存前一个回调并在关闭后恢复，当前无预设底层关闭回调。未添加掩盖注销失败的 catch 或重复关闭链。
+- `npm test` 在本轮改动后的首次完整运行 240 项中 239 通过；失败是测试对缺失查询参数的 SDK 模板匹配预期错误。修正断言后最终完整运行 **240/240 通过**；针对缺失、空值及非法语言标签的 MCP 测试与 PDF 分页辅助测试 **16/16 通过**。隔离安装包 smoke **58 文件通过**，覆盖 MCP 发现和调用。未重跑真实 BabelDOC 渲染验收，既有原创两页实测证据仍见上文；新增模型调用为零。

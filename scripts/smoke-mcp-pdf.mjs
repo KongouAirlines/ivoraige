@@ -10,7 +10,7 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { createApp } from '../src/app.mjs'
 import { serve } from '../src/http.mjs'
 import { readPdfConfig } from '../src/cli.mjs'
-import { assertArtifactFormats, closeBestEffort, createRunDirectory, errorSummary, PDF_EXPORT_FORMATS, writeAcceptanceReport } from './smoke-mcp-pdf-helpers.mjs'
+import { assertArtifactFormats, closeBestEffort, createRunDirectory, errorSummary, listAllUnits, PDF_EXPORT_FORMATS, writeAcceptanceReport } from './smoke-mcp-pdf-helpers.mjs'
 
 const [sourceArg, configArg, outputArg] = process.argv.slice(2)
 if (!sourceArg || !configArg) throw Error('Usage: node scripts/smoke-mcp-pdf.mjs SOURCE.pdf PDF_CONFIG.json [OUTPUT_DIR]')
@@ -80,7 +80,7 @@ try {
   const imported = await tool('import', { path: resolve(sourceArg), format: 'pdf', language: 'en', origin: 'mcp' })
   const importedTask = await wait(imported.taskId)
   const docId = importedTask.result.document.id
-  const { items } = await tool('units_list', { docId, targetLang: 'zh' })
+  const items = await listAllUnits(tool, docId, 'zh')
   for (const unit of items.filter(item => item.translatable)) {
     const { revision } = await tool('unit_update', { unitId: unit.id, targetLang: 'zh', text: unit.sourceText, baseRevisionId: null })
     await tool('revision_accept', { revisionId: revision.id, expectedAcceptedRevisionId: null })
@@ -98,7 +98,7 @@ try {
   if (!data.startsWith(root + sep) || !relocated.startsWith(root + sep)) throw Error('Unexpected acceptance directory')
   await rename(data, relocated); data = relocated
   await open()
-  const current = (await tool('units_list', { docId, targetLang: 'zh' })).items.find(item => item.translatable)
+  const current = (await listAllUnits(tool, docId, 'zh')).find(item => item.translatable)
   assert.ok(current, 'PDF has no translatable unit to change after restart')
   const changed = await tool('unit_update', { unitId: current.id, targetLang: 'zh', text: current.sourceText + ' MCP accepted edit.', baseRevisionId: current.latestRevisionId ?? current.acceptedRevisionId })
   await tool('revision_accept', { revisionId: changed.revision.id, expectedAcceptedRevisionId: current.acceptedRevisionId })
