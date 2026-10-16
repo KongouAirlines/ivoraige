@@ -12,7 +12,7 @@ AGENTS 精简过时阶段信息，新增插件能力归属、契约依赖、缺�
 
 - 本次文档的本地链接扫描 130 条，无缺失；双语 README 结构和能力声明人工对照，独立代理只读复核。
 - 两版 README 使用本地 CommonMark/表格渲染预览目检；工作台截图来自 main/0a185d4、隔离数据库和原创样本，人工录入译文，零模型调用；截图来源见 docs/assets/0.1.0/README.md。
-- npm 隔离安装 smoke 通过。当前 PR 的 [Node 24 三平台 CI](https://github.com/KongouAirlines/ivaraige/actions/runs/38418369286) 均输出 **59 文件**，与审阅者结果一致。2026-10-15 本地 Windows Node 26.7.0/npm 12.0.2 在 `00ce405` 基线上修正文档、重新构建并复测为 **54 文件**，与 2026-10-13 本地清单逐项相同；两者不是同一环境的结果，不把 54 写成当前 PR 的统一文件数。数量差异来源未确定。已确认本地包包含中文版、工作台截图和能力表，未包含 evaluation 数据；日志和清单位于忽略目录 `evaluation/runs/documentation-review-0.1.0/`。
+- npm 隔离安装 smoke 通过。当前 PR 的 [Node 24 三平台 CI](https://github.com/KongouAirlines/ivaraige/actions/runs/38418369286) 均输出 **59 文件**。2026-10-15 本地 Windows Node 26.7.0/npm 12.0.2 在 `00ce405` 基线上修正文档、重新构建并复测为 **54 文件**。2026-10-16 用同一当前工作树分别运行 npm 10.9.4 和 12.0.2 的 `pack --dry-run --json`，得到 58 与 53 文件；两份清单的唯一差异是 npm 10 额外收录 `docs/README.md`、`docs/plan/README.md`、`docs/plan/0.1.0/README.md`、`docs/assets/0.1.0/README.md`、`examples/README.md`。本轮从包清单移除 `pdf.md` 阶段记录，故各比旧结果少一项。文件总数随打包工具变化；验收以必需文件、包内相对链接和排除内容为准。清单位于忽略目录 `evaluation/runs/documentation-review-0.1.0/`。
 - Windows 分发构建通过，8 个文档／图像文件与工作区字节一致，本地文档链接可解析；沿用现有运行时／启动／SQLite 构建探针，不冒充新的 Sandbox 验收。
 - 本轮没有业务功能变更，没有 Index-Translate 接入或 DSH 宿主实现，没有真实模型请求，没有更改 Release 附件、tag 或仓库可见性。
 
@@ -27,3 +27,9 @@ MCP 是否可用以 PR #18 的实际合并状态为准；合并时统一核对 R
 ## 审阅修正（2026-10-15）
 
 PDF 开发准备明确限于 Windows x64，其他平台尚无本项目已验证的对应准备与发行流程。通用源码指南补齐 Linux/macOS 的 XDG_DATA_HOME 与 ~/.local/share/ivoraige 路径，以及 IVORAIGE_DATA_DIR 覆盖方式。对照源码及打包清单检查，构建和隔离安装 smoke 通过；不重跑未涉及的业务验收。
+
+## 审阅修正（2026-10-16）
+
+工作台截图文件头为 JPEG（`FF D8`），保留原始字节并改名为 `workbench.jpg`，同步两版 README、来源说明、npm 清单及 Windows 分发路径。修正 PDF 开发文档的根目录相对路径、工作台指南标题及 PDF 指南链接文本，并将分发脚本的新增文件并入原复制循环。npm 包不再包含只供开发维护查阅的 `pdf.md` 阶段记录；`pdf-guide.md` 指向该记录的链接已是 GitHub 源码地址。
+
+本机 Windows Node 26.7.0/npm 12.0.2 的 npm dry-run 清单为 53 文件，包含两版 README、JPEG 截图、四份用户指南与能力表；不含 `pdf.md`、旧截图名或 evaluation 数据。包内 30 个相对文档链接均指向已收录路径。`npm run build:distribution` 通过运行时、启动器、设置与 SQLite 探针；分发目录中的上述 8 个文档／图像与工作树字节一致，30 个相对链接可解析，也不含 `pdf.md` 或旧截图名。此轮没有重跑模型或 Sandbox 验收。

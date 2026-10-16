@@ -18,7 +18,7 @@ ivoraige brings separate translation and document tools into a workflow you can 
 
 The goal is a shared foundation for people and AI: choose the capabilities you need, review the results, and carry your work forward across tools and output formats.
 
-![ivoraige workbench with an original fiction excerpt and its accepted Chinese translation](docs/assets/0.1.0/workbench.png)
+![ivoraige workbench with an original fiction excerpt and its accepted Chinese translation](docs/assets/0.1.0/workbench.jpg)
 
 *The 0.1.0 preview workbench. This original sample uses a manually supplied translation; the current interface is primarily Chinese.*
 

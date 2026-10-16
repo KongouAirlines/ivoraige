@@ -1,4 +1,4 @@
-# TXT／Markdown 工作台试用
+# TXT／Markdown 工作台使用指南
 
 安装版先按[安装指南](installation-guide.md)打开工作台，随后按下述步骤使用。源码运行及 VS Code 调试请看[开发指南](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/development-guide.md)。同一数据目录只运行一个内核，其他入口连接已有服务。
 
@@ -15,4 +15,4 @@ node src/cli.mjs --url http://127.0.0.1:8787 documents --json
 node src/cli.mjs --url http://127.0.0.1:8787 tasks --json
 ```
 
-CLI 若不带 `--url` 会另起内核，不能与运行中的服务同时占用同一 SQLite 文件。当前 Markdown 只支持已明确绑定来源位置的语法子集；文件开头有效的 YAML 映射头部原样保留、不翻译，含头部的文件可正常导入，空头部也可保留。未闭合或无效头部会报导入错误。表格、HTML 等仍会被拒绝，详情见 [Markdown 阶段记录](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/markdown.md)。后续 QMD 的指定 YAML 字段翻译（如摘要、双语机构名称）见 [后续事项](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/follow-ups/quarto-qmd-support.md)。PDF 已有独立的 [试用指南](pdf-guide.md)。EPUB、RAG、MCP、词库及非回环访问尚未接入这个工作台。设置窗口操作与退出保护见 [设置指南](settings-guide.md)。
+CLI 若不带 `--url` 会另起内核，不能与运行中的服务同时占用同一 SQLite 文件。当前 Markdown 只支持已明确绑定来源位置的语法子集；文件开头有效的 YAML 映射头部原样保留、不翻译，含头部的文件可正常导入，空头部也可保留。未闭合或无效头部会报导入错误。表格、HTML 等仍会被拒绝，详情见 [Markdown 阶段记录](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/markdown.md)。后续 QMD 的指定 YAML 字段翻译（如摘要、双语机构名称）见 [后续事项](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/follow-ups/quarto-qmd-support.md)。PDF 已有独立的 [PDF 使用指南](pdf-guide.md)。EPUB、RAG、MCP、词库及非回环访问尚未接入这个工作台。设置窗口操作与退出保护见 [设置指南](settings-guide.md)。

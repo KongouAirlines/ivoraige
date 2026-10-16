@@ -25,11 +25,10 @@
     "docs/plan/0.1.0/settings-guide.md",
     "docs/plan/0.1.0/installation-guide.md",
     "docs/plan/0.1.0/workbench-guide.md",
-    "docs/plan/0.1.0/pdf.md",
     "README.md",
     "THIRD_PARTY.md",
     "README.zh-CN.md",
-    "docs/assets/0.1.0/workbench.png",
+    "docs/assets/0.1.0/workbench.jpg",
     "docs/plan/0.1.0/capabilities.md"
   ],
   "engines": {
