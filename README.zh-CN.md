@@ -31,7 +31,7 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 
 ## 开始使用
 
-**0.1.0 源码与本地 npm 包** — 按[开发指南](docs/plan/0.1.0/development-guide.md)从源码运行，或构建有版本号的 npm tarball。新版 Windows 便携包尚未构建和验收；现有 [Windows `v0.1.0-dev.0` 预览附件](https://github.com/KongouAirlines/ivaraige/releases/tag/v0.1.0-dev.0)属于早期版本，差异见[安装指南](docs/plan/0.1.0/installation-guide.md)。
+**0.1.0 源码与 npm 包** — 从 [v0.1.0](https://github.com/KongouAirlines/ivaraige/releases/tag/v0.1.0) 下载源码归档或 npm 安装包，按[安装指南](docs/plan/0.1.0/installation-guide.md)启动。仓库继续私有，下载需要仓库访问权限。自行构建见[开发指南](docs/plan/0.1.0/development-guide.md)。新版 Windows 便携包尚未构建和验收；现有 [Windows `v0.1.0-dev.0` 预览附件](https://github.com/KongouAirlines/ivaraige/releases/tag/v0.1.0-dev.0)属于早期版本。
 
 1. 打开工作台，导入 TXT 或 Markdown 文件。
 2. 需要机器翻译时配置模型，也可以直接录入自己的译文。

@@ -31,7 +31,7 @@ The goal is a shared foundation for people and AI: choose the capabilities you n
 
 ## Get started
 
-**0.1.0 source and local npm package** — Follow the [development guide (中文)](docs/plan/0.1.0/development-guide.md) to run from source or build a versioned npm tarball. The new Windows portable package has not been built or validated. The existing [Windows `v0.1.0-dev.0` preview download](https://github.com/KongouAirlines/ivaraige/releases/tag/v0.1.0-dev.0) belongs to that earlier version; see its [installation guide (中文)](docs/plan/0.1.0/installation-guide.md) for the differences.
+**0.1.0 source and npm package** — Download the source archive or npm tarball from [v0.1.0](https://github.com/KongouAirlines/ivaraige/releases/tag/v0.1.0), then follow the [installation guide (中文)](docs/plan/0.1.0/installation-guide.md). The repository remains private, so downloads require repository access. See the [development guide (中文)](docs/plan/0.1.0/development-guide.md) to build from source. The new Windows portable package has not been built or validated; the existing [Windows `v0.1.0-dev.0` preview download](https://github.com/KongouAirlines/ivaraige/releases/tag/v0.1.0-dev.0) belongs to that earlier version.
 
 1. Open the workbench and import a TXT or Markdown file.
 2. Configure a model when you want machine translation, or enter translations yourself.

@@ -1,8 +1,8 @@
 # 发版文档与安装版本对应
 
 - ID: release-documentation-binding
-- 状态: 处理中
-- 实施分支／PR: PR #17 记录；文档入口整理 codex/0.1.0-documentation；发行物绑定实现 codex/0.1.0-public-installation（待合入及新版本发行）
+- 状态: 已解决
+- 实施分支／PR: PR #17 记录；PR #19 文档入口整理；PR #25 发行物绑定实现；均已集成 main，v0.1.0 源码／npm 包已发布
 - 类型: 改进
 - 发现依据: 2026-10-13，codex/0.1.0-installation，bdd1854；[PR #17 审阅](https://github.com/KongouAirlines/ivaraige/pull/17#discussion_r4254480647)
 - 目标分支: main
@@ -34,3 +34,5 @@ PDF 设置页指南链接指向 main，可能随开发变化而与已安装版�
 - 2026-10-17：实现提交 [690578c](https://github.com/KongouAirlines/ivaraige/commit/690578c354420a44f3957678baed91cff76466bc) 的无 Git 源码归档完成全新依赖／DSH 准备、构建及浏览器人工译文导出。补充 npm 包备份后换程序目录验证，已保存设置、冻结快照和原导出字节保持；证据边界见[实施记录](../0.1.0/public-installation.md#验收证据)。仍未替代下一次 Windows 实际发行或目标分支集成。
 
 - 2026-10-17：用户确定首个正式版本为 `0.1.0`，授权 PR #18／#19／#25 合入 main，以源码和 npm 包完成首轮发行；Windows 验收暂不纳入本轮，仓库继续私有。版本与 MCP 握手同步，实际 npm 包的来源校验扩展为重建后逐文件比对，69 文件隔离运行及同版本换目录检查通过。仍待 main 集成、正式 tag 与实际附件发布后记录完成证据；旧 `v0.1.0-dev.0` 附件差异保留历史说明，新 Windows 发行继续按相同规则单独验收。
+
+- 2026-10-17：PR #18／#19／#25 已合入 main；[v0.1.0 正式 Release](https://github.com/KongouAirlines/ivaraige/releases/tag/v0.1.0) 与 tag 均指向 `cb7e4a4c08aa6a0984ee920f38e2f10dc1bf80a4`。实际 npm 包通过干净 tag 重建逐文件核对、隔离安装、包内 HTTP 指南读取及同版本换目录验收；从 GitHub 重新下载后摘要一致。随包指南固定在此提交，不随 main 更新。按用户确定的源码／npm 首轮发行范围完成并关闭；旧预发行差异仍保留历史说明，未移动旧 tag。新版 Windows 构建与运行验收仍由[安装阶段](../0.1.0/installation.md)跟踪，本项关闭不表示 Windows 已验收。证据见 Release 附件中的构建与验收 JSON。

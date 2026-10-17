@@ -76,3 +76,18 @@ npm 打包新增 `.build-evidence.json`，记录版本、干净源码提交、�
 本地完整 Node 检查 254 项：253 通过、1 个 Windows 专属测试跳过、0 失败；新增发行校验收尾测试 4/4 通过。`0.1.0` 实际 npm tarball 的 69 文件检查、隔离安装、CLI／HTTP／MCP、持久化、完整数据备份后同版本换目录安装、原冻结快照与导出字节核对均通过。正式 tag 下的打包及发布结果另记在该版本 Release；本段不预先宣称远端合并或发布成功。日志为 `release-node-tests.log`、`release-package-smoke.log`。
 
 远端管理员设置不在当前权限内；原有 GitHub 配置草案保留，且本轮不设置尚未通过的三系统检查为强制门槛、不变更费用。PR #18、#19 的旧审阅意见已与当前实现只读核对，主要修复存在；#18 仍有两条作者解释后保留的 Minor 线程，旧 `CHANGES_REQUESTED` 状态未被伪造为批准。合并依据用户明确指示，并保留这些审阅历史。
+
+## 正式发布结果（2026-10-17）
+
+PR #18、#19、#25 已按顺序合入 main，最终发行提交为 `cb7e4a4c08aa6a0984ee920f38e2f10dc1bf80a4`。GitHub 为叠放 PR 自动更新了后续分支历史，已核对更新前后文件树完全相同，再接续本轮版本提交；没有强制覆盖远端分支。软件版本提交为 `4d3662472d6c80dd4d537696c6b26566b610ef2b`。
+
+[v0.1.0](https://github.com/KongouAirlines/ivaraige/releases/tag/v0.1.0) 是非草稿、非预发行的正式 Release，仓库仍为 private。tag、源码包、npm 包和指南来源均固定到上述提交。发布前对干净 tag 重建并核对实际 tarball；以该文件进行隔离安装和同版本换目录验收，同时验证其与 smoke 生成的包字节完全一致。发布后下载全部附件并核对摘要，全部通过。
+
+| 产物 | 字节数 | SHA-256 |
+| --- | ---: | --- |
+| `ivoraige-0.1.0.tgz` | 1236966 | `16ff3f919bc770698bbf2ac0fbd6607c05a7fd4e904f52d40e39fa717dd2ab9c` |
+| `ivoraige-0.1.0-source.tar.gz` | 657398 | `24ce4c73ec1d8b7b05039461586188458f1c0c2aef1feb41d327557c9ee99c41` |
+
+Release 同时保存 `SHA256SUMS`、`ivoraige-0.1.0.build-evidence.json` 和 `ivoraige-0.1.0.acceptance.json`。最终 npm 包内许可通知独立检查为 50 项、0 空项。完整 Node 检查仍为 253 通过／1 个 Windows 跳过，0 失败；实际最终包的 69 文件 smoke 通过。日志见 `release-verification.log`、`final-tarball-smoke.log` 和 `final-license-check.json`，数据只存于忽略目录。
+
+本轮按用户缩减后的首轮发行范围完成，`release-documentation-binding` 已解决。尚待后续的范围是 Windows 新包与运行验收、三系统 CI、公开切换及其匿名安装／安全配置验证；F-A 许可与 F-B 旧附件问题仍属原工作包，没有由本次发布代为关闭。仓库管理员设置未应用，旧 `v0.1.0-dev.0` tag 和四个附件未修改。
