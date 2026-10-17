@@ -30,3 +30,5 @@ PDF 设置页指南链接指向 main，可能随开发变化而与已安装版�
 - 2026-10-17：MCP／文档合流同步双语首页、能力表、用户指南和打包清单，修复 MCP 指南包内断链，并明确源码 MCP 能力尚未进入现有 Windows Release 附件。详情见[合流复核](../0.1.0/documentation.md#两个-pr-合流复核2026-10-17)。发行 tag／附件／指南版本绑定仍未完成，保持已安排；本轮不替换发行附件。
 
 - 2026-10-17：`codex/0.1.0-public-installation` 增加随包静态用户指南、来源元数据、用户文档链接校验与正式 tag／构建证据／附件摘要核对命令；npm tarball 已在 macOS 实际安装并通过链接及 HTTP 指南读取检查。Windows ZIP 尚待 Windows x64 构建验收；没有创建新 tag 或 Release，旧 `v0.1.0-dev.0` 历史差异不改。目标分支集成和下一次真实发行后才能核对完整验收并关闭。
+
+- 2026-10-17：实现提交 [690578c](https://github.com/KongouAirlines/ivaraige/commit/690578c354420a44f3957678baed91cff76466bc) 的无 Git 源码归档完成全新依赖／DSH 准备、构建及浏览器人工译文导出。补充 npm 包备份后换程序目录验证，已保存设置、冻结快照和原导出字节保持；证据边界见[实施记录](../0.1.0/public-installation.md#验收证据)。仍未替代下一次 Windows 实际发行或目标分支集成。

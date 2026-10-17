@@ -42,8 +42,9 @@ PDF 设置入口改用本机随包指南；构建记录版本、源码提交及�
 | Python sidecar 单测 | 14/14；使用测试替身，不是原生 BabelDOC 发行验收 |
 | 组件定向检查 | 收尾 45/45，含匿名／授权／限流／失败回滚／离线、UI、HTTP／CLI／MCP 及凭据清除恢复 |
 | 浏览器 | 独立数据目录中匿名查询按钮可用；实际 GitHub 请求记录 `authorization:false`、HTTP 404，页面可重试；随包 PDF → 安装指南链接走通；证据 `browser-network.json`、`anonymous-settings.png` |
-| 实际 npm tarball | 69 文件的暂存打包路径；隔离安装、CLI／HTTP／MCP、持久化重启和本地 PDF 指南访问通过，文件与链接取自实际安装的 tarball |
-| 来源与发行校验 | 无 Git 元数据的临时源码树构建通过（复用依赖／vendor），元数据如实记 unavailable；指南 Markdown 结构与版本错配／实际 ZIP 校验的定向测试通过，ZIP 使用占位运行时夹具，不能视为原生软件运行 |
+| 实际 npm tarball | 69 文件的暂存打包路径；隔离安装、CLI／HTTP／MCP、持久化重启和本地 PDF 指南访问通过。补充检查在服务退出后完整备份隔离数据目录，再于另一程序目录安装相同 tarball 并复用原数据；设置、记录、冻结快照及原 MD／JSON 下载字节均保持。仅为 macOS npm 包级同版本验证，不代替 Windows ZIP 验收 |
+| 来源与发行校验 | 无 Git 元数据的临时源码树构建通过，元数据如实记 unavailable；指南 Markdown 结构与版本错配／实际 ZIP 校验的定向测试通过，ZIP 使用占位运行时夹具，不能视为原生软件运行 |
+| 全新源码归档及首次使用 | 从 `690578c` 导出不含 `.git`、依赖及 vendor 的源码归档，使用空 npm 用户／全局配置和全新缓存，禁用 Git 凭据助手及全局配置，不继承凭据环境变量；`npm ci`、`npm run setup:dsh`、`npm run build` 均退出 0。以独立数据目录启动，HTTP 走通 TXT 导入／人工接受／MD+JSON 导出；浏览器从空首页选择原创 Markdown，接受两段人工译文并下载 MD／JSON，内容核对通过。未准备 PDF 开发环境或配置模型。日志、下载产物、截图见 `source-archive-check/`，临时服务和源码目录已清理 |
 | Windows ZIP | 本机没有可用 Windows x64 验收环境；未把文档复制检查、npm tarball 或旧 Sandbox 记录当成本次 Windows 验收 |
 | 真实模型／原生 PDF | 未调用付费模型；未重跑真实引擎排版，既有单测继续覆盖冻结快照与模型调用隔离 |
 
@@ -57,3 +58,5 @@ PDF 设置入口改用本机随包指南；构建记录版本、源码提交及�
 以上保持未完成，不将“本地代码通过”写成公开准备全部完成。独立审查已复核匿名安装及发行校验的修正，未发现剩余阻断项；该审查为静态复核，运行结果以上表日志为准。
 
 本轮推进的 follow-up ID 为 `release-documentation-binding`；没有新增或关闭其他事项。
+
+2026-10-17 补充验收：按第 7 节矩阵复查后，补齐上述全新源码归档和同版本 npm 包换目录检查。GitHub 只读复查仍为 private、当前身份 maintain 而非 admin；本机没有 Windows x64 运行环境，Docker CLI 存在但本地 daemon 未运行，未将这些替代为三系统 CI 或 Windows 验收。用户已明确授权推送本分支并向 `codex/0.1.0-documentation` 创建草稿 PR；不包含合并、公开仓库、发布附件或改变费用／权限的授权。

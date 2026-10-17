@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises'
+import { cp, mkdir, mkdtemp, readdir, rm, writeFile, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -151,10 +151,12 @@ try {
   run(process.execPath, [probe], work)
   const cli = join(work, 'node_modules', packed[0].name, 'src', 'cli.mjs')
   assert.match(run(process.execPath, [cli, 'help'], work), /Commands: import, documents/)
-  const store = join(work, 'http.sqlite')
-  const settingsDir = join(work, 'settings')
+  const dataDir = join(work, 'user-data')
+  await mkdir(dataDir)
+  const store = join(dataDir, 'store.sqlite')
+  const settingsDir = join(dataDir, 'settings')
   let server = await startServer(cli, work, store, settingsDir)
-  let docId
+  let docId, snapshotId, originalArtifacts
   try {
     const mcp = new Client({ name: 'package-smoke', version: '0.1.0' })
     try {
@@ -212,12 +214,31 @@ try {
     const task = await waitTask(server.url, exported.taskId)
     assert.equal(task.artifacts.length, 2)
     assert.ok(task.artifacts.every(item => item.snapshotId === exported.snapshotId))
+    snapshotId = exported.snapshotId
+    originalArtifacts = new Map()
+    for (const artifact of task.artifacts) {
+      const response = await fetch(new URL(`/api/artifacts/${artifact.id}/download`, server.url))
+      assert.equal(response.status, 200)
+      originalArtifacts.set(artifact.id, Buffer.from(await response.arrayBuffer()))
+    }
     const markdown = task.artifacts.find(item => item.format === 'md')
-    const download = await fetch(new URL(`/api/artifacts/${markdown.id}/download`, server.url))
-    assert.equal(download.status, 200)
-    assert.match(await download.text(), /译文/)
+    assert.match(originalArtifacts.get(markdown.id).toString('utf8'), /译文/)
   } finally { await server.close() }
-  server = await startServer(cli, work, store, settingsDir)
+  // Preserve the complete isolated user directory after the server releases SQLite.
+  const backup = join(work, 'user-data-backup')
+  await cp(dataDir, backup, { recursive: true })
+  assert.deepEqual(await readFile(join(backup, 'store.sqlite')), await readFile(store))
+  assert.ok((await readdir(join(backup, 'settings'))).length > 0)
+  assert.ok((await readdir(join(backup, 'exports'))).length > 0)
+  const replacement = join(work, 'replacement-install')
+  await mkdir(replacement)
+  await writeFile(join(replacement, 'package.json'), JSON.stringify({ private: true, type: 'module' }))
+  run(process.execPath, [npmCli, 'install', '--ignore-scripts', '--omit=dev', '--no-audit', '--no-fund', tarball], replacement)
+  const replacementCli = join(replacement, 'node_modules', packed[0].name, 'src', 'cli.mjs')
+  assert.notEqual(replacementCli, cli)
+  assert.equal(JSON.parse(await readFile(join(replacement, 'node_modules', packed[0].name, 'package.json'), 'utf8')).version,
+    packed[0].version)
+  server = await startServer(replacementCli, replacement, store, settingsDir)
   try {
     const settings = await api(server.url, 'GET', '/api/settings/modelconfig')
     assert.equal(settings.settings.selected.provider, 'smoke')
@@ -226,8 +247,16 @@ try {
     assert.equal(document.sourceId, 'package:markdown')
     const { items: artifacts } = await api(server.url, 'GET', `/api/documents/${docId}/artifacts`)
     assert.equal(artifacts.length, 2)
+    assert.ok(artifacts.every(item => item.snapshotId === snapshotId))
+    const { snapshot } = await api(server.url, 'GET', `/api/documents/${docId}/snapshots/${snapshotId}`)
+    assert.equal(snapshot.id, snapshotId)
+    for (const artifact of artifacts) {
+      const response = await fetch(new URL(`/api/artifacts/${artifact.id}/download`, server.url))
+      assert.equal(response.status, 200)
+      assert.deepEqual(Buffer.from(await response.arrayBuffer()), originalArtifacts.get(artifact.id))
+    }
   } finally { await server.close() }
-  console.log(`Package smoke passed: ${packed[0].filename}; ${files.size} files; isolated parsing, SQLite restart, CLI/HTTP settings, Markdown export, MCP discovery/call and static UI`)
+  console.log(`Package smoke passed: ${packed[0].filename}; ${files.size} files; isolated parsing, same-version reinstall with complete data backup, saved settings, frozen snapshot and original exports, MCP discovery/call and static UI`)
 } finally {
   const resolvedWork = resolve(work)
   if (!resolvedWork.startsWith(`${tempRoot}${sep}`) || !resolvedWork.split(sep).at(-1).startsWith('ivoraige-package-smoke-')) {
