@@ -20,7 +20,7 @@ The goal is a shared foundation for people and AI: choose the capabilities you n
 
 ![ivoraige workbench with an original fiction excerpt and its accepted Chinese translation](docs/assets/0.1.0/workbench.jpg)
 
-*The 0.1.0 preview workbench. This original sample uses a manually supplied translation; the current interface is primarily Chinese.*
+*The 0.1.0 workbench. This original sample uses a manually supplied translation; the current interface is primarily Chinese.*
 
 ## Make the workflow your own
 
@@ -31,7 +31,7 @@ The goal is a shared foundation for people and AI: choose the capabilities you n
 
 ## Get started
 
-**Windows preview** — See [Releases](https://github.com/KongouAirlines/ivaraige/releases) and the [installation guide (中文)](docs/plan/0.1.0/installation-guide.md). The portable package includes its runtime: extract it and open `ivoraige.cmd`.
+**0.1.0 source and local npm package** — Follow the [development guide (中文)](docs/plan/0.1.0/development-guide.md) to run from source or build a versioned npm tarball. The new Windows portable package has not been built or validated. The existing [Windows `v0.1.0-dev.0` preview download](https://github.com/KongouAirlines/ivaraige/releases/tag/v0.1.0-dev.0) belongs to that earlier version; see its [installation guide (中文)](docs/plan/0.1.0/installation-guide.md) for the differences.
 
 1. Open the workbench and import a TXT or Markdown file.
 2. Configure a model when you want machine translation, or enter translations yourself.
@@ -43,7 +43,7 @@ Want to run from source? Follow the [development guide](https://github.com/Kongo
 
 ## What works today
 
-**Early preview: `0.1.0-dev.0`.** Features and the interface are still evolving.
+**First formal source version: `0.1.0`.** Features and the interface are still evolving.
 
 | Area | Available scope |
 | --- | --- |
@@ -51,11 +51,11 @@ Want to run from source? Follow the [development guide](https://github.com/Kongo
 | PDF · optional | Native-text English PDFs to Chinese monolingual PDFs, with source-page references and frozen PDF/Markdown/JSON export. |
 | Saved work | Persistent documents, revisions, tasks, and export snapshots. |
 | Access | Local browser workbench, CLI, HTTP/SSE, and MCP over stdio or Streamable HTTP. |
-| Platforms | Windows x64 portable package and PDF component. The Node.js kernel is tested on Windows, Linux, and macOS; this does not imply three-platform PDF packages. |
+| Platforms | The Node.js kernel has been tested on Windows, Linux, and macOS. The available Windows x64 portable package and PDF component belong to the earlier `v0.1.0-dev.0` release; no `0.1.0` Windows package has been built. |
 
-These capabilities describe this source version. The existing Windows `v0.1.0-dev.0` Release attachments predate MCP; use a source build for MCP until updated packages are published.
+These capabilities describe the `0.1.0` source and npm tarball built from it. The existing Windows `v0.1.0-dev.0` Release attachments predate MCP and optional-token component installation; they are not `0.1.0` packages. A new Windows package has not yet been built or validated. Public component sources can be read anonymously by this source build; private sources require explicit credentials.
 
-Scanned PDF OCR, bilingual PDF output, EPUB, reusable term libraries, Zotero integration, and general file-processing utilities are future work. A local workbench can still use an online model; it does not imply fully offline translation. See [capabilities and limits (中文)](docs/plan/0.1.0/capabilities.md).
+Scanned PDF OCR, bilingual PDF output, EPUB, reusable term libraries, Zotero integration, and general file-processing utilities are future work. Online models receive the text you translate and may charge your provider account. A local workbench does not imply fully offline or free translation. See [capabilities and limits (中文)](docs/plan/0.1.0/capabilities.md).
 
 ## Where we are heading
 
@@ -72,5 +72,7 @@ These are directions, not delivery dates. See the [roadmap](https://github.com/K
 [Using the workbench (中文)](docs/plan/0.1.0/workbench-guide.md) · [Model settings (中文)](docs/plan/0.1.0/settings-guide.md) · [Development](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/development-guide.md) · [Issues](https://github.com/KongouAirlines/ivaraige/issues)
 
 Tell us what you are trying to translate or process, where the workflow gets in your way, and which tools you would like to combine. Reproducible reports and original or shareable samples are especially useful.
+
+See [contribution guidance](CONTRIBUTING.md) and [security reporting](SECURITY.md). Project licensing is pending team confirmation. Public access to the source, if enabled, does not itself grant an open-source license.
 
 Built with Cordis and DSH, with optional BabelDOC support. See [third-party acknowledgements](THIRD_PARTY.md).

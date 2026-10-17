@@ -248,7 +248,8 @@ capabilities 的 `dataDirectory` 为可选的本机数据根目录，供首次�
 | 方法 | 路径 | 请求／返回 |
 |---|---|---|
 | GET | `/api/components` | `{ installed, unavailable, credentialConfigured, repository, releaseTag, restartRequired, task }`；不返回令牌。installed 为安装元数据及本机路径，未安装为 null；task 为本进程最近一次安装任务或 null |
-| POST | `/api/components/credential` | `{ token }` → DSH 凭据描述；只保存用户提供的私有 GitHub Contents read 凭据 |
+| POST | `/api/components/credential` | `{ token }` → DSH 凭据描述；只保存用户显式提供的 GitHub 凭据，私有源需具备 Contents read 权限 |
+| DELETE | `/api/components/credential` | `{}` → DSH 凭据描述；显式移除保存的组件令牌以切换匿名访问。若环境仍提供该凭据，返回 `PRECONDITION_FAILED` |
 | POST | `/api/components/catalog` | `{}` → `{ catalog: { repository, releaseTag, components: [{ id, version, platform, arch, protocolVersion, size, assetsIncluded }] } }`；size 为压缩包及资源总字节数 |
 | POST | `/api/components/install` | `{ id: "babeldoc" }` → `{ taskId }`；固定 Release tag，按当前平台架构选择官方组件 |
 | POST | `/api/components/local` | `{ path }` → `{ taskId }`；path 为服务端 `components-manifest.json` 路径，归档位于同目录，复用在线安装校验与激活流程 |
@@ -257,7 +258,9 @@ capabilities 的 `dataDirectory` 为可选的本机数据根目录，供首次�
 
 任务状态采用 DSH jobs 的 running／stopping／completed／failed／killed；queued 仅为前端收到 taskId 时的临时展示。通过上述端点轮询。发布版本目录及保存配置属于最终激活边界，进入后取消返回 CONFLICT；退出时取消尚未激活的任务并等待清理，已进入激活边界则等待完成。重启后不续传下载；已激活版本通过 DSH settings 持久保存。安装失败不替换已有版本；完成后需手动重启服务使 PDF 装配生效。首次实际 PDF 操作才执行 sidecar 握手，安装成功不等于解析质量已验证。
 
-CLI 对应 `components status|catalog|credential --token-env NAME|install|local --path MANIFEST|task ID|cancel ID`，共同参数沿用 §5。`install`／`local` 默认等待，完成退出 0、失败 4、取消 5；服务模式 `--url` 可使用 `--no-wait`。安装过程不支持 `--json-events`。令牌从指定环境变量读取，不要求在命令行明文传递。
+在线目录和安装允许匿名访问公开 Release；已保存凭据时继续由 DSH 解析并仅发送给 GitHub API，请求无凭据时完全省略 Authorization，Release 附件重定向不转发凭据。已存令牌失效时可由用户显式移除，再匿名重试；不会自动降级，也不会自动使用本机 `gh` 登录。401 提示凭据失效或需要授权；404 提示源或版本不存在或不可访问；403 区分权限与可识别限流，429 提示限流后重试。失败信息不回显凭据或签名下载地址。
+
+CLI 对应 `components status|catalog|credential --token-env NAME|credential-clear|install|local --path MANIFEST|task ID|cancel ID`，共同参数沿用 §5。`install`／`local` 默认等待，完成退出 0、失败 4、取消 5；服务模式 `--url` 可使用 `--no-wait`。安装过程不支持 `--json-events`。令牌从指定环境变量读取，不要求在命令行明文传递。
 
 0.1.0 清单契约：`version` 必须是严格 SemVer（允许 prerelease 与 build metadata，不接受 `v` 前缀、范围或不完整版本），每个 `(id, platform, arch)` 只允许一个候选版本；不同平台可并列。catalog 和本地／远程安装均在读取清单时拒绝重复候选，不由数组顺序隐式选版本。入口仍不提供版本选择参数。普通安装在下载／激活前按 SemVer 优先级比较当前有效已选组件，拒绝更旧版本并保留原选择；允许升级和同版本修复。build metadata 不改变优先级。未提供显式降级／rollback 操作。
 
@@ -305,7 +308,7 @@ MCP 是可选入口服务 `ivoraige.mcp`，不拥有文档或 PDF 业务逻辑�
 | `artifacts_list` / `snapshots_list` / `snapshot_get` / `snapshot_delete` | 同名列表、读取、删除操作 | 删除只允许未被引用的快照 |
 | `tasks_list` / `task_status` / `task_pause` / `task_resume` / `task_cancel` | `listTasks` / `getTask` / `pauseTask` / `resumeTask` / `cancelTask` | `task_status` 支持 `waitSeconds≤60`；断开等待不取消持久任务 |
 | `settings_get` / `settings_update` / `credential_set` | `getSettings` / `updateSettings` / `setCredential` | 仅在设置服务装配时注册；写设置和凭据须有用户明确授权 |
-| `component_status` / `component_catalog` / `component_credential` / `component_install` / `component_local` / `component_task` / `component_cancel` | 对应 `component*` 操作 | 仅在组件服务装配时注册；安装、令牌写入须有用户明确授权 |
+| `component_status` / `component_catalog` / `component_credential` / `component_credential_clear` / `component_install` / `component_local` / `component_task` / `component_cancel` | 对应 `component*` 操作 | 仅在组件服务装配时注册；安装、令牌写入或移除须有用户明确授权 |
 
 resources：`ivoraige://docs/{docId}`、`ivoraige://docs/{docId}/units/{unitId}?targetLang={language}`、`ivoraige://tasks/{taskId}` 返回包含对应 JSON 的 Markdown；`ivoraige://artifacts/{artifactId}` 返回已存产物的 MIME 类型与 base64 二进制内容，读取不会重建或翻译。资源模板不提供枚举，先用列表工具取得 ID。
 
@@ -352,7 +355,7 @@ BabelDOC `parse` 按来源位置关联回调与完成后的 tracker payload；tr
 
 `dsh-attachment` + `dsh-attachment-local` 可复用文件存储能力，但固定版本未提供 HTTP 下载／Range 续传管理器，也不自动产出工具需要的权重目录树。下载优先选已有实现，目录装配作为具体工具适配；本节是待验证方案，不声称已能直接照搬完整能力。
 
-0.1.0 独立发行走 §3.8 的官方组件安装：Release 中的 `components-manifest.json` 固定组件版本、平台架构、协议版本和两个 `.tar.gz` 资产的名称／字节数／SHA-256。运行时与字体模型资产分包，在用户选择 PDF 时安装到同一版本根目录；每个平台每个 tag 发布一个官方 BabelDOC 版本。下载使用 GitHub 私有 Release asset API，安装阶段校验一次，运行时不重扫资产摘要。首期可取消、失败后重试，但不支持 Range 续传。下面的跨引擎细粒度 `assets pull/remove` 仍为后续设计，不是现有命令。源码开发者仍可用 `scripts/setup-pdf.ps1` 和 BabelDOC `--warmup` 准备本地缓存。
+0.1.0 独立发行走 §3.8 的官方组件安装：Release 中的 `components-manifest.json` 固定组件版本、平台架构、协议版本和两个 `.tar.gz` 资产的名称／字节数／SHA-256。运行时与字体模型资产分包，在用户选择 PDF 时安装到同一版本根目录；每个平台每个 tag 发布一个官方 BabelDOC 版本。下载使用 GitHub Release asset API，公开源允许匿名访问，私有源可用显式保存的凭据；安装阶段校验一次，运行时不重扫资产摘要。首期可取消、失败后重试，但不支持 Range 续传。下面的跨引擎细粒度 `assets pull/remove` 仍为后续设计，不是现有命令。源码开发者仍可用 `scripts/setup-pdf.ps1` 和 BabelDOC `--warmup` 准备本地缓存。
 
 1. **资产清单**：内核内置 `assets.json`（随版本发布），每项 `{ name, urls[], sha256, sizeBytes, requiredFor }`（如 `mineru-layout`、`mineru-ocr`、`doclayout-yolo`）。
 2. **下载**：`POST /api/assets/{name}/pull` 建任务（复用任务系统，进度=字节数），由所选下载实现处理 HTTP／Range，完成时校验 digest 后标记可用；不一致清理该次残留并 failed。内容寻址入库可复用附件组件，不将下载能力归给它。

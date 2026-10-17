@@ -3,6 +3,7 @@ import { toNodeHandler } from '@modelcontextprotocol/node'
 import { serveStdio, StdioServerTransport } from '@modelcontextprotocol/server/stdio'
 import { KernelError } from './errors.mjs'
 import { errorEnvelope } from './protocol.mjs'
+import packageInfo from '../package.json' with { type: 'json' }
 
 function result(body, isError = false) {
   return { content: [{ type: 'text', text: JSON.stringify(body) }], structuredContent: body, ...(isError ? { isError } : {}) }
@@ -18,7 +19,7 @@ function resourceError(error) {
 export function createMcpServer(app, { signal, listChanged = true, watchRegistry = true } = {}) {
   const registry = app.mcp
   if (!registry) throw new KernelError('COMPONENT_MISSING', 'MCP entry is not enabled')
-  const server = new McpServer({ name: 'ivoraige', version: '0.1.0-dev.0' },
+  const server = new McpServer({ name: 'ivoraige', version: packageInfo.version },
     { capabilities: { tools: { listChanged }, resources: { listChanged } } })
   const activeTools = new Map(), activeResources = new Map()
   function sync(collection, active, register) {

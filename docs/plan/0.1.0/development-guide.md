@@ -4,7 +4,7 @@
 
 ## 准备与启动
 
-需要 Node.js ≥24，在仓库根目录执行：
+`0.1.0` 是首个正式软件版本，本页可用于源码检出或无 `.git` 的源码归档。需要 Git、Node.js ≥24 和随 Node 安装的 npm；Git 用于取得固定 DSH 源码，应用自身的构建不要求源码归档含 Git 元数据。固定 DSH 源码与 npm 依赖来自公开上游；若仓库尚未切换为公开，首次取得本仓库源码仍需访问权限。TXT／Markdown 启动无需 Python 或 PDF 资产。在仓库根目录执行：
 
 ```powershell
 npm ci
@@ -12,6 +12,8 @@ npm run setup:dsh
 npm run build
 npm start
 ```
+
+需要本地 npm 安装包时，在完成上述依赖与 DSH 准备后运行 `npm run pack:npm -- <输出目录>`，得到 `ivoraige-0.1.0.tgz`；从该 tarball 安装到独立目录可使用 CLI／HTTP／MCP 及文本工作台。该命令只构建本地 tarball，不向 npm registry 发布。新版 Windows 便携包尚未构建和验收；旧 `v0.1.0-dev.0` 附件保持原版本身份。
 
 启动器打开浏览器，数据目录与源码分开，默认位置按平台决定：
 
@@ -22,7 +24,7 @@ npm start
 需要隔离开发数据时：
 
 ```powershell
-node src/cli.mjs serve --store ./evaluation/runs/workbench/store.sqlite
+node src/cli.mjs serve --store ./evaluation/runs/workbench-0.1.0/store.sqlite
 ```
 
 打开打印的本机地址。一个数据库只运行一个内核；服务运行时其他 CLI 命令使用 `--url http://127.0.0.1:8787`。所有 CLI 参数以 `node src/cli.mjs help` 为准。源码启动需要环境代理时自行启用 `NODE_USE_ENV_PROXY=1`，本机服务应绕过代理。

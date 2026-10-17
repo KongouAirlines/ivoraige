@@ -13,6 +13,7 @@ import { Service, z } from '../dist/dsh.mjs'
 import { createApp } from '../src/app.mjs'
 import { serve } from '../src/http.mjs'
 import { KernelError } from '../src/errors.mjs'
+import packageInfo from '../package.json' with { type: 'json' }
 
 const targetLang = 'zh'
 const upload = (content, format = 'txt') => ({
@@ -81,6 +82,7 @@ async function fixture(t, options = {}) {
 test('SDK HTTP clients share documents, frozen outputs, and durable tasks', async t => {
   const f = await fixture(t)
   const first = await f.connect()
+  assert.deepEqual(first.getServerVersion(), { name: 'ivoraige', version: packageInfo.version })
   const second = await f.connect()
   const listing = await first.listTools()
   const names = listing.tools.map(tool => tool.name)
@@ -157,6 +159,20 @@ test('SDK HTTP clients share documents, frozen outputs, and durable tasks', asyn
   assert.match(taskResource.contents[0].text, /"state": "succeeded"/)
   assert.ok((await call(reopened, 'snapshots_list', { docId })).items.some(item => item.id === exported.snapshotId))
   await failure(reopened, 'snapshot_delete', { docId, snapshotId: exported.snapshotId }, 'CONFLICT')
+})
+
+test('MCP component credential clear uses the shared operation', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-mcp-components-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const f = await fixture(t, { settingsDir: join(directory, 'settings'),
+    components: { directory: join(directory, 'components') } })
+  const connection = await f.connect()
+  const names = (await connection.listTools()).tools.map(tool => tool.name)
+  assert.ok(names.includes('ivoraige_component_credential_clear'))
+  await call(connection, 'component_credential', { token: 'test-component-token' })
+  assert.equal((await call(connection, 'component_status')).credentialConfigured, true)
+  assert.equal((await call(connection, 'component_credential_clear')).configured, false)
+  assert.equal((await call(connection, 'component_status')).credentialConfigured, false)
 })
 
 test('MCP translation uses a local mock model and frozen replay never invokes it', async t => {

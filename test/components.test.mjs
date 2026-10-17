@@ -8,7 +8,7 @@ import * as tar from 'tar'
 import { JobsLocal } from '../dist/dsh.mjs'
 import { bootModelSettings } from '../src/model-settings.mjs'
 import { Components } from '../src/components.mjs'
-import { downloadAsset, extractVerifiedArchive, inside, validateManifest } from '../src/component-package.mjs'
+import { downloadAsset, extractVerifiedArchive, fetchRelease, inside, validateManifest } from '../src/component-package.mjs'
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 
@@ -301,6 +301,120 @@ test('private release download uses token only on GitHub API request', async t =
   assert.equal(requests.every(row => row.url.startsWith('https://api.github.com/') ?
     row.authorization === 'Bearer private-example-token' : row.authorization === undefined), true)
   assert.doesNotMatch(JSON.stringify(await app.components.status()), /private-example-token/)
+})
+
+test('anonymous catalog and installation omit Authorization on every request', async t => {
+  const directory = await testDirectory('anonymous-release')
+  const { bytes, manifest } = await fixture(directory)
+  const manifestBytes = Buffer.from(JSON.stringify(manifest))
+  const requests = []
+  const fetcher = async (url, options) => {
+    requests.push({ url, headers: options.headers, redirect: options.redirect })
+    if (url.includes('/releases/tags/')) return new Response(JSON.stringify({ assets: [
+      { id: 1, name: 'components-manifest.json', size: manifestBytes.length },
+      { id: 2, name: 'babeldoc.tar.gz', size: bytes.length },
+    ] }))
+    if (url.startsWith('https://api.github.com/')) return new Response(null, { status: 302,
+      headers: { location: `https://objects.githubusercontent.com/${url.split('/').at(-1)}` } })
+    return new Response(url.endsWith('/1') ? manifestBytes : bytes)
+  }
+  const app = await boot(directory, fetcher)
+  t.after(async () => { await app.dispose(); await rm(directory, { recursive: true, force: true }) })
+  assert.equal((await app.components.status()).credentialConfigured, false)
+  assert.equal((await app.components.catalog()).components[0].id, 'babeldoc')
+  const { taskId } = app.components.install()
+  await app.components.jobs.wait(taskId, 30_000)
+  assert.equal(app.components.getTask(taskId).state, 'completed', app.components.getTask(taskId).error)
+  assert.ok(requests.some(row => row.url.startsWith('https://objects.githubusercontent.com/')))
+  assert.ok(requests.every(row => !Object.hasOwn(row.headers, 'Authorization') && row.redirect === 'manual'))
+  assert.equal((await app.components.status()).credentialConfigured, false)
+})
+
+test('explicitly clearing an invalid saved token restores anonymous installation after restart', async t => {
+  const directory = await testDirectory('clear-credential')
+  const { bytes, manifest } = await fixture(directory)
+  const manifestBytes = Buffer.from(JSON.stringify(manifest))
+  const authorizations = []
+  const fetcher = async (url, options) => {
+    authorizations.push(options.headers?.Authorization)
+    if (options.headers?.Authorization) return new Response(null, { status: 401 })
+    if (url.includes('/releases/tags/')) return new Response(JSON.stringify({ assets: [
+      { id: 1, name: 'components-manifest.json', size: manifestBytes.length },
+      { id: 2, name: 'babeldoc.tar.gz', size: bytes.length },
+    ] }))
+    return new Response(url.endsWith('/1') ? manifestBytes : bytes)
+  }
+  let app = await boot(directory, fetcher)
+  t.after(async () => { await app.dispose(); await rm(directory, { recursive: true, force: true }) })
+  await app.components.setToken('expired-test-token')
+  await assert.rejects(app.components.catalog(), /HTTP 401.*invalid or expired/)
+  assert.deepEqual(authorizations, ['Bearer expired-test-token'])
+  const cleared = await app.components.clearToken()
+  assert.equal(cleared.configured, false)
+  assert.equal((await app.components.status()).credentialConfigured, false)
+  await app.dispose()
+  app = await boot(directory, fetcher)
+  assert.equal((await app.components.status()).credentialConfigured, false)
+  assert.equal((await app.components.catalog()).components[0].id, 'babeldoc')
+  const { taskId } = app.components.install()
+  await app.components.jobs.wait(taskId, 30_000)
+  assert.equal(app.components.getTask(taskId).state, 'completed', app.components.getTask(taskId).error)
+  assert.ok(authorizations.slice(1).every(value => value === undefined))
+})
+
+test('release and asset HTTP failures give safe, actionable status guidance', async () => {
+  const cases = [
+    { status: 401, token: 'test-token', match: /invalid or expired/ },
+    { status: 401, token: null, match: /requires authorization/ },
+    { status: 404, token: null, match: /repository and release version/ },
+    { status: 403, token: 'test-token', match: /denied access/ },
+    { status: 403, token: null, headers: { 'x-ratelimit-remaining': '0' }, match: /rate limit reached/ },
+    { status: 403, token: null, body: { message: 'You have exceeded a secondary rate limit' }, match: /rate limit reached/ },
+    { status: 429, token: null, match: /rate limit reached/ },
+  ]
+  for (const { status, token, headers, body, match } of cases) {
+    const response = () => new Response(JSON.stringify(body ?? { message: 'secret URL and token must stay hidden' }),
+      { status, headers })
+    for (const request of ['release', 'asset']) {
+      const run = request === 'release' ?
+        fetchRelease(async () => response(), 'owner/repo', 'v0.1.0', token) :
+        downloadAsset(async () => response(), 'owner/repo', { id: 1 }, token, '/unused')
+      await assert.rejects(run, error => {
+        assert.equal(error.code, 'UPSTREAM_FAILURE')
+        assert.match(error.message, match)
+        assert.doesNotMatch(error.message, /secret URL|test-token/)
+        return true
+      })
+    }
+  }
+})
+
+test('network failures do not expose a token or a signed download URL', async () => {
+  const fetcher = async () => { throw new Error('private-token https://signed.example/?signature=secret') }
+  await assert.rejects(fetchRelease(fetcher, 'owner/repo', 'v0.1.0', 'private-token'), error => {
+    assert.equal(error.code, 'UPSTREAM_FAILURE')
+    assert.match(error.message, /network or proxy/)
+    assert.doesNotMatch(error.message, /private-token|signature=secret/)
+    return true
+  })
+})
+
+test('a signed asset host failure gives safe link guidance without blaming the GitHub token', async () => {
+  const signedUrl = 'https://objects.githubusercontent.com/private?signature=private-secret'
+  const headers = []
+  const fetcher = async (_url, options) => {
+    headers.push(options.headers)
+    return headers.length === 1 ? new Response(null, { status: 302, headers: { location: signedUrl } }) :
+      new Response(JSON.stringify({ message: 'private-secret' }), { status: 403 })
+  }
+  await assert.rejects(downloadAsset(fetcher, 'owner/repo', { id: 1 }, 'test-token', '/unused'), error => {
+    assert.equal(error.code, 'UPSTREAM_FAILURE')
+    assert.match(error.message, /fresh link or install the package locally/)
+    assert.doesNotMatch(error.message, /saved token|test-token|private-secret|signature=/)
+    return true
+  })
+  assert.equal(headers[0].Authorization, 'Bearer test-token')
+  assert.equal(headers[1].Authorization, undefined)
 })
 
 test('manifest and archive paths reject unsafe inputs', () => {

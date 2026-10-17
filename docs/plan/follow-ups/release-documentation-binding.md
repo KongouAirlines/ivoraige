@@ -1,8 +1,8 @@
 # 发版文档与安装版本对应
 
 - ID: release-documentation-binding
-- 状态: 已安排
-- 实施分支／PR: PR #17 记录；文档入口整理 codex/0.1.0-documentation；发行物版本绑定待安排
+- 状态: 处理中
+- 实施分支／PR: PR #17 记录；文档入口整理 codex/0.1.0-documentation；发行物绑定实现 codex/0.1.0-public-installation（待合入及新版本发行）
 - 类型: 改进
 - 发现依据: 2026-10-13，codex/0.1.0-installation，bdd1854；[PR #17 审阅](https://github.com/KongouAirlines/ivaraige/pull/17#discussion_r4254480647)
 - 目标分支: main
@@ -28,3 +28,9 @@ PDF 设置页指南链接指向 main，可能随开发变化而与已安装版�
 - 2026-10-13：文档分支重写双语 README、能力表与导航，区分用户 PDF 指南和开发准备，补充发行前核对要求。仍未修改已有 Release 附件、tag 或设置页 main 链接；状态保持已安排，正式版本绑定范围未完成。
 
 - 2026-10-17：MCP／文档合流同步双语首页、能力表、用户指南和打包清单，修复 MCP 指南包内断链，并明确源码 MCP 能力尚未进入现有 Windows Release 附件。详情见[合流复核](../0.1.0/documentation.md#两个-pr-合流复核2026-10-17)。发行 tag／附件／指南版本绑定仍未完成，保持已安排；本轮不替换发行附件。
+
+- 2026-10-17：`codex/0.1.0-public-installation` 增加随包静态用户指南、来源元数据、用户文档链接校验与正式 tag／构建证据／附件摘要核对命令；npm tarball 已在 macOS 实际安装并通过链接及 HTTP 指南读取检查。Windows ZIP 尚待 Windows x64 构建验收；没有创建新 tag 或 Release，旧 `v0.1.0-dev.0` 历史差异不改。目标分支集成和下一次真实发行后才能核对完整验收并关闭。
+
+- 2026-10-17：实现提交 [690578c](https://github.com/KongouAirlines/ivaraige/commit/690578c354420a44f3957678baed91cff76466bc) 的无 Git 源码归档完成全新依赖／DSH 准备、构建及浏览器人工译文导出。补充 npm 包备份后换程序目录验证，已保存设置、冻结快照和原导出字节保持；证据边界见[实施记录](../0.1.0/public-installation.md#验收证据)。仍未替代下一次 Windows 实际发行或目标分支集成。
+
+- 2026-10-17：用户确定首个正式版本为 `0.1.0`，授权 PR #18／#19／#25 合入 main，以源码和 npm 包完成首轮发行；Windows 验收暂不纳入本轮，仓库继续私有。版本与 MCP 握手同步，实际 npm 包的来源校验扩展为重建后逐文件比对，69 文件隔离运行及同版本换目录检查通过。仍待 main 集成、正式 tag 与实际附件发布后记录完成证据；旧 `v0.1.0-dev.0` 附件差异保留历史说明，新 Windows 发行继续按相同规则单独验收。

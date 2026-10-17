@@ -13,7 +13,7 @@ const shape = fields => z.object(fields).strict()
 export const parameters = {
   capabilities: shape({}),
   componentStatus: shape({}), componentCatalog: shape({}),
-  componentCredential: shape({ token: id }),
+  componentCredential: shape({ token: id }), componentCredentialClear: shape({}),
   componentInstall: shape({ id: z.literal('babeldoc') }),
   componentLocal: shape({ path: id }),
   componentTask: shape({ taskId: id }), componentCancel: shape({ taskId: id }),

@@ -3,7 +3,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react'
 const statusLabels = { unchecked: '已配置，尚未验证', ready: '已验证', unavailable: '不可用' }
 const taskLabels = { queued: '排队中', running: '安装中', stopping: '正在取消', paused: '已暂停', completed: '安装完成', failed: '安装失败', killed: '已取消' }
 const terminal = new Set(['completed', 'failed', 'killed'])
-const guide = 'https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/pdf-guide.md'
+const guide = './pdf-guide.html'
 const sizeMiB = bytes => Number.isFinite(bytes) ? `${(bytes / 1048576).toFixed(2)} MiB` : '大小未知'
 
 export function PdfSettings({ api, Button = 'button', ErrorBox, capabilities, refreshCapabilities,
@@ -70,9 +70,17 @@ export function PdfSettings({ api, Button = 'button', ErrorBox, capabilities, re
   const refresh = () => { setReadTick(value => value + 1); refreshCapabilities?.() }
   const saveToken = () => action('token', async () => {
     await api('/components/credential', { method: 'POST', body: { token } })
-    setToken(''); refresh()
+    setToken(''); setCatalog(null); refresh()
   }, '访问凭据已保存。')
+  const clearToken = () => action('clear-token', async () => {
+    try {
+      await api('/components/credential', { method: 'DELETE' })
+      setComponent(previous => previous ? { ...previous, credentialConfigured: false } : previous)
+      setCatalog(null)
+    } finally { refresh() }
+  }, '已移除保存的令牌；公开发布源将使用匿名访问。')
   const checkCatalog = () => action('catalog', async () => {
+    setCatalog(null)
     const result = await api('/components/catalog', { method: 'POST', body: {} })
     setCatalog(result.catalog)
   })
@@ -116,14 +124,16 @@ export function PdfSettings({ api, Button = 'button', ErrorBox, capabilities, re
         {component?.repository && <p className="hint">发布源：{/^https:\/\//.test(component.repository) ?
           <a href={component.repository} target="_blank" rel="noreferrer">{component.repository}</a> : component.repository}</p>}
         {component?.restartRequired && <div className="notice" role="status">组件已准备好。请保存当前工作后手动重启服务，使 PDF 功能生效。</div>}
-        <div className="credential-form"><label>私有 GitHub Releases 访问令牌
+        <div className="credential-form"><label>GitHub Releases 访问令牌（可选）
           <input type="password" autoComplete="new-password" value={token} disabled={!available || !!busy}
-            onChange={event => setToken(event.target.value)} placeholder={credentialConfigured ? '已保存；输入新令牌以更换' : '输入访问令牌'}/>
-        </label><span className="hint">{credentialConfigured ? '访问凭据已配置' : '尚未配置访问凭据'}</span>
-          <Button className="secondary" busy={busy === 'token'} disabled={!available || !!busy || !token.trim()} onClick={saveToken}>保存令牌</Button></div>
-        <div className="row action-row"><Button className="secondary" busy={busy === 'catalog'} disabled={!available || !!busy || !credentialConfigured}
+            onChange={event => setToken(event.target.value)} placeholder={credentialConfigured ? '已保存；输入新令牌以更换' : '公开发布源无需令牌'}/>
+        </label><span className="hint">{credentialConfigured ? '访问凭据已配置' : '未配置令牌，将匿名访问公开发布源'}</span>
+          <Button className="secondary" busy={busy === 'token'} disabled={!available || !!busy || !token.trim()} onClick={saveToken}>保存令牌</Button>
+          {credentialConfigured && <Button className="secondary" busy={busy === 'clear-token'}
+            disabled={!available || !!busy || !!installing} onClick={clearToken}>移除已保存令牌</Button>}</div>
+        <div className="row action-row"><Button className="secondary" busy={busy === 'catalog'} disabled={!available || !!busy}
           onClick={checkCatalog}>检查可用版本</Button>
-          <Button busy={busy === 'install'} disabled={!available || !!busy || !!installing || !credentialConfigured || !targets.length}
+          <Button busy={busy === 'install'} disabled={!available || !!busy || !!installing || !targets.length}
             onClick={install}>安装 BabelDOC</Button></div>
         {catalog && <div role="status"><p className="hint">发布目录 {catalog.releaseTag || '已读取'} · 服务会选择与运行环境匹配的构建：</p>
           {targets.length ? <ul>{targets.map(item => <li key={`${item.id}-${item.version}-${item.platform}-${item.arch}`}>

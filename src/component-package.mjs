@@ -59,8 +59,32 @@ export function validateManifest(value) {
 }
 
 function requestHeaders(token, accept) {
-  return { Authorization: `Bearer ${token}`, Accept: accept,
-    'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'ivoraige-components' }
+  const headers = { Accept: accept, 'X-GitHub-Api-Version': '2022-11-28',
+    'User-Agent': 'ivoraige-components' }
+  if (token) headers.Authorization = `Bearer ${token}`
+  return headers
+}
+
+async function githubFailure(response, subject, token) {
+  const { status, headers } = response
+  if (status === 401) return upstream(`${subject} failed (HTTP 401): ${token ?
+    'saved GitHub token is invalid or expired; replace it or explicitly clear it to retry a public release anonymously' :
+    'GitHub requires authorization for this release; configure an optional token if you have access'}`)
+  if (status === 404) return upstream(`${subject} failed (HTTP 404): check the repository and release version; this release may also be inaccessible${token ? ' with the saved token' : ' without a token'}`)
+  if (status === 403 || status === 429) {
+    let limited = status === 429 || headers.get('x-ratelimit-remaining') === '0' ||
+      headers.has('retry-after')
+    if (!limited) {
+      try {
+        const body = await response.json()
+        limited = /rate limit|abuse detection|too many requests/i.test(body?.message ?? '')
+      } catch { /* A body is not required for status handling. */ }
+    }
+    if (limited) return upstream(`${subject} failed (HTTP ${status}): GitHub rate limit reached; retry later${token ? '' : ' or configure an optional GitHub token'}`)
+    return upstream(`${subject} failed (HTTP 403): GitHub denied access; check ${token ?
+      'the saved token permissions' : 'whether this release requires a token'} and the release visibility`)
+  }
+  return upstream(`${subject} failed (HTTP ${status})`)
 }
 
 function assertGitHubApi(url) {
@@ -74,13 +98,14 @@ async function fetchChecked(fetcher, url, options, signal) {
   let response
   try { response = await fetcher(url, { ...options, signal, redirect: 'manual' }) } catch (error) {
     if (signal?.aborted) throw error
-    throw upstream(`Component download failed: ${error.message}`)
+    throw upstream('Component request failed; check the network or proxy and retry')
   }
   return response
 }
 
 async function followAsset(fetcher, url, token, signal) {
   assertGitHubApi(url)
+  let redirected = false
   let response = await fetchChecked(fetcher, url,
     { headers: requestHeaders(token, 'application/octet-stream') }, signal)
   for (let hops = 0; hops < 5 && response.status >= 300 && response.status < 400; hops++) {
@@ -92,22 +117,25 @@ async function followAsset(fetcher, url, token, signal) {
     }
     // GitHub may send signed URLs to a separate host. Never forward credentials.
     response.body?.cancel().catch(() => {})
+    redirected = true
     url = next.href
     response = await fetchChecked(fetcher, url,
       { headers: { 'User-Agent': 'ivoraige-components' } }, signal)
   }
-  if (!response.ok || response.status >= 300) throw upstream(`Component asset request failed (HTTP ${response.status})`)
+  if (!response.ok || response.status >= 300) {
+    if (redirected) throw upstream(`Component asset download link failed (HTTP ${response.status}); retry to obtain a fresh link or install the package locally`)
+    throw await githubFailure(response, 'Component asset request', token)
+  }
   return response
 }
 
 export async function fetchRelease(fetcher, repository, releaseTag, token, signal) {
   repository = repositoryPath(repository)
   if (typeof releaseTag !== 'string' || !releaseTag.trim()) throw invalid('releaseTag is required for remote catalog')
-  if (!token) throw new KernelError('PRECONDITION_FAILED', 'A GitHub token with repository Contents read access is required')
   const url = `https://api.github.com/repos/${repository}/releases/tags/${encodeURIComponent(releaseTag)}`
   const response = await fetchChecked(fetcher, url,
     { headers: requestHeaders(token, 'application/vnd.github+json') }, signal)
-  if (!response.ok) throw upstream(`Could not read private component release (HTTP ${response.status})`)
+  if (!response.ok) throw await githubFailure(response, 'Component release request', token)
   const release = await response.json()
   if (!Array.isArray(release.assets)) throw upstream('Component release has no assets')
   return release

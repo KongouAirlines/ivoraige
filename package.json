@@ -1,6 +1,6 @@
 {
   "name": "ivoraige",
-  "version": "0.1.0-dev.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "bin": {
@@ -27,6 +27,8 @@
     "docs/plan/0.1.0/installation-guide.md",
     "docs/plan/0.1.0/workbench-guide.md",
     "README.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
     "THIRD_PARTY.md",
     "README.zh-CN.md",
     "docs/assets/0.1.0/workbench.jpg",
@@ -41,7 +43,9 @@
     "setup:dsh": "node scripts/setup-dsh.mjs",
     "build": "node scripts/build.mjs && node scripts/build-web.mjs",
     "test": "npm run build && node --test test/*.test.mjs",
+    "pack:npm": "npm run build && node scripts/pack-npm.mjs",
     "smoke:package": "node scripts/smoke-package.mjs",
+    "verify:release": "node scripts/verify-release.mjs",
     "followups": "node scripts/followups.mjs"
   },
   "dependencies": {
@@ -64,6 +68,8 @@
   },
   "devDependencies": {
     "@modelcontextprotocol/client": "2.3.1",
-    "jsdom": "27.4.0"
+    "jsdom": "27.4.0",
+    "marked": "18.1.1",
+    "marked-gfm-heading-id": "4.1.4"
   }
 }

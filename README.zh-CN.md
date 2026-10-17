@@ -20,7 +20,7 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 
 ![ivoraige 工作台：原创小说片段及已接受的中文译文](docs/assets/0.1.0/workbench.jpg)
 
-*0.1.0 预览版工作台。图中为原创样本与人工录入的译文；当前界面主要使用中文。*
+*0.1.0 工作台。图中为原创样本与人工录入的译文；当前界面主要使用中文。*
 
 ## 组合适合自己的流程
 
@@ -31,7 +31,7 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 
 ## 开始使用
 
-**Windows 预览版** — 查看 [Releases](https://github.com/KongouAirlines/ivaraige/releases) 和[安装指南](docs/plan/0.1.0/installation-guide.md)。便携包自带运行时，解压后打开 `ivoraige.cmd`。
+**0.1.0 源码与本地 npm 包** — 按[开发指南](docs/plan/0.1.0/development-guide.md)从源码运行，或构建有版本号的 npm tarball。新版 Windows 便携包尚未构建和验收；现有 [Windows `v0.1.0-dev.0` 预览附件](https://github.com/KongouAirlines/ivaraige/releases/tag/v0.1.0-dev.0)属于早期版本，差异见[安装指南](docs/plan/0.1.0/installation-guide.md)。
 
 1. 打开工作台，导入 TXT 或 Markdown 文件。
 2. 需要机器翻译时配置模型，也可以直接录入自己的译文。
@@ -43,7 +43,7 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 
 ## 当前能力
 
-**早期预览版：`0.1.0-dev.0`。** 功能和界面仍在持续完善。
+**首个正式源码版本：`0.1.0`。** 功能和界面仍在持续完善。
 
 | 领域 | 已有范围 |
 | --- | --- |
@@ -51,11 +51,11 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 | PDF · 可选 | 原生文本英文 PDF 到中文单语 PDF，包含来源页码定位与 PDF/Markdown/JSON 冻结导出。 |
 | 保存工作 | 持久保存文档、修订、任务和导出快照。 |
 | 使用入口 | 本地浏览器工作台、CLI、HTTP/SSE，以及 stdio 或 Streamable HTTP MCP。 |
-| 平台 | Windows x64 便携包及 PDF 组件；Node.js 内核通过 Windows、Linux、macOS 测试，不等于三平台 PDF 安装包均已交付。 |
+| 平台 | Node.js 内核曾在 Windows、Linux、macOS 测试。现有 Windows x64 便携包及 PDF 组件属于较早的 `v0.1.0-dev.0`；尚未构建 `0.1.0` Windows 包。 |
 
-上述能力对应本源码版本。现有 Windows `v0.1.0-dev.0` Release 附件早于 MCP 接入；更新发行包发布前，使用 MCP 请从源码构建。
+上述能力对应 `0.1.0` 源码及由其构建的 npm tarball。现有 Windows `v0.1.0-dev.0` Release 附件尚未包含 MCP 和可选令牌安装，也不是 `0.1.0` 包；新版 Windows 包尚未构建和验收。本源码可匿名读取公开组件源，私有源仍需显式凭据。
 
-扫描件 OCR、双语 PDF、EPUB、可复用术语库、Zotero 集成和通用文件处理工具仍属未来工作。本地工作台也可以调用在线模型，并不意味着翻译完全离线。详细范围见[能力与限制](docs/plan/0.1.0/capabilities.md)。
+扫描件 OCR、双语 PDF、EPUB、可复用术语库、Zotero 集成和通用文件处理工具仍属未来工作。在线模型会接收待译文本，并可能向你的供应商账户计费；本地工作台并不意味着翻译完全离线或免费。详细范围见[能力与限制](docs/plan/0.1.0/capabilities.md)。
 
 ## 未来方向
 
@@ -72,5 +72,7 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 [工作台使用](docs/plan/0.1.0/workbench-guide.md) · [模型设置](docs/plan/0.1.0/settings-guide.md) · [开发指南](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/development-guide.md) · [问题反馈](https://github.com/KongouAirlines/ivaraige/issues)
 
 欢迎告诉我们你想翻译或处理什么、在哪一步遇到困难，以及希望组合哪些工具。可以复现的反馈与原创或可分享的样本尤其有帮助。
+
+参与前请阅读[贡献指南](CONTRIBUTING.md)及[安全报告说明](SECURITY.md)。项目许可待团队确认；即使源码可公开查看，也不自动授予开源许可。
 
 基于 Cordis 与 DSH 构建，可选接入 BabelDOC。参见[第三方致谢](THIRD_PARTY.md)。

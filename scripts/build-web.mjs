@@ -1,6 +1,7 @@
 import { build } from 'esbuild'
 import { mkdir, copyFile, readFile, writeFile, rm } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { buildWebGuides } from './release-docs.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const outdir = resolve(root, 'dist/web')
@@ -34,6 +35,7 @@ for (const output of appBuild.outputFiles) {
 const generatedCss = appBuild.outputFiles.find(output => output.path.endsWith('app.css'))?.text ?? ''
 await writeFile(resolve(outdir, 'app.css'), `${await readFile(resolve(root, 'web/app.css'), 'utf8')}\n${generatedCss}`)
 await copyFile(resolve(root, 'web/index.html'), resolve(outdir, 'index.html'))
+await buildWebGuides(root, outdir)
 const notices = await Promise.all(['react', 'react-dom', 'scheduler'].map(async name => {
   const directory = resolve(root, 'node_modules', name)
   const pkg = JSON.parse(await readFile(resolve(directory, 'package.json'), 'utf8'))
