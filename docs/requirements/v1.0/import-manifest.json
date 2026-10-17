@@ -1,30 +1,38 @@
 [
   {
     "file": "01_功能需求概览_v1.0.md",
-    "source": "D:\\Downloads\\01_功能需求概览_v1.0.md",
+    "source": null,
     "bytes": 23449,
     "sha256": "D09A7B1B567BC62137DDFF8327F45DCD8C2F8BE486590BA687600575179B3A5A",
-    "verified": true
+    "verified": true,
+    "source_kind": "local_download",
+    "source_path_redacted": true
   },
   {
     "file": "02_候选工具与初步选型_v1.0.md",
-    "source": "D:\\Downloads\\02_候选工具与初步选型_v1.0.md",
+    "source": null,
     "bytes": 43899,
     "sha256": "3A4972E28622A4487907FF438AE953B1BDDBF16B15F89647980EF50B2E0D0C83",
-    "verified": true
+    "verified": true,
+    "source_kind": "local_download",
+    "source_path_redacted": true
   },
   {
     "file": "CHANGELOG.v1.0.md",
-    "source": "D:\\Downloads\\CHANGELOG.v1.0.md",
+    "source": null,
     "bytes": 4881,
     "sha256": "3A90FC4757B7E485AFEF7B6A32F7C44AB67056081E24CAA160AA5E0C58DB99CE",
-    "verified": true
+    "verified": true,
+    "source_kind": "local_download",
+    "source_path_redacted": true
   },
   {
     "file": "sources.v1.0.md",
-    "source": "D:\\Downloads\\sources.v1.0.md",
+    "source": null,
     "bytes": 15131,
     "sha256": "F1AF14820A7195173BC1C33BF147AE84C44E734CB9742CDAB1D7BED8BC9D9BB3",
-    "verified": true
+    "verified": true,
+    "source_kind": "local_download",
+    "source_path_redacted": true
   }
 ]
