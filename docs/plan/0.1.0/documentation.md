@@ -20,8 +20,8 @@ AGENTS 精简过时阶段信息，新增插件能力归属、契约依赖、缺�
 
 新增 `index-translate-provider`（待评估）与 `dsh-host-integration`（暂缓、低优先级）；`release-documentation-binding` 补充本轮入口整理证据，仍为已安排，发行物版本绑定未完成。没有关闭其他事项。
 
-MCP 是否可用以 PR #18 的实际合并状态为准；合并时统一核对 README 两种语言、能力表和文档导航，保留双方的指南与打包条目。当前 README 将 MCP 明确标为独立 PR 待合入。
-`git merge-tree` 模拟与 MCP 提交 87c7292 合并：仅根 README.md 冲突（本分支整页重写，MCP 分支在旧页末尾追加指南）。能力代码、package.json、Windows 打包脚本和阶段记录自动合并。届时保留双语首页结构，加入已合入的 MCP 指南并同步中文页、能力表与导航；本次不提前合并 MCP。
+初版文档与 MCP 平行，README 当时将 MCP 标为独立 PR 待合入；下方 2026-10-17 记录更新后的依赖顺序和源码能力声明。
+此前 `git merge-tree` 模拟与 MCP 提交 87c7292 合并：仅根 README.md 冲突（本分支整页重写，MCP 分支在旧页末尾追加指南）。能力代码、package.json、Windows 打包脚本和阶段记录自动合并。届时保留双语首页结构，加入已合入的 MCP 指南并同步中文页、能力表与导航；本次不提前合并 MCP。
 
 
 ## 审阅修正（2026-10-15）
@@ -33,3 +33,14 @@ PDF 开发准备明确限于 Windows x64，其他平台尚无本项目已验证�
 工作台截图文件头为 JPEG（`FF D8`），保留原始字节并改名为 `workbench.jpg`，同步两版 README、来源说明、npm 清单及 Windows 分发路径。修正 PDF 开发文档的根目录相对路径、工作台指南标题及 PDF 指南链接文本，并将分发脚本的新增文件并入原复制循环。npm 包不再包含只供开发维护查阅的 `pdf.md` 阶段记录；`pdf-guide.md` 指向该记录的链接已是 GitHub 源码地址。
 
 本机 Windows Node 26.7.0/npm 12.0.2 的 npm dry-run 清单为 53 文件，包含两版 README、JPEG 截图、四份用户指南与能力表；不含 `pdf.md`、旧截图名或 evaluation 数据。包内 30 个相对文档链接均指向已收录路径。`npm run build:distribution` 通过运行时、启动器、设置与 SQLite 探针；分发目录中的上述 8 个文档／图像与工作树字节一致，30 个相对链接可解析，也不含 `pdf.md` 或旧截图名。此轮没有重跑模型或 Sandbox 验收。
+
+
+## 两个 PR 合流复核（2026-10-17）
+
+文档 PR 以 MCP PR #18 为前置，先集成 MCP 再合入文档。基于 MCP `334ec265`、文档 `30e38b7` 和 `main/c8a146d` 的实际合流发现 README 与 Windows 分发脚本两处冲突。保留双语新版首页，将 MCP 与能力表同时加入用户指南复制列表，并同步两版 README、能力表、文档导航、路线图和源码指南。随后纳入 MCP `3524f96` 的指南修正；双方历史记录与 follow-up 条目均保留。
+
+macOS arm64、Node 24.20.0/npm 12.0.2：合流代码完整 `npm test` **239 通过、0 失败、1 跳过**（Windows 专用子进程取消测试）；Python sidecar 单元测试 **14/14**；隔离 npm 安装包 smoke **60 文件通过**，覆盖 MCP、文本持久化及冻结导出。包内 **33 个相对文档链接**全部可解析，双语 README、JPEG 截图、MCP 指南和能力表均在包中；不含 evaluation 数据、旧截图名或内部 `pdf.md` 阶段记录。Windows 分发指南列表经静态核对同时保留 MCP 与能力表，没有在 macOS 冒充运行 Windows 分发构建或 Sandbox。
+
+MCP 指南中的阶段记录、协议和开发脚本指向源码地址，源码准备指向开发指南。当前源码已具备 MCP；现有 Windows `v0.1.0-dev.0` Release 附件尚未更新，两版首页与能力表明确区分。发行版本绑定仍由 `release-documentation-binding` 跟踪，保持已安排。
+
+本次重跑的 [PR CI](https://github.com/KongouAirlines/ivaraige/actions/runs/38884962189) 仍因账户付款／支出额度限制在测试开始前失败；该结果不等于三平台回归已通过。本轮未调用真实模型，未改动现有 Release 附件。
