@@ -2,7 +2,7 @@
 
 - ID: release-documentation-binding
 - 状态: 已安排
-- 实施分支／PR: PR #17 记录；发版前实施分支待安排
+- 实施分支／PR: PR #17 记录；文档入口整理 codex/0.1.0-documentation；发行物版本绑定待安排
 - 类型: 改进
 - 发现依据: 2026-10-13，codex/0.1.0-installation，bdd1854；[PR #17 审阅](https://github.com/KongouAirlines/ivaraige/pull/17#discussion_r4254480647)
 - 目标分支: main
@@ -24,3 +24,7 @@ PDF 设置页指南链接指向 main，可能随开发变化而与已安装版�
 ## 处理记录
 
 - 2026-10-13：查重后登记，用户明确安排为发版前收尾；本次未修改设置页指南链接。
+
+- 2026-10-13：文档分支重写双语 README、能力表与导航，区分用户 PDF 指南和开发准备，补充发行前核对要求。仍未修改已有 Release 附件、tag 或设置页 main 链接；状态保持已安排，正式版本绑定范围未完成。
+
+- 2026-10-17：MCP／文档合流同步双语首页、能力表、用户指南和打包清单，修复 MCP 指南包内断链，并明确源码 MCP 能力尚未进入现有 Windows Release 附件。详情见[合流复核](../0.1.0/documentation.md#两个-pr-合流复核2026-10-17)。发行 tag／附件／指南版本绑定仍未完成，保持已安排；本轮不替换发行附件。

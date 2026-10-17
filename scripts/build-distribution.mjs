@@ -62,10 +62,12 @@ try {
     await copyFile(join(root, 'dist', name), join(distDir, name))
   }
   await cp(join(root, 'dist', 'web'), join(distDir, 'web'), { recursive: true })
-  for (const name of ['README.md', 'THIRD_PARTY.md']) await copyFile(join(root, name), join(appDir, name))
+  for (const name of ['README.md', 'README.zh-CN.md', 'THIRD_PARTY.md']) await copyFile(join(root, name), join(appDir, name))
+  await mkdir(join(appDir, 'docs', 'assets', '0.1.0'), { recursive: true })
+  await copyFile(join(root, 'docs', 'assets', '0.1.0', 'workbench.jpg'), join(appDir, 'docs', 'assets', '0.1.0', 'workbench.jpg'))
   const userDocs = join(appDir, 'docs', 'plan', '0.1.0')
   await mkdir(userDocs, { recursive: true })
-  for (const name of ['installation-guide.md', 'workbench-guide.md', 'pdf-guide.md', 'settings-guide.md', 'mcp-guide.md']) {
+  for (const name of ['installation-guide.md', 'workbench-guide.md', 'pdf-guide.md', 'settings-guide.md', 'mcp-guide.md', 'capabilities.md']) {
     await copyFile(join(root, 'docs', 'plan', '0.1.0', name), join(userDocs, name))
   }
 
