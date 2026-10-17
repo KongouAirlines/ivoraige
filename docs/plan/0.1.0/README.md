@@ -2,6 +2,10 @@
 
 公开前的调查证据、授权与发行范围、分阶段工作包和验收条件见[公开准备评估与实施计划](public-readiness.md)。该计划与功能实施进度分开维护；落盘不代表相关整改已完成或仓库已获准公开。
 
+## PDF 发行物许可实际核验（2026-10-17）
+
+[F-B 核验报告](pdf-license-audit.md)已完整读取现有四附件并确认大小／摘要，保存资源、Python／npm 包和原生文件映射。182 个资源的来源／通知核对通过；基础 ZIP 的通知缺口、额外嵌入 setuptools、FFmpeg 等原生组件的来源及对应源码材料仍未闭环，F-B 保持未关闭。清单脚本的三个夹具测试和实际归档运行通过；未执行二进制、改授权、替换 Release 或推送。没有变更 follow-up ID。
+
 ## 安装与首次启动体验（2026-10-11）
 
 PR #10／#12 已合入 main/4df1d72。`codex/0.1.0-installation` 实施 Windows 基础程序、自带运行时、首次启动引导及按需 PDF 组件，发行源固定为现有私有仓库 Releases；不要求公开源码，不首次下载全部插件。操作见 [安装指南](installation-guide.md)，I0～I4 的实测证据和剩余条件见 [安装记录](installation.md)。2026-10-12 Windows Sandbox 离线文本／PDF 闭环通过，PR #17 待 review；完整安装程序留到 Issue #16，MCP 和双语 PDF 保留后续。
