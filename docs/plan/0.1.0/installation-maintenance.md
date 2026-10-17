@@ -32,3 +32,11 @@ PDF 构建使用 Python 3.13、锁定的 BabelDOC 0.6.4／PyMuPDF 1.26.7 和 PyI
 沙盒 `LogonCommand` 使用 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\Input\run-sandbox-acceptance.ps1`。脚本在沙盒本地解压到 `C:\Package`，使用内置 Node 执行验收，数据写入 `C:\Acceptance`。每轮使用新沙盒。
 
 `C:\Results` 自动回传 `report.json`、`environment.json`、分离的 stdout／stderr、退出码、`evidence.json` 和已下载的产物；失败时也会回传已有证据。stdout 提供阶段进度。`report.json` 的 `passed` 为真且进程退出码为零才表示这轮通过；脚本进程被强制终止时可能仅有未完成的进度记录。基础 smoke 的 `cleanVmAcceptance: false` 是其默认环境标签，是否为真实沙盒需结合运行环境记录确认，不能单凭启动脚本名宣称干净系统验收。
+
+## 发布前的文档核对
+
+- 英文 README 与中文版功能、平台和限制一致；截图来自该阶段真实界面，样本可公开。
+- 能力表只计入实际合入并验证的范围；合并 MCP PR #18 后再同步入口与指南，合并时同时保留本分支的中文 README、截图和能力表打包项。
+- npm 与 Windows 包均应包含用户指南、双语 README、截图和能力表；开发与验收材料保留在源码。检查本地文档链接的目标是否随包存在，源码参考明确为在线链接。
+- 核对 Release 附件的构建提交、tag 和指南对应关系，不能以 main 的最新说明替代旧安装版说明；该项按 [release-documentation-binding](../follow-ups/release-documentation-binding.md) 完成。
+- 仓库可见性、拆仓及完整安装器分别决策；本轮文档整理不发布新版本或修改现有附件。

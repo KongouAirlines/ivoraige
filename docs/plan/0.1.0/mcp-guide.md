@@ -4,7 +4,7 @@ ivoraige 的 MCP 入口把已装插件贡献的内核能力提供给本机 AI �
 
 ## 连接方式
 
-源码运行需要 Node.js 24 或更新版本，并先按[安装指南](installation-guide.md)完成依赖和 DSH 构建。从仓库运行时，命令可写成 `node C:/path/to/ivoraige/src/cli.mjs`；安装后使用 `ivoraige` 命令。以下示例中的路径都要换成服务器上的实际绝对路径。
+现有 Windows `v0.1.0-dev.0` Release 附件尚未包含 MCP。更新发行包发布前，请使用源码构建；需要 Node.js 24 或更新版本，并先按[开发指南](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/development-guide.md)完成依赖和 DSH 构建。从仓库运行时，命令可写成 `node C:/path/to/ivoraige/src/cli.mjs`；安装包含 MCP 的 npm 包后使用 `ivoraige` 命令。以下示例中的路径都要换成服务器上的实际绝对路径。
 
 **连接已经运行的工作台**：常驻服务 `ivoraige serve --store C:/data/ivoraige/store.sqlite` 默认在 `http://127.0.0.1:8787/mcp` 提供 Streamable HTTP。桌面启动器也默认在其实际监听端口的 `/mcp` 提供同一入口；它会在启动时输出服务 URL。HTTP MCP、WebUI 和 HTTP CLI 共用该进程的内核、数据库、设置与任务。`ivoraige serve --no-mcp` 关闭 MCP 入口。为保证本机访问边界，HTTP 服务只允许回环监听，并检查 Host 与 Origin；当前没有非回环认证配置。
 
@@ -23,7 +23,7 @@ ivoraige 的 MCP 入口把已装插件贡献的内核能力提供给本机 AI �
 }
 ```
 
-若客户端支持 Streamable HTTP，连接地址为运行中的服务 URL 加 `/mcp`，例如 `http://127.0.0.1:8787/mcp`。连接 HTTP 不另启一个持有数据库的进程。以上是通用配置示意；本次真实 AI 客户端验证使用 DSH headless 的 Streamable HTTP，具体证据见 [MCP 阶段记录](mcp.md)。Windows 目录发行包的 stdio 客户端宜直接把 `runtime/node.exe` 的绝对路径作为 command，args 为 `["C:/包目录/app/src/cli.mjs", "mcp", "--stdio", "--store", "C:/data/ivoraige/store.sqlite"]`，无需依赖系统 Node 或让客户端执行 `.cmd`。官方 SDK 的 [HTTP 服务说明](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/serving/http.md)、[stdio 服务说明](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/serving/stdio.md) 和 [客户端连接说明](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/clients/connect.md) 解释传输机制。
+若客户端支持 Streamable HTTP，连接地址为运行中的服务 URL 加 `/mcp`，例如 `http://127.0.0.1:8787/mcp`。连接 HTTP 不另启一个持有数据库的进程。以上是通用配置示意；本次真实 AI 客户端验证使用 DSH headless 的 Streamable HTTP，具体证据见源码中的 [MCP 阶段记录](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/mcp.md)。从本源码构建的 Windows 目录发行包，其 stdio 客户端宜直接把 `runtime/node.exe` 的绝对路径作为 command，args 为 `["C:/包目录/app/src/cli.mjs", "mcp", "--stdio", "--store", "C:/data/ivoraige/store.sqlite"]`，无需依赖系统 Node 或让客户端执行 `.cmd`。官方 SDK 的 [HTTP 服务说明](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/serving/http.md)、[stdio 服务说明](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/serving/stdio.md) 和 [客户端连接说明](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/clients/connect.md) 解释传输机制。
 
 ## 工具与工作流程
 
@@ -37,11 +37,11 @@ TXT／Markdown 导入可直接返回完成结果；PDF 导入返回持久任务�
 
 当前还提供快照列表／读取／删除与任务列表工具。设置服务存在时才显示 `ivoraige_settings_get`、`ivoraige_settings_update`、`ivoraige_credential_set`；组件安装服务存在时才显示 `ivoraige_component_*` 工具。设置修改、保存模型凭据／仓库令牌和安装组件拥有本机内核的完整写入能力，应在用户明确要求后调用。服务仅限回环访问，但同机可访问该端口的客户端将获得这些工具；请控制本机客户端的访问。当前没有 RAG、术语库或独立文本翻译工具。
 
-完整当前工具映射见 [v2.0 API 协议 §6](../../requirements/v2.0/03_API-protocol_v2.0.md#6-mcp-tools-映射)。成功工具响应的 `structuredContent` 是带 `apiVersion` 的内核业务对象，文本 content 是同一对象的 JSON。业务错误标记 `isError: true`，并在 `structuredContent` 中返回 `{ apiVersion, error: { code, message, details } }`；参数违反工具输入 schema 时由 MCP SDK 返回协议级校验错误。资源失败返回 MCP 协议错误。若任务失败，查询任务状态和其中的错误信息。
+完整当前工具映射见 [v2.0 API 协议 §6](https://github.com/KongouAirlines/ivaraige/blob/main/docs/requirements/v2.0/03_API-protocol_v2.0.md#6-mcp-tools-映射)。成功工具响应的 `structuredContent` 是带 `apiVersion` 的内核业务对象，文本 content 是同一对象的 JSON。业务错误标记 `isError: true`，并在 `structuredContent` 中返回 `{ apiVersion, error: { code, message, details } }`；参数违反工具输入 schema 时由 MCP SDK 返回协议级校验错误。资源失败返回 MCP 协议错误。若任务失败，查询任务状态和其中的错误信息。
 
 插件装卸后，支持现代协议订阅的 HTTP 客户端会收到工具／资源列表变化通知；使用官方 JS SDK 2.x 时配置 `versionNegotiation: { mode: "auto" }` 和 `listChanged` 回调。旧协议无状态 HTTP 不推送变化（`listChanged: false`），需要重新查询列表；stdio 保留连接内通知。
 
 
 ### 开发验收依赖
 
-零模型调用的真实 PDF 回放验收脚本 `scripts/smoke-mcp-pdf.mjs` 需要可用的 BabelDOC 配置及 Poppler `pdftoppm`（在 PATH 中，或通过 `PDFTOPPM_PATH` 指定可执行文件）。Poppler 只用于开发验收，不是 MCP 或正式应用的新增运行依赖。传入目录作为验收父目录，每次自动创建独立的 `run-*` 子目录，并打印实际报告路径，重复执行会保留既有证据；脚本遍历所有单位分页，检查 PDF/MD/JSON 三种产物齐全，接受新的修订后重放旧快照，并比较同一环境下的逐页渲染摘要及 MD/JSON 字节。环境缺少渲染工具或比较失败时，验收失败并写入报告，不跳过 PDF 断言。
+以下验收仅供源码开发使用，脚本不随用户发行包分发。零模型调用的真实 PDF 回放验收[脚本](https://github.com/KongouAirlines/ivaraige/blob/main/scripts/smoke-mcp-pdf.mjs)需要可用的 BabelDOC 配置及 Poppler `pdftoppm`（在 PATH 中，或通过 `PDFTOPPM_PATH` 指定可执行文件）。Poppler 只用于开发验收，不是 MCP 或正式应用的新增运行依赖。传入目录作为验收父目录，每次自动创建独立的 `run-*` 子目录，并打印实际报告路径，重复执行会保留既有证据；脚本遍历所有单位分页，检查 PDF/MD/JSON 三种产物齐全，接受新的修订后重放旧快照，并比较同一环境下的逐页渲染摘要及 MD/JSON 字节。环境缺少渲染工具或比较失败时，验收失败并写入报告，不跳过 PDF 断言。

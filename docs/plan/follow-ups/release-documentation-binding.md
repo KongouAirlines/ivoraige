@@ -2,7 +2,7 @@
 
 - ID: release-documentation-binding
 - 状态: 已安排
-- 实施分支／PR: PR #17 记录；发版前实施分支待安排
+- 实施分支／PR: PR #17 记录；文档入口整理 codex/0.1.0-documentation；发行物版本绑定待安排
 - 类型: 改进
 - 发现依据: 2026-10-13，codex/0.1.0-installation，bdd1854；[PR #17 审阅](https://github.com/KongouAirlines/ivaraige/pull/17#discussion_r4254480647)
 - 目标分支: main
@@ -24,3 +24,5 @@ PDF 设置页指南链接指向 main，可能随开发变化而与已安装版�
 ## 处理记录
 
 - 2026-10-13：查重后登记，用户明确安排为发版前收尾；本次未修改设置页指南链接。
+
+- 2026-10-13：文档分支重写双语 README、能力表与导航，区分用户 PDF 指南和开发准备，补充发行前核对要求。仍未修改已有 Release 附件、tag 或设置页 main 链接；状态保持已安排，正式版本绑定范围未完成。
