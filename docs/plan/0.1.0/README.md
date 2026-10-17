@@ -2,7 +2,7 @@
 
 ## 安装与首次启动体验（2026-10-11）
 
-PR #10／#12 已合入 main/4df1d72。`codex/0.1.0-installation` 实施 Windows 基础程序、自带运行时、首次启动引导及按需 PDF 组件，发行源固定为现有私有仓库 Releases；不要求公开源码，不首次下载全部插件。操作见 [安装指南](installation-guide.md)，I0～I4 的实测证据和剩余条件见 [安装记录](installation.md)。2026-10-12 Windows Sandbox 离线文本／PDF 闭环通过，PR #17 待 review；完整安装程序留到 Issue #16，MCP 和双语 PDF 保留后续。
+PR #10／#12 已合入 main/4df1d72。`codex/0.1.0-installation` 实施 Windows 基础程序、自带运行时、首次启动引导及按需 PDF 组件，发行源固定为现有私有仓库 Releases；不要求公开源码，不首次下载全部插件。操作见 [安装指南](installation-guide.md)，I0～I4 的实测证据和剩余条件见 [安装记录](installation.md)。2026-10-12 Windows Sandbox 离线文本／PDF 闭环通过，PR #17 已于 2026-10-13 合入 main/0a185d4；完整安装程序留到 Issue #16，MCP 和双语 PDF 保留后续。
 
 发行构建、Windows Sandbox 配置与报告回传步骤单列于[维护者指南](installation-maintenance.md)，不随用户发行包分发；用户指南只保留安装与使用流程。
 
@@ -187,3 +187,11 @@ Windows CI 补充暴露详情页首次提交后的草稿初始化与输入竞争
 ### PR #9 未提交凭据保留（2026-10-08）
 
 针对 [API Key 草稿被自动导航清空的评论](https://github.com/KongouAirlines/ivaraige/pull/9#issuecomment-6054894246)，模型保存成功后的详情地址更新保留当前分类和未提交凭据，并提示另行保存凭据。模型 PATCH 不提交 API Key；关闭设置仍触发未保存确认；只有凭据 PUT 成功后才清空该输入，普通离开和插件卸载沿用既有清理规则。实际 React bundle DOM 回归覆盖新增／更改模型身份 × 两种保存按钮，以及取消关闭、显式保存凭据，共四个新增用例。未使用真实凭据或请求模型。
+
+## MCP 阶段启动（2026-10-13）
+
+PR #17 已合入 `main/0a185d4`，安装阶段不再等待 review。从该主线建立 `codex/0.1.0-mcp`；下一阶段按 [MCP 接入计划](mcp.md) 补齐 stdio 与 Streamable HTTP，共用现有内核。当前仅完成计划和基线核对，尚未实现 MCP。
+
+## MCP 双入口实现（2026-10-13）
+
+`codex/0.1.0-mcp` 已实现 stdio 与 Streamable HTTP，能力由 Cordis 插件注册，入口不包含 PDF 引擎业务。Windows 本机完整测试 229/229，官方 SDK 双 transport 与真实 DSH 客户端闭环通过；真实 BabelDOC 经 MCP 导入、人工接受、三格式冻结输出及数据目录迁移后重放通过，零模型导出。详见 [阶段证据及限制](mcp.md) 和 [使用指南](mcp-guide.md)。当前待 PR review／合入，不把本次结果扩大为所有 AI 客户端或三平台 PDF 发行验收。

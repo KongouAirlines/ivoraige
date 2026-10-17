@@ -58,8 +58,8 @@ export async function launch({ dataDir = defaultDataDirectory(), open = true, po
       })()
     } }
   } catch (error) {
-    await server?.close()
-    await app?.dispose()
+    try { await server?.close() } catch (cleanupError) { console.error('HTTP cleanup failed:', cleanupError) }
+    try { await app?.dispose() } catch (cleanupError) { console.error('Kernel cleanup failed:', cleanupError) }
     if (error.code === 'CONFLICT') {
       // A second launch may race the first between store lock and HTTP startup.
       const deadline = performance.now() + 10_000

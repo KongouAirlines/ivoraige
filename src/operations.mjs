@@ -46,19 +46,24 @@ export class Operations extends Service {
         artifact.format === 'md' ? 'text/markdown; charset=utf-8' :
           artifact.format === 'pdf' ? 'application/pdf' : 'application/octet-stream' }
   }
-  async waitTask(taskId, seconds) {
+  async waitTask(taskId, seconds, signal) {
     const task = this.records.getTask(taskId)
-    if (!seconds || !['queued', 'running'].includes(task.state)) return task
+    if (signal?.aborted || !seconds || !['queued', 'running'].includes(task.state)) return task
     return new Promise(resolve => {
       let timer
-      const done = () => { clearTimeout(timer); unsubscribe(); resolve(this.records.getTask(taskId)) }
+      const done = () => {
+        clearTimeout(timer); unsubscribe(); signal?.removeEventListener('abort', done)
+        resolve(this.records.getTask(taskId))
+      }
       const unsubscribe = this.subscribe(event => {
         if (event.data.taskId === taskId && ['task.succeeded', 'task.failed', 'task.paused', 'task.canceled'].includes(event.type)) done()
       })
       timer = setTimeout(done, seconds * 1000)
+      signal?.addEventListener('abort', done, { once: true })
+      if (signal?.aborted) done()
     })
   }
-  async invoke(name, input = {}) {
+  async invoke(name, input = {}, { signal } = {}) {
     const p = validate(name, input)
     const r = this.records
     let result
@@ -124,7 +129,7 @@ export class Operations extends Service {
       case 'listTasks': result = paginate(r.listTasks(p).filter(task =>
         (!p.kind || p.kind === task.kind) && (!p.state || p.state === task.state))
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)).map(taskView), p); break
-      case 'getTask': result = { task: taskView(await this.waitTask(p.taskId, p.waitSeconds)) }; break
+      case 'getTask': result = { task: taskView(await this.waitTask(p.taskId, p.waitSeconds, signal)) }; break
       case 'pauseTask': result = { task: taskView(await this.tasks.pause(p.taskId)) }; break
       case 'resumeTask': result = { task: taskView(await this.withModelAdmission(() => this.tasks.resume(p.taskId))) }; break
       case 'cancelTask': result = { task: taskView(await this.tasks.cancel(p.taskId)) }; break

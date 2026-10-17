@@ -15,10 +15,14 @@ import { MarkdownSource } from './adapters/markdown-source.mjs'
 import { bootModelSettings } from './model-settings.mjs'
 import { acquireStoreLock } from './store-lock.mjs'
 import { Pdf } from './adapters/pdf.mjs'
+import { McpRegistry } from './mcp-registry.mjs'
+import * as OperationMcp from './operation-mcp.mjs'
+import * as ComponentMcp from './component-mcp.mjs'
+import * as ModelSettingsMcp from './model-settings-mcp.mjs'
 import { SettingsPages } from './settings-pages.mjs'
 
 // Composition only: business capabilities live in Cordis services.
-export async function createApp({ store, exportDir, translation, settingsDir, pdf, components } = {}) {
+export async function createApp({ store, exportDir, translation, settingsDir, pdf, components, mcp = true } = {}) {
   if (components !== undefined && (!settingsDir || !components || typeof components !== 'object' || Array.isArray(components))) {
     throw new KernelError('INVALID_ARGUMENT', 'Component installation requires a settings directory and configuration')
   }
@@ -93,6 +97,12 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
       await ctx.plugin(Tasks)
       await ctx.get('ivoraige.tasks').ready
       await ctx.plugin(Operations, { dataDirectory: dirname(storeLock.path) })
+      if (mcp) {
+        await ctx.plugin(McpRegistry)
+        await ctx.plugin(OperationMcp)
+        if (settingsDir !== undefined) await ctx.plugin(ModelSettingsMcp)
+        if (components !== undefined) await ctx.plugin(ComponentMcp)
+      }
     }
     return {
       ctx,
@@ -101,6 +111,7 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
       records: ctx.get('ivoraige.records'),
       exporter: ctx.get('ivoraige.export'),
       tasks: ctx.get('ivoraige.tasks'),
+      mcp: ctx.get('ivoraige.mcp'),
       operations: ctx.get('ivoraige.operations'),
       settings: ctx.get('ivoraige.modelSettings'),
       components: ctx.get('ivoraige.components'),
