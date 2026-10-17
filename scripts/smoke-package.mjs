@@ -4,6 +4,7 @@ import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
 import assert from 'node:assert/strict'
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const tempRoot = resolve(tmpdir())
@@ -88,7 +89,7 @@ try {
   const packed = Array.isArray(packResult) ? packResult : Object.values(packResult)
   if (packed.length !== 1) throw new Error(`Expected one package tarball; got ${packed.length}`)
   const files = new Set(packed[0].files.map(file => file.path.replaceAll('\\', '/')))
-  const required = ['src/app.mjs', 'src/cli.mjs', 'src/http.mjs', 'dist/dsh.mjs',
+  const required = ['src/mcp.mjs', 'src/mcp-registry.mjs', 'docs/plan/0.1.0/mcp-guide.md', 'src/app.mjs', 'src/cli.mjs', 'src/http.mjs', 'dist/dsh.mjs',
     'dist/web/index.html', 'dist/web/app.js', 'dist/web/app.css',
     'dist/DSH-LICENSE.txt', 'dist/THIRD_PARTY_LICENSES.txt']
   for (const path of required) {
@@ -147,6 +148,14 @@ try {
   let server = await startServer(cli, work, store, settingsDir)
   let docId
   try {
+    const mcp = new Client({ name: 'package-smoke', version: '0.1.0' })
+    try {
+      await mcp.connect(new StreamableHTTPClientTransport(new URL('/mcp', server.url)))
+      assert.ok((await mcp.listTools()).tools.some(tool => tool.name === 'ivoraige_import'))
+      const result = await mcp.callTool({ name: 'ivoraige_capabilities', arguments: {} })
+      assert.equal(result.isError, undefined)
+      assert.ok(result.structuredContent.inputFormats.includes('txt'))
+    } finally { await mcp.close() }
     for (const [path, type] of [['/', 'text/html'], ['/app.js', 'text/javascript'], ['/app.css', 'text/css']]) {
       const response = await fetch(new URL(path, server.url))
       assert.equal(response.status, 200, `Packaged UI ${path}`)
@@ -202,7 +211,7 @@ try {
     const { items: artifacts } = await api(server.url, 'GET', `/api/documents/${docId}/artifacts`)
     assert.equal(artifacts.length, 2)
   } finally { await server.close() }
-  console.log(`Package smoke passed: ${packed[0].filename}; ${files.size} files; isolated parsing, SQLite restart, CLI/HTTP settings, Markdown export and static UI`)
+  console.log(`Package smoke passed: ${packed[0].filename}; ${files.size} files; isolated parsing, SQLite restart, CLI/HTTP settings, Markdown export, MCP discovery/call and static UI`)
 } finally {
   const resolvedWork = resolve(work)
   if (!resolvedWork.startsWith(`${tempRoot}${sep}`) || !resolvedWork.split(sep).at(-1).startsWith('ivoraige-package-smoke-')) {

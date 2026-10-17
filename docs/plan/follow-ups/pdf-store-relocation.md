@@ -2,7 +2,7 @@
 
 - ID: pdf-store-relocation
 - 状态: 处理中
-- 实施分支／PR: codex/0.1.0-pdf-source-ownership；[PR #10](https://github.com/KongouAirlines/ivaraige/pull/10)、[PR #12](https://github.com/KongouAirlines/ivaraige/pull/12)；安装验证 codex/0.1.0-installation
+- 实施分支／PR: codex/0.1.0-pdf-source-ownership；[PR #10](https://github.com/KongouAirlines/ivaraige/pull/10)、[PR #12](https://github.com/KongouAirlines/ivaraige/pull/12)；安装验证 codex/0.1.0-installation；MCP 与数据根搬迁验证 codex/0.1.0-mcp
 - 类型: 改进
 - 发现依据: 2026-10-08，审阅已合入的 [PDF PR #7](https://github.com/KongouAirlines/ivaraige/pull/7) 与本地 `src/adapters/pdf.mjs`、`test/pdf-import-tasks.test.mjs`；本次为代码路径推断，未执行跨目录迁移验收。
 - 目标分支: main
@@ -32,3 +32,7 @@ PDF 导入把受管理副本放在数据库旁的 `pdf/sources/`，但 `sourceBi
 
 - 2026-10-08：PR #9 审阅时登记代码可推导的迁移限制；未改动 PDF 生产实现，待需求触发后评估。
 - 2026-10-08：当前实施分支在导出时保留冻结绑定，优先解析新 store 的私有副本，必要时按受控文件名读取本地旧副本。Windows 定向测试复制数据库与 `pdf/` 后移除旧目录原件，冻结 PDF 导出成功且模型调用为零；待合入和其余平台验证。
+
+- 2026-10-13：PR #17 已合入 `main/0a185d4`，上述 Windows 安装与 Sandbox 证据已集成；继续保留“处理中”，不关闭数据根迁移、MCP 与其他平台条件。`codex/0.1.0-mcp` 将按 [MCP 计划](../0.1.0/mcp.md) 验证现有 PDF 持久化与冻结导出在 MCP 入口的行为，目前尚无新增验收结果。
+
+- 2026-10-13：`codex/0.1.0-mcp` 完成真实 BabelDOC 经 MCP 导入、人工接受、PDF/MD/JSON 冻结导出，以及关闭后移动完整数据目录、重启编辑再重放；文本字节一致、PDF 两页渲染摘要一致、模型调用零。见 [MCP 验收记录](../0.1.0/mcp.md)。该证据待本分支合入 main；其他平台与跨版本迁移仍未验收，保持“处理中”。

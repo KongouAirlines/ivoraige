@@ -2,9 +2,9 @@
 
 面向科研英汉翻译的可组装中间层。核心目标是译文和术语跨任务复用，各输出消费同一份已选定译文。
 
-当前在 `codex/0.1.0-installation` 分支按 [v2.0 设计](docs/requirements/v2.0/01_design_v2.0.md)继续重建，软件版本为 `0.1.0-dev.0`（未发布）。旧 MVP（M0～M4）已弃用，完整实现及实验代码归档在独立分支 `codex/archive-mvp-0.0.0`，版本／标签为 `0.0.0`／`v0.0.0`，提交 `27eec14`。设计文档的 v2.0 不等于软件发布版本。
+当前按 [v2.0 设计](docs/requirements/v2.0/01_design_v2.0.md)分阶段重建，软件版本为 `0.1.0-dev.0`（未发布）。旧 MVP（M0～M4）已弃用，完整实现及实验代码归档在独立分支 `codex/archive-mvp-0.0.0`，版本／标签为 `0.0.0`／`v0.0.0`，提交 `27eec14`。设计文档的 v2.0 不等于软件发布版本。
 
-当前工作台支持 TXT／Markdown 导入与 Markdown／JSON 导出；可选 BabelDOC 组件增加**原生文本英文 PDF → 中文单语 PDF**的导入、页码／坐标审校和冻结回放导出。记录、语言隔离修订、适用性检查、DSH 模型与任务由同一内核提供。CLI、HTTP/SSE 与 React WebUI 共用操作。Windows 原生 PDF 内核与浏览器审校、三格式导出下载已有原创样本实测，编辑后两页 PDF 已目检；OCR、三系统 PDF 打包和独立发行仍未验收。MCP、OCR、双语 PDF、EPUB、RAG、Zotero 与词库结构仍待实现。先前文本阶段的 Windows／Linux／macOS Node 24 的 63 项测试与安装包冒烟见 [CI 记录](https://github.com/KongouAirlines/ivaraige/actions/runs/37314672867)；该记录不覆盖本 PDF 分支。范围与进度见 [0.1.0 实施记录](docs/plan/0.1.0/README.md)。
+当前工作台支持 TXT／Markdown 导入与 Markdown／JSON 导出；可选 BabelDOC 组件增加**原生文本英文 PDF → 中文单语 PDF**的导入、页码／坐标审校和冻结回放导出。记录、语言隔离修订、适用性检查、DSH 模型与任务由同一内核提供。CLI、HTTP/SSE、React WebUI 与 [MCP stdio／Streamable HTTP](docs/plan/0.1.0/mcp-guide.md) 共用操作。Windows 原生 PDF 内核与浏览器审校、三格式导出下载已有原创样本实测，编辑后两页 PDF 已目检；MCP 已在 Windows 通过正式 SDK 双传输和 DSH 真实 HTTP 客户端验证，其他客户端需单独验证。OCR、三系统 PDF 打包和独立发行仍未验收；双语 PDF、EPUB、RAG、Zotero 与词库结构仍待实现。先前文本阶段的 Windows／Linux／macOS Node 24 的 63 项测试与安装包冒烟见 [CI 记录](https://github.com/KongouAirlines/ivaraige/actions/runs/37314672867)；该记录不覆盖本 PDF 分支。范围与进度见 [0.1.0 实施记录](docs/plan/0.1.0/README.md)。
 
 ## 安装与首次启动
 
@@ -85,3 +85,5 @@ SQLite 数据库及其 `.owner.sqlite` 所有权文件须位于支持 SQLite 文
 - [v2.0 UI 设计](docs/requirements/v2.0/02_UI-design_v2.0.md)
 - [v2.0 API 协议](docs/requirements/v2.0/03_API-protocol_v2.0.md)
 - [历史复盘](docs/plan/mvp/retrospective.md)
+
+MCP 客户端连接与插件入口说明见 [MCP 使用指南](docs/plan/0.1.0/mcp-guide.md)。

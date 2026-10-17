@@ -4,7 +4,7 @@
 
 上位文档：[01_设计与验收基线 v2.0](01_design_v2.0.md)（下称《设计》）。本文只定义协议：端点、schema、错误码、SSE 事件、sidecar 协议、认证与安全。业务规则以《设计》为准；词库字段随词库结构研判调整，本文术语部分只锁定传输形状。
 
-当前工作台只实现本文的一部分；下文明确标注“当前实现”的规则为该阶段的线上协议，其余仍是后续目标，不因当前尚未装配而删除。当前入口为 CLI、HTTP 与 WebUI；可选 BabelDOC sidecar 已支持原生文本英文 PDF 导入和中文单语 PDF 回放。MCP、EPUB、OCR、双语 PDF、跨引擎映射、RAG、Zotero 桥及非回环认证仍待实现。
+当前工作台只实现本文的一部分；下文明确标注“当前实现”的规则为该阶段的线上协议，其余仍是后续目标，不因当前尚未装配而删除。当前入口为 CLI、HTTP、WebUI 与 MCP（stdio／Streamable HTTP）；可选 BabelDOC sidecar 已支持原生文本英文 PDF 导入和中文单语 PDF 回放。EPUB、OCR、双语 PDF、跨引擎映射、RAG、Zotero 桥及非回环认证仍待实现。MCP 的当前用法见 [0.1.0 MCP 指南](../../plan/0.1.0/mcp-guide.md)；本节区分已注册工具与后续目标，不以代码存在代替客户端验收。
 
 **0.1.0 实现边界**：翻译入口当前从 DSH 已保存的模型选择取路由，不接受请求级 `profileId`；§3.2 中携带 `profileId` 的字段属于后续协议。非 `none` 的术语约束集合没有可用的词库写入或组装 API；内部 `setConstraints` 只支持保存约束标识并做修订适用性检查，尚未实现按术语 scope 筛选、匹配和组装。下文完整术语 schema 与算法仍是 v2.0 设计目标。
 
@@ -14,7 +14,7 @@
 
 - HTTP API 前缀 `/api`，当前版本 `"apiVersion": "2.0"`。所有响应 JSON 顶层含 `apiVersion` 字段；CLI `--json` 输出与 REST 响应**同一份序列化结构**（schema 共用 zod 定义，CLI 只是换 stdout）。
 - 破坏性变更升级 `apiVersion` 并保留旧版本端点至少一个次版本；新增可选字段不算破坏。
-- MCP tools 的参数与返回复用同一份 zod schema（`@modelcontextprotocol/sdk` 支持 zod 注册），命名 `ivoraige_<verb>`，见 §6。
+- MCP tools 的参数复用同一份 zod schema（当前使用 `@modelcontextprotocol/server` 2.3.1 注册），业务结果复用内核操作的 `apiVersion` 字段与数据结构，命名 `ivoraige_<verb>`，见 §6。
 
 ### 1.2 认证与安全（照搬 DSH 凭据体系）
 
@@ -288,22 +288,28 @@ CLI 对应 `components status|catalog|credential --token-env NAME|install|local 
 
 ## 6. MCP tools 映射
 
-tools 与 REST 一一对应，schema 共用；长任务型 tool 一律返回 `{ taskId }` 异步句柄，配 `ivoraige_task_status` 轮询（MCP 无 SSE，用轮询 + 可选 `waitSeconds≤60` 长轮询参数）。
+**当前实现（0.1.0 开发阶段）**：CLI `mcp --stdio` 独立启动持有数据库的内核；常驻 `serve` 与桌面启动器默认在 `/mcp` 提供 Streamable HTTP，`serve --no-mcp` 可关闭。两种传输使用同一内核操作和参数 schema。MCP tool 成功结果以 `structuredContent` 返回完整业务对象，并在文本 content 中提供其 JSON；业务失败设置 `isError: true`，`structuredContent` 为与 REST／CLI 共用的 `{ apiVersion, error: { code, message, details } }`。输入 schema 不符由 MCP SDK 返回协议级校验错误，不保证包装为业务错误。资源读取失败返回 MCP 协议错误，并附公开的业务错误信息：`NOT_FOUND` 映射为 `-32002`，`INVALID_ARGUMENT` 映射为 `-32602`，其余失败映射为 `-32603`；业务错误对象保留在协议错误的 data 中。
 
-| tool | 对应端点 | 备注 |
+MCP 是可选入口服务 `ivoraige.mcp`，不拥有文档或 PDF 业务逻辑。能力插件通过 `registry.registerTool(name, { description, inputSchema, invoke(input, { signal }) })` 与 `registry.registerResource(name, { template, metadata, read(uri, variables) })` 注册，并把注销函数交给 Cordis `ctx.effect()`；插件卸载时已注册能力从后续查询中移除。stdio 通过连接内 SDK 通知；现代 HTTP 协议通过 SDK 的 `subscriptions/listen` 通道向已订阅客户端推送工具／资源列表变化，注册表订阅随 HTTP 服务关闭而释放。旧协议无状态 HTTP 不支持跨请求通知，声明 `listChanged: false`，客户端应主动重新查询列表。`createApp({ mcp: false })` 不装配此入口；`serve` 的 `mcp: false`／CLI `--no-mcp` 关闭 HTTP 挂载。当前文档／任务工具由内核操作插件贡献，组件工具由可选组件插件贡献；格式能力仍由既有输入／输出适配器提供，MCP 运行时不识别特定 PDF 引擎。
+
+注册表通知监听器的同步异常记录到 stderr，不回滚已完成的注册／注销，也不阻止其他监听器接收通知。stdio SDK 的带外 `onerror` 只报告错误；会话在 stdin EOF／关闭、传输实际关闭或退出信号时结束，诊断日志不得写入协议 stdout。
+
+| 当前 tool（均加 `ivoraige_` 前缀） | 对应内核操作 | 备注 |
 |---|---|---|
-| `ivoraige_import` | POST /documents/import | contentBase64 路径支持无本地文件访问的 harness |
-| `ivoraige_translate` | POST /documents/{id}/translate | — |
-| `ivoraige_translate_text` | POST /translate-text(+regenerate) | `regenerate: true` 走重新生成 |
-| `ivoraige_export` | POST /documents/{id}/export | — |
-| `ivoraige_rag_build` / `ivoraige_rag_query` | §3.3 | — |
-| `ivoraige_task_status` / `ivoraige_task_cancel` / `ivoraige_task_pause` / `ivoraige_task_resume` | §3.4 | status 支持 `waitSeconds` 长轮询 |
-| `ivoraige_unit_update` | PATCH /units/{id} | 必须传 baseRevisionId；AI 客户端收到 409 应重读再改 |
-| `ivoraige_revision_accept` / `ivoraige_unit_unaccept` | §3.2 接受／取消接受 | 使用 expectedAcceptedRevisionId，语言规则同 REST |
-| `ivoraige_units_list` / `ivoraige_revisions_list` | §3.1 | — |
-| `ivoraige_terms_list` / `ivoraige_terms_confirm` / `ivoraige_terms_edit` | §3.5 | — |
+| `capabilities` | `capabilities` | 已安装格式、组件、数据目录 |
+| `import` | `importDocument` | `path` 与 `contentBase64` 二选一；TXT／Markdown 可同步完成，PDF 返回持久任务 |
+| `documents_list` / `document_get` | `listDocuments` / `getDocument` | 文档列表与元数据 |
+| `units_list` / `unit_get` / `revisions_list` | `listUnits` / `getUnit` / `listRevisions` | 源单位与语言范围内的修订 |
+| `unit_update` / `revision_accept` / `unit_unaccept` | `writeRevision` / `acceptRevision` / `unaccept` | 分别使用 `baseRevisionId`、`expectedAcceptedRevisionId` 乐观锁；冲突后重读 |
+| `translate` / `export` | `translate` / `exportDocument` | 返回持久任务；导出仅使用已接受修订或冻结快照，不调用模型 |
+| `artifacts_list` / `snapshots_list` / `snapshot_get` / `snapshot_delete` | 同名列表、读取、删除操作 | 删除只允许未被引用的快照 |
+| `tasks_list` / `task_status` / `task_pause` / `task_resume` / `task_cancel` | `listTasks` / `getTask` / `pauseTask` / `resumeTask` / `cancelTask` | `task_status` 支持 `waitSeconds≤60`；断开等待不取消持久任务 |
+| `settings_get` / `settings_update` / `credential_set` | `getSettings` / `updateSettings` / `setCredential` | 仅在设置服务装配时注册；写设置和凭据须有用户明确授权 |
+| `component_status` / `component_catalog` / `component_credential` / `component_install` / `component_local` / `component_task` / `component_cancel` | 对应 `component*` 操作 | 仅在组件服务装配时注册；安装、令牌写入须有用户明确授权 |
 
-resources：`ivoraige://docs/{docId}`、`ivoraige://docs/{docId}/units/{unitId}?targetLang={language}`、`ivoraige://tasks/{taskId}`，内容为对应 JSON 的人类可读渲染（Markdown）。
+resources：`ivoraige://docs/{docId}`、`ivoraige://docs/{docId}/units/{unitId}?targetLang={language}`、`ivoraige://tasks/{taskId}` 返回包含对应 JSON 的 Markdown；`ivoraige://artifacts/{artifactId}` 返回已存产物的 MIME 类型与 base64 二进制内容，读取不会重建或翻译。资源模板不提供枚举，先用列表工具取得 ID。
+
+**后续目标**：`ivoraige_translate_text`、`ivoraige_rag_build`／`ivoraige_rag_query` 与词库工具尚未注册。原目标中的术语与 RAG 协议仍由相关章节定义，不应在当前客户端显示为可用能力。
 
 ## 7. Python sidecar 协议
 
