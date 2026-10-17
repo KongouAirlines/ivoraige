@@ -6,7 +6,7 @@
 
 ## 公开安装与维护准备（2026-10-17）
 
-F-D～F-G 的工程实现、分支依赖、实际检查和未完成条件见[实施记录](public-installation.md)。当前分支验证不等于新 Windows 发行、main 集成或公开切换已完成；版本绑定仍由 [release-documentation-binding](../follow-ups/release-documentation-binding.md) 跟踪。
+F-D～F-G 的工程实现、分支依赖、实际检查和保留事项见[实施记录](public-installation.md)。PR #18／#19／#25 已合入 main，[v0.1.0](https://github.com/KongouAirlines/ivaraige/releases/tag/v0.1.0) 已正式发布源码和 npm 安装包，源码为 `cb7e4a4`。本轮版本绑定已按首轮发行范围完成，见 [release-documentation-binding](../follow-ups/release-documentation-binding.md)；Windows 验收、CI 及公开切换按用户决定保留待办。
 
 ## 安装与首次启动体验（2026-10-11）
 
