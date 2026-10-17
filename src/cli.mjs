@@ -53,6 +53,7 @@ function route(command, args, o) {
         case 'credential': return ['componentCredential', {
           token: required(process.env[required(o['token-env'], '--token-env')], 'token environment variable') },
           'POST', '/api/components/credential']
+        case 'credential-clear': return ['componentCredentialClear', {}, 'DELETE', '/api/components/credential']
         case 'install': return ['componentInstall', { id: 'babeldoc' }, 'POST', '/api/components/install']
         case 'local': return ['componentLocal', { path: required(o.path, '--path manifest') }, 'POST', '/api/components/local']
         case 'task': return ['componentTask', { taskId: required(args[1], 'component task ID') }, 'GET', `/api/components/tasks/${args[1]}`]

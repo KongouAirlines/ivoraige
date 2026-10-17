@@ -1,6 +1,6 @@
 # 0.1.0 能力与限制
 
-本页描述本源码版本的能力；软件为 `0.1.0-dev.0` 预览版。设计文档 v2.0 是架构版本，不是软件版本。现有 Windows `v0.1.0-dev.0` Release 附件尚未包含 MCP；使用 MCP 需从源码构建，发行包能力以对应 Release 说明为准。历史测试次数与试验结果见源码中的 [实施记录](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/README.md)。
+本页描述本源码版本的能力；软件为 `0.1.0-dev.0` 预览版。设计文档 v2.0 是架构版本，不是软件版本。现有 Windows `v0.1.0-dev.0` Release 附件尚未包含 MCP 和可选令牌安装；使用这些改动需从源码构建，发行包能力以对应 Release 说明为准。历史测试次数与试验结果见源码中的 [实施记录](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/README.md)。
 
 | 能力 | 当前可用范围 | 主要边界 |
 | --- | --- | --- |
@@ -10,7 +10,7 @@
 | 冻结导出 | 同任务多格式共用快照，编辑不改变已有快照，导出不调用翻译模型 | 不覆盖同名文件；格式可用性取决于已装插件与文档来源 |
 | 任务 | 持久状态、进度、取消；翻译／导出按既有规则暂停与恢复 | PDF 导入可取消但不支持暂停续传；安装任务不续传下载 |
 | 入口 | 浏览器工作台、CLI、HTTP/SSE、MCP stdio／Streamable HTTP 共享内核 | HTTP 本机回环监听；同一 SQLite 由单个内核进程持有；MCP 客户端具有该内核的编辑、设置和组件管理权限 |
-| 模型与组件 | DSH 设置、凭据及模型访问；按需安装 BabelDOC | 配置在线模型会发送待译内容到对应服务；免费 Index-Translate 尚未专门接入 |
+| 模型与组件 | DSH 设置、凭据及模型访问；按需安装 BabelDOC | 公开组件源可匿名读取，私有源仍需显式令牌；在线模型会收到待译内容并可能计费；免费 Index-Translate 尚未专门接入 |
 | 平台 | 三平台 Node 24 内核 CI；Windows x64 便携包与 PDF 组件、Windows Sandbox 实测 | Linux/macOS 独立 PDF 包、完整桌面安装器仍未交付 |
 
 术语库结构与装配、EPUB、Zotero、RAG、基础文件处理扩展仍为规划。当前术语适用性字段不等于可供用户使用的术语库。

@@ -53,9 +53,9 @@ Want to run from source? Follow the [development guide](https://github.com/Kongo
 | Access | Local browser workbench, CLI, HTTP/SSE, and MCP over stdio or Streamable HTTP. |
 | Platforms | Windows x64 portable package and PDF component. The Node.js kernel is tested on Windows, Linux, and macOS; this does not imply three-platform PDF packages. |
 
-These capabilities describe this source version. The existing Windows `v0.1.0-dev.0` Release attachments predate MCP; use a source build for MCP until updated packages are published.
+These capabilities describe this source version. The existing Windows `v0.1.0-dev.0` Release attachments predate MCP and optional-token component installation; use a source build for these changes until updated packages are published. The repository and existing downloads remain private pending team decisions. Public component sources can be read anonymously by this source build; private sources require explicit credentials.
 
-Scanned PDF OCR, bilingual PDF output, EPUB, reusable term libraries, Zotero integration, and general file-processing utilities are future work. A local workbench can still use an online model; it does not imply fully offline translation. See [capabilities and limits (中文)](docs/plan/0.1.0/capabilities.md).
+Scanned PDF OCR, bilingual PDF output, EPUB, reusable term libraries, Zotero integration, and general file-processing utilities are future work. Online models receive the text you translate and may charge your provider account. A local workbench does not imply fully offline or free translation. See [capabilities and limits (中文)](docs/plan/0.1.0/capabilities.md).
 
 ## Where we are heading
 
@@ -72,5 +72,7 @@ These are directions, not delivery dates. See the [roadmap](https://github.com/K
 [Using the workbench (中文)](docs/plan/0.1.0/workbench-guide.md) · [Model settings (中文)](docs/plan/0.1.0/settings-guide.md) · [Development](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/development-guide.md) · [Issues](https://github.com/KongouAirlines/ivaraige/issues)
 
 Tell us what you are trying to translate or process, where the workflow gets in your way, and which tools you would like to combine. Reproducible reports and original or shareable samples are especially useful.
+
+See [contribution guidance](CONTRIBUTING.md) and [security reporting](SECURITY.md). Project licensing is pending team confirmation; no open-source license is being granted by this preview.
 
 Built with Cordis and DSH, with optional BabelDOC support. See [third-party acknowledgements](THIRD_PARTY.md).

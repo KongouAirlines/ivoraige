@@ -45,7 +45,7 @@ test('HTTP component routes expose local install and task state without a token'
   const root = await directory('http')
   const manifestPath = await packageFixture(root)
   const app = await createApp({ store: join(root, 'records.sqlite'), settingsDir: join(root, 'settings'),
-    components: { directory: join(root, 'components') } })
+    components: { directory: join(root, 'components'), fetcher: async () => new Response(null, { status: 404 }) } })
   const server = await serve(app, { port: 0 })
   t.after(async () => { await server.close(); await app.dispose(); await rm(root, { recursive: true, force: true }) })
 
@@ -54,8 +54,10 @@ test('HTTP component routes expose local install and task state without a token'
   assert.equal(before.credentialConfigured, false)
   const catalog = await fetch(`${server.url}/api/components/catalog`, { method: 'POST',
     headers: { 'content-type': 'application/json' }, body: '{}' })
-  assert.equal(catalog.status, 412)
-  assert.equal((await catalog.json()).error.code, 'PRECONDITION_FAILED')
+  assert.equal(catalog.status, 502)
+  const catalogError = (await catalog.json()).error
+  assert.equal(catalogError.code, 'UPSTREAM_FAILURE')
+  assert.match(catalogError.message, /HTTP 404.*repository and release version/)
 
   const started = await (await fetch(`${server.url}/api/components/local`, { method: 'POST',
     headers: { 'content-type': 'application/json' }, body: JSON.stringify({ path: manifestPath }) })).json()
@@ -77,6 +79,10 @@ test('HTTP component routes expose local install and task state without a token'
   const configured = await (await fetch(`${server.url}/api/components`)).json()
   assert.equal(configured.credentialConfigured, true)
   assert.doesNotMatch(JSON.stringify(configured), /private-test-token/)
+  const cleared = await fetch(`${server.url}/api/components/credential`, { method: 'DELETE' })
+  assert.equal(cleared.status, 200)
+  assert.equal((await cleared.json()).configured, false)
+  assert.equal((await app.components.status()).credentialConfigured, false)
 })
 
 test('HTTP reports a missing installer plugin explicitly', async t => {
@@ -105,6 +111,10 @@ test('local CLI waits for installer success and exits 4 on verified package fail
   assert.equal(goodOutput.lines().length, 2)
   assert.equal(goodOutput.lines()[1].task.state, 'completed')
   assert.equal(goodOutput.lines()[1].task.restartRequired, true)
+  const clearOutput = sink()
+  assert.equal(await runCli(['--store', join(good, 'records.sqlite'), 'components', 'credential-clear'],
+    clearOutput), 0, clearOutput.errors())
+  assert.equal(clearOutput.lines()[0].configured, false)
 
   const badPath = await packageFixture(bad, { wrongDigest: true })
   const badOutput = sink()

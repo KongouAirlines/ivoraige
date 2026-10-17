@@ -4,7 +4,7 @@
 
 ## 准备与启动
 
-需要 Node.js ≥24，在仓库根目录执行：
+需要 Git、Node.js ≥24 和随 Node 安装的 npm。固定 DSH 源码与 npm 依赖来自公开上游；本仓库仍私有时，首次取得本仓库源码需要访问权限。TXT／Markdown 启动无需 Python 或 PDF 资产。在仓库根目录执行：
 
 ```powershell
 npm ci
@@ -22,7 +22,7 @@ npm start
 需要隔离开发数据时：
 
 ```powershell
-node src/cli.mjs serve --store ./evaluation/runs/workbench/store.sqlite
+node src/cli.mjs serve --store ./evaluation/runs/workbench-0.1.0/store.sqlite
 ```
 
 打开打印的本机地址。一个数据库只运行一个内核；服务运行时其他 CLI 命令使用 `--url http://127.0.0.1:8787`。所有 CLI 参数以 `node src/cli.mjs help` 为准。源码启动需要环境代理时自行启用 `NODE_USE_ENV_PROXY=1`，本机服务应绕过代理。

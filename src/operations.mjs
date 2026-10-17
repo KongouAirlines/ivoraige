@@ -71,6 +71,7 @@ export class Operations extends Service {
       case 'componentStatus': result = await this.components().status(); break
       case 'componentCatalog': result = { catalog: await this.components().catalog() }; break
       case 'componentCredential': result = await this.components().setToken(p.token); break
+      case 'componentCredentialClear': result = await this.components().clearToken(); break
       case 'componentInstall': result = await this.components().install(p); break
       case 'componentLocal': result = await this.components().installLocal({ manifestPath: p.path }); break
       case 'componentTask': result = { task: await this.components().getTask(p.taskId) }; break

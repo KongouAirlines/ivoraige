@@ -52,6 +52,21 @@ export class Components extends Service {
     return this.ctx.credentials.describe(TOKEN_REF)
   }
 
+  async clearToken() {
+    const current = await this.ctx.credentials.describe(TOKEN_REF)
+    if (current.configured && current.writable === false) {
+      throw new KernelError('PRECONDITION_FAILED',
+        'A GitHub token is supplied by the launching environment; remove it there before anonymous access')
+    }
+    await this.ctx.credentials.unset(TOKEN_REF)
+    const description = await this.ctx.credentials.describe(TOKEN_REF)
+    if (description.configured) {
+      throw new KernelError('PRECONDITION_FAILED',
+        'A GitHub token is still supplied by the environment; remove it there before anonymous access')
+    }
+    return description
+  }
+
   async getInstalledPdf() {
     const selected = this.ctx.get('ivoraige.componentsSettings').selected()
     if (!selected) return null
@@ -83,7 +98,7 @@ export class Components extends Service {
     const manifestAsset = release.assets.find(asset => asset.name === MANIFEST_NAME)
     if (!manifestAsset || !Number.isSafeInteger(manifestAsset.id) ||
         !Number.isSafeInteger(manifestAsset.size) || manifestAsset.size > 1024 * 1024) {
-      throw new KernelError('UPSTREAM_FAILURE', 'Private release lacks a valid components-manifest.json asset')
+      throw new KernelError('UPSTREAM_FAILURE', 'Component release lacks a valid components-manifest.json asset')
     }
     const temporary = await mkdtemp(join(this.directory, '.catalog-'))
     try {

@@ -40,3 +40,17 @@ PDF 构建使用 Python 3.13、锁定的 BabelDOC 0.6.4／PyMuPDF 1.26.7 和 PyI
 - npm 与 Windows 包均应包含用户指南、双语 README、截图和能力表；开发与验收材料保留在源码。检查本地文档链接的目标是否随包存在，源码参考明确为在线链接。
 - 核对 Release 附件的构建提交、tag 和指南对应关系，不能以 main 的最新说明替代旧安装版说明；该项按 [release-documentation-binding](../follow-ups/release-documentation-binding.md) 完成。
 - 仓库可见性、拆仓及完整安装器分别决策；本轮文档整理不发布新版本或修改现有附件。
+
+## 版本、源码与随包指南绑定
+
+构建会把 `docs/plan/0.1.0/` 中的用户指南生成到 `dist/web/*.html`，设置中的 PDF 指南使用本地 `/pdf-guide.html`。`dist/web/release-info.json` 记录 `package.json` 的软件版本、Git 提交、工作树状态和源码链接；页面也展示该信息。开发工作树含未提交改动时，`sourceTree` 为 `modified` 且 `sourceUrl` 为空：此时提交链接仅表示基础提交，不能当作该构建的精确源码。无 `.git` 的源码归档仍可构建，元数据记为 `unavailable`，提交和源码 URL 均为空；这种构建不能通过正式发行校验。用户指南 HTML 随包保存，后续 main 更新不会改变已下载的页面。
+
+Windows 目录包由 `scripts/build-distribution.mjs` 复制双语 README、用户指南、截图、贡献及安全说明，并检查这些文档在包内的相对链接。开发材料若没有随包复制，其链接改为该次基础提交的在线源码地址。npm 包使用 `npm run pack:npm -- <输出目录>` 从临时目录生成：复制用户文档并将开发资料链接固定到来源提交，不修改工作树中的 Markdown。`npm run smoke:package` 在这一实际 tarball 上核对链接，并通过包内 HTTP 服务读取 PDF 指南与元数据。私有仓库的在线源码链接仍要求仓库访问权；本地指南不需要网络。Windows ZIP 的实际启动与内容验收仍须在 Windows x64 执行，macOS 上的 npm 检查不能代替它。
+
+正式发布时先确定新的软件版本并完成源码提交，在该提交上创建与 `package.json` 一致的 `v<version>` tag；不要移动旧 tag。使用干净的 tag 工作树在 Windows x64 重新构建 ZIP，并在 Windows（或 macOS 的 bsdtar 环境）运行：
+
+```sh
+npm run verify:release -- v<version> evaluation/runs/distribution-<version>/build-evidence.json
+```
+
+校验要求 tag 指向构建提交、指南元数据匹配版本与提交、构建证据中的源码一致，ZIP 大小及 SHA-256 与证据一致，并从源码 Markdown 重新生成预期页面，逐一对比 ZIP 内的元数据、HTML 与用户文档，检查相对链接及基础运行载荷是否存在。此校验不执行 Windows 程序；运行验收仍按前述 Sandbox 步骤进行。Release 正文按 [发行说明模板](release-template.md)填写精确 tag、提交、附件摘要及实际验收范围；不要把附件源码和 GitHub 自动生成的 tag 源码指向不同提交。旧 `v0.1.0-dev.0` 的 tag 和附件保留历史事实，本机制不追认或修改它们。

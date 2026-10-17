@@ -159,6 +159,20 @@ test('SDK HTTP clients share documents, frozen outputs, and durable tasks', asyn
   await failure(reopened, 'snapshot_delete', { docId, snapshotId: exported.snapshotId }, 'CONFLICT')
 })
 
+test('MCP component credential clear uses the shared operation', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-mcp-components-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const f = await fixture(t, { settingsDir: join(directory, 'settings'),
+    components: { directory: join(directory, 'components') } })
+  const connection = await f.connect()
+  const names = (await connection.listTools()).tools.map(tool => tool.name)
+  assert.ok(names.includes('ivoraige_component_credential_clear'))
+  await call(connection, 'component_credential', { token: 'test-component-token' })
+  assert.equal((await call(connection, 'component_status')).credentialConfigured, true)
+  assert.equal((await call(connection, 'component_credential_clear')).configured, false)
+  assert.equal((await call(connection, 'component_status')).credentialConfigured, false)
+})
+
 test('MCP translation uses a local mock model and frozen replay never invokes it', async t => {
   const f = await fixture(t)
   let calls = 0

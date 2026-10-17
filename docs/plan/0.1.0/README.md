@@ -4,6 +4,10 @@
 
 公开前的调查证据、授权与发行范围、分阶段工作包和验收条件见[公开准备评估与实施计划](public-readiness.md)。该计划与功能实施进度分开维护；落盘不代表相关整改已完成或仓库已获准公开。
 
+## 公开安装与维护准备（2026-10-17）
+
+F-D～F-G 的工程实现、分支依赖、实际检查和未完成条件见[实施记录](public-installation.md)。当前分支验证不等于新 Windows 发行、main 集成或公开切换已完成；版本绑定仍由 [release-documentation-binding](../follow-ups/release-documentation-binding.md) 跟踪。
+
 ## 安装与首次启动体验（2026-10-11）
 
 PR #10／#12 已合入 main/4df1d72。`codex/0.1.0-installation` 实施 Windows 基础程序、自带运行时、首次启动引导及按需 PDF 组件，发行源固定为现有私有仓库 Releases；不要求公开源码，不首次下载全部插件。操作见 [安装指南](installation-guide.md)，I0～I4 的实测证据和剩余条件见 [安装记录](installation.md)。2026-10-12 Windows Sandbox 离线文本／PDF 闭环通过，PR #17 已于 2026-10-13 合入 main/0a185d4；完整安装程序留到 Issue #16，MCP 和双语 PDF 保留后续。

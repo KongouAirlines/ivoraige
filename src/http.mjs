@@ -10,6 +10,7 @@ const routes = [
   ['GET', /^\/api\/components$/, 'componentStatus'],
   ['POST', /^\/api\/components\/catalog$/, 'componentCatalog'],
   ['POST', /^\/api\/components\/credential$/, 'componentCredential'],
+  ['DELETE', /^\/api\/components\/credential$/, 'componentCredentialClear'],
   ['POST', /^\/api\/components\/install$/, 'componentInstall'],
   ['POST', /^\/api\/components\/local$/, 'componentLocal'],
   ['GET', new RegExp(`^/api/components/tasks/${id}$`), 'componentTask', ['taskId']],

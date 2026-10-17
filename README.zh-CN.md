@@ -53,9 +53,9 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 | 使用入口 | 本地浏览器工作台、CLI、HTTP/SSE，以及 stdio 或 Streamable HTTP MCP。 |
 | 平台 | Windows x64 便携包及 PDF 组件；Node.js 内核通过 Windows、Linux、macOS 测试，不等于三平台 PDF 安装包均已交付。 |
 
-上述能力对应本源码版本。现有 Windows `v0.1.0-dev.0` Release 附件早于 MCP 接入；更新发行包发布前，使用 MCP 请从源码构建。
+上述能力对应本源码版本。现有 Windows `v0.1.0-dev.0` Release 附件尚未包含 MCP 和可选令牌安装；更新发行包发布前，使用这些改动请从源码构建。仓库和现有下载仍为私有，公开范围待团队确认。本源码可匿名读取公开组件源，私有源仍需显式凭据。
 
-扫描件 OCR、双语 PDF、EPUB、可复用术语库、Zotero 集成和通用文件处理工具仍属未来工作。本地工作台也可以调用在线模型，并不意味着翻译完全离线。详细范围见[能力与限制](docs/plan/0.1.0/capabilities.md)。
+扫描件 OCR、双语 PDF、EPUB、可复用术语库、Zotero 集成和通用文件处理工具仍属未来工作。在线模型会接收待译文本，并可能向你的供应商账户计费；本地工作台并不意味着翻译完全离线或免费。详细范围见[能力与限制](docs/plan/0.1.0/capabilities.md)。
 
 ## 未来方向
 
@@ -72,5 +72,7 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 [工作台使用](docs/plan/0.1.0/workbench-guide.md) · [模型设置](docs/plan/0.1.0/settings-guide.md) · [开发指南](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/development-guide.md) · [问题反馈](https://github.com/KongouAirlines/ivaraige/issues)
 
 欢迎告诉我们你想翻译或处理什么、在哪一步遇到困难，以及希望组合哪些工具。可以复现的反馈与原创或可分享的样本尤其有帮助。
+
+参与前请阅读[贡献指南](CONTRIBUTING.md)及[安全报告说明](SECURITY.md)。项目许可待团队确认，当前预览尚未授予开源许可。
 
 基于 Cordis 与 DSH 构建，可选接入 BabelDOC。参见[第三方致谢](THIRD_PARTY.md)。
