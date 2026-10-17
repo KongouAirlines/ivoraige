@@ -6,6 +6,8 @@
 
 2026-10-13 产品定位补充：面向学习、阅读、科研及兴趣翻译的复合场景，核心价值为翻译与文件处理工具的按需组合。科研是早期落地场景，不是通用内核的唯一假设。插件所有权与生命周期按 [ADR-0002](../../decisions/0002-plugin-composition-0.1.0.md) 细化；本文历史用例与 v1.0 编号保留，当前交付见[能力表](../../plan/0.1.0/capabilities.md)。
 
+2026-10-18 修订：修正 §3.3.4 的导出隔离机制表述与 §4.1 的 `OutputAdapter` 接口；模块/适配器/入口契约的完整重规划计划在 v3，见 [design-v3](../../plan/follow-ups/design-v3.md)。本文其余内容仍是现行参考。
+
 ## 0. 文档定位与依据
 
 本文是 ivoraige 的**设计与验收文档**：在 [需求基线 v1.0](../v1.0/01_功能需求概览_v1.0.md)（44 项功能期望，不改编号、不改优先级）之上，落实用户本次给出的产品形态约束与验收口径，并结合以下既有成果：
@@ -187,7 +189,7 @@ reuseKey = hash(sourceText_normalized, sourceLang, targetLang,
 1. 对外请求指定 `docId`、`targetLang` 与输出选项；输出服务启动任务时从 `records` 一次取得适用的 accepted 修订、来源修订／绑定和必要资源引用，保存为冻结清单 `snapshotId`。所有格式适配器消费该清单，不分别读取可变的当前记录，沿用 M3.1 的 manifest 边界。
 2. 可译 unit 缺少适用 accepted 修订时，在冻结清单中按配置记录 `skip`（保留该版本原文）或 `fail`（默认）；`translatable=false` 的内容直接保留，不要求虚构译文修订。
 3. 一次多格式导出共用同一 `snapshotId`；后续增加格式可显式复用它。完成后的 `Artifact` 记录实际清单及其 `revisionSetHash`，摘要仅在创建清单时计算一次。期间新编辑不影响该次输出，也不因“当前 accepted 已变化”否定正常产物。若冻结来源资源已不可用，应明确失败，不能改用最新资源。
-4. **禁止**任何形式调用翻译模型。适配器无法取得 LLM 服务引用（Cordis `inject` 层面不提供），从机制上而非纪律上保证。
+4. **禁止**任何形式调用翻译模型。输出适配器只接收冻结数据与输出选项；`Exporter` 不向适配器传递 Cordis context 或服务，也不注入 LLM。Cordis `inject` 只是依赖声明，不是访问控制；实现以“不传 ctx + 负向测试”保证边界，而不是依赖约定。
 5. **快照生命周期**：快照只存引用与逐 unit 决定，体积小，默认永久保留；来源资源由 import 记录钉住，快照不复制资源。删除经 `DELETE /api/documents/{docId}/snapshots/{snapshotId}`：无任何 Artifact 引用时允许；有引用返回 `409 CONFLICT` 并列出引用方，须先删除对应 Artifact 记录。不提供自动过期清理。
 
 ---
@@ -205,7 +207,7 @@ interface SourceAdapter {
 }
 interface OutputAdapter {
   supports(sourceBinding): boolean;       // 检查所需来源绑定，不假定解析器能重建
-  rebuild(snapshot: ExportSnapshot, options, ctx): Promise<Artifact>;
+  rebuild(snapshot: ExportSnapshot, options): Promise<string | Buffer | { content: string | Buffer; warnings?: string[] }>;
 }
 ```
 
