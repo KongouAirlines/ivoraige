@@ -7,6 +7,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildWebGuides, copyUserDocs, guideDir, guideHtml, guideNames, releaseInfo, rootNames } from '../scripts/release-docs.mjs'
 import { verifyRelease } from '../scripts/verify-release.mjs'
+import { stageNpmPackage } from '../scripts/pack-npm.mjs'
+import { create as createTar } from 'tar'
 
 function run(command, args, cwd) {
   const result = spawnSync(command, args, { cwd, encoding: 'utf8' })
@@ -16,8 +18,23 @@ async function fixture(root) {
   await mkdir(join(root, guideDir), { recursive: true })
   await mkdir(join(root, 'docs/assets/0.1.0'), { recursive: true })
   await writeFile(join(root, 'docs/assets/0.1.0/workbench.jpg'), 'test image')
-  await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'ivoraige', version: '1.2.3', type: 'module' }))
-  await writeFile(join(root, '.gitignore'), 'dist/\nstage/\narchive.zip\nbuild-evidence.json\n')
+  await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'ivoraige', version: '1.2.3', type: 'module',
+    files: ['src/', 'dist/web/', 'dist/dsh.mjs', 'dist/DSH-LICENSE.txt', 'dist/THIRD_PARTY_LICENSES.txt',
+      ...rootNames, ...guideNames.map(name => `${guideDir}/${name}`), 'docs/assets/0.1.0/workbench.jpg'] }))
+  await writeFile(join(root, '.gitignore'), 'dist/\nstage/\narchive.zip\narchive.tgz\nbuild-evidence.json\n')
+  await mkdir(join(root, 'src'))
+  for (const name of ['app.mjs', 'cli.mjs', 'launch.mjs']) await writeFile(join(root, 'src', name), '// test fixture\n')
+  await mkdir(join(root, 'scripts'))
+  await writeFile(join(root, 'scripts/build.mjs'), `import { mkdir, writeFile } from 'node:fs/promises'
+await mkdir('dist', { recursive: true })
+for (const name of ['dsh.mjs', 'DSH-LICENSE.txt', 'THIRD_PARTY_LICENSES.txt'])
+  await writeFile('dist/' + name, 'fixture build: ' + name + '\\n')
+`)
+  await writeFile(join(root, 'scripts/build-web.mjs'), `import { mkdir, writeFile } from 'node:fs/promises'
+await mkdir('dist/web', { recursive: true })
+for (const name of ['index.html', 'app.js', 'app.css'])
+  await writeFile('dist/web/' + name, 'fixture build: ' + name + '\\n')
+`)
   for (const name of rootNames) await writeFile(join(root, name), '# Document\n\n[Guide](docs/plan/0.1.0/pdf-guide.md)\n')
   for (const name of guideNames) await writeFile(join(root, guideDir, name), `# ${name}\n\n[PDF](pdf-guide.md)\n`)
   run('git', ['init', '-q'], root)
@@ -59,6 +76,53 @@ test('bundled Markdown renders guide structure and keeps heading anchors', () =>
   assert.match(html, /<pre><code class="language-powershell">foo/)
   assert.match(html, /href="#开始前"/)
   assert.doesNotMatch(html, /源码 null/)
+})
+
+test('npm release validation binds actual tarball files to the clean tagged source', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ivoraige-npm-release-fixture-'))
+  try {
+    await fixture(root)
+    const info = await buildWebGuides(root, join(root, 'dist/web'))
+    run(process.execPath, ['scripts/build.mjs'], root)
+    run(process.execPath, ['scripts/build-web.mjs'], root)
+    const stage = join(root, 'stage/package')
+    await stageNpmPackage(root, stage)
+    const archive = join(root, 'archive.tgz'), evidencePath = join(root, 'build-evidence.json')
+    const repack = async () => {
+      await createTar({ file: archive, cwd: join(root, 'stage'), gzip: true }, ['package'])
+      const bytes = await readFile(archive)
+      await writeFile(evidencePath, JSON.stringify({ format: 'npm-tarball', version: info.version, source: info,
+        output: 'archive.tgz', bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex') }))
+    }
+    await repack()
+    const checked = await verifyRelease(root, 'v1.2.3', evidencePath)
+    assert.equal(checked.format, 'npm-tarball')
+    assert.equal(checked.sourceCommit, info.sourceCommit)
+    const app = join(stage, 'src/app.mjs')
+    await writeFile(app, '// different application\n')
+    await repack()
+    await assert.rejects(verifyRelease(root, 'v1.2.3', evidencePath), /differs from release source\/build: src\/app.mjs/)
+    await cp(join(root, 'src/app.mjs'), app)
+    const bundle = join(stage, 'dist/web/app.js')
+    await writeFile(bundle, 'tampered executable bundle\n')
+    await writeFile(join(root, 'dist/web/app.js'), 'tampered executable bundle\n')
+    await repack()
+    await assert.rejects(verifyRelease(root, 'v1.2.3', evidencePath), /differs from release source\/build: dist\/web\/app.js/)
+    await cp(join(root, 'dist/web/app.js'), bundle)
+    const html = join(stage, 'dist/web/pdf-guide.html'), localHtml = join(root, 'dist/web/pdf-guide.html')
+    const originalHtml = await readFile(localHtml)
+    await writeFile(html, 'stale guide'); await writeFile(localHtml, 'stale guide')
+    await repack()
+    await assert.rejects(verifyRelease(root, 'v1.2.3', evidencePath), /Generated pdf-guide.html differs from source Markdown/)
+    await writeFile(html, originalHtml); await writeFile(localHtml, originalHtml)
+    await writeFile(join(stage, 'unexpected-secret.txt'), 'fixture only')
+    await repack()
+    await assert.rejects(verifyRelease(root, 'v1.2.3', evidencePath), /unexpected files/)
+    await rm(join(stage, 'unexpected-secret.txt'))
+    await rm(join(stage, 'dist/dsh.mjs'))
+    await repack()
+    await assert.rejects(verifyRelease(root, 'v1.2.3', evidencePath), /missing dist\/dsh.mjs/)
+  } finally { await rm(root, { recursive: true, force: true }) }
 })
 
 test('source archive without Git builds honest guide metadata', async () => {

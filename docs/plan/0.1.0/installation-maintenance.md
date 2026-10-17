@@ -47,7 +47,18 @@ PDF 构建使用 Python 3.13、锁定的 BabelDOC 0.6.4／PyMuPDF 1.26.7 和 PyI
 
 Windows 目录包由 `scripts/build-distribution.mjs` 复制双语 README、用户指南、截图、贡献及安全说明，并检查这些文档在包内的相对链接。开发材料若没有随包复制，其链接改为该次基础提交的在线源码地址。npm 包使用 `npm run pack:npm -- <输出目录>` 从临时目录生成：复制用户文档并将开发资料链接固定到来源提交，不修改工作树中的 Markdown。`npm run smoke:package` 在这一实际 tarball 上核对链接，并通过包内 HTTP 服务读取 PDF 指南与元数据。私有仓库的在线源码链接仍要求仓库访问权；本地指南不需要网络。Windows ZIP 的实际启动与内容验收仍须在 Windows x64 执行，macOS 上的 npm 检查不能代替它。
 
-正式发布时先确定新的软件版本并完成源码提交，在该提交上创建与 `package.json` 一致的 `v<version>` tag；不要移动旧 tag。使用干净的 tag 工作树在 Windows x64 重新构建 ZIP，并在 Windows（或 macOS 的 bsdtar 环境）运行：
+正式发布时先确定新的软件版本并完成源码提交，在该提交上创建与 `package.json` 一致的 `v<version>` tag；不要移动旧 tag。首个正式版本 `0.1.0` 发布源码与 npm 安装包，Windows 新包保留待构建、待验收；旧预发行附件不重新标记版本。
+
+在干净的 tag 工作树构建 npm 包并验证：
+
+```sh
+npm run pack:npm -- evaluation/runs/release-0.1.0
+npm run verify:release -- v0.1.0 evaluation/runs/release-0.1.0/ivoraige-0.1.0.build-evidence.json
+```
+
+打包命令同时产生实际 `.tgz` 和构建证据。校验会先从该 tag 工作树重建执行文件，再逐一比对 tarball 内的源码、依赖声明、构建文件及文档，拒绝缺失、多余或内容不一致的文件；也会从该提交的 Markdown 重新生成指南，避免把旧构建误标为新版本。因此校验环境需要构建依赖和固定的 DSH 源码。发布前仍需在隔离目录安装并实际启动该包；此检查不代表 Windows／PDF 验收。
+
+后续 Windows 版本使用干净的 tag 工作树在 Windows x64 重新构建 ZIP，并在 Windows（或 macOS 的 bsdtar 环境）运行：
 
 ```sh
 npm run verify:release -- v<version> evaluation/runs/distribution-<version>/build-evidence.json

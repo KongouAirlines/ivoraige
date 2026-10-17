@@ -4,7 +4,7 @@
 
 ## 准备与启动
 
-需要 Git、Node.js ≥24 和随 Node 安装的 npm。固定 DSH 源码与 npm 依赖来自公开上游；本仓库仍私有时，首次取得本仓库源码需要访问权限。TXT／Markdown 启动无需 Python 或 PDF 资产。在仓库根目录执行：
+`0.1.0` 是首个正式软件版本，本页可用于源码检出或无 `.git` 的源码归档。需要 Git、Node.js ≥24 和随 Node 安装的 npm；Git 用于取得固定 DSH 源码，应用自身的构建不要求源码归档含 Git 元数据。固定 DSH 源码与 npm 依赖来自公开上游；若仓库尚未切换为公开，首次取得本仓库源码仍需访问权限。TXT／Markdown 启动无需 Python 或 PDF 资产。在仓库根目录执行：
 
 ```powershell
 npm ci
@@ -12,6 +12,8 @@ npm run setup:dsh
 npm run build
 npm start
 ```
+
+需要本地 npm 安装包时，在完成上述依赖与 DSH 准备后运行 `npm run pack:npm -- <输出目录>`，得到 `ivoraige-0.1.0.tgz`；从该 tarball 安装到独立目录可使用 CLI／HTTP／MCP 及文本工作台。该命令只构建本地 tarball，不向 npm registry 发布。新版 Windows 便携包尚未构建和验收；旧 `v0.1.0-dev.0` 附件保持原版本身份。
 
 启动器打开浏览器，数据目录与源码分开，默认位置按平台决定：
 

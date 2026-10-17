@@ -346,6 +346,8 @@ Release 附件不属于 Actions artifact。当前每个附件低于 2 GiB；[Git
 
 ## 10. 可复核来源
 
+2026-10-17 后续范围决定：用户确定 `0.1.0` 为首个正式版本，授权合入 PR #18／#19／#25 并发布源码与 npm 包；Windows 验收和 CI 暂不作为本轮门槛。可见性变更因当前身份无 admin 权限未成功，用户随后明确“目前不要公开”，因此仓库继续私有。P7 的公开切换及公开后验证延期，不再作为本轮发布动作；F-A 项目许可和 F-B 旧 Windows／PDF 附件缺口仍未关闭。最新实现与验证见[正式版本准备记录](public-installation.md#010-正式版本准备2026-10-17)，前述调查快照与原矩阵保留。
+
 源码相对链接以本文分支为阅读入口；需要重现调查时固定到 `c8a146d`，发行构建另使用 `bdd1854`。GitHub 设置页面和 API 是可变状态，只证明相应读取日期；读取者可能需要仓库或组织权限。
 
 - [仓库设置](https://github.com/KongouAirlines/ivaraige/settings)、[Actions 设置](https://github.com/KongouAirlines/ivaraige/settings/actions)、[安全设置](https://github.com/KongouAirlines/ivaraige/settings/security_analysis)。

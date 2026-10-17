@@ -63,11 +63,34 @@ for (const input of Object.keys(result.metafile.inputs)) {
   if (npmRoot || vendorRoot) licenseRoots.add(resolve(root, npmRoot ?? vendorRoot))
 }
 const licenseSections = []
+const pinnedLicenseFallbacks = new Map([
+  ['@earendil-works/pi-ai@0.87.1', 'pi-MIT.txt'],
+  ['standardwebhooks@1.1.1', 'standardwebhooks-MIT.txt'],
+])
 for (const directory of [...licenseRoots].sort()) {
   const pkg = JSON.parse(await readFile(join(directory, 'package.json'), 'utf8'))
   const names = (await readdir(directory)).filter(name => /^(license|licence|copying|notice)(?:\.|$)/i.test(name))
   const texts = await Promise.all(names.map(name => readFile(join(directory, name), 'utf8')))
-  licenseSections.push(`${pkg.name} ${pkg.version} (${pkg.license ?? 'see notice'})\n${texts.join('\n')}`)
+  if (!texts.some(value => value.trim())) {
+    const key = `${pkg.name}@${pkg.version}`
+    if (key === 'data-uri-to-buffer@4.0.1') {
+      const readme = await readFile(join(directory, 'README.md'), 'utf8')
+      const start = readme.indexOf('\nLicense\n-------\n')
+      if (start < 0) throw new Error(`Bundled dependency ${key} has no identifiable README license`)
+      const remainder = readme.slice(start + '\nLicense\n-------\n'.length)
+      const notice = remainder.split(/\n\[[^\]]+\]:/)[0].trim()
+      if (!/copyright/i.test(notice) || !/permission is hereby granted/i.test(notice)) {
+        throw new Error(`Bundled dependency ${key} has no complete README license`)
+      }
+      texts.push(notice)
+    } else if (pinnedLicenseFallbacks.has(key)) {
+      texts.push(await readFile(join(root, 'scripts/licenses/0.1.0', pinnedLicenseFallbacks.get(key)), 'utf8'))
+    }
+  }
+  if (!texts.some(value => value.trim())) {
+    throw new Error(`Bundled dependency ${pkg.name}@${pkg.version} lacks a verified license notice`)
+  }
+  licenseSections.push(`${pkg.name} ${pkg.version} (${pkg.license ?? 'see notice'})\n${texts.join('\n').trim()}`)
 }
 await writeFile(join(root, 'dist/THIRD_PARTY_LICENSES.txt'), licenseSections.join('\n\n====================\n\n') + '\n')
 await writeFile(join(root, 'dist/build-evidence.json'), JSON.stringify({ dshCommit: DSH_COMMIT, inputs: Object.keys(result.metafile.inputs) }, null, 2) + '\n')

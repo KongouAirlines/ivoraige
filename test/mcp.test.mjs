@@ -13,6 +13,7 @@ import { Service, z } from '../dist/dsh.mjs'
 import { createApp } from '../src/app.mjs'
 import { serve } from '../src/http.mjs'
 import { KernelError } from '../src/errors.mjs'
+import packageInfo from '../package.json' with { type: 'json' }
 
 const targetLang = 'zh'
 const upload = (content, format = 'txt') => ({
@@ -81,6 +82,7 @@ async function fixture(t, options = {}) {
 test('SDK HTTP clients share documents, frozen outputs, and durable tasks', async t => {
   const f = await fixture(t)
   const first = await f.connect()
+  assert.deepEqual(first.getServerVersion(), { name: 'ivoraige', version: packageInfo.version })
   const second = await f.connect()
   const listing = await first.listTools()
   const names = listing.tools.map(tool => tool.name)

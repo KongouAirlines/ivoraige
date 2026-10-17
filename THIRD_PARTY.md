@@ -79,6 +79,18 @@ these notices with any distributed bundle. The DSH bundle preserves attribution
 headers; the build embeds the pinned LLM package version so its attribution
 does not read the project's manifest or depend on the original checkout path.
 
+Three bundled npm packages do not publish a standalone license file in their
+installed package root. The notice builder takes `data-uri-to-buffer@4.0.1`'s
+MIT text and Nathan Rajlich copyright from that package's `README.md`. It uses
+the [MIT license at the pinned pi source commit](https://github.com/earendil-works/pi/blob/f07218c4d4bbc12bef056a7058c3dd49dfe41abe/LICENSE)
+for `@earendil-works/pi-ai@0.87.1`, and the
+[JavaScript libraries MIT license at the pinned Standard Webhooks commit](https://github.com/standard-webhooks/standard-webhooks/blob/b4d2c14fc5b4ccff3ff271e3b087dff812254c59/libraries/LICENSE)
+for `standardwebhooks@1.1.1`. Exact copies of the latter two texts are kept in
+`scripts/licenses/0.1.0/`; the builder accepts these fallbacks only for those
+versions and fails if another bundled dependency lacks a notice. This closes
+empty sections in the new Node bundle; it does not change previously uploaded
+Windows or PDF archives.
+
 The current translation service in `src/translation-model.mjs` uses DSH LLM
 routes. Credential values are resolved by DSH at runtime; setup and build do
 not read model credentials. The current workbench persists a named credential
