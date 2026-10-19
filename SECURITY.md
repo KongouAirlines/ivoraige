@@ -1,6 +1,6 @@
 # Security policy
 
-ivoraige `0.1.0` is the first formal software version. Report vulnerabilities against the affected version or commit; the older `0.1.0-dev.0` Windows/PDF attachments remain a separate preview. No long-term support period or response-time commitment has been announced. Security fixes and support scope will be assessed for each report.
+ivoraige `0.1.0` is the first formal software version. Report vulnerabilities against the affected version or commit; the previous Release downloads were withdrawn on 2026-10-19. Reports about those versions are still welcome. No long-term support period or response-time commitment has been announced. Security fixes and support scope will be assessed for each report.
 
 Please do not disclose a suspected vulnerability, exploit steps, private documents, credentials, or personal data in a public issue, pull request, or discussion.
 

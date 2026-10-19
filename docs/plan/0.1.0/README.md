@@ -4,6 +4,10 @@
 
 公开前的调查证据、授权与发行范围、分阶段工作包和验收条件见[公开准备评估与实施计划](public-readiness.md)。该计划与功能实施进度分开维护；落盘不代表相关整改已完成或仓库已获准公开。
 
+## 源码开源准备（2026-10-19）
+
+按正式开源、安装包延后准备。已撤下两个 Release 及附件，保留提交历史；本分支调整源码使用指南并清理当前文档中的私人来源链接。具体许可证及贡献授权待确认，见[公开准备计划](public-readiness.md)。
+
 ## 公开安装与维护准备（2026-10-17）
 
 F-D～F-G 的工程实现、分支依赖、实际检查和保留事项见[实施记录](public-installation.md)。PR #18／#19／#25 已合入 main，[v0.1.0](https://github.com/KongouAirlines/ivaraige/releases/tag/v0.1.0) 已正式发布源码和 npm 安装包，源码为 `cb7e4a4`。本轮版本绑定已按首轮发行范围完成，见 [release-documentation-binding](../follow-ups/release-documentation-binding.md)；Windows 验收、CI 及公开切换按用户决定保留待办。

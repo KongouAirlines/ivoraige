@@ -9,7 +9,7 @@ ivoraige 是供人和 AI 共用、可自由组合的翻译与文件处理基础�
 - [PDF 工作台](plan/0.1.0/pdf-guide.md)：安装后的导入、来源检查、审校及导出。
 - [设置指南](plan/0.1.0/settings-guide.md)：模型、提供商、凭据和组件。
 - [能力与限制](plan/0.1.0/capabilities.md)：当前已合入能力与平台边界。
-- [MCP 客户端接入](plan/0.1.0/mcp-guide.md)：stdio／Streamable HTTP、共享内核与客户端权限；现有 Release 附件尚未包含 MCP。
+- [MCP 客户端接入](plan/0.1.0/mcp-guide.md)：stdio／Streamable HTTP、共享内核与客户端权限；目前从源码运行。
 
 ## 方向与参与
 

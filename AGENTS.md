@@ -11,7 +11,7 @@ ivoraige is composable translation and file-processing infrastructure for people
 
 ## Baselines and current evidence
 
-- Software is `0.1.0`, the first formal version; v2.0 is the design document version. The old Windows/PDF attachments remain `0.1.0-dev.0`; do not relabel them as the current version. The retired MVP is version `0.0.0` on `codex/archive-mvp-0.0.0` and tag `v0.0.0`. Do not count its acceptance results as current implementation progress or restore its business layer by default.
+- Software is `0.1.0`, the first formal version; v2.0 is the design document version. Release downloads were withdrawn on 2026-10-19 while preparing source-first open-source release; commit history is retained. Existing installed Windows/PDF components still belong to `0.1.0-dev.0`. The retired MVP is version `0.0.0` on `codex/archive-mvp-0.0.0` and tag `v0.0.0`. Do not count its acceptance results as current implementation progress or restore its business layer by default.
 - For current capabilities and limits use [the 0.1.0 capability map](docs/plan/0.1.0/capabilities.md); for implementation and verification use [the development guide](docs/plan/0.1.0/development-guide.md) and the relevant stage record.
 - The active design baseline is [v2.0](docs/requirements/v2.0/01_design_v2.0.md), with [UI](docs/requirements/v2.0/02_UI-design_v2.0.md) and [process/entry protocol](docs/requirements/v2.0/03_API-protocol_v2.0.md). Requirements [v1.0](docs/requirements/v1.0/) remains frozen (F-01–F-44); do not renumber or reprioritize. C1–C8 in v2.0 §0 are decided constraints, including three OS targets, one kernel for CLI/MCP/WebUI, deployment, DSH reuse, and deferred term-base schema.
 

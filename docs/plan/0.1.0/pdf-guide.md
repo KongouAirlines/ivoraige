@@ -4,7 +4,7 @@
 
 ## 开始前
 
-按[安装指南](installation-guide.md)打开工作台，在“设置 → PDF”安装 BabelDOC，安装完成后退出并重新启动程序。安装版无需另外安装 Python 或运行准备脚本。组件“已配置”表示已找到配置，首次实际处理时才验证运行环境与资产。
+目前不提供 PDF 组件下载。新用户按 [PDF 开发参考](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/pdf-development.md)准备 Windows x64 环境并启动；已有本机组件可继续使用。持有完整离线包时，安装方法见[安装指南](installation-guide.md)。组件“已配置”表示已找到配置，首次实际处理时才验证运行环境与资产。
 
 需要机器翻译时，在[模型设置](settings-guide.md)中保存模型与凭据。源码开发者的 Python 准备、配置文件及回归脚本另见源码仓库的 [PDF 开发参考](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/pdf-development.md)。
 

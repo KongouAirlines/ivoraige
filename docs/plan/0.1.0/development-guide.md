@@ -1,6 +1,6 @@
 # 0.1.0 开发与源码运行
 
-安装版用户从[安装指南](installation-guide.md)开始。本页供源码运行和贡献代码使用；架构约束见 [AGENTS.md](../../../AGENTS.md) 与 [插件组合决策](../../decisions/0002-plugin-composition-0.1.0.md)。
+首次使用从[安装指南](installation-guide.md)开始。本页供源码运行和贡献代码使用；架构约束见 [AGENTS.md](../../../AGENTS.md) 与 [插件组合决策](../../decisions/0002-plugin-composition-0.1.0.md)。
 
 ## 准备与启动
 
@@ -13,7 +13,7 @@ npm run build
 npm start
 ```
 
-需要本地 npm 安装包时，在完成上述依赖与 DSH 准备后运行 `npm run pack:npm -- <输出目录>`，得到 `ivoraige-0.1.0.tgz`；从该 tarball 安装到独立目录可使用 CLI／HTTP／MCP 及文本工作台。该命令只构建本地 tarball，不向 npm registry 发布。新版 Windows 便携包尚未构建和验收；旧 `v0.1.0-dev.0` 附件保持原版本身份。
+需要本地 npm 安装包时，在完成上述依赖与 DSH 准备后运行 `npm run pack:npm -- <输出目录>`，得到 `ivoraige-0.1.0.tgz`；从该 tarball 安装到独立目录可使用 CLI／HTTP／MCP 及文本工作台。该命令只构建本地 tarball，不向 npm registry 发布。目前不提供预构建下载包；旧 Release 附件已撤下。
 
 启动器打开浏览器，数据目录与源码分开，默认位置按平台决定：
 

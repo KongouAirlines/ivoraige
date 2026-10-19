@@ -31,13 +31,13 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 
 ## 开始使用
 
-**0.1.0 源码与 npm 包** — 从 [v0.1.0](https://github.com/KongouAirlines/ivaraige/releases/tag/v0.1.0) 下载源码归档或 npm 安装包，按[安装指南](docs/plan/0.1.0/installation-guide.md)启动。仓库继续私有，下载需要仓库访问权限。自行构建见[开发指南](docs/plan/0.1.0/development-guide.md)。新版 Windows 便携包尚未构建和验收；现有 [Windows `v0.1.0-dev.0` 预览附件](https://github.com/KongouAirlines/ivaraige/releases/tag/v0.1.0-dev.0)属于早期版本。
+**从源码运行 0.1.0。** 按[安装指南](docs/plan/0.1.0/installation-guide.md)准备并启动。此前的 Release 及附件已撤下，预构建下载包延后提供。项目正在确定开源许可，仓库切换公开前仍需访问权限。
 
 1. 打开工作台，导入 TXT 或 Markdown 文件。
 2. 需要机器翻译时配置模型，也可以直接录入自己的译文。
 3. 审校并接受修订，导出结果。
 
-处理 PDF 时，在**设置 → PDF** 安装 BabelDOC，重启程序后按 [PDF 指南](docs/plan/0.1.0/pdf-guide.md)操作。
+处理 PDF 时，先按 [PDF 开发参考](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/pdf-development.md)准备 Windows 可选环境，再按 [PDF 指南](docs/plan/0.1.0/pdf-guide.md)操作。默认在线组件源目前没有可下载的 Release。
 
 希望从源码运行？请看[开发指南](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/development-guide.md)。详细指南目前以中文为主。
 
@@ -51,9 +51,9 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 | PDF · 可选 | 原生文本英文 PDF 到中文单语 PDF，包含来源页码定位与 PDF/Markdown/JSON 冻结导出。 |
 | 保存工作 | 持久保存文档、修订、任务和导出快照。 |
 | 使用入口 | 本地浏览器工作台、CLI、HTTP/SSE，以及 stdio 或 Streamable HTTP MCP。 |
-| 平台 | Node.js 内核曾在 Windows、Linux、macOS 测试。现有 Windows x64 便携包及 PDF 组件属于较早的 `v0.1.0-dev.0`；尚未构建 `0.1.0` Windows 包。 |
+| 平台 | Node.js 内核曾在 Windows、Linux、macOS 测试。PDF 开发准备已在 Windows x64 验证；目前不提供预构建下载包。 |
 
-上述能力对应 `0.1.0` 源码及由其构建的 npm tarball。现有 Windows `v0.1.0-dev.0` Release 附件尚未包含 MCP 和可选令牌安装，也不是 `0.1.0` 包；新版 Windows 包尚未构建和验收。本源码可匿名读取公开组件源，私有源仍需显式凭据。
+上述能力对应 `0.1.0` 源码，也可自行构建本地 npm 包。组件管理支持公开源匿名访问和私有源显式授权，但原默认 Release 已撤下。
 
 扫描件 OCR、双语 PDF、EPUB、可复用术语库、Zotero 集成和通用文件处理工具仍属未来工作。在线模型会接收待译文本，并可能向你的供应商账户计费；本地工作台并不意味着翻译完全离线或免费。详细范围见[能力与限制](docs/plan/0.1.0/capabilities.md)。
 
@@ -73,6 +73,6 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 
 欢迎告诉我们你想翻译或处理什么、在哪一步遇到困难，以及希望组合哪些工具。可以复现的反馈与原创或可分享的样本尤其有帮助。
 
-参与前请阅读[贡献指南](CONTRIBUTING.md)及[安全报告说明](SECURITY.md)。项目许可待团队确认；即使源码可公开查看，也不自动授予开源许可。
+参与前请阅读[贡献指南](CONTRIBUTING.md)及[安全报告说明](SECURITY.md)。项目按正式开源准备，具体许可证及已有贡献授权正在确认。
 
 基于 Cordis 与 DSH 构建，可选接入 BabelDOC。参见[第三方致谢](THIRD_PARTY.md)。
