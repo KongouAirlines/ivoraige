@@ -130,7 +130,13 @@ def inventory_archive(path: Path, destination: Path) -> dict:
                 return
             target = destination / "text" / name
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(content)
+            # Let the destination filesystem resolve aliases (including case).
+            # Exclusive creation prevents a later member overwriting evidence.
+            try:
+                with target.open("xb") as output:
+                    output.write(content)
+            except FileExistsError as error:
+                raise ValueError(f"text copy path collision: {name}") from error
             copied += size
 
     with inventory.open("w", encoding="utf-8") as manifest:

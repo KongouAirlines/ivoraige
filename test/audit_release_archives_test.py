@@ -105,6 +105,45 @@ class ArchiveAuditTest(unittest.TestCase):
         self.assertNotEqual(subprocess.run(command, capture_output=True).returncode, 0)
         self.assertFalse(self.output.exists())
 
+    def test_text_copy_case_collisions_follow_target_filesystem(self):
+        probe = self.root / "case-probe"
+        probe.write_bytes(b"probe")
+        case_insensitive = (self.root / "CASE-PROBE").exists()
+        probe.unlink()
+        for archive_index, extension in enumerate(("zip", "tar.gz")):
+            for case_index, names in enumerate((("pkg/LICENSE", "pkg/license"), ("Pkg/LICENSE", "pkg/license"))):
+                with self.subTest(extension=extension, names=names):
+                    archive = self.downloads / ("case." + extension)
+                    members = list(zip(names, (b"first license\n", b"second license\n")))
+                    if extension == "zip":
+                        with zipfile.ZipFile(archive, "w") as z:
+                            for name, data in members:
+                                z.writestr(name, data)
+                    else:
+                        with tarfile.open(archive, "w:gz") as tar:
+                            for name, data in members:
+                                member = tarfile.TarInfo(name)
+                                member.size = len(data)
+                                tar.addfile(member, io.BytesIO(data))
+                    # Each case gets its own output so both filesystem behaviors
+                    # can be checked without deleting a successful inventory.
+                    self.output = self.root / f"evidence-{archive_index}-{case_index}"
+                    result = self.run_audit([archive])
+                    if case_insensitive:
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn("text copy path collision", result.stderr)
+                        self.assertFalse(self.output.exists())
+                        self.assertEqual(list(self.root.glob("." + self.output.name + "-*")), [])
+                    else:
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        rows = [json.loads(line) for line in
+                                (self.output / archive.name / "members.jsonl").read_text().splitlines()]
+                        self.assertEqual(len(rows), len(members))
+                        for row, (name, data) in zip(rows, members):
+                            copied = (self.output / archive.name / "text" / name).read_bytes()
+                            self.assertEqual(copied, data)
+                            self.assertEqual(hashlib.sha256(copied).hexdigest(), row["sha256"])
+
     def test_unsafe_and_duplicate_members_fail(self):
         for members in [[("../escape", "x")], [("same", "x"), ("same", "y")]]:
             with self.subTest(members=members):
