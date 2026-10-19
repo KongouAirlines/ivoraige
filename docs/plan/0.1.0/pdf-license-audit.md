@@ -2,7 +2,7 @@
 
 **2026-10-19 更新：全部 Release 和附件已撤下，当前无发行包下载。** 本文保存旧附件的审计证据；F-B／P2 的包整改与验收留待恢复二进制分发前完成，不作为本轮仅发布源码的安装包门槛。撤下不等于旧包缺口已修复。
 
-2026-10-17，Asia/Shanghai。对应[公开准备计划 F-B／P2](public-readiness.md#f-b-pdf-发行物的许可闭环未获得实际归档验证)。本轮完成了四个当时可下载的附件的实际读取与许可证据核验，**结果为未通过发行许可闭环；F-B 仍未关闭**。资源包的文件、来源与通知已逐项对上；基础 ZIP 的通知缺口、PDF 运行时额外依赖和对应源码材料仍须处理。不能把本报告或清单脚本退出码 0 当作发行授权。
+2026-10-17，Asia/Shanghai。对应[公开准备计划 F-B／P2](public-readiness.md#pdf-发行物的后续验收)。本轮完成了四个当时可下载的附件的实际读取与许可证据核验，**结果为未通过发行许可闭环；F-B 仍未关闭**。资源包的文件、来源与通知已逐项对上；基础 ZIP 的通知缺口、PDF 运行时额外依赖和对应源码材料仍须处理。不能把本报告或清单脚本退出码 0 当作发行授权。
 
 原审计来自 [PR #24](https://github.com/KongouAirlines/ivaraige/pull/24)／提交 [`3d3f9fc`](https://github.com/KongouAirlines/ivaraige/commit/3d3f9fc227aad87d7661f2a9934df38ac056d6c5)，工作分支 `codex/0.1.0-pdf-license-audit`，从公开准备文档分支 `fca3c61` 开始，业务基线为 `c8a146d`。原审计时项目自身授权仍待确认；后续许可与贡献规则见 [PR #32](https://github.com/KongouAirlines/ivaraige/pull/32)。
 

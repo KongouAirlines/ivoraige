@@ -8,8 +8,11 @@ script installs the pinned package versions into an ignored project runtime;
 it also runs BabelDOC `--warmup` to prepare the default asset cache. Use
 `scripts/setup-pdf.ps1 -CheckOnly` to verify versions and required assets
 without downloading. Ordinary PDF tasks never install packages or download
-assets. The npm package includes this source and setup instructions, not a
-Python executable, wheel set or asset cache.
+assets. The main npm package excludes this Python plugin. Use the source checkout
+and setup script for development; the separate PDF component includes this
+plugin source and lockfile. Project-owned files here use **AGPL-3.0-only**;
+see [LICENSE](LICENSE) and [COPYING](COPYING). Upstream libraries and assets
+retain their own licenses.
 
 `configure.modelDirs.babeldoc` names the existing BabelDOC asset cache root
 (containing `fonts`, `cmap`, `tiktoken`, and `models`). Optional

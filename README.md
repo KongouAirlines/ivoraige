@@ -31,13 +31,13 @@ The goal is a shared foundation for people and AI: choose the capabilities you n
 
 ## Get started
 
-**0.1.0 source and npm package** — Download the source archive or npm tarball from [v0.1.0](https://github.com/KongouAirlines/ivaraige/releases/tag/v0.1.0), then follow the [installation guide (中文)](docs/plan/0.1.0/installation-guide.md). The repository remains private, so downloads require repository access. See the [development guide (中文)](docs/plan/0.1.0/development-guide.md) to build from source. The new Windows portable package has not been built or validated; the existing [Windows `v0.1.0-dev.0` preview download](https://github.com/KongouAirlines/ivaraige/releases/tag/v0.1.0-dev.0) belongs to that earlier version.
+**Run 0.1.0 from source.** Follow the [installation guide (中文)](docs/plan/0.1.0/installation-guide.md). The previous Releases and their attachments have been withdrawn; prebuilt downloads will return in a later release. Repository access is still required until the repository becomes public.
 
 1. Open the workbench and import a TXT or Markdown file.
 2. Configure a model when you want machine translation, or enter translations yourself.
 3. Review and accept revisions, then export the result.
 
-For PDF, install BabelDOC from **Settings → PDF**, restart the application, and follow the [PDF guide (中文)](docs/plan/0.1.0/pdf-guide.md).
+For PDF, prepare the optional Windows development environment using the [PDF development guide (中文)](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/pdf-development.md), then follow the [PDF guide (中文)](docs/plan/0.1.0/pdf-guide.md). The default online component source currently has no downloadable Release.
 
 Want to run from source? Follow the [development guide](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/development-guide.md). Detailed guides are currently mostly in Chinese.
 
@@ -51,9 +51,9 @@ Want to run from source? Follow the [development guide](https://github.com/Kongo
 | PDF · optional | Native-text English PDFs to Chinese monolingual PDFs, with source-page references and frozen PDF/Markdown/JSON export. |
 | Saved work | Persistent documents, revisions, tasks, and export snapshots. |
 | Access | Local browser workbench, CLI, HTTP/SSE, and MCP over stdio or Streamable HTTP. |
-| Platforms | The Node.js kernel has been tested on Windows, Linux, and macOS. The available Windows x64 portable package and PDF component belong to the earlier `v0.1.0-dev.0` release; no `0.1.0` Windows package has been built. |
+| Platforms | The Node.js kernel has been tested on Windows, Linux, and macOS. PDF development setup has been verified on Windows x64; prebuilt downloads are currently unavailable. |
 
-These capabilities describe the `0.1.0` source and npm tarball built from it. The existing Windows `v0.1.0-dev.0` Release attachments predate MCP and optional-token component installation; they are not `0.1.0` packages. A new Windows package has not yet been built or validated. Public component sources can be read anonymously by this source build; private sources require explicit credentials.
+These capabilities describe the `0.1.0` source. You can build a local npm tarball yourself. Component management supports anonymous public sources and explicitly authorized private sources, but the previous default Release has been withdrawn.
 
 Scanned PDF OCR, bilingual PDF output, EPUB, reusable term libraries, Zotero integration, and general file-processing utilities are future work. Online models receive the text you translate and may charge your provider account. A local workbench does not imply fully offline or free translation. See [capabilities and limits (中文)](docs/plan/0.1.0/capabilities.md).
 
@@ -73,6 +73,6 @@ These are directions, not delivery dates. See the [roadmap](https://github.com/K
 
 Tell us what you are trying to translate or process, where the workflow gets in your way, and which tools you would like to combine. Reproducible reports and original or shareable samples are especially useful.
 
-See [contribution guidance](CONTRIBUTING.md) and [security reporting](SECURITY.md). Project licensing is pending team confirmation. Public access to the source, if enabled, does not itself grant an open-source license.
+See [contribution guidance](CONTRIBUTING.md) and [security reporting](SECURITY.md). The core uses **LGPL-3.0-or-later**; the business modules listed in [LICENSE](LICENSE) use **MIT**. The optional BabelDOC Python plugin uses **AGPL-3.0-only** and is packaged separately. Contributions require DCO sign-off.
 
 Built with Cordis and DSH, with optional BabelDOC support. See [third-party acknowledgements](THIRD_PARTY.md).

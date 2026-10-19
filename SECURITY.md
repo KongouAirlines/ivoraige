@@ -1,9 +1,26 @@
 # Security policy
 
-ivoraige `0.1.0` is the first formal software version. Report vulnerabilities against the affected version or commit; the older `0.1.0-dev.0` Windows/PDF attachments remain a separate preview. No long-term support period or response-time commitment has been announced. Security fixes and support scope will be assessed for each report.
+ivoraige is in early development at version 0.1.0. Report the affected version
+or commit, including reports about the withdrawn release packages.
 
-Please do not disclose a suspected vulnerability, exploit steps, private documents, credentials, or personal data in a public issue, pull request, or discussion.
+## Report a vulnerability
 
-The repository administrator team is responsible for vulnerability reports and dependency-alert triage. On 2026-10-17, the owner chose GitHub private vulnerability reporting as the channel after the repository becomes public. This document does not yet identify a verified active private reporting channel. When the repository's **Security → Advisories → Report a vulnerability** button is available, use it to send details privately to repository maintainers. GitHub private vulnerability reporting must be enabled by a repository administrator; this document alone does not enable it. If that button is unavailable, open a minimal issue requesting a private security contact **without vulnerability details or attachments**. Wait for the maintainers to provide a private route before sending sensitive material. Do not send reports to an address inferred from commits or profiles.
+Use **Security → Advisories → Report a vulnerability** on
+[GitHub](https://github.com/KongouAirlines/ivaraige/security/advisories/new)
+when available. Reports go to repository maintainers. If the button is missing,
+open an issue requesting a private security contact, **without vulnerability
+details or attachments**, and wait for a private channel.
 
-In a private report, include the affected version or commit, platform, impact, reproducible steps, and a minimal original or authorized proof of concept. Remove secrets and unrelated private data. The administrator team will assign coverage, confirm receipt, and coordinate next steps once the private channel is enabled and tested. No response deadline is promised here.
+Include the version or commit, operating system, impact, reproduction steps
+and a small original or authorized example. Remove credentials, private
+documents and unrelated personal data. Keep exploit details out of public
+issues and pull requests while the report is being assessed.
+
+## Use safely
+
+- Keep the local workbench bound to loopback; it is not a public hosting service.
+- Connect only trusted MCP clients: they can change records, settings and components.
+- Online model providers receive the text submitted for translation. Use material
+  you are permitted to send and keep credentials out of logs and reports.
+- Back up your data before updating; optional PDF components have their own
+  dependencies and installation requirements.

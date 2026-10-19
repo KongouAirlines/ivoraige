@@ -2,7 +2,7 @@
 
 2026-10-17，执行[公开准备计划](public-readiness.md) F-D～F-G 及对应 P3～P6 的可执行部分。此记录不表示仓库已公开、发行资产已获再分发许可或新的 Windows 发行版已经交付。
 
-本文按时间保留证据；最新授权范围见文末“0.1.0 正式版本准备”。此前等待公开授权、版本选择的描述仅代表当时状态。
+本文按时间保留证据；最新范围见文末日期记录。此前等待公开授权、版本选择的描述仅代表当时状态。
 
 ## 基线与协作
 
@@ -91,3 +91,21 @@ PR #18、#19、#25 已按顺序合入 main，最终发行提交为 `cb7e4a4c08aa
 Release 同时保存 `SHA256SUMS`、`ivoraige-0.1.0.build-evidence.json` 和 `ivoraige-0.1.0.acceptance.json`。最终 npm 包内许可通知独立检查为 50 项、0 空项。完整 Node 检查仍为 253 通过／1 个 Windows 跳过，0 失败；实际最终包的 69 文件 smoke 通过。日志见 `release-verification.log`、`final-tarball-smoke.log` 和 `final-license-check.json`，数据只存于忽略目录。
 
 本轮按用户缩减后的首轮发行范围完成，`release-documentation-binding` 已解决。尚待后续的范围是 Windows 新包与运行验收、三系统 CI、公开切换及其匿名安装／安全配置验证；F-A 许可与 F-B 旧附件问题仍属原工作包，没有由本次发布代为关闭。仓库管理员设置未应用，旧 `v0.1.0-dev.0` tag 和四个附件未修改。
+
+## 撤下发行下载（2026-10-19）
+
+项目改按正式开源、源码使用准备，安装包延后。已删除 `v0.1.0`（Release ID 415875858，5 个附件）和 `v0.1.0-dev.0`（Release ID 409404460，4 个附件）；删除后仓库 Releases API 返回空列表。未执行 tag 删除，本地 tag 仍在；远端未列出 tag 的差异见[公开准备计划](public-readiness.md)。原默认 PDF 组件源不再有附件可下载，已有本机组件和用户数据不变。
+
+历史构建和验收记录保留。当前 README 与用户指南改为源码启动及 Windows PDF 开发准备；具体许可证和已有贡献授权继续确认。安装包恢复分发前需处理实际归档审计中的许可／源码缺口，并按版本重新验收。
+
+本轮文档验证：141 个相对链接检查通过；现有 `test/release-docs.test.mjs` 4/4 通过；实际用户 Markdown 及六份 HTML 指南生成、链接校验通过；`git diff --check` 通过。运行环境为 Windows／Node 26.7.0，未重新执行完整业务或 PDF 验收。
+
+## 分组件许可与贡献说明（2026-10-19）
+
+已有贡献的开源授权已确认。核心和默认自有文档使用 LGPL-3.0-or-later；LICENSE 逐项列出的记录、翻译、导出及格式适配模块使用 MIT；独立 BabelDOC Python 插件使用 AGPL-3.0-only。第三方内容保留原许可。
+
+主程序 npm 清单移除 Python 插件及其开发安装脚本，源码仓库继续保留开发路径。npm／Windows 基础包的文档准备步骤原样复制 LICENSE、COPYING、COPYING.LESSER；独立 PDF 构建携带自己的 LICENSE、COPYING、server.py 和 requirements.lock。包清单以 SPDX 组合表达式记录 LGPL 与 MIT，不表示任选其一。
+
+SECURITY 和 CONTRIBUTING 各保持单页篇幅；贡献使用 DCO 1.1 Signed-off-by，PR 模板增加提醒。私密漏洞报告仍需管理员启用并验证，不增加响应期限承诺。
+
+本轮验证（Windows／Node 26.7.0）：打包文档测试 4/4 通过，覆盖许可原样复制、npm 许可被改后的拒绝及主包不包含 Python 插件。实际用户 Markdown 和六份 HTML 指南生成及链接检查通过。实际 npm dry-run 列出 53 个文件，包含三份根目录许可文件，不包含 Python 插件、安装脚本及其示例配置；此检查未构建运行时，不是完整安装包验收。三个受影响 Python 文件语法检查通过，业务逻辑只增加许可头，未重跑完整业务或 PDF 运行测试。未新增或改变 follow-up 状态。

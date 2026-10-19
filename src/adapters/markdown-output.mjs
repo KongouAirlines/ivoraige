@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 ivoraige contributors; see LICENSE for the full notice.
+
 import { KernelError } from '../errors.mjs'
 
 const escapeProse = value => value.replace(/[\\`*_{}\[\]()<>#+.!|~$&-]/g, '\\$&')

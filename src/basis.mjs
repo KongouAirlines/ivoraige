@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 ivoraige contributors; see LICENSE for the full notice.
+
 import { createHash } from 'node:crypto'
 import { isDeepStrictEqual } from 'node:util'
 

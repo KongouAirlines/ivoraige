@@ -1,6 +1,6 @@
 # 0.1.0 能力与限制
 
-本页描述正式软件版本 `0.1.0` 的源码及由它构建的本地 npm 包；设计文档 v2.0 是架构版本，不是软件版本。新版 Windows 便携包尚未构建或验收。现有 Windows `v0.1.0-dev.0` Release 附件仍属旧预览版，尚未包含 MCP 和可选令牌安装，不能重标为 `0.1.0`；其能力以该 Release 说明为准。历史测试次数与试验结果见源码中的 [实施记录](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/README.md)。
+本页描述 `0.1.0` 源码及自行构建的本地 npm 包；v2.0 是设计文档版本。此前的 Release 附件已撤下，当前从源码运行，PDF 使用 Windows 开发准备路径或已有本机组件。历史测试与版本差异见[实施记录](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/README.md)。
 
 | 能力 | 当前可用范围 | 主要边界 |
 | --- | --- | --- |

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 ivoraige contributors; see LICENSE for the full notice.
+
 import { createHash, randomUUID } from 'node:crypto'
 import { readFile, writeFile, mkdir, mkdtemp, rm, stat, copyFile, realpath, rename } from 'node:fs/promises'
 import { constants } from 'node:fs'

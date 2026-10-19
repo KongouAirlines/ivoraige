@@ -4,7 +4,7 @@ ivoraige 的 MCP 入口把已装插件贡献的内核能力提供给本机 AI �
 
 ## 连接方式
 
-现有 Windows `v0.1.0-dev.0` Release 附件尚未包含 MCP。更新发行包发布前，请使用源码构建；需要 Node.js 24 或更新版本，并先按[开发指南](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/development-guide.md)完成依赖和 DSH 构建。从仓库运行时，命令可写成 `node C:/path/to/ivoraige/src/cli.mjs`；安装包含 MCP 的 npm 包后使用 `ivoraige` 命令。以下示例中的路径都要换成服务器上的实际绝对路径。
+目前不提供预构建下载包，请使用源码构建；需要 Node.js 24 或更新版本，并先按[开发指南](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/development-guide.md)完成依赖和 DSH 构建。从仓库运行时，命令可写成 `node C:/path/to/ivoraige/src/cli.mjs`；安装包含 MCP 的 npm 包后使用 `ivoraige` 命令。以下示例中的路径都要换成服务器上的实际绝对路径。
 
 **连接已经运行的工作台**：常驻服务 `ivoraige serve --store C:/data/ivoraige/store.sqlite` 默认在 `http://127.0.0.1:8787/mcp` 提供 Streamable HTTP。桌面启动器也默认在其实际监听端口的 `/mcp` 提供同一入口；它会在启动时输出服务 URL。HTTP MCP、WebUI 和 HTTP CLI 共用该进程的内核、数据库、设置与任务。`ivoraige serve --no-mcp` 关闭 MCP 入口。为保证本机访问边界，HTTP 服务只允许回环监听，并检查 Host 与 Origin；当前没有非回环认证配置。
 

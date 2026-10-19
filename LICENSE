@@ -1,0 +1,56 @@
+ivoraige licensing
+Copyright (c) 2026 ivoraige contributors
+
+Unless a file carries a different notice or is listed below, project-owned
+code and documentation are licensed under the GNU Lesser General Public
+License, version 3 or (at your option) any later version.
+SPDX-License-Identifier: LGPL-3.0-or-later
+The full terms are in COPYING.LESSER and COPYING; LGPL v3 incorporates GPL v3.
+
+MIT business modules
+--------------------
+The following project-owned modules are licensed under the MIT License:
+  src/basis.mjs
+  src/records.mjs
+  src/export.mjs
+  src/tasks.mjs
+  src/translation-model.mjs
+  src/adapters/*.mjs
+
+These modules implement translation, document records, frozen exports and
+format adapters. They currently ship in the main package. Shared registries,
+protocols, entry points and other core files retain LGPL-3.0-or-later.
+Future independent plugins declare their own license (for example GPL or MIT);
+this is not a choice of license for files already covered by this notice.
+
+MIT License
+Copyright (c) 2026 ivoraige contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Separate PDF plugin and third-party content
+-------------------------------------------
+Project-owned files under sidecars/babeldoc/ use AGPL-3.0-only as described in
+sidecars/babeldoc/LICENSE. This optional Python plugin is distributed separately
+from the main application package. The Node PDF adapter and process client
+remain under the MIT and LGPL licenses specified above, respectively.
+
+Third-party code, fonts, models and other resources retain their own licenses
+and notices, including those under sidecars/babeldoc/asset-licenses/.
+See THIRD_PARTY.md. This notice does not relicense third-party material.

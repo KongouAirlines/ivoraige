@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (c) 2026 ivoraige contributors
+
 """Fast preflight tests; no BabelDOC import, model, or asset download."""
 
 import json
