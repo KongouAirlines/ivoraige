@@ -3,13 +3,13 @@ import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { copyUserDocs, releaseInfo, validatePackagedLinks } from './release-docs.mjs'
+import { copyUserDocs, licenseNames, releaseInfo, validatePackagedLinks } from './release-docs.mjs'
 
 export async function stageNpmPackage(root, stage) {
   const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
   await mkdir(stage, { recursive: true })
   await writeFile(join(stage, 'package.json'), JSON.stringify(manifest, null, 2) + '\n')
-  const generatedDocs = new Set(['README.md', 'README.zh-CN.md', 'THIRD_PARTY.md', 'CONTRIBUTING.md', 'SECURITY.md'])
+  const generatedDocs = new Set(['README.md', 'README.zh-CN.md', 'THIRD_PARTY.md', 'CONTRIBUTING.md', 'SECURITY.md', ...licenseNames])
   for (const file of manifest.files) {
     if (generatedDocs.has(file) || file.startsWith('docs/plan/0.1.0/') || file === 'docs/assets/0.1.0/workbench.jpg') continue
     const source = join(root, file)

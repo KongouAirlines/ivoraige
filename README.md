@@ -31,7 +31,7 @@ The goal is a shared foundation for people and AI: choose the capabilities you n
 
 ## Get started
 
-**Run 0.1.0 from source.** Follow the [installation guide (中文)](docs/plan/0.1.0/installation-guide.md). The previous Releases and their attachments have been withdrawn; prebuilt downloads will return in a later release. Repository access is still required while open-source licensing is being finalized.
+**Run 0.1.0 from source.** Follow the [installation guide (中文)](docs/plan/0.1.0/installation-guide.md). The previous Releases and their attachments have been withdrawn; prebuilt downloads will return in a later release. Repository access is still required until the repository becomes public.
 
 1. Open the workbench and import a TXT or Markdown file.
 2. Configure a model when you want machine translation, or enter translations yourself.
@@ -73,6 +73,6 @@ These are directions, not delivery dates. See the [roadmap](https://github.com/K
 
 Tell us what you are trying to translate or process, where the workflow gets in your way, and which tools you would like to combine. Reproducible reports and original or shareable samples are especially useful.
 
-See [contribution guidance](CONTRIBUTING.md) and [security reporting](SECURITY.md). The project is preparing for open-source release; the license and existing contribution permissions are being finalized.
+See [contribution guidance](CONTRIBUTING.md) and [security reporting](SECURITY.md). The core uses **LGPL-3.0-or-later**; the business modules listed in [LICENSE](LICENSE) use **MIT**. The optional BabelDOC Python plugin uses **AGPL-3.0-only** and is packaged separately. Contributions require DCO sign-off.
 
 Built with Cordis and DSH, with optional BabelDOC support. See [third-party acknowledgements](THIRD_PARTY.md).

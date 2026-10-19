@@ -6,6 +6,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path'
 
 export const guideNames = ['installation-guide.md', 'workbench-guide.md', 'pdf-guide.md', 'settings-guide.md', 'mcp-guide.md', 'capabilities.md']
 export const rootNames = ['README.md', 'README.zh-CN.md', 'THIRD_PARTY.md', 'CONTRIBUTING.md', 'SECURITY.md']
+export const licenseNames = ['LICENSE', 'COPYING', 'COPYING.LESSER']
 export const guideDir = 'docs/plan/0.1.0'
 const origin = 'https://github.com/KongouAirlines/ivaraige'
 
@@ -87,7 +88,7 @@ export async function validateWebGuideLinks(outdir) {
   if (failures.length) throw new Error(`Bundled HTML guides have broken links:\n${failures.join('\n')}`)
 }
 
-const shipped = new Set([...rootNames, ...guideNames.map(name => `${guideDir}/${name}`), 'docs/assets/0.1.0/workbench.jpg'])
+const shipped = new Set([...rootNames, ...licenseNames, ...guideNames.map(name => `${guideDir}/${name}`), 'docs/assets/0.1.0/workbench.jpg'])
 export function portableLinks(markdown, sourceName, info) {
   const sourceDir = dirname(join('/', sourceName))
   return exactSourceLinks(markdown, info).replace(/(!?\[[^\]]*\]\()([^)]*)(\))/g, (whole, open, href, close) => {
@@ -107,6 +108,7 @@ export async function copyUserDocs(root, destination) {
     await mkdir(dirname(output), { recursive: true })
     await writeFile(output, portableLinks(await readFile(source, 'utf8'), name, info))
   }
+  for (const name of licenseNames) await cp(join(root, name), join(destination, name))
   const target = join(destination, guideDir)
   await mkdir(target, { recursive: true })
   for (const name of guideNames) {

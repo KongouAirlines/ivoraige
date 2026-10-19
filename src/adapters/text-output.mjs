@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 ivoraige contributors; see LICENSE for the full notice.
+
 // Renderers receive only resolved frozen data, never a Cordis context or service.
 import { renderMarkdown } from './markdown-output.mjs'
 import { readablePdfText } from './pdf-text.mjs'

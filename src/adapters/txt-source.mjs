@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 ivoraige contributors; see LICENSE for the full notice.
+
 import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { KernelError } from '../errors.mjs'

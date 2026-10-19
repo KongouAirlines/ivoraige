@@ -5,7 +5,7 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildWebGuides, copyUserDocs, guideDir, guideHtml, guideNames, releaseInfo, rootNames } from '../scripts/release-docs.mjs'
+import { buildWebGuides, copyUserDocs, guideDir, guideHtml, guideNames, licenseNames, releaseInfo, rootNames } from '../scripts/release-docs.mjs'
 import { verifyRelease } from '../scripts/verify-release.mjs'
 import { stageNpmPackage } from '../scripts/pack-npm.mjs'
 import { create as createTar } from 'tar'
@@ -20,7 +20,7 @@ async function fixture(root) {
   await writeFile(join(root, 'docs/assets/0.1.0/workbench.jpg'), 'test image')
   await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'ivoraige', version: '1.2.3', type: 'module',
     files: ['src/', 'dist/web/', 'dist/dsh.mjs', 'dist/DSH-LICENSE.txt', 'dist/THIRD_PARTY_LICENSES.txt',
-      ...rootNames, ...guideNames.map(name => `${guideDir}/${name}`), 'docs/assets/0.1.0/workbench.jpg'] }))
+      ...rootNames, ...licenseNames, ...guideNames.map(name => `${guideDir}/${name}`), 'docs/assets/0.1.0/workbench.jpg'] }))
   await writeFile(join(root, '.gitignore'), 'dist/\nstage/\narchive.zip\narchive.tgz\nbuild-evidence.json\n')
   await mkdir(join(root, 'src'))
   for (const name of ['app.mjs', 'cli.mjs', 'launch.mjs']) await writeFile(join(root, 'src', name), '// test fixture\n')
@@ -35,7 +35,11 @@ await mkdir('dist/web', { recursive: true })
 for (const name of ['index.html', 'app.js', 'app.css'])
   await writeFile('dist/web/' + name, 'fixture build: ' + name + '\\n')
 `)
-  for (const name of rootNames) await writeFile(join(root, name), '# Document\n\n[Guide](docs/plan/0.1.0/pdf-guide.md)\n')
+  for (const name of rootNames) await writeFile(join(root, name), '# Document\n\n[Guide](docs/plan/0.1.0/pdf-guide.md) · [License](LICENSE)\n')
+  for (const name of licenseNames) await writeFile(join(root, name), Buffer.from(`${name}: exact UTF-8 bytes \r\n`, 'utf8'))
+  await mkdir(join(root, 'sidecars/babeldoc'), { recursive: true })
+  for (const name of ['server.py', 'requirements.lock', 'README.md', 'LICENSE', 'COPYING'])
+    await writeFile(join(root, 'sidecars/babeldoc', name), `separate PDF component: ${name}\n`)
   for (const name of guideNames) await writeFile(join(root, guideDir, name), `# ${name}\n\n[PDF](pdf-guide.md)\n`)
   run('git', ['init', '-q'], root)
   run('git', ['add', '.'], root)
@@ -87,6 +91,10 @@ test('npm release validation binds actual tarball files to the clean tagged sour
     run(process.execPath, ['scripts/build-web.mjs'], root)
     const stage = join(root, 'stage/package')
     await stageNpmPackage(root, stage)
+    for (const name of licenseNames)
+      assert.deepEqual(await readFile(join(stage, name)), await readFile(join(root, name)))
+    for (const name of ['server.py', 'requirements.lock', 'README.md', 'LICENSE', 'COPYING'])
+      await assert.rejects(readFile(join(stage, 'sidecars/babeldoc', name)), { code: 'ENOENT' })
     const archive = join(root, 'archive.tgz'), evidencePath = join(root, 'build-evidence.json')
     const repack = async () => {
       await createTar({ file: archive, cwd: join(root, 'stage'), gzip: true }, ['package'])
@@ -98,6 +106,10 @@ test('npm release validation binds actual tarball files to the clean tagged sour
     const checked = await verifyRelease(root, 'v1.2.3', evidencePath)
     assert.equal(checked.format, 'npm-tarball')
     assert.equal(checked.sourceCommit, info.sourceCommit)
+    await writeFile(join(stage, 'COPYING.LESSER'), 'modified license')
+    await repack()
+    await assert.rejects(verifyRelease(root, 'v1.2.3', evidencePath), /differs from release source\/build: COPYING\.LESSER/)
+    await cp(join(root, 'COPYING.LESSER'), join(stage, 'COPYING.LESSER'))
     const app = join(stage, 'src/app.mjs')
     await writeFile(app, '// different application\n')
     await repack()
@@ -144,6 +156,13 @@ test('release validation checks tag, generated metadata and actual ZIP bytes',
   try {
     await fixture(root)
     const { info, archive, evidencePath } = await archiveFixture(root)
+    for (const name of licenseNames) {
+      assert.deepEqual(await readFile(join(root, 'stage/app', name)), await readFile(join(root, name)))
+      const members = execFileSync(process.platform === 'win32' ? 'tar.exe' : 'tar', ['-tf', archive], { encoding: 'utf8' }).trim().split(/\r?\n/)
+      const member = members.find(value => value.replaceAll('\\', '/').replace(/^\.\//, '') === `app/${name}`)
+      assert.ok(member, `archive includes app/${name}`)
+      assert.deepEqual(execFileSync(process.platform === 'win32' ? 'tar.exe' : 'tar', ['-xOf', archive, member]), await readFile(join(root, name)))
+    }
     assert.equal((await verifyRelease(root, 'v1.2.3', evidencePath)).sourceCommit, info.sourceCommit)
     await assert.rejects(verifyRelease(root, 'v1.2.4', evidencePath), /differs from package version/)
     const metadataPath = join(root, 'dist/web/release-info.json')
@@ -179,7 +198,7 @@ test('release validation checks tag, generated metadata and actual ZIP bytes',
     await writeFile(evidencePath, JSON.stringify({ version: info.version, source: info, output: archive,
       bytes: changed.length, sha256: createHash('sha256').update(changed).digest('hex') }))
     await assert.rejects(verifyRelease(root, 'v1.2.3', evidencePath), /Release ZIP embeds stale README.md/)
-    await writeFile(join(root, 'stage/app/README.md'), '# Document\n\n[Guide](docs/plan/0.1.0/pdf-guide.md)\n')
+    await cp(join(root, 'README.md'), join(root, 'stage/app/README.md'))
     await rm(join(root, 'stage/runtime/node.exe'))
     await rm(archive)
     run(process.platform === 'win32' ? 'tar.exe' : 'tar', ['-a', '-c', '-f', archive, '-C', join(root, 'stage'), '.'], root)

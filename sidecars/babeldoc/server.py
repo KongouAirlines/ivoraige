@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+# Copyright (c) 2026 ivoraige contributors
+
 """BabelDOC 0.6.4 PDF capture/replay over line-delimited JSON-RPC 2.0.
 
 The only stdout writes are protocol messages. BabelDOC runs in this dedicated

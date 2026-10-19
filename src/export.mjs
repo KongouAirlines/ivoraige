@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 ivoraige contributors; see LICENSE for the full notice.
+
 import { randomBytes } from 'node:crypto'
 import { mkdir, writeFile, unlink } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'

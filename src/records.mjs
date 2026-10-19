@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 ivoraige contributors; see LICENSE for the full notice.
+
 import { randomUUID } from 'node:crypto'
 import { Service, StorageDomain, z } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'

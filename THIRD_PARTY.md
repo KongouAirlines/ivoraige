@@ -7,9 +7,10 @@ new implementations for `0.1.0-dev.0`.
 
 The optional PDF sidecar is separate from the Node bundle. Its pinned Python
 runtime installs BabelDOC 0.6.4 and PyMuPDF 1.26.7 from
-`sidecars/babeldoc/requirements.lock`; the npm package carries the sidecar
-source and setup script, but no Python environment, wheels, model weights or
-downloaded assets. The installed BabelDOC 0.6.4 metadata declares
+`sidecars/babeldoc/requirements.lock`. The main npm package excludes the Python
+plugin, its setup script, Python environments, wheels, model weights and
+downloaded assets. Plugin source remains in the repository and is included
+in the separate PDF component with its own AGPL notice. The installed BabelDOC 0.6.4 metadata declares
 `AGPL-3.0`; PyMuPDF 1.26.7 declares dual `GNU AFFERO GPL 3.0 or Artifex
 Commercial License`. Before redistributing a bundled sidecar or Python
 dependencies, review the upstream license texts, notices and distribution

@@ -31,7 +31,7 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 
 ## 开始使用
 
-**从源码运行 0.1.0。** 按[安装指南](docs/plan/0.1.0/installation-guide.md)准备并启动。此前的 Release 及附件已撤下，预构建下载包延后提供。项目正在确定开源许可，仓库切换公开前仍需访问权限。
+**从源码运行 0.1.0。** 按[安装指南](docs/plan/0.1.0/installation-guide.md)准备并启动。此前的 Release 及附件已撤下，预构建下载包延后提供。仓库切换公开前仍需访问权限。
 
 1. 打开工作台，导入 TXT 或 Markdown 文件。
 2. 需要机器翻译时配置模型，也可以直接录入自己的译文。
@@ -73,6 +73,6 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 
 欢迎告诉我们你想翻译或处理什么、在哪一步遇到困难，以及希望组合哪些工具。可以复现的反馈与原创或可分享的样本尤其有帮助。
 
-参与前请阅读[贡献指南](CONTRIBUTING.md)及[安全报告说明](SECURITY.md)。项目按正式开源准备，具体许可证及已有贡献授权正在确认。
+参与前请阅读[贡献指南](CONTRIBUTING.md)及[安全报告说明](SECURITY.md)。核心采用 **LGPL-3.0-or-later**，[LICENSE](LICENSE) 列出的自有业务模块采用 **MIT**。可选 BabelDOC Python 插件采用 **AGPL-3.0-only**，单独打包分发。贡献提交需附 DCO 签署。
 
 基于 Cordis 与 DSH 构建，可选接入 BabelDOC。参见[第三方致谢](THIRD_PARTY.md)。

@@ -1,0 +1,18 @@
+ivoraige BabelDOC PDF plugin
+Copyright (c) 2026 ivoraige contributors
+SPDX-License-Identifier: AGPL-3.0-only
+
+Project-owned code and documentation in this directory are licensed under the
+GNU Affero General Public License version 3. The full text is in COPYING.
+
+This optional Python plugin uses BabelDOC and PyMuPDF and communicates with
+the main application through the documented stdio protocol. It is packaged
+separately from the main application. Its distribution includes server.py and
+requirements.lock; these files alone are not all corresponding source for a
+bundled Python runtime and its dependencies.
+
+Third-party files, including asset-licenses/, retain their original notices
+and licenses. Built components include THIRD_PARTY_LICENSES.txt and
+PYTHON-LICENSE.txt; asset archives include their own license directory.
+Upstream references: https://pypi.org/project/BabelDOC/0.6.4/ and
+https://pymupdf.io/licensing .
