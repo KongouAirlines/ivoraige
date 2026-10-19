@@ -10,12 +10,12 @@
 | Release 下载 | 已删除 `v0.1.0`、`v0.1.0-dev.0` 两个 Release 及全部 9 个附件；删除后 API 返回 0 个 Release。未执行 tag 删除；本地 tag 和提交历史保留，远端 tag 状态见下文。 |
 | 安装包 | 延后提供。当前用户文档改为源码运行；原默认 PDF 组件源已无下载，Windows 用户可用开发准备路径，已有本机组件不受影响。 |
 | 历史信息 | 按决定保留历史。当前样本目录和需求导入记录中的私人会话链接、个人下载路径已清理；未改写提交署名和旧提交。 |
-| 主线与工作分支 | 基于 `dde75f5`，实施分支 `codex/0.1.0-open-source-preparation`。本节文档变更待合入 main。 |
+| 主线与工作分支 | 起点为 `dde75f5`，已合入 main `60b5da6` 的更新；实施分支 `codex/0.1.0-open-source-preparation`。本节文档变更待合入 main。 |
 | 仓库可见性 | 仍为私有。完成源码检查及设置复核后，再安排公开切换。 |
 
 最新核对发现，PR #18、#19、#25 已合入 main；此前计划中的匿名下载、随包指南、贡献与安全说明已有实现。详情见[公开安装与维护准备记录](public-installation.md)，版本对应事项 [release-documentation-binding](../follow-ups/release-documentation-binding.md)按此前源码／npm 发行范围已解决。撤下下载不撤销这些代码和历史验收。
 
-旧 PDF 附件已有[实际归档审计 PR #24](https://github.com/KongouAirlines/ivaraige/pull/24)，[PR #31](https://github.com/KongouAirlines/ivaraige/pull/31)正在将报告和工具纳入主线。报告记录了基础包通知、嵌入模块和原生组件对应源码等缺口；新 Node bundle 已补齐部分通知。附件恢复分发前需处理剩余问题，本次不重复下载或重做审计。
+旧 PDF 附件的[实际归档审计](pdf-license-audit.md)、三份映射和清单工具已通过 [PR #31](https://github.com/KongouAirlines/ivaraige/pull/31) 合入 main `60b5da6`，原审计出处为 [PR #24](https://github.com/KongouAirlines/ivaraige/pull/24)。基础包通知、嵌入模块和原生组件对应源码等缺口继续保留；新 Node bundle 已补齐部分通知，不能追认旧附件。
 
 复核时 `git ls-remote --tags` 和 GitHub tags API 均未返回远端 tag；本地 `v0.0.0`、`v0.1.0-dev.0`、`v0.1.0` 仍存在。删除前未单独读取远端 tag，原因尚未确认；本轮没有重建或移动远端 tag。
 
@@ -41,6 +41,16 @@
 - 新贡献按所改组件许可提交，并采用 DCO 1.1 的 Signed-off-by；不追补或改写旧提交署名。
 
 DSH 的 MIT、MCP SDK 的 Apache-2.0 及 PDF 上游条款保持不变。[BabelDOC 0.6.4][babeldoc-license] 使用 AGPL，[PyMuPDF][pymupdf-license] 提供 AGPL／商业许可。PDF 二进制恢复分发前，仍需关闭实际归档审计中的通知和对应源码缺口；进程分离不代替这项核验。
+
+<a id="f-b-pdf-发行物的许可闭环未获得实际归档验证"></a>
+
+### PDF 发行物的后续验收
+
+原 F-B／P2 已有实包审计证据，剩余整改留待恢复二进制分发前完成。旧 Release 和附件已撤下，当前不要求重新下载或打包；已有接收者所需的源码材料仍需处理。
+
+- 三份历史映射、附件摘要和未决项保留在[审计报告](pdf-license-audit.md)，不因撤下附件或合并审计 PR 而标为已解决。
+- 只有已保存原附件和 API 元数据时才能[离线复核](pdf-license-audit.md#7-可重复的归档核验)；缺少这些输入时可运行独立夹具，但不能据此宣称复验了旧包。
+- 恢复分发时按[实际包验收要求](pdf-license-audit.md#6-恢复二进制分发前的验收)核对通知、依赖来源、对应源码和最终归档。PDF 拆分还需将全部直接及传递的 AGPL 内容移出主体依赖与发行范围。
 
 ### 公开前后验证
 
@@ -71,7 +81,7 @@ DSH 的 MIT、MCP SDK 的 Apache-2.0 及 PDF 上游条款保持不变。[BabelDO
 ### 主要结论与限制
 
 - 原调查发现提交邮箱和私人来源引用，未确认凭据泄露。当前引用已清理，旧提交和邮箱按决定保留。已删除内容、编辑历史、悬空对象和旧 Wiki 未完整枚举；两个 PR 测试合并引用的完整新增内容未确认，父提交和补丁已检查。
-- 10 月 16 日实际发行包尚未读完；之后 PR #24 已完成读取并记录具体缺口，PR #31 正在整理到 main。本次删除 Release 后，包内整改转为恢复分发前的工作，历史接收者已有的许可义务仍需履行。
+- 10 月 16 日实际发行包尚未读完；之后 PR #24 已完成读取并记录具体缺口，PR #31 已将报告和工具合入 main。本次删除 Release 后，包内整改转为恢复分发前的工作，历史接收者已有的许可义务仍需履行。
 - 源码和 npm 安装的后续实测见[实施记录](public-installation.md)。跨版本迁移、三系统原生 PDF 发行和完整 Python 漏洞审计仍未完成。
 - 部分组织配置及全组织 Secrets／Variables 接口无权读取；仓库可访问的凭据列表已单独检查。贡献授权已于 10 月 19 日确认，组织权限仍需复核。
 
