@@ -1,5 +1,7 @@
 # 0.1.0 全量 PR 审查报告归档
 
+**历史归档入口。** 下方关联表和“待合入”按原归档时点阅读；到主线 [`43d3f1f`](https://github.com/KongouAirlines/ivoraige/commit/43d3f1fadc4930baa445aeb0cb832b3647aa08d7)，PR #31／#32／#33 的审计、源码准备和审查归档已合入。基于该基线的 [136 项去重映射](../../0.1.x/audit/README.md)与 [0.1.x 工作包](../../0.1.x/work-packages.md)承接后续复核；合入报告不等于报告中的缺口已修复。五份报告正文、原 ID 和固定源码定位保留。
+
 保存此前 DeepSeek 对 18 个 PR 的完整审查报告，原对照主线为 [dde75f5](https://github.com/KongouAirlines/ivaraige/tree/dde75f5f2456ed581d3f645e6c68dd6e3a1c92a2)。归档日期：2026-10-19。PDF、MCP 报告标注审查日期为 2026-10-17；其余报告未单列日期，原文件未记录模型版本。
 
 | 报告 | 审查 PR | 原发现表条目数 |

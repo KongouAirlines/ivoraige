@@ -8,7 +8,7 @@ Bring the tools you need into one workspace. Translate, review, and keep working
 
 **English** · [简体中文](README.zh-CN.md)
 
-[Get started](#get-started) · [What works today](#what-works-today) · [Where we are heading](#where-we-are-heading) · [Documentation](https://github.com/KongouAirlines/ivaraige/blob/main/docs/README.md)
+[Get started](#get-started) · [What works today](#what-works-today) · [Where we are heading](#where-we-are-heading) · [Documentation](docs/README.md)
 
 </div>
 
@@ -31,15 +31,15 @@ The goal is a shared foundation for people and AI: choose the capabilities you n
 
 ## Get started
 
-**Run 0.1.0 from source.** Follow the [installation guide (中文)](docs/plan/0.1.0/installation-guide.md). The previous Releases and their attachments have been withdrawn; prebuilt downloads will return in a later release. Repository access is still required until the repository becomes public.
+**Run 0.1.0 from source.** Follow the [installation guide (中文)](docs/plan/0.1.0/installation-guide.md). The previous Releases and their attachments have been withdrawn; prebuilt downloads will return in a later release. The source repository is public.
 
 1. Open the workbench and import a TXT or Markdown file.
 2. Configure a model when you want machine translation, or enter translations yourself.
 3. Review and accept revisions, then export the result.
 
-For PDF, prepare the optional Windows development environment using the [PDF development guide (中文)](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/pdf-development.md), then follow the [PDF guide (中文)](docs/plan/0.1.0/pdf-guide.md). The default online component source currently has no downloadable Release.
+For PDF, prepare the optional Windows development environment using the [PDF development guide (中文)](docs/plan/0.1.0/pdf-development.md), then follow the [PDF guide (中文)](docs/plan/0.1.0/pdf-guide.md). The default online component source currently has no downloadable Release.
 
-Want to run from source? Follow the [development guide](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/development-guide.md). Detailed guides are currently mostly in Chinese.
+For configuration, debugging, and contributing, see the [development guide](docs/plan/0.1.0/development-guide.md). Detailed guides are currently mostly in Chinese.
 
 ## What works today
 
@@ -65,11 +65,11 @@ Scanned PDF OCR, bilingual PDF output, EPUB, reusable term libraries, Zotero int
 - Dedicated support for the official Index-Translate API.
 - An option to install ivoraige within DSH as a plugin; a lower-priority exploration.
 
-These are directions, not delivery dates. See the [roadmap](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/roadmap.md) for scope and tracking.
+These are directions, not delivery dates. The [0.1.x plan](docs/plan/0.1.x/README.md) proposes incremental contracts and work packages; it does not describe delivered features. The [0.1.0 roadmap](docs/plan/0.1.0/roadmap.md) preserves the earlier direction and context.
 
 ## Explore and contribute
 
-[Using the workbench (中文)](docs/plan/0.1.0/workbench-guide.md) · [Model settings (中文)](docs/plan/0.1.0/settings-guide.md) · [Development](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/development-guide.md) · [Issues](https://github.com/KongouAirlines/ivaraige/issues)
+[Using the workbench (中文)](docs/plan/0.1.0/workbench-guide.md) · [Model settings (中文)](docs/plan/0.1.0/settings-guide.md) · [Development](docs/plan/0.1.0/development-guide.md) · [Issues](https://github.com/KongouAirlines/ivoraige/issues)
 
 Tell us what you are trying to translate or process, where the workflow gets in your way, and which tools you would like to combine. Reproducible reports and original or shareable samples are especially useful.
 

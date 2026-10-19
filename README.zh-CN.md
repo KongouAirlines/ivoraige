@@ -8,7 +8,7 @@
 
 [English](README.md) · **简体中文**
 
-[开始使用](#开始使用) · [当前能力](#当前能力) · [未来方向](#未来方向) · [文档导航](https://github.com/KongouAirlines/ivaraige/blob/main/docs/README.md)
+[开始使用](#开始使用) · [当前能力](#当前能力) · [未来方向](#未来方向) · [文档导航](docs/README.md)
 
 </div>
 
@@ -31,15 +31,15 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 
 ## 开始使用
 
-**从源码运行 0.1.0。** 按[安装指南](docs/plan/0.1.0/installation-guide.md)准备并启动。此前的 Release 及附件已撤下，预构建下载包延后提供。仓库切换公开前仍需访问权限。
+**从源码运行 0.1.0。** 按[安装指南](docs/plan/0.1.0/installation-guide.md)准备并启动。此前的 Release 及附件已撤下，预构建下载包延后提供。源码仓库现已公开。
 
 1. 打开工作台，导入 TXT 或 Markdown 文件。
 2. 需要机器翻译时配置模型，也可以直接录入自己的译文。
 3. 审校并接受修订，导出结果。
 
-处理 PDF 时，先按 [PDF 开发参考](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/pdf-development.md)准备 Windows 可选环境，再按 [PDF 指南](docs/plan/0.1.0/pdf-guide.md)操作。默认在线组件源目前没有可下载的 Release。
+处理 PDF 时，先按 [PDF 开发参考](docs/plan/0.1.0/pdf-development.md)准备 Windows 可选环境，再按 [PDF 指南](docs/plan/0.1.0/pdf-guide.md)操作。默认在线组件源目前没有可下载的 Release。
 
-希望从源码运行？请看[开发指南](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/development-guide.md)。详细指南目前以中文为主。
+配置、调试与贡献代码请看[开发指南](docs/plan/0.1.0/development-guide.md)。详细指南目前以中文为主。
 
 ## 当前能力
 
@@ -65,11 +65,11 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 - Index-Translate 官方 API 的专门支持。
 - 以插件形式安装到 DSH，作为较低优先级的探索方向。
 
-这些方向不代表交付日期，范围与跟踪入口见[路线图](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/roadmap.md)。
+这些方向不代表交付日期。[0.1.x 计划](docs/plan/0.1.x/README.md)提出增量契约与工作包，不代表功能已经交付；[0.1.0 路线图](docs/plan/0.1.0/roadmap.md)保留此前方向与讨论背景。
 
 ## 了解更多与参与
 
-[工作台使用](docs/plan/0.1.0/workbench-guide.md) · [模型设置](docs/plan/0.1.0/settings-guide.md) · [开发指南](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/development-guide.md) · [问题反馈](https://github.com/KongouAirlines/ivaraige/issues)
+[工作台使用](docs/plan/0.1.0/workbench-guide.md) · [模型设置](docs/plan/0.1.0/settings-guide.md) · [开发指南](docs/plan/0.1.0/development-guide.md) · [问题反馈](https://github.com/KongouAirlines/ivoraige/issues)
 
 欢迎告诉我们你想翻译或处理什么、在哪一步遇到困难，以及希望组合哪些工具。可以复现的反馈与原创或可分享的样本尤其有帮助。
 

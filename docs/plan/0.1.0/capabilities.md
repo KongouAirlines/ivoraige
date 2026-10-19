@@ -1,6 +1,6 @@
 # 0.1.0 能力与限制
 
-本页描述 `0.1.0` 源码及自行构建的本地 npm 包；v2.0 是设计文档版本。此前的 Release 附件已撤下，当前从源码运行，PDF 使用 Windows 开发准备路径或已有本机组件。历史测试与版本差异见[实施记录](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/README.md)。
+本页描述 `0.1.0` 源码及自行构建的本地 npm 包；v2.0 是设计文档版本。此前的 Release 附件已撤下，当前从源码运行，PDF 使用 Windows 开发准备路径或已有本机组件。历史测试与版本差异见[实施记录](README.md)。
 
 | 能力 | 当前可用范围 | 主要边界 |
 | --- | --- | --- |
@@ -13,6 +13,6 @@
 | 模型与组件 | DSH 设置、凭据及模型访问；按需安装 BabelDOC | 公开组件源可匿名读取，私有源仍需显式令牌；在线模型会收到待译内容并可能计费；免费 Index-Translate 尚未专门接入 |
 | 平台 | Node 24 内核曾在三平台 CI 运行；旧 `v0.1.0-dev.0` Windows x64 便携包与 PDF 组件曾在 Windows Sandbox 实测 | 新版 `0.1.0` Windows 包尚未构建或验收；Linux/macOS 独立 PDF 包、完整桌面安装器仍未交付 |
 
-术语库结构与装配、EPUB、Zotero、RAG、基础文件处理扩展仍为规划。当前术语适用性字段不等于可供用户使用的术语库。
+术语库结构与装配、EPUB、Zotero、RAG、基础文件处理扩展仍为规划。当前术语适用性字段不等于可供用户使用的术语库。[0.1.x 计划](../0.1.x/README.md)中的独立插件安装、MinerU 纯解析、第二同类插件及桌面生命周期也是待实施目标，不计入上表。
 
 使用入口：[安装](installation-guide.md) · [文本与 Markdown](workbench-guide.md) · [PDF](pdf-guide.md) · [设置](settings-guide.md) · [MCP](mcp-guide.md)。

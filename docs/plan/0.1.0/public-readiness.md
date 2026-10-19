@@ -1,5 +1,7 @@
 # 0.1.0 公开准备评估与实施计划
 
+**阶段记录与保留的验收条件。** 2026-10-19 后续核对：[仓库](https://github.com/KongouAirlines/ivoraige)已公开，源码准备变更已进入主线 [`43d3f1f`](https://github.com/KongouAirlines/ivoraige/commit/43d3f1fadc4930baa445aeb0cb832b3647aa08d7)。下文“仍为私有”“待合入”和“下一步”保留原记录时点，不是实时状态；公开可见不证明所有安全设置或发行验收均已完成。当前使用见[安装指南](installation-guide.md)，后续拆分与恢复分发的规划见 [0.1.x](../0.1.x/migration-distribution.md)。原 F-B 锚点及 PDF 未决验收继续保留。
+
 首轮按**正式开源、源码使用**准备，安装包延后提供。现有文本、MCP、匿名组件下载和维护文档已经合入主线；已有代码和文档的开源授权已获所有者确认，许可范围已确定，接下来完成源码检查和 GitHub 设置复核。
 
 ## 2026-10-19 决定与进展

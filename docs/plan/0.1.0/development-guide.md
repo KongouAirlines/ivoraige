@@ -4,7 +4,7 @@
 
 ## 准备与启动
 
-`0.1.0` 是首个正式软件版本，本页可用于源码检出或无 `.git` 的源码归档。需要 Git、Node.js ≥24 和随 Node 安装的 npm；Git 用于取得固定 DSH 源码，应用自身的构建不要求源码归档含 Git 元数据。固定 DSH 源码与 npm 依赖来自公开上游；若仓库尚未切换为公开，首次取得本仓库源码仍需访问权限。TXT／Markdown 启动无需 Python 或 PDF 资产。在仓库根目录执行：
+`0.1.0` 是首个正式软件版本，本页可用于源码检出或无 `.git` 的源码归档。需要 Git、Node.js ≥24 和随 Node 安装的 npm；Git 用于取得固定 DSH 源码，应用自身的构建不要求源码归档含 Git 元数据。本仓库、固定 DSH 源码与 npm 依赖均来自公开来源。TXT／Markdown 启动无需 Python 或 PDF 资产。在仓库根目录执行：
 
 ```powershell
 npm ci
@@ -53,7 +53,7 @@ npm run smoke:package
 
 ## 贡献与文档
 
-优先通过所属插件接入功能，复用 DSH 基础设施；设计时说明能力归属、依赖、缺失行为与生命周期，验证实际边界。具体契约见 [ADR-0002](../../decisions/0002-plugin-composition-0.1.0.md)。
+优先通过所属插件接入功能，复用 DSH 基础设施；设计时说明能力归属、依赖、缺失行为与生命周期，验证实际边界。组合原则见 [ADR-0002](../../decisions/0002-plugin-composition-0.1.0.md)；现行规范与拟议目标的层次见[设计导航](../../requirements/README.md)。新能力按 [0.1.x 工作包](../0.1.x/work-packages.md)逐项实现和验收，规划存在不表示契约已经启用。
 
 `README.md` / `README.zh-CN.md` 同步更新；用户操作写到用户指南，历史验证写到实施记录，未完成事项进入 [follow-ups](../follow-ups/README.md)。新的文档路径按软件版本组织，保留既有历史链接。
 

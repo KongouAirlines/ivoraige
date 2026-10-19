@@ -46,7 +46,7 @@ The v2.0 module table is a target, not a description of every implemented bounda
 - `experiments/` — archive pointer only; old verification rigs are on `codex/archive-mvp-0.0.0` and the `v0.0.0` tag. Ignored local vendor/dependency caches may remain here.
 - `evaluation/private/` — copyrighted originals, extracted text, alignment data. Git-ignored by convention; work directly inside it, do not commit its contents.
 - `evaluation/runs/` — run outputs.
-- `docs/requirements/` (v1.0 frozen, v2.0 active design, amendments), `docs/research/` (tool selection evidence), `docs/plan/mvp/` (milestone records), `docs/decisions/` (ADRs).
+- `docs/requirements/` ([navigation](docs/requirements/README.md): v1.0 frozen, v2.0 implementation-reference design and current protocol subset, 0.1.x proposed contracts, amendments), `docs/research/` (tool selection evidence), `docs/plan/mvp/` (milestone records), `docs/decisions/` (ADRs).
 - `scripts/` — `setup-dsh.mjs` (vendor DSH), `build.mjs` (esbuild bundle for tests).
 
 ## Commands
