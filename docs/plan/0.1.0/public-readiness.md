@@ -1,5 +1,7 @@
 # 0.1.0 公开准备评估与实施计划
 
+**2026-10-19 范围更新：全部 Release 和附件已撤下，先推进源码开源，暂不发布安装包。** 下文发行记录与下载状态属于历史快照；F-B／P2 的实际包整改、匿名组件下载及版本绑定验收留待恢复二进制分发前进行。旧包问题未因此关闭。源码授权与文档调整见 [PR #32](https://github.com/KongouAirlines/ivaraige/pull/32)，历史包的离线复核条件见[审计 §7](pdf-license-audit.md#7-可重复的归档核验)。
+
 仓库具备作为早期开发预览公开的基础，但不建议在未确认授权与发行范围前直接切换可见性。需要处理的主要是项目许可、现有 PDF 发行物的许可核验、匿名安装、版本对应和最低维护机制；没有证据支持为了公开而重写内核、替换 DSH 或一次完成全部路线图。
 
 本文面向项目所有者和后续实施者。公开可见、正式开源、向公众分发安装包是三个不同的承诺，退出条件分别列出。计划落盘不代表后续工作已获执行授权，也不代表仓库已获准公开。
@@ -96,6 +98,8 @@ GitHub 官方说明公开后任何人可 fork，Actions 历史／日志对所有
 - **未知与决策：** 尚未核验贡献者合同、单位权利或商业许可；不得代所有者选择 MIT、AGPL 或其他许可。
 
 ### F-B PDF 发行物的许可闭环未获得实际归档验证
+
+**2026-10-19 状态指引：** 全部附件已撤下，F-B 作为恢复二进制分发前的整改项保留。下列“下载未完成／未核验”保留原调查时点。PR #24 后续完成了四附件的实际读取，发现了具体通知、依赖来源及对应源码缺口；详见[实际归档审计及收编记录](pdf-license-audit.md#integration-2026-10-18)。已保存实包审计证据，发行许可整改未通过；不再要求从已删除的 Release 下载旧包。
 
 - **事实与证据：** Release 已分发 Python／BabelDOC 冻结组件。BabelDOC 0.6.4 声明 AGPL-3.0，PyMuPDF 提供 AGPL／商业许可。[构建脚本](../../../scripts/build-pdf-component.py)收集依赖许可，但按锁文件加 PyInstaller 遍历，缺少独立许可文件时可退为 metadata 文本；未证明全部 bundle DLL 都被覆盖。已有[资产许可表](../../../sidecars/babeldoc/asset-licenses/ASSET-LICENSE-STATUS.md)和完整通知，涉及 34 字体、146 CMap、1 ONNX、1 tiktoken 数据文件。
 - **根因与责任边界：** 上游定义许可证；本项目负责自己实际分发的组合、许可通知及对应源码可取得性。资源表不是对实际归档完整性的自动证明。
@@ -318,7 +322,7 @@ Release 附件不属于 Actions artifact。当前每个附件低于 2 GiB；[Git
 
 ## 8. 未检查范围和结论可信度
 
-1. **实际 Release 大归档：** 下载约五分钟未完成，已停止任务下载进程；本地未找到对应资产。包内许可全文、源码材料、文件清单及敏感内容仍未独立核验，是保留这些附件公开前的主要缺口。
+1. **实际 Release 大归档：** 下载约五分钟未完成，已停止任务下载进程；本地未找到对应资产。包内许可全文、源码材料、文件清单及敏感内容仍未独立核验，是保留这些附件公开前的主要缺口。此为原调查边界；后续许可核验见[实际归档审计](pdf-license-audit.md)，不扩大为包内全部敏感内容已审查。
 2. **干净用户安装和 Python 安全：** 没有重新执行 VM 安装、PDF 排版或真实模型；没有完整 Python 漏洞审计、二进制逆向或全依赖安全保证。npm audit 的零告警仅限当时锁文件与告警源。
 3. **组织配置权限：** 部分组织 Actions 策略及全组织 Secrets／Variables API 因权限范围不足返回 403；仓库实际可访问的组织 secrets／variables 已另查为 0，没有扩大授权。其他仓库的秘密不属于本次审计。
 4. **账单根因细分：** 未取得付款方式、失败付款详情或 GitHub 内部限制原因。预算和注释只能支持账户计费门槛结论。
@@ -344,6 +348,18 @@ Release 附件不属于 Actions artifact。当前每个附件低于 2 GiB；[Git
 - F-G：贡献／安全文件、模板和精确 GitHub 配置方案已准备。用户决定由仓库管理员团队负责漏洞与依赖告警，公开后使用 GitHub 私密漏洞报告；当前身份无 admin 权限，远端设置尚未应用。
 - P6／P7：保留 F-A 许可、F-B 实际包整改及 F-C 历史公开意愿的前置条件；没有公开仓库、变更费用或发布资产。最终待公开版本验收及切换后检查仍未完成。
 
+### 2026-10-18 F-B 审计证据收编增量
+
+PR #24 的审计报告、三份映射、只读清单脚本及夹具测试从 `3d3f9fc` 收编到基于 `main/dde75f5` 的 `codex/0.1.0-pdf-license-integration`。原准备文档提交 `fca3c61` 不在 main 的祖先链，但该文档内容已通过 `3936a0c` 进入主线；本次保留主线后续发行记录，只追加审计增量。来源、定向验证和未复验范围见[收编记录](pdf-license-audit.md#integration-2026-10-18)。
+
+F-B／P2 从“缺少实际读取证据”推进为“已保存原审计的实际读取证据，仍有明确整改缺口”。PR #25 的 `4d36624` 已修复新 Node bundle 的三个空通知段并在无通知时拒绝构建；不能据此认定整个 Node 分发许可已闭环，更不能追认旧 ZIP。setuptools 嵌入模块、原生库来源、对应源码及最终归档验收仍按审计 §6 处理。
+
+仓库继续私有；本增量不改变下文记载的“目前不要公开”决定。F-A、F-B 的最终许可与分发条件保持未关闭；`release-documentation-binding` 在已验收的源码／npm 发行范围内仍为已解决。没有新增、推进或关闭 follow-up ID。
+
+### 2026-10-19 Release 撤下后的调整
+
+GitHub Releases API 返回空列表。旧附件不再提供下载；审计 §7 改为使用已保存 API 元数据和附件的离线步骤，缺少原输入时只能运行独立夹具。原审计数字、摘要和三份映射保持不变，本次未复验实包。F-B／P2 改为恢复二进制分发前的要求；历史许可缺口及已有接收者的源码材料不以撤下代替处理。没有新增或更改 follow-up 状态。
+
 ## 10. 可复核来源
 
 2026-10-17 后续范围决定：用户确定 `0.1.0` 为首个正式版本，授权合入 PR #18／#19／#25 并发布源码与 npm 包；Windows 验收和 CI 暂不作为本轮门槛。可见性变更因当前身份无 admin 权限未成功，用户随后明确“目前不要公开”，因此仓库继续私有。P7 的公开切换及公开后验证延期，不再作为本轮发布动作；F-A 项目许可和 F-B 旧 Windows／PDF 附件缺口仍未关闭。最新实现与验证见[正式版本准备记录](public-installation.md#010-正式版本准备2026-10-17)，前述调查快照与原矩阵保留。
@@ -353,7 +369,7 @@ Release 附件不属于 Actions artifact。当前每个附件低于 2 GiB；[Git
 源码相对链接以本文分支为阅读入口；需要重现调查时固定到 `c8a146d`，发行构建另使用 `bdd1854`。GitHub 设置页面和 API 是可变状态，只证明相应读取日期；读取者可能需要仓库或组织权限。
 
 - [仓库设置](https://github.com/KongouAirlines/ivaraige/settings)、[Actions 设置](https://github.com/KongouAirlines/ivaraige/settings/actions)、[安全设置](https://github.com/KongouAirlines/ivaraige/settings/security_analysis)。
-- [主线快照](https://github.com/KongouAirlines/ivaraige/tree/c8a146dd9b434773c9c149e4fe67ed0a6da3bb1f)、[发行附件声明源码](https://github.com/KongouAirlines/ivaraige/tree/bdd18546647732718ed4b63a5847f601eb651ea9)、[Release](https://github.com/KongouAirlines/ivaraige/releases/tag/v0.1.0-dev.0)。
+- [主线快照](https://github.com/KongouAirlines/ivaraige/tree/c8a146dd9b434773c9c149e4fe67ed0a6da3bb1f)、[发行附件声明源码](https://github.com/KongouAirlines/ivaraige/tree/bdd18546647732718ed4b63a5847f601eb651ea9)、旧 Release `v0.1.0-dev.0`（2026-10-19 已删除）。
 - API 复查入口：仓库 `branches`、`tags`、`pulls`、`issues/comments`、`pulls/comments`、`releases`、`actions/runs`、`actions/artifacts`、`actions/cache/usage`；每个 PR 的 `reviews`；组织 `settings/billing/budgets` 与 `settings/billing/usage/summary`。使用只读 GET，分页完整，凭据只取名称／权限／作用域，Variables 不输出 value。
 - [GitHub 可见性规则][visibility]、[许可证说明][licensing]、[Actions 计费][actions-billing]、[Release 限额][releases]、[分支保护][branch-protection]、[外部工作流审批][fork-approval]、[公开秘密扫描范围][secret-scanning]。官方规则读取于 2026-10-16，真正执行配置／发布前仅重核适用规则。
 - [DSH 固定源码许可](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/LICENSE)、[BabelDOC 0.6.4][babeldoc-license]、[PyMuPDF 授权][pymupdf-license]、[AGPL 条文][agpl]；资源逐项来源和全文见仓库资产许可表，不能只使用这些概览链接代替对应源码核验。

@@ -19,6 +19,16 @@ metadata and license files accompany the component; asset provenance and
 full notices are in `sidecars/babeldoc/asset-licenses/`. These artifacts remain
 separate from the base application and are installed only when PDF is selected.
 
+All GitHub Releases and their assets were withdrawn on 2026-10-19; no release
+packages are currently available for download. The historical audit of the
+`v0.1.0-dev.0` Windows/PDF release found gaps in
+applicable notices, embedded dependency provenance and corresponding-source
+materials. Included metadata and license files do not establish complete
+coverage. See the [release archive audit](docs/plan/0.1.0/pdf-license-audit.md)
+for the exact artifacts and F-B conditions to revisit before distributing new
+binaries. Withdrawal does not repair the old archives, and the Node bundle
+notice fix described below does not establish coverage for a complete distribution.
+
 The Windows portable base includes Node.js 26.7.0 and its upstream license
 (`scripts/NODE-LICENSE-v26.7.0.txt`), production npm dependencies and generated
 DSH/WebUI notices. The component installer uses `tar` 7.5.22 under its ISC

@@ -6,6 +6,14 @@
 
 公开前的调查证据、授权与发行范围、分阶段工作包和验收条件见[公开准备评估与实施计划](public-readiness.md)。该计划与功能实施进度分开维护；落盘不代表相关整改已完成或仓库已获准公开。
 
+## Release 撤下后的审计说明（2026-10-19）
+
+全部 Release 和附件已撤下，暂不提供发行包下载。[历史审计](pdf-license-audit.md)保留原附件摘要与未决项；仅在保存了原附件和 API 元数据时可离线复核。F-B／P2 的实际包验收留待恢复二进制分发前完成。源码开源准备见 [PR #32](https://github.com/KongouAirlines/ivaraige/pull/32)。
+
+## PDF 发行物许可审计证据收编（2026-10-18）
+
+[实际归档审计](pdf-license-audit.md)保留 PR #24 于 2026-10-17 对旧 `v0.1.0-dev.0` 四附件的观察、三份映射和只读清单工具；收编从 `main/dde75f5` 开始，区分 PR #25 已修复的新 Node bundle 空通知段与尚未整改的旧 Windows／PDF 附件。审计夹具接入三系统 CI，定向验证及证据边界见[收编记录](pdf-license-audit.md#integration-2026-10-18)。F-B／P2 仍未关闭，项目许可及最终分发决定仍由公开准备计划管理。
+
 ## 公开安装与维护准备（2026-10-17）
 
 F-D～F-G 的工程实现、分支依赖、实际检查和保留事项见[实施记录](public-installation.md)。PR #18／#19／#25 已合入 main，[v0.1.0](https://github.com/KongouAirlines/ivaraige/releases/tag/v0.1.0) 已正式发布源码和 npm 安装包，源码为 `cb7e4a4`。本轮版本绑定已按首轮发行范围完成，见 [release-documentation-binding](../follow-ups/release-documentation-binding.md)；Windows 验收、CI 及公开切换按用户决定保留待办。

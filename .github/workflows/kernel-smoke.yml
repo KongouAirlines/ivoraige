@@ -24,6 +24,8 @@ jobs:
         with:
           python-version: '3.13'
       - run: python -m unittest discover -s sidecars/babeldoc -p test_server.py
+      - name: Release archive audit fixtures
+        run: python -m unittest discover -s test -p audit_release_archives_test.py
       - run: npm ci
       - run: npm run setup:dsh
       - run: npm test
