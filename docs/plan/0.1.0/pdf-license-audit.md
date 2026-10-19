@@ -1,14 +1,16 @@
 # 0.1.0 PDF 实际发行物许可核验
 
-2026-10-17，Asia/Shanghai。对应[公开准备计划 F-B／P2](public-readiness.md#f-b-pdf-发行物的许可闭环未获得实际归档验证)。本轮完成了四个现有附件的实际读取与许可证据核验，**结果为未通过发行许可闭环；F-B 仍未关闭**。资源包的文件、来源与通知已逐项对上；基础 ZIP 的通知缺口、PDF 运行时额外依赖和对应源码材料仍须处理。不能把本报告或清单脚本退出码 0 当作发行授权。
+**2026-10-19 更新：全部 Release 和附件已撤下，当前无发行包下载。** 本文保存旧附件的审计证据；F-B／P2 的包整改与验收留待恢复二进制分发前完成，不作为本轮仅发布源码的安装包门槛。撤下不等于旧包缺口已修复。
 
-原审计来自 [PR #24](https://github.com/KongouAirlines/ivaraige/pull/24)／提交 [`3d3f9fc`](https://github.com/KongouAirlines/ivaraige/commit/3d3f9fc227aad87d7661f2a9934df38ac056d6c5)，工作分支 `codex/0.1.0-pdf-license-audit`，从公开准备文档分支 `fca3c61` 开始，业务基线为 `c8a146d`。项目自身许可证因多人贡献仍待确认，审计不代替 F-A 授权。
+2026-10-17，Asia/Shanghai。对应[公开准备计划 F-B／P2](public-readiness.md#f-b-pdf-发行物的许可闭环未获得实际归档验证)。本轮完成了四个当时可下载的附件的实际读取与许可证据核验，**结果为未通过发行许可闭环；F-B 仍未关闭**。资源包的文件、来源与通知已逐项对上；基础 ZIP 的通知缺口、PDF 运行时额外依赖和对应源码材料仍须处理。不能把本报告或清单脚本退出码 0 当作发行授权。
+
+原审计来自 [PR #24](https://github.com/KongouAirlines/ivaraige/pull/24)／提交 [`3d3f9fc`](https://github.com/KongouAirlines/ivaraige/commit/3d3f9fc227aad87d7661f2a9934df38ac056d6c5)，工作分支 `codex/0.1.0-pdf-license-audit`，从公开准备文档分支 `fca3c61` 开始，业务基线为 `c8a146d`。原审计时项目自身授权仍待确认；后续许可与贡献规则见 [PR #32](https://github.com/KongouAirlines/ivaraige/pull/32)。
 
 §1～§7 中的“本轮”及实包数字指 2026-10-17 原审计；2026-10-18 收编没有重新执行实包审计。PR #25 对新 Node bundle 的修复已在 §3／§6 标明，来源和本次验证另见[收编记录](#integration-2026-10-18)。三份 JSON 是旧附件的历史证据索引，不是当前构建的实时依赖清单。
 
 ## 1. 核验对象与方法
 
-[现有 Release](https://github.com/KongouAirlines/ivaraige/releases/tag/v0.1.0-dev.0) 的四个附件完整下载，大小和 SHA-256 均与 API 一致。对归档逐成员读取和计算摘要，未运行发行 EXE、DLL、Python 模块或真实模型。没有重跑 Windows 安装、PDF 功能或排版验收。
+2026-10-17 从当时的 `v0.1.0-dev.0` Release 完整下载四个附件（该 Release 现已删除），大小和 SHA-256 均与 API 一致。对归档逐成员读取和计算摘要，未运行发行 EXE、DLL、Python 模块或真实模型。没有重跑 Windows 安装、PDF 功能或排版验收。
 
 | 附件 | 字节 | SHA-256 | 实际普通文件 |
 | --- | ---: | --- | ---: |
@@ -86,7 +88,7 @@
 
 ## 5. 对应源码与构建材料
 
-Release 正文已指定项目源码 [`bdd18546647732718ed4b63a5847f601eb651ea9`](https://github.com/KongouAirlines/ivaraige/tree/bdd18546647732718ed4b63a5847f601eb651ea9)，tag 仍是 `a6dcc2b`。本轮确认 PDF server、lock、构建／准备脚本与声明提交无差异；不能因 tag 较早就说没有源码定位，也不能据此宣称每个第三方二进制均已对应源码。
+原 Release 正文指定项目源码 [`bdd18546647732718ed4b63a5847f601eb651ea9`](https://github.com/KongouAirlines/ivaraige/tree/bdd18546647732718ed4b63a5847f601eb651ea9)，当时 tag 为 `a6dcc2b`。本轮确认 PDF server、lock、构建／准备脚本与声明提交无差异；不能因 tag 较早就说没有源码定位，也不能据此宣称每个第三方二进制均已对应源码。
 
 | 组件 | 本轮核对的固定源码入口 | 状态 |
 | --- | --- | --- |
@@ -102,23 +104,23 @@ Release 正文已指定项目源码 [`bdd18546647732718ed4b63a5847f601eb651ea9`]
 
 构建脚本只指定 Python 3.13 和 PyInstaller 顶层版本，未固定 setuptools／hooks-contrib 等完整构建闭包，锁文件没有 wheel 身份／摘要，资产取自构建机现有缓存。这些首先是来源与重建证据缺口；不把所有通用构建工具都自动纳入 AGPL 必须提供的源码范围。对实际分发的 FFmpeg 等原生组件，仍须按其自身条款检查，参见 [FFmpeg 官方分发说明](https://ffmpeg.org/legal.html)。
 
-## 6. 关闭 F-B 所需的具体后续
+<a id="6-关闭-f-b-所需的具体后续"></a>
 
-1. **完成基础 ZIP 的通知整改。** 新 Node bundle 的三个空通知段和缺失通知拒绝构建已由 PR #25 修复（见 §3）。旧 ZIP 仍需补齐准确通知，并明确另外六项的共享／独立通知关系；必须检查最终拟发行 ZIP，不能以新 bundle 的修复关闭旧附件问题。
+## 6. 恢复二进制分发前的验收
+
+1. **完成基础 ZIP 的通知整改。** 新 Node bundle 的三个空通知段和缺失通知拒绝构建已由 PR #25 修复（见 §3）。后续拟发行 ZIP 须补齐准确通知，并明确另外六项的共享／独立通知关系；必须检查最终包，不能以新 bundle 的修复追认旧附件。
 2. **以实际冻结闭包收集 PDF 材料。** 保留完整安装 metadata、wheel 文件名／摘要、PyInstaller Analysis／TOC、Python 来源；补 setuptools 及其 vendored 包。不能将锁中未入包条目当作覆盖证明，或将文件名许可声明当作正文校验。
 3. **关闭原生与源码未决项。** 对 FFmpeg、MuPDF、VC／UCRT 等确认精确来源、版本、修改、构建配置及适用通知／源码获取方式；将当前候选归属升级为有证据的映射。原始构建记录不足时，从记录完整的 Windows 环境重新构建并核验新包，不猜测旧 DLL 的来源。
 4. **与 F-A 的权利确认衔接。** 由权利人确认自有代码的授权和拟采用的分发路径；为适用组件准备完整对应源码及清晰的接收者获取入口。商业授权只有实际取得且覆盖相应组件才可使用。
-5. **最终归档再验收并另行授权发布。** 新包、通知／源码材料和配套 manifest 一起核验；从 Release 接收者视角验证源码入口，再更新附件。旧附件不因本次审计而改变，也不悄悄移动旧 tag。
+5. **最终归档再验收并另行授权发布。** 新包、通知／源码材料和配套 manifest 一起核验；从接收者视角验证源码入口后再发布新包。已撤下的旧附件保留历史身份，不将新包冒充旧包。
 
-前三项的缺口由本轮实包证据确定，后两项涉及既有 F-A 决策和对外发布。本轮没有制作一个声称完成许可整改的新 Windows 包。保留这些附件公众分发的门槛仍未通过；是否暂停远端附件或最终发布需所有者决定，本轮未执行远端变更。以上属于当前 F-B，不另建重复 follow-up ID；本轮没有新增、推进或关闭 follow-up ID。
+上述要求针对后续拟分发的实际包。旧附件已撤下，当前不安排重新打包；原审计未决项保留，恢复分发时按新包内容复核。已有接收者所需的对应源码材料仍单独处理。F-B 保持未关闭，不另建重复 follow-up ID。
 
 ## 7. 可重复的归档核验
 
-[只读清单脚本](../../../scripts/audit-release-archives.py)只使用 Python 标准库。下载到新建目录后，保存同一次 Release API 元数据并运行：
+[只读清单脚本](../../../scripts/audit-release-archives.py)只使用 Python 标准库。旧 Release 已删除，不能再通过 GitHub 下载复现原审计。只有已保存原 `release.json` 和四个附件时，才能离线运行以下命令；三份精简映射不能替代这些输入。若缺少原输入，可运行下方夹具测试，不能据此声称复核了旧实包。
 
 ```sh
-gh api repos/KongouAirlines/ivaraige/releases/tags/v0.1.0-dev.0 > evaluation/runs/pdf-license-audit-0.1.0/release.json
-gh release download v0.1.0-dev.0 -R KongouAirlines/ivaraige -D evaluation/runs/pdf-license-audit-0.1.0/downloads
 python3 scripts/audit-release-archives.py \
   --release evaluation/runs/pdf-license-audit-0.1.0/release.json \
   --downloads evaluation/runs/pdf-license-audit-0.1.0/downloads \
@@ -136,7 +138,7 @@ CI 使用已有 Python 3.13 环境运行以下夹具命令，Windows 本地也�
 python -m unittest discover -s test -p audit_release_archives_test.py
 ```
 
-上面的完整下载示例使用 POSIX shell 续行语法；Windows 可将清单脚本调用合为一行并使用 `python`。运行前须创建父目录、以 UTF-8 保存 API JSON，并确保 `gh` 可读取目标 Release。私有仓库需要相应读取权限。夹具只验证清单工具的行为，不生成或验证三份人工映射，也不代替 PyInstaller 嵌入模块和对应源码的人工核验。
+上面的离线示例使用 POSIX shell 续行语法；Windows 可将清单脚本调用合为一行并使用 `python`。运行前须创建输出父目录，原 API JSON 应为 UTF-8。离线脚本不访问 GitHub，也不需要 token。夹具只验证清单工具的行为，不生成或验证三份人工映射，也不代替 PyInstaller 嵌入模块和对应源码的人工核验。
 
 <a id="integration-2026-10-18"></a>
 
