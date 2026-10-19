@@ -24,7 +24,7 @@
 | `windows-latest / Node 24` | failure |
 | `macos-latest / Node 24` | failure |
 
-本次进一步读取 [`main` 的运行 38744374368](https://github.com/KongouAirlines/ivaraige/actions/runs/38744374368)：三个 job 的步骤数均为 0；各自 check-run 注释都指出因近期账户付款失败或消费限额需增加，作业未启动。可确定是启动前的账户计费门槛，不能当作测试断言失败，也不能从注释进一步判定欠款或具体额度。[公开准备计划 §3.2](public-readiness.md#32-最近红灯的实际根因) 保留其他证据。应用“必需检查”之前，要让目标提交上的三个检查真正执行并成功，并确认 GitHub 设置页提供这些检查名；GitHub 要求必需检查曾在仓库内最近七天成功运行。工作流如改名、增减矩阵或过滤触发路径，必须同步更新规则，否则 PR 可能无法合并。
+本次进一步读取 [`main` 的运行 38744374368](https://github.com/KongouAirlines/ivaraige/actions/runs/38744374368)：三个 job 的步骤数均为 0；各自 check-run 注释都指出因近期账户付款失败或消费限额需增加，作业未启动。可确定是启动前的账户计费门槛，不能当作测试断言失败，也不能从注释进一步判定欠款或具体额度。[公开准备计划的 GitHub 与 CI 原快照](public-readiness.md#github-与-ci-原快照) 保留其他证据。应用“必需检查”之前，要让目标提交上的三个检查真正执行并成功，并确认 GitHub 设置页提供这些检查名；GitHub 要求必需检查曾在仓库内最近七天成功运行。工作流如改名、增减矩阵或过滤触发路径，必须同步更新规则，否则 PR 可能无法合并。
 
 ## 拟应用的 main 规则
 

@@ -4,7 +4,7 @@ ivoraige 是供人和 AI 共用、可自由组合的翻译与文件处理基础�
 
 ## 使用 ivoraige
 
-- [安装与首次启动](plan/0.1.0/installation-guide.md)：Windows 便携包、按需组件与用户数据。
+- [安装与首次启动](plan/0.1.0/installation-guide.md)：源码启动、可选 PDF、本地 npm 包与用户数据。
 - [文本与 Markdown 工作台](plan/0.1.0/workbench-guide.md)：模型配置、翻译、人工审校与输出。
 - [PDF 工作台](plan/0.1.0/pdf-guide.md)：安装后的导入、来源检查、审校及导出。
 - [设置指南](plan/0.1.0/settings-guide.md)：模型、提供商、凭据和组件。

@@ -1,6 +1,6 @@
 # TXT／Markdown 工作台使用指南
 
-安装版先按[安装指南](installation-guide.md)打开工作台，随后按下述步骤使用。源码运行及 VS Code 调试请看[开发指南](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/development-guide.md)。同一数据目录只运行一个内核，其他入口连接已有服务。
+先按[安装与首次启动指南](installation-guide.md)从源码打开工作台，随后按下述步骤使用。更多运行方式及 VS Code 调试请看[开发指南](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/development-guide.md)。同一数据目录只运行一个内核，其他入口连接已有服务。
 
 首次使用打开“设置”窗口，在“模型”页点击“添加模型”，选择“提供商预设”，核对模型 ID 后点击“保存并用于翻译”。可选择 DeepSeek、Anthropic、OpenRouter、Kimi、OpenAI、硅基流动或本地 Ollama／llama.cpp／LM Studio；内置目录模型的协议与端点可留空继承默认，输入框会提示对应默认值。切换到“凭据”分类输入自己的 API Key 并保存；设置读取只显示凭据状态。无认证的本地服务可用“填入本地占位凭据 local”，再点击“保存凭据”，这是满足当前 SDK 的非秘密占位值，需要认证时使用真实密钥。保存配置／凭据不发起模型请求，点击翻译才会调用。
 
