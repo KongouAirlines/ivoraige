@@ -9,6 +9,7 @@
 | [工作包与依赖](work-packages.md) | PR 切分、范围、不做项、验收、回退；本轮工作包执行状态的唯一表 |
 | [目标契约](../../requirements/0.1.x/contracts.md) | 当前实现与目标的差异、服务/生命周期、适配器、入口、事件及兼容草案 |
 | [迁移与分发](migration-distribution.md) | 记录、快照、配置和插件包的兼容/恢复验收 |
+| [运行时与组件顺序评估](runtime-sequence.md) | Cordis RC、DSH 获取/发行/公共组件边界及候选兼容门禁；不维护执行状态 |
 | [验证矩阵](validation.md) | 基础链、第二同类插件、PDF 及桌面验收方法；不作为已通过结果表 |
 | [桌面完整方案](desktop.md) | host/托盘/UI/worker 生命周期、故障动作及性能测量协议；指标尚未实测 |
 | [统一开发提示词](prompts.md) | 共用任务输入和八类提示词；公共规则只引用 AGENTS/契约 |

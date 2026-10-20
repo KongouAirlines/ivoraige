@@ -21,7 +21,7 @@
 
 最小宿主负责组合、插件清单/兼容检查、生命周期、能力/操作/事件发现、最小恢复入口，以及对 DSH 设置、凭据、存储、jobs 的装配。最小启动不等于每次都启动数据库、模型和 Python。持久工作组合启用 Records/资源/任务能力；解析、翻译、术语、上下文、重建、各入口可以独立选用。按能力与生命周期划分，不把每个函数做成插件。
 
-DSH 固定提交目前为 `639ed015397290b3745d163aafe02ffee4aa3f84`（[setup-dsh](../../../scripts/setup-dsh.mjs)）；该提交内 [Cordis package](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/vendor/cordis/package.json) 为 **4.0.4**，通过 [bridge](../../../src/dsh-bridge.ts)使用。首轮不升级 DSH，也不自行造 credentials/settings/storage/jobs/权限的平行实现。P01 需核对实际服务名、依赖失活、`ctx.effect` disposer、启动失败回滚和异步 dispose；只有探针证明的语义才可称为固定契约。`inject` 是依赖声明，不能形成恶意第三方插件的沙箱。
+DSH 固定提交目前为 `639ed015397290b3745d163aafe02ffee4aa3f84`（[setup-dsh](../../../scripts/setup-dsh.mjs)）；该提交内 [Cordis package](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/vendor/cordis/package.json) 的 **4.0.4 是 Harness 发布版本**，上游基线仍是 Core RC.7 / Loader RC.5，通过 [bridge](../../../src/dsh-bridge.ts)使用。P01 先验证现有 pin，不把升级设为主链硬前置；候选升级与组件依赖变化遵循[执行顺序及门禁](../../plan/0.1.x/runtime-sequence.md)，不自行造 credentials/settings/storage/jobs/权限的平行实现。P01 需核对实际服务名、依赖失活、`ctx.effect` disposer、启动失败回滚和异步 dispose；只有探针证明的语义才可称为固定契约。`inject` 是依赖声明，不能形成恶意第三方插件的沙箱。
 
 | 服务/所有者（目标） | 必需依赖 | 可选依赖与缺席行为 | 所有资源与退出责任 |
 | --- | --- | --- | --- |
@@ -80,7 +80,18 @@ Records 去掉具体 parse 依赖不能丢掉现有 `validateTranslation` 保护
 
 WebUI 使用 capability/settings descriptor 展示通用状态与动作；新引擎不追加前端引擎名单。专门 UI 可由插件贡献且须有版本/缺件降级，基础修复能力不依赖完整 UI 插件。桌面壳消费相同接口，不能另建业务流程。
 
-事件候选 envelope：`eventVersion, eventId, type, sequence, occurredAt, scope, data`。scope 包含可选 docId/taskId/componentId，ID 不透明；只有需要长期恢复的任务状态持久化，普通设置通知不默认建第二套持久事件系统。任务进度、设置页变化、组件状态是不同命名域；P04 为旧 SSE 格式提供兼容映射。断线后读取权威状态并重建订阅，只有后端确有保留窗口时承诺事件重放；订阅取消/入口关闭必须释放监听，不把 WebUI 刷新当作事件一致性方案。
+事件候选 envelope：`eventVersion, eventId, type, sequence, occurredAt, scope, data`，状态同步另带下述 `generation/stateRevision`。scope 包含可选 docId/taskId/componentId，ID 不透明；只有需要长期恢复的任务状态持久化，普通设置通知不默认建第二套持久事件系统。任务进度、设置页变化、组件状态是不同命名域；P04 为旧 SSE 格式提供兼容映射。只有后端确有保留窗口时承诺事件重放；订阅取消/入口关闭必须释放监听，不把 WebUI 刷新当作事件一致性方案。
+
+### 状态快照与订阅的同步边界
+
+以下 `StateSnapshot` 是 UI/入口的权威状态视图，不是导出用的 `ExportSnapshot`。P04/D01 采用**先订阅并缓冲，再取状态快照**的候选流程，不依赖未来事件恰好到来才发现缺口：
+
+1. 同一 host `generation`、同一授权查询 scope 的状态提交由后端分配单调 `stateRevision`。状态可见、revision 前进和将失效通知交给已生效订阅须有同一个串行化边界；不得先广告新 revision，随后才让对应状态可读。跨服务摘要也必须取得一致切面，不能拼出没有一致性保证的单个数字。它不同于业务 revisionId、事件 ID 或传输 sequence，过滤后不保证相邻数字连续。
+2. 订阅就绪握手返回 `subscriptionId, generation, scope, barrierRevision`。服务端在同一串行化边界安装订阅并读取权威 barrier；握手前已提交的状态由随后快照覆盖，握手之后的相关提交进入该订阅。连接已建立不等于订阅已生效。客户端从就绪起缓冲失效通知，不等待首条业务事件才开始同步。
+3. 保持该订阅有效，获取同一 generation/scope 的 `StateSnapshot { stateRevision, state }`；数据与 revision 必须来自同一一致切面，且 revision 不早于 barrier。应用快照 r 后丢弃缓冲中 revision ≤ r 的通知；任何 > r 的通知都使视图失效，触发在**仍生效的同一订阅**上重取。重取期间继续缓冲，不能先取消订阅再重新制造读取/订阅窗口。通知作为失效提示，不要求客户端按事件重演状态。
+4. 连接断开、generation 改变、scope/授权改变、缓冲溢出或服务端不能保证通知完整性时，明确进入 resync-required，视图标为未同步；建立新订阅并重复上述握手和快照流程。不同 generation 的数字不可直接比较。失效重取允许合并和退避，持续变化时展示同步中，不声称已追平；在服务恢复且状态停止变化后，即使没有后续业务事件也必须收敛。
+
+P04 可提出等价的原子 barrier 方案，但必须证明就绪、状态提交及重取期间不存在未覆盖窗口，并同步修改该契约与验收。首轮不要求持久事件日志；只保证连接有效期内的通知/显式失效，重启或断线恢复以权威状态为准。定时器、连接和有限缓冲归入口 session 所有，关闭后释放。以上是待实现契约澄清，不是当前 SSE 已满足此流程或已确认存在运行时缺陷的声明。
 
 当前 MCP 贡献已经插件化，HTTP/CLI 仍是普通协议模块；P04 收口它们的生命周期与注册，不把“所有入口均未插件化”当现状。产物读取及大小限制由公共能力统一，上传大小上限由能力/传输约束共同声明；现有 UI 7 MiB 与 HTTP 10 MiB 差异需说明或统一。D01 同时固定 launcher/CLI 自定义数据目录及 store 参数的优先级，不能让两个入口静默指向不同用户库。
 

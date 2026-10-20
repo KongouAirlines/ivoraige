@@ -35,7 +35,7 @@
 | HostSession | protocolVersion、instanceId/generation、ready/stopping 状态、capabilities；复用真实数据目录与 store lock；二次启动只激活现有 UI |
 | 命令 | 显式 requestId 与响应；openView(route)、getStatus、prepareShutdown、commitShutdown；任务命令复用现有服务。断线重试需幂等或查询原结果，避免重复导入/翻译 |
 | TaskCapabilities | 每任务 allowedActions、取消结果、可恢复性、进度/收尾阶段；导入、安装、翻译、导出分别声明；UI 不按格式名猜按钮 |
-| Snapshot + Events | 摘要查询与细节查询分开；跨域事件独立注册和 disposer；带 host generation/状态 revision。重连先取 snapshot，再衔接订阅并校验版本，缺口触发重取；持久事件重放可以延后 |
+| Snapshot + Events | 摘要查询与细节查询分开；跨域事件独立注册和 disposer；带 host generation/状态 revision。遵循[状态同步边界](../../requirements/0.1.x/contracts.md#状态快照与订阅的同步边界)：先完成原子 barrier 的订阅就绪握手并缓冲，再取一致快照；重取期间保留订阅，断线/换代/溢出重新握手。持久事件重放可以延后 |
 | UI Session / DraftJournal | viewId、docId/unitId、语言、基修订 ID、编辑版本、日志版本与持久化确认；退出/销毁前 flush，冲突只提示合并，不覆盖已接受修订 |
 | WorkerLifecycle | busy lease、idle/starting/stopping 状态、停止 deadline、所有权/后代记录、回收结果；协议区分可重新启动的 idle stop 与最终 dispose |
 | 本机控制边界 | UI 不拿系统 shell/任意进程权限；特权控制使用受限本机 IPC 或经能力令牌保护的窄接口；WebUI 继续同源。不得简单放宽现有 Origin 为任意 webview 来源 |
