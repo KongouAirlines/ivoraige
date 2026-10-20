@@ -41,6 +41,28 @@ DSH 固定提交目前为 `639ed015397290b3745d163aafe02ffee4aa3f84`（[setup-ds
 
 表中“可选”不表示调用时可以忽略缺件。依赖可用前不注册可执行 handler，或描述符标为 unavailable；执行前再次检查，防止状态快照过期。一个插件失败只回滚它和依赖它的能力；无关能力继续运行。缺失公共必需基础设施导致启动失败时，恢复入口仍能读清单/诊断并禁用故障插件。
 
+### Cordis 服务、插件与资源所有权对照
+
+下列提供插件名称是候选职责名，不是已发布包名，也不要求每一行独占一个 npm 包。P01 要把它们映射到所选固定 Cordis/DSH 的真实 Service/plugin、必需/可选 `inject` 和 effect 语法；这些机制由 Cordis 提供，不在领域服务中重新实现 DI、依赖调度或生命周期。capabilities/operations 的注册表只索引领域描述和 handler，不创建、加载或监督插件。
+
+| 服务 / 边界 | 提供插件（候选） | 必需 / 可选 inject | 注册与 disposer 所有者 | 清理依赖顺序 | 缺席结果 |
+| --- | --- | --- | --- | --- | --- |
+| `ivoraige.capabilities` | CapabilityCatalog | 必需：无业务服务；可选：各能力贡献 | 目录插件拥有索引；每个贡献插件以自身 effect 注册并撤销自己的描述 | 先停消费入口，再撤销贡献，最后销毁目录 | 缺目录则业务发现不可用；bootstrap 仍读静态清单/启动诊断 |
+| `ivoraige.operations` | OperationCatalog | 必需：capabilities；可选：handler 所需业务服务由所属插件声明 | 目录拥有调用路由；handler 由业务插件注册并持有 disposer，不能替业务插件创建依赖 | 停入口接单 → 停 handler/等待在途调用 → 释放业务依赖及目录 | 目录缺席不开放业务入口；已知能力缺件返回 `COMPONENT_MISSING`，未知 operation 仍按现行协议映射 |
+| `ivoraige.events` | EntryEventBridge | 必需：Cordis context；可选：tasks/settings/components 生产者，各自声明依赖 | bridge 拥有 envelope/scope/barrier 和连接投影；生产者/订阅者各自以 effect 持有通知监听或订阅 disposer | 停连接接入与发送 → 释放 session 订阅 → 释放生产者/bridge；不依赖 tasks 维持设置通知 | 流能力 unavailable；按配置明确降级为权威查询，不假装可实时同步 |
+| `ivoraige.parse` / `ivoraige.outputs` | ParseCatalog / OutputCatalog | 必需：无具体引擎；可选：source/output 贡献 | 目录拥有选择逻辑，具体适配器插件拥有注册、sidecar/资源及精确注销 | 停新调用 → 在途调用取消/完成 → 注销适配器 → 关闭其资源与目录 | 无匹配实现时明确缺组件/不支持；不暗选另一引擎 |
+| `ivoraige.records` | Records | 必需：DSH storageDomain；无 parse/outputs 必需注入（目标） | Records 自身拥有 service provision 与 domain lease，保留同一 effect 的顺序约束 | 撤销 provision 时等待注入 Records 的消费者清理完成，再关 domain；具体 await 顺序由 P01 探针证明 | 依赖业务保持 pending/unavailable；旧数据不被“空库”替代 |
+| `ivoraige.import` / translation / export | 各业务能力插件 | 必需：所属 records/parse/outputs 等契约；翻译需 llm，纯解析不需；jobs 仅排队路径 | 能力插件拥有 handler/任务取消与资源 lease；output adapter 始终只得冻结数据 | 先停入口/新任务 → drain/取消 → 释放适配器与 records；export 不取得 llm | 只禁用受影响 operation，返回缺件原因；其他能力可用 |
+| `ivoraige.tasks` | DocumentTasks | 必需：DSH jobs、持久状态；可选：按 task kind 声明的执行能力 | 文档任务插件拥有 checkpoint/任务控制器；DSH jobs 拥有调度资源 | 完成/暂停/取消和持久化先于 records/storage 关闭 | 任务操作不可用；仍可执行无 tasks 依赖的查询/设置 |
+| settings / credentials / storage / jobs | 对应现有 DSH 插件 | 按所选 DSH 的真实 inject，不从包 peer 名称猜服务 | DSH 拥有基础设施；ivoraige 的配置/界面贡献由自己的 effect 撤销 | 先移除消费方，最后 dispose DSH 基础服务 | 相应能力 unavailable；诊断不泄露凭据，不建立平行后端 |
+| CLI 业务入口 | CliEntry | 必需：operations/capabilities；可选：events 用于流式显示 | 插件拥有业务命令贡献、stdio 监听和中断处理；进程退出只由 bootstrap 协调 | 停命令分派 → 等待/取消调用 → 移除监听；不在普通命令 disposer 中擅自关闭共享 host | 未装 CLI 插件仍可 help/修复；业务命令明确缺组件 |
+| HTTP-SSE 入口 | HttpEntry | 必需：operations/capabilities；可选：events，未装时不提供 SSE | 插件通过 effect 拥有 server/routes/socket/会话；保留既有 Host/Origin/授权约束 | 停 listen/接单 → 收尾在途请求和 SSE → 关闭 socket/监听 | 未装即不监听端口；由其他入口/修复通道报告，不能期待不存在的 HTTP 端点返回错误 |
+| MCP 入口 | McpEntry | 必需：operations/capabilities；可选：events/具体工具贡献 | 插件拥有 server/transport/tool 贡献与取消、关闭句柄 | 停 transport 接入 → drain/取消 → 注销工具及监听 | 未装不启动 MCP transport；其他入口仍可用 |
+
+最小 bootstrap 只负责参数/help、定位清单与数据目录、创建唯一 Context、启动一个可诊断的安全组合，以及委托 AppBoot/Loader 激活所选插件。业务 CLI 命令属于可选入口插件；help、诊断、禁用故障插件、恢复上一完整清单不能依赖所有业务插件成功。恢复操作仍使用同一配置/交付服务的安全模式，不绕开兼容与完整性检查、不写另一套 loader。启动失败要可从终端得到缺件/失败阶段和恢复动作；无 HTTP/MCP/UI 时也不能失去这条通道。
+
+P05 是 DSH AppBoot/Loader 之上的**包交付薄层**：拥有来源/完整性/兼容清单、暂存与安装事务、登记及重启回退，然后委托既有 loader 激活。它不创建第二套插件解析、依赖容器或热重载循环。Loader 本身不保证完整安装事务或失败后还原整个树，薄层仍须验证自身补偿和恢复，不能把“复用 Loader”当作安装可靠性证明。
+
 固定 DSH 的 jobs owner 经 live session 解析成 Agent，不是任意业务字符串标签；当前安装和业务提交均无 owner，竞争同一个 `maxConcurrentJobsPerOwner: 1` 的 unowned 槽。P01 先决定共享排队/饱和 CONFLICT 策略，或用经验证的真实 owner 方案；禁止仅换字符串就宣称配额隔离。`jobs.wait` 单次超时返回当前视图，不表示已结束；关闭必须有总 deadline，调用 abort 与超时分别处理。
 
 Records 去掉具体 parse 依赖不能丢掉现有 `validateTranslation` 保护。P03 需把来源插件校验接到明确的修订写入/接受契约，覆盖人工编辑、模型结果和接受旧 revision 三条路径；校验与提交使用同一来源/基修订版本，冲突重新验证。插件缺席时旧记录可读，但需要私有格式校验的编辑/接受应明确阻塞，不能绕过校验直接写入。
@@ -80,6 +102,8 @@ Records 去掉具体 parse 依赖不能丢掉现有 `validateTranslation` 保护
 
 WebUI 使用 capability/settings descriptor 展示通用状态与动作；新引擎不追加前端引擎名单。专门 UI 可由插件贡献且须有版本/缺件降级，基础修复能力不依赖完整 UI 插件。桌面壳消费相同接口，不能另建业务流程。
 
+Cordis `ctx.emit/on` 承担进程内插件/服务通知，监听随所属 plugin effect 清理；`ivoraige.events` 仅把业务状态变化投影为跨入口可版本化的 envelope、scope、barrier 和受管理订阅，不替代 Cordis 的生命周期事件、依赖注入或另起一套全局插件总线。生产者在权威状态提交边界通知 bridge；单次 `ctx.emit` 本身不提供状态事务或跨连接可靠送达。对外只输出数据，不能把 Context、服务实例、内部事件对象或密钥透传给适配器/客户端。
+
 事件候选 envelope：`eventVersion, eventId, type, sequence, occurredAt, scope, data`，状态同步另带下述 `generation/stateRevision`。scope 包含可选 docId/taskId/componentId，ID 不透明；只有需要长期恢复的任务状态持久化，普通设置通知不默认建第二套持久事件系统。任务进度、设置页变化、组件状态是不同命名域；P04 为旧 SSE 格式提供兼容映射。只有后端确有保留窗口时承诺事件重放；订阅取消/入口关闭必须释放监听，不把 WebUI 刷新当作事件一致性方案。
 
 ### 状态快照与订阅的同步边界
@@ -93,10 +117,10 @@ WebUI 使用 capability/settings descriptor 展示通用状态与动作；新引
 
 P04 可提出等价的原子 barrier 方案，但必须证明就绪、状态提交及重取期间不存在未覆盖窗口，并同步修改该契约与验收。首轮不要求持久事件日志；只保证连接有效期内的通知/显式失效，重启或断线恢复以权威状态为准。定时器、连接和有限缓冲归入口 session 所有，关闭后释放。以上是待实现契约澄清，不是当前 SSE 已满足此流程或已确认存在运行时缺陷的声明。
 
-当前 MCP 贡献已经插件化，HTTP/CLI 仍是普通协议模块；P04 收口它们的生命周期与注册，不把“所有入口均未插件化”当现状。产物读取及大小限制由公共能力统一，上传大小上限由能力/传输约束共同声明；现有 UI 7 MiB 与 HTTP 10 MiB 差异需说明或统一。D01 同时固定 launcher/CLI 自定义数据目录及 store 参数的优先级，不能让两个入口静默指向不同用户库。
+当前 MCP 贡献已经插件化，HTTP/CLI 仍是普通协议模块；目标 P04 将三者收口为可选入口插件，其资源归属与缺席行为见上表，不把当前实现误写成目标已完成。产物读取及大小限制由公共能力统一，上传大小上限由能力/传输约束共同声明；现有 UI 7 MiB 与 HTTP 10 MiB 差异需说明或统一。D01 同时固定 launcher/CLI 自定义数据目录及 store 参数的优先级，不能让两个入口静默指向不同用户库。
 
 ## 契约启用与验证
 
-桌面扩展的 HostSession、TaskCapabilities、DraftJournal、WorkerLifecycle 及关闭/退出握手细节见[桌面契约表](../../plan/0.1.x/desktop.md#必须先有的基础契约)，作为本契约的候选补充。UI 销毁前必须持久化确认草稿；事件需 host generation/state revision 以识别重启和缺口；idle-stop 与 final-dispose 分开。D01 的探针与 P01/P04 共同收口后才启用正式桌面实现，不另建任务或存储内核。
+桌面扩展的 HostSession、TaskCapabilities、DraftJournal、WorkerLifecycle 及关闭/退出握手细节见[桌面契约表](../../plan/0.1.x/desktop.md#必须先有的基础契约)，作为入口/会话适配契约，不是第二内核。任务状态与调度继续归 `ivoraige.tasks`/DSH jobs，worker 控制复用所属插件/sidecar 的资源生命周期，不另建持久任务表、调度器或存储 owner。UI 销毁前必须持久化确认草稿；事件需 host generation/state revision 以识别重启和缺口；idle-stop 与 final-dispose 分开。共用退出/取消/状态安全纳入 0.1.0，原生壳与体验按[候选分期](../../plan/0.1.x/releases.md)后置。
 
 P01 固定服务/错误/版本命名及兼容探针，P02 明确旧数据读取与写入迁移，P03/P04 收口适配器和入口事件，P05 安装契约冻结后再接 P06/P07。每次变更同步定向测试与 [验证矩阵](../../plan/0.1.x/validation.md)。当前读代码结论不能替代 DSH 生命周期探针、真实安装或引擎运行证据。

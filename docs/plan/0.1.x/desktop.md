@@ -2,6 +2,8 @@
 
 核验日期：2026-10-19。定位：[0.1.x 规划](README.md)的桌面设计及验证输入；尚未实现桌面壳或运行性能测试。操作/事件等公共契约以 [0.1.x 契约](../../requirements/0.1.x/contracts.md)为入口，执行状态只在[工作包表](work-packages.md)维护。
 
+版本范围按[候选分期](releases.md)切片：现有 host 的退出 drain、取消、worker 归属/清理与状态同步属于 0.1.0 共同安全，D04 基线可先测；原生托盘、可销毁窗口、完整草稿日志与体验预算留待桌面阶段。HostSession/TaskCapabilities/WorkerLifecycle 适配既有 ivoraige.tasks 和 DSH jobs，不新增平行任务内核。
+
 ## 源码基线与证据
 
 通过 GitHub 只读接口核对 main，为 `43d3f1fadc4930baa445aeb0cb832b3647aa08d7`，package.json 为 0.1.0。以下是源码检查，不代表本轮运行验证。

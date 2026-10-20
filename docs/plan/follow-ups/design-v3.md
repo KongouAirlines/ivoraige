@@ -1,7 +1,7 @@
 # 0.1.x Cordis 组合契约与模块边界重规划（原 design v3）
 
 - ID: design-v3
-- 状态: 处理中
+- 状态: 已安排
 - 实施分支／PR: codex/0.1.x-foundation-plan（规划草案）；生产实现未开始；2026-10-18 热修证据保留
 - 类型: 改进
 - 发现依据: 2026-10-17 全部 18 个 PR 审查，main `dde75f5`；[issue #29](https://github.com/KongouAirlines/ivaraige/issues/29)，相关讨论 [#14](https://github.com/KongouAirlines/ivaraige/issues/14)、[#16](https://github.com/KongouAirlines/ivaraige/issues/16)、[#23](https://github.com/KongouAirlines/ivaraige/issues/23)
@@ -26,7 +26,7 @@ v2.0 的 Cordis 组合契约在实现中出现了可观察的漂移：
 
 1. 服务名、必需/可选 `inject`、组合根职责、缺件语义与生命周期顺序。
 2. 解析/输出适配器元数据：`format`、输入类型、同步/异步导入、可选 `renderReadable()`、返回形状；`records` 只存通用 IR。
-3. 入口注册模型：入口插件或协议适配模块；能力注册、错误映射、取消语义；入口不得解析内部 ID、做文件 I/O 或格式分支。
+3. CLI/HTTP/MCP 可选入口插件与最小 bootstrap/help/修复通道分工；能力注册、错误映射、取消语义及 disposer 所有权；入口不做领域 ID 解析、领域文件读取或格式分支。
 4. 跨域事件契约（含设置页变化）与可选能力装载/卸载测试矩阵。
 5. 导出隔离的负向测试；不同 `adapterId` 的最小二进制/耗时来源夹具。
 6. v2.0 参考 → 目标软件 0.1.x 的差异、兼容边界、API/UI/AGENTS 同步要求；旧文档和稳定编号保留。
@@ -40,6 +40,8 @@ v2.0 的 Cordis 组合契约在实现中出现了可观察的漂移：
 - [ ] v2.0 参考 → 0.1.x 目标的迁移清单明确，旧设计中的已知错误有替代说明。
 
 ## 处理记录
+
+- 2026-10-20：按 [PR #34 审阅](https://github.com/KongouAirlines/ivoraige/pull/34#discussion_r4323789541)修正规划状态为“已安排”；生产实施未开始，不扩展状态机。下方 2026-10-19 的“处理中”是当时误用，保留记录并由本条更正。基础范围见 [0.1.0 基础候选](../0.1.0/foundation-plan.md)，工作包状态仍只在原执行表维护。
 
 - 2026-10-19：本地规划分支新增 0.1.x 契约、PR 工作包、迁移/分发、验证矩阵和提示词；状态为“处理中”，不代表实现或验收通过。旧报告保留，第二插件与跨引擎重建分别验收。
 

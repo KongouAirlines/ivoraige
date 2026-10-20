@@ -1,9 +1,10 @@
 # Third-party runtime sources
 
-The `codex/0.1.0-pdf` branch retains the pinned source bridge, dependency lock
-and build license handling from `codex/restart-v2`. The retired MVP service is on
-`codex/archive-mvp-0.0.0` (tag `v0.0.0`). The current CLI and WebUI are
-new implementations for `0.1.0-dev.0`.
+The current `0.1.0` source tree uses the pinned source bridge, dependency lock
+and build license handling described below. The CLI and WebUI share the current
+kernel. The retired MVP service remains on `codex/archive-mvp-0.0.0`
+(tag `v0.0.0`); `0.1.0-dev.0` identifies historical Windows/PDF artifacts,
+not the current source package version.
 
 The optional PDF sidecar is separate from the Node bundle. Its pinned Python
 runtime installs BabelDOC 0.6.4 and PyMuPDF 1.26.7 from
@@ -37,7 +38,7 @@ license; its package and transitive notices remain in the production dependency
 tree. Build scripts and pinned lockfiles are included in the source repository;
 private release recipients must retain access to that corresponding source.
 
-The restarted records service now mounts the same pinned DSH storage hub,
+The current records service mounts the same pinned DSH storage hub,
 storage-domain and storage-sqlite plugins. SQLite comes from Node's built-in
 `node:sqlite`; business code never accesses that backend directly. The npm
 tarball includes the generated DSH bundle, WebUI assets and license notices.
@@ -63,8 +64,8 @@ these matching vendored copies, rather than separately updating Cordis.
 The source checkout and generated bundle are local, ignored artifacts. Obtain
 the fixed checkout with `npm run setup:dsh`; an existing clean checkout at the
 fixed commit is reused. Run `npm ci` in a clean project, then `npm run build`.
-With the M1 experiment dependencies already present, the build can reuse
-`experiments/cordis-dsh/node_modules` without reinstalling them.
+The current build requires dependencies in the repository-root `node_modules`;
+historical experiment dependency directories are not a supported substitute.
 
 The dependency lockfile fixes `@earendil-works/pi-ai` 0.87.1,
 `@standard-schema/spec` 1.1.0, `@eslint-community/regexpp` 4.12.2,
