@@ -8,6 +8,7 @@
 | [v2.0 架构与验收](v2.0/01_design_v2.0.md)、[UI 设计](v2.0/02_UI-design_v2.0.md) | 现有实现的设计参考，包含尚未完成的目标；旧编号和不变量保留 |
 | [v2.0 API 协议](v2.0/03_API-protocol_v2.0.md) | 明确标为“当前实现”的子集仍约束 0.1.0；其余是目标协议，不能把整份文档视为已实现或整体废弃 |
 | [术语适用范围补充 0001](amendments/0001-term-applicability.md) | 对需求及设计的范围约束；术语库结构与装配仍需实际实现和验证 |
+| [0.1.x 工作流与内容工作台](0.1.x/workflows.md) | 可保存组合、运行追溯与内容优先交互草案；格式和协作见[路线](../plan/0.1.x/formats-integrations.md)，不冒充已实现 |
 | [0.1.x 契约草案](0.1.x/contracts.md) | 提议增量替代模块、适配器、入口、事件及生命周期边界；只有对应实现与兼容路径验收后才启用 |
 
 [ADR-0002](../decisions/0002-plugin-composition-0.1.0.md)保留已采纳的组合原则；[ADR-0001](../decisions/0001-runtime-selection.md)保存早期运行时决策与实验依据。新活跃计划和设计统一按目标软件 `0.1.x` 组织，原 [design-v3](../plan/follow-ups/design-v3.md) 作为稳定事项 ID 保留，不新建并行的 v3 文档编号体系。

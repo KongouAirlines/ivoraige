@@ -24,6 +24,7 @@ ivoraige 是供人和 AI 共用、可自由组合的翻译与文件处理基础�
 - [源码运行与贡献](plan/0.1.0/development-guide.md)、[PDF 开发参考](plan/0.1.0/pdf-development.md)、[发行与验收维护指南](plan/0.1.0/installation-maintenance.md)。
 - [0.1.x 首轮计划](plan/0.1.x/README.md)：工作包、依赖、迁移分发、桌面子方案和验收链；[统一提示词](plan/0.1.x/prompts.md)引用共同开发约束。
 - [0.1.0 基础候选](plan/0.1.0/foundation-plan.md)、[npm 就绪准备](plan/0.1.0/npm-readiness.md)与[后续候选范围](plan/0.1.x/releases.md)：待实施内容，不是上架排期。
+- [可组合工作流与内容工作台](requirements/0.1.x/workflows.md)、[格式与软件协作路线](plan/0.1.x/formats-integrations.md)：默认链组合化、保存/版本/追溯、DOCX/EPUB/Office 分级与客户端支线；均待实施。
 - [后续事项规则与记录](plan/follow-ups/README.md)：稳定 ID 与单项状态的来源；规划拆分不自动关闭旧事项。
 - [代理工作规则](../AGENTS.md)：开发操作约束，不替代用户指南或进度表。
 
