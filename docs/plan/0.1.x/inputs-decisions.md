@@ -47,6 +47,10 @@ U01–U03 承接新增 UI 范围，状态只在工作包表；U-V01–U-V03 是�
 
 综合 [6320594731](https://github.com/KongouAirlines/ivoraige/pull/34#issuecomment-6320594731) 与 [6321031325](https://github.com/KongouAirlines/ivoraige/pull/34#issuecomment-6321031325)，采用产品设计、版本范围、执行索引、专项/来源四条阅读路径；领域详情及验证按任务读取。用户确认五份 PR 审查只作历史来源，取消持续刷新报告与动态 PR 状态的安排，原正文/发现 ID/固定源码证据保留。
 
+## 宏观领域覆盖反馈
+
+[领域覆盖建议](https://github.com/KongouAirlines/ivoraige/pull/34#issuecomment-6321399842)由[领域地图](domains.md)承接：复用术语补充 0001 和已有安全/分发契约，补译文质量及跨页验收；延后领域记录触发条件与最小决策输入，责任角色随切片认领。RAG 尚未纳入当前候选承诺，保留后续 0.1.x 重评可能；ADR 按实际取舍补充。
+
 ## 待决定项
 
 | 决策 | 建议起点 | 在何时固定 / 未决影响 |

@@ -9,7 +9,7 @@
 | 产品与契约 | [requirements 导航](../../requirements/README.md)：[UI](../../requirements/0.1.x/ui.md)、[工作流](../../requirements/0.1.x/workflows.md)、[组合契约](../../requirements/0.1.x/contracts.md) | 目标体验、模型和接口如何定义 |
 | 版本范围 | [releases](releases.md) | 各候选版本包括什么、哪些后置；版本范围只在此维护 |
 | 执行 | [work-packages](work-packages.md) → 目标包详情 → [验证 ID](validation.md)；[任务提示词](prompts.md) | 当前未完项、依赖、实施证据和验收 |
-| 来源与专项 | [输入决策](inputs-decisions.md)、[专项资料](#专项与历史参考) | 为什么这样安排，某个边界有哪些依据 |
+| 来源与专项 | [领域覆盖与重评](domains.md)、[输入决策](inputs-decisions.md)、[专项资料](#专项与历史参考) | 领域由谁承接、何时重评，某个边界有哪些依据 |
 
 ## 阅读场景
 

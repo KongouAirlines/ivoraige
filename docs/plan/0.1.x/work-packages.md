@@ -35,7 +35,7 @@
 | W04 | 高级节点图编辑与无损视图切换 | W02、W03；不作为真实组合保存的前置 | 草案 | [可组合工作流](packages/workflows.md#w04) |
 | U01 | 独立普通翻译、局部候选与修订交互 | P04；保留既有 Records/翻译服务；转项目另接 W02 | 草案 | [普通翻译与管理 UI](packages/ui.md#u01) |
 | U02 | 分组导航、五类设置、模型/连接管理与插件配置归属 | P04、P05；项目区接 W02，资源准备接 P08/对应插件 | 草案 | [普通翻译与管理 UI](packages/ui.md#u02) |
-| U03 | 术语页、数据与存储设置子页及可解释预检切片 | U02、Q02、P02；项目挂载接 W02，预检接 P03 | 草案 | [普通翻译与管理 UI](packages/ui.md#u03) |
+| U03 | 术语页、数据与存储设置子页及可解释预检切片 | U02、Q02、P02；术语切片先接[后端契约](../../requirements/0.1.x/contracts.md#术语服务与翻译复用)；项目挂载接 W02，预检接 P03 | 草案 | [普通翻译与管理 UI](packages/ui.md#u03) |
 | F01 | DOCX 窄范围提取、草稿与原生回写 | P02、P03；公共入口 P04，独立交付 P05 | 草案 | [格式与软件协作](packages/formats-integrations.md#f01) |
 | F02 | 可重排 EPUB 窄范围读取与原生回写 | P02、P03；公共入口 P04，独立交付 P05 | 草案 | [格式与软件协作](packages/formats-integrations.md#f02) |
 | F03 | PPTX 提取与版面约束回填 | P02、P03；公共入口 P04，独立交付 P05 | 草案 | [格式与软件协作](packages/formats-integrations.md#f03) |

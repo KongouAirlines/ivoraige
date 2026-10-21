@@ -74,6 +74,10 @@ Q01–Q04、P08–P10 与 D01–D05 的专项条件由[工作包详情](work-pac
 
 见[领域验证](validation/desktop.md#桌面验证)。
 
+## 跨领域检查
+
+[术语与复用](validation/cross-cutting.md#术语与复用)、[解析/译文/重建质量](validation/cross-cutting.md#质量分层与译文评审)、[安全与诊断](validation/cross-cutting.md#安全与诊断)、[跨页交互与语言](validation/cross-cutting.md#跨页交互与语言)随所交付切片执行；承接及重评条件见[领域地图](domains.md)。
+
 ## 本规划文档检查
 
 检查相对链接/锚点、工作包与验证 ID、依赖和来源映射、历史报告正文保真，以及 `git diff --check`。新贡献者、P03 和 U01 的阅读场景见[入口](README.md#阅读场景)。
