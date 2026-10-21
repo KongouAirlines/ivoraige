@@ -24,6 +24,7 @@ ivoraige 是供人和 AI 共用、可自由组合的翻译与文件处理基础�
 - [源码运行与贡献](plan/0.1.0/development-guide.md)、[PDF 开发参考](plan/0.1.0/pdf-development.md)、[发行与验收维护指南](plan/0.1.0/installation-maintenance.md)。
 - [0.1.x 首轮计划](plan/0.1.x/README.md)：工作包、依赖、迁移分发、桌面子方案和验收链；[统一提示词](plan/0.1.x/prompts.md)引用共同开发约束。
 - [0.1.0 基础候选](plan/0.1.0/foundation-plan.md)、[npm 就绪准备](plan/0.1.0/npm-readiness.md)与[后续候选范围](plan/0.1.x/releases.md)：待实施内容，不是上架排期。
+- [UI 与设置设计](requirements/0.1.x/ui.md)：独立普通翻译、导航、模型/连接与管理职责。
 - [可组合工作流与内容工作台](requirements/0.1.x/workflows.md)、[格式与软件协作路线](plan/0.1.x/formats-integrations.md)：默认链组合化、保存/版本/追溯、DOCX/EPUB/Office 分级与客户端支线；均待实施。
 - [后续事项规则与记录](plan/follow-ups/README.md)：稳定 ID 与单项状态的来源；规划拆分不自动关闭旧事项。
 - [代理工作规则](../AGENTS.md)：开发操作约束，不替代用户指南或进度表。
@@ -40,7 +41,7 @@ ivoraige 是供人和 AI 共用、可自由组合的翻译与文件处理基础�
 ## 实施证据与历史
 
 - [0.1.0 实施记录](plan/0.1.0/README.md)：历史阶段、分支与验证；此前产品方向见[0.1.0 路线图](plan/0.1.0/roadmap.md)。
-- [历史 PR 审查归档](plan/0.1.0/pr-review/README.md)与[136 项去重映射](plan/0.1.x/audit/README.md)：保留原发现和固定基线，不是实时缺陷计数。
+- [历史 PR 审查归档](plan/0.1.0/pr-review/README.md)与[136 条历史发现 → 75 个主题的来源映射](plan/0.1.x/audit/README.md)：保留原发现和固定基线，不是实时缺陷计数。
 - [公开准备记录](plan/0.1.0/public-readiness.md)、[PDF 实际包审计](plan/0.1.0/pdf-license-audit.md)：前者保存阶段快照，后者的剩余分发条件仍须验收。
 - [MVP 历史](plan/mvp/README.md)：旧软件 `0.0.0` 已归档，旧任务表不再驱动开发。
 - [v1.0 需求归档来源](requirements/v1.0/IMPORT.md)：原件、需求 ID 和导入记录保留。

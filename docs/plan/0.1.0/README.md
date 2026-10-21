@@ -16,7 +16,7 @@
 
 ## Release 撤下后的审计说明（2026-10-19）
 
-全部 Release 和附件已撤下，暂不提供发行包下载。[历史审计](pdf-license-audit.md)保留原附件摘要与未决项；仅在保存了原附件和 API 元数据时可离线复核。F-B／P2 的实际包验收留待恢复二进制分发前完成。源码开源准备见 [PR #32](https://github.com/KongouAirlines/ivaraige/pull/32)。
+全部 Release 和附件已撤下，暂不提供发行包下载。[历史审计](pdf-license-audit.md)保留原附件摘要与未决项；仅在保存了原附件和 API 元数据时可离线复核。F-B／P2 的实际包验收留待恢复二进制分发前完成。源码开源准备见 [PR #32](https://github.com/KongouAirlines/ivoraige/pull/32)。
 
 ## PDF 发行物许可审计证据收编（2026-10-18）
 
@@ -24,7 +24,7 @@
 
 ## 公开安装与维护准备（2026-10-17）
 
-F-D～F-G 的工程实现、分支依赖、实际检查和保留事项见[实施记录](public-installation.md)。PR #18／#19／#25 已合入 main，[v0.1.0](https://github.com/KongouAirlines/ivaraige/releases/tag/v0.1.0) 已正式发布源码和 npm 安装包，源码为 `cb7e4a4`。本轮版本绑定已按首轮发行范围完成，见 [release-documentation-binding](../follow-ups/release-documentation-binding.md)；Windows 验收、CI 及公开切换按用户决定保留待办。
+F-D～F-G 的工程实现、分支依赖、实际检查和保留事项见[实施记录](public-installation.md)。PR #18／#19／#25 已合入 main，[v0.1.0](https://github.com/KongouAirlines/ivoraige/releases/tag/v0.1.0) 已正式发布源码和 npm 安装包，源码为 `cb7e4a4`。本轮版本绑定已按首轮发行范围完成，见 [release-documentation-binding](../follow-ups/release-documentation-binding.md)；Windows 验收、CI 及公开切换按用户决定保留待办。
 
 ## 安装与首次启动体验（2026-10-11）
 
@@ -99,7 +99,7 @@ PR #10／#12 已合入 main/4df1d72。`codex/0.1.0-installation` 实施 Windows 
 - 内部错误与任务失败保留关联 traceId 和本地原因栈；响应不返回供应商原始错误。队列调度拒绝有终端处理。WebUI 容忍非法 hash，任务操作局部刷新，进度事件合并刷新。
 - 实施记录按 `0.1.0` 命名，明确请求级 profile 与术语装配尚未实现；修正历史归档链接、版本说明及 DSH 构建依赖来源。远程 `v0.0.0` 标签已核对，解引用为 `27eec14`，与归档分支一致。
 
-本机 Windows／Node 26 完整 `npm test` **74/74**，包含子进程争锁、崩溃恢复、符号链接与硬链接验证；31 文件安装包的隔离安装、持久化、设置、CLI／HTTP 和静态 UI 冒烟通过。浏览器以非法 hash `#/%E0%A4%A` 打开独立测试服务，正常显示主页且无控制台错误。此轮未追加真实模型请求。macOS 首轮因测试未规范化临时路径而失败，修正后以 [Node 24 三系统 CI](https://github.com/KongouAirlines/ivaraige/actions/runs/37446841344) 为远程验证记录；该运行对应代码与测试提交 `66cc05f`。
+本机 Windows／Node 26 完整 `npm test` **74/74**，包含子进程争锁、崩溃恢复、符号链接与硬链接验证；31 文件安装包的隔离安装、持久化、设置、CLI／HTTP 和静态 UI 冒烟通过。浏览器以非法 hash `#/%E0%A4%A` 打开独立测试服务，正常显示主页且无控制台错误。此轮未追加真实模型请求。macOS 首轮因测试未规范化临时路径而失败，修正后以 [Node 24 三系统 CI](https://github.com/KongouAirlines/ivoraige/actions/runs/37446841344) 为远程验证记录；该运行对应代码与测试提交 `66cc05f`。
 
 日期：2026-10-03。用户要求新分支抛弃绝大多数旧代码、保留经验与部分实践方法，并先拉取最新版本。分支：`codex/restart-v2`；起点：最新 `origin/main` 的 `12b8f37`。
 
@@ -152,7 +152,7 @@ PR #10／#12 已合入 main/4df1d72。`codex/0.1.0-installation` 实施 Windows 
 - 缺少适用接受译文默认失败，显式 skip 保留原文；不可译单位保留原文。产物引用或在途导出阻止删除快照；删除产物记录不删除实际文件。输出文件以独占创建方式写入，已有文件不覆盖；多格式中途失败时，已成功的产物继续可查询。
 - 内核方法直接异步执行，本阶段尚无 Task/HTTP/CLI 协议封装。示例 `node examples/text-records.mjs` 使用原创短文本和录入译文，产物位于 `evaluation/runs/text-records/`；没有模型调用或私有材料读取。
 
-验证：Windows／Node v26.7.0，完整 `npm test` **17/17**；`npm run smoke:package` 从 tarball 临时安装后完成纯解析、SQLite 导入／接受／JSON 导出与重启读回。固定 DSH 构建闭包为 745 个源码输入，保留第三方许可。Node 24 的 Windows/Linux/macOS CI 矩阵已全部通过构建、17 项测试和临时安装包验证；对应代码提交 `1f7e627`，[运行记录](https://github.com/KongouAirlines/ivaraige/actions/runs/37045467951)。这是当前文本内核 npm 包的验证，不代表模型、三入口、Python sidecar 或独立可执行发行包已交付。
+验证：Windows／Node v26.7.0，完整 `npm test` **17/17**；`npm run smoke:package` 从 tarball 临时安装后完成纯解析、SQLite 导入／接受／JSON 导出与重启读回。固定 DSH 构建闭包为 745 个源码输入，保留第三方许可。Node 24 的 Windows/Linux/macOS CI 矩阵已全部通过构建、17 项测试和临时安装包验证；对应代码提交 `1f7e627`，[运行记录](https://github.com/KongouAirlines/ivoraige/actions/runs/37045467951)。这是当前文本内核 npm 包的验证，不代表模型、三入口、Python sidecar 或独立可执行发行包已交付。
 
 ## 模型接入与持久化翻译任务（2026-10-05）
 
@@ -163,7 +163,7 @@ PR #10／#12 已合入 main/4df1d72。`codex/0.1.0-installation` 实施 Windows 
 - 模型调用尝试先持久化，结果缺失或部分用量未知时累计 token 保留 `null`。截断、超时、空响应不写成接受译文；推理内容不进入译文。任务失败记录保留阶段与单位标识，不保存供应商原始错误或凭据。
 - 新示例 `examples/translate-text.mjs` 可使用显式配置运行／恢复任务并导出 MD／JSON；它是内核示例，不代表正式 CLI 已完成。当前只实现翻译 Task，导入与导出仍为直接异步内核方法；DSH 设置页、profile 管理、MD 解析和各入口留待后续阶段。
 
-验证：本机完整构建与套件、临时 tarball 安装验证通过；固定 DSH 闭包为 833 个源码输入。最终套件共 39 项，Windows/Linux/macOS 的 Node 24 CI 均通过完整构建、测试和临时安装包验证；代码提交 `f1c4a0e`，[运行记录](https://github.com/KongouAirlines/ivaraige/actions/runs/37300377753)。模型集成测试只访问本地模拟 HTTP 供应商，已覆盖真实 DSH 适配、凭据引用、错误／取消／超时／截断、译文导出、重启与零追加请求复用，未使用私有材料或外部付费模型。
+验证：本机完整构建与套件、临时 tarball 安装验证通过；固定 DSH 闭包为 833 个源码输入。最终套件共 39 项，Windows/Linux/macOS 的 Node 24 CI 均通过完整构建、测试和临时安装包验证；代码提交 `f1c4a0e`，[运行记录](https://github.com/KongouAirlines/ivoraige/actions/runs/37300377753)。模型集成测试只访问本地模拟 HTTP 供应商，已覆盖真实 DSH 适配、凭据引用、错误／取消／超时／截断、译文导出、重启与零追加请求复用，未使用私有材料或外部付费模型。
 
 ## DeepSeek 真实小样（2026-10-05）
 
@@ -180,9 +180,9 @@ PR #10／#12 已合入 main/4df1d72。`codex/0.1.0-installation` 实施 Windows 
 
 本阶段在上述内核上装配 Markdown 来源绑定、DSH profile/settings/config-editor 持久模型配置、命名凭据、导入／导出任务，以及共用一套 kernel operations 的 CLI、HTTP/SSE 和 React WebUI。浏览器现有文档列表、双语工作台、任务页、设置页与明暗主题；文本导入、精翻草稿、人工编辑／接受、冻结 MD／JSON 导出走同一持久记录。Markdown 明确支持的子集和拒绝边界见 [阶段记录](markdown.md)；操作方法见 [工作台指南](workbench-guide.md)。MCP、PDF、RAG、Zotero 与词库结构不在本阶段交付范围。0.1.0 的翻译入口不接受 `profileId`；目前只用已保存的模型选择。非 `none` 术语约束集合尚无可用的词库写入或组装 API，内部 `setConstraints` 仅为适用性基础，不代表术语范围算法已实现。
 
-本机初轮 `npm test` **61/61** 通过；独立安装包冒烟在临时目录验证 CLI、WebUI、设置、导出及重启读取。首轮 macOS CI 发现 CLI 符号链接路径判断问题，修复提交 `c28c583` 后，Windows/Linux/macOS 的 Node 24 均 **63/63** 测试及 29 文件安装包冒烟通过，见 [CI 记录](https://github.com/KongouAirlines/ivaraige/actions/runs/37314672867)。依赖锁更新到 esbuild 0.28.2、js-yaml 4.3.2、React 18.3.1／React DOM 18.3.1，加入 DSH profile boot 所需依赖；本阶段 npm audit 为 0 条告警。构建把浏览器资源与 React 许可清单放入 `dist/web/`。
+本机初轮 `npm test` **61/61** 通过；独立安装包冒烟在临时目录验证 CLI、WebUI、设置、导出及重启读取。首轮 macOS CI 发现 CLI 符号链接路径判断问题，修复提交 `c28c583` 后，Windows/Linux/macOS 的 Node 24 均 **63/63** 测试及 29 文件安装包冒烟通过，见 [CI 记录](https://github.com/KongouAirlines/ivoraige/actions/runs/37314672867)。依赖锁更新到 esbuild 0.28.2、js-yaml 4.3.2、React 18.3.1／React DOM 18.3.1，加入 DSH profile boot 所需依赖；本阶段 npm audit 为 0 条告警。构建把浏览器资源与 React 许可清单放入 `dist/web/`。
 
-真实浏览器记录在 [首次合并目标](workbench-goal.md)：用原创 Markdown 样本经 DeepSeek 精翻 4 个可译片段，4 次请求输入 368／输出 13 token；代码段未调用模型。随后在浏览器完成草稿人工编辑、接受、历史版本回退与恢复；快速重提同 4 个单位新增模型调用为 0，人工接受版本保持不变。MD 与 JSON 导出成功并共用冻结快照，导出新增模型调用为 0，产物保留原文代码和数学。重启后浏览器从“正在重连”恢复“已连接”，同一数据库与 DSH 模型设置读回，单单位再提交复用且新增模型调用为 0。短片段翻译仍需人工审校：一次 “The value of” 被译为“值”，已人工补成“参数”的正确上下文。完整科学质量验收仍待后续阶段；本次体验目标已通过，见 [PR #4](https://github.com/KongouAirlines/ivaraige/pull/4)，实际 Merge 等用户体验确认。
+真实浏览器记录在 [首次合并目标](workbench-goal.md)：用原创 Markdown 样本经 DeepSeek 精翻 4 个可译片段，4 次请求输入 368／输出 13 token；代码段未调用模型。随后在浏览器完成草稿人工编辑、接受、历史版本回退与恢复；快速重提同 4 个单位新增模型调用为 0，人工接受版本保持不变。MD 与 JSON 导出成功并共用冻结快照，导出新增模型调用为 0，产物保留原文代码和数学。重启后浏览器从“正在重连”恢复“已连接”，同一数据库与 DSH 模型设置读回，单单位再提交复用且新增模型调用为 0。短片段翻译仍需人工审校：一次 “The value of” 被译为“值”，已人工补成“参数”的正确上下文。完整科学质量验收仍待后续阶段；本次体验目标已通过，见 [PR #4](https://github.com/KongouAirlines/ivoraige/pull/4)，实际 Merge 等用户体验确认。
 
 ## 独立设置窗口（2026-10-07，分支验收）
 
@@ -194,7 +194,7 @@ PR #10／#12 已合入 main/4df1d72。`codex/0.1.0-installation` 实施 Windows 
 
 本机 Windows／Node v26.7.0：最终 `npm test` **160/160**，后续旧配置升级及数值输入恢复的相关回归 **16/16**；安装包冒烟 **44 文件**通过，测试包含 PDF／MD／JSON 冻结导出及无追加模型请求。曾在并行全量测试中触发旧 sidecar 测试的 500ms 启动期限及失败清理问题；仅调整测试期限并补齐 cleanup，生产 sidecar 行为未改，随后常规并行全量通过。浏览器使用独立测试库验证两个提供商、同提供商两个模型、保存与选择、真实 revision 冲突重读，以及 TXT、Markdown 和 PDF 工作台的未保存译文、目标语言、选段和来源页码保留。PDF 使用协议夹具，不声称再次完成原生 PDF 排版或多系统 Python 打包验收；本轮未调用付费模型。
 
-本地日志和明暗／窄屏截图保留在忽略目录 `evaluation/runs/settings-0.1.0/`。实现提交 `87de41b` 的 Windows／Linux／macOS Node 24 CI 均通过 161 项测试及安装包冒烟（CI 的 npm 打包清单为 48 文件），见 [运行记录](https://github.com/KongouAirlines/ivaraige/actions/runs/37638427976)。交付 [PR #9](https://github.com/KongouAirlines/ivaraige/pull/9) 等待人工 Merge。最终收尾补充排除禁用字段组内控件的焦点循环，构建和浏览器 Shift+Tab 复验通过，最终提交 CI 以 PR 检查为准。跟踪事项 [plugin-settings-window](../follow-ups/plugin-settings-window.md)、[model-settings-partial-save](../follow-ups/model-settings-partial-save.md) 均为处理中，待人工验收与主线合入后再标记解决。
+本地日志和明暗／窄屏截图保留在忽略目录 `evaluation/runs/settings-0.1.0/`。实现提交 `87de41b` 的 Windows／Linux／macOS Node 24 CI 均通过 161 项测试及安装包冒烟（CI 的 npm 打包清单为 48 文件），见 [运行记录](https://github.com/KongouAirlines/ivoraige/actions/runs/37638427976)。交付 [PR #9](https://github.com/KongouAirlines/ivoraige/pull/9) 等待人工 Merge。最终收尾补充排除禁用字段组内控件的焦点循环，构建和浏览器 Shift+Tab 复验通过，最终提交 CI 以 PR 检查为准。跟踪事项 [plugin-settings-window](../follow-ups/plugin-settings-window.md)、[model-settings-partial-save](../follow-ups/model-settings-partial-save.md) 均为处理中，待人工验收与主线合入后再标记解决。
 
 ## 设置 PR #9 审阅修正（2026-10-08）
 
@@ -212,7 +212,7 @@ Windows CI 补充暴露详情页首次提交后的草稿初始化与输入竞争
 
 ### PR #9 未提交凭据保留（2026-10-08）
 
-针对 [API Key 草稿被自动导航清空的评论](https://github.com/KongouAirlines/ivaraige/pull/9#issuecomment-6054894246)，模型保存成功后的详情地址更新保留当前分类和未提交凭据，并提示另行保存凭据。模型 PATCH 不提交 API Key；关闭设置仍触发未保存确认；只有凭据 PUT 成功后才清空该输入，普通离开和插件卸载沿用既有清理规则。实际 React bundle DOM 回归覆盖新增／更改模型身份 × 两种保存按钮，以及取消关闭、显式保存凭据，共四个新增用例。未使用真实凭据或请求模型。
+针对 [API Key 草稿被自动导航清空的评论](https://github.com/KongouAirlines/ivoraige/pull/9#issuecomment-6054894246)，模型保存成功后的详情地址更新保留当前分类和未提交凭据，并提示另行保存凭据。模型 PATCH 不提交 API Key；关闭设置仍触发未保存确认；只有凭据 PUT 成功后才清空该输入，普通离开和插件卸载沿用既有清理规则。实际 React bundle DOM 回归覆盖新增／更改模型身份 × 两种保存按钮，以及取消关闭、显式保存凭据，共四个新增用例。未使用真实凭据或请求模型。
 
 ## MCP 阶段启动（2026-10-13）
 

@@ -1,6 +1,6 @@
 # 0.1.x 可组合工作流与内容工作台草案
 
-本页是待实施设计，补充[基础契约](contracts.md)，不是当前能力或已固定的数据库 schema。实施范围、依赖和状态只在[工作包表](../../plan/0.1.x/work-packages.md)维护；候选版本见[分期](../../plan/0.1.x/releases.md)。2026-10-20 的设计目标是把可保存、可追溯、按需组合落实到业务执行，而不是只给固定 parse → translate → export 更换界面。
+本页定义可保存、可追溯、按需组合的目标模型，补充[基础契约](contracts.md)。具体 schema 由对应实现评审固定；交付与证据查[工作包索引](../../plan/0.1.x/work-packages.md#状态与证据)，版本范围查[releases](../../plan/0.1.x/releases.md)。
 
 ## 当前与目标
 

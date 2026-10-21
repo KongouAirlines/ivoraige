@@ -1,8 +1,8 @@
 # ivoraige 0.1.x 桌面端子方案
 
-核验日期：2026-10-19。定位：[0.1.x 规划](README.md)的桌面设计及验证输入；尚未实现桌面壳或运行性能测试。操作/事件等公共契约以 [0.1.x 契约](../../requirements/0.1.x/contracts.md)为入口，执行状态只在[工作包表](work-packages.md)维护。
+核验日期：2026-10-19。D01–D05 的专项设计与测量协议；性能预算尚未实测。公共接口见[目标契约](../../requirements/0.1.x/contracts.md)，范围见[候选分期](releases.md)。
 
-版本范围按[候选分期](releases.md)切片：现有 host 的退出 drain、取消、worker 归属/清理与状态同步属于 0.1.0 共同安全，D04 基线可先测；原生托盘、可销毁窗口、完整草稿日志与体验预算留待桌面阶段。HostSession/TaskCapabilities/WorkerLifecycle 适配既有 ivoraige.tasks 和 DSH jobs，不新增平行任务内核。
+HostSession/TaskCapabilities/WorkerLifecycle 适配既有 ivoraige.tasks 和 DSH jobs。D04 当前宿主基线可并行开展；正式桌面实现依赖稳定的公共接口。
 
 ## 源码基线与证据
 
@@ -13,7 +13,7 @@
 - [sidecar.mjs L142–173、306–340](https://github.com/KongouAirlines/ivoraige/blob/43d3f1fadc4930baa445aeb0cb832b3647aa08d7/src/sidecar.mjs#L142)：首次请求才启动 Python，会话在成功请求后保留，无空闲卸载计时。Windows 使用 taskkill /T；其他系统终止直接 child，不能据此保证孙进程回收。已写有崩溃一次重试和临时目录清理，但没有父 host 被强杀后的全树保证。
 - [WebUI app.jsx L106–129、244](https://github.com/KongouAirlines/ivoraige/blob/43d3f1fadc4930baa445aeb0cb832b3647aa08d7/web/app.jsx#L106)：保存的业务草稿走 PATCH 与 baseRevisionId；未保存编辑在 React 内存，用 beforeunload 提醒，不是崩溃恢复日志。已使用 SSE，进度事件以 500 ms 合并后提升全局 epoch，多处查询随之重载。没有必要先把现状描述为持续轮询。
 - [http.mjs L113–126](https://github.com/KongouAirlines/ivoraige/blob/43d3f1fadc4930baa445aeb0cb832b3647aa08d7/src/http.mjs#L113)：SSE 有实时订阅，没有逐条事件 id/游标重放；重连必须重新获取权威快照。host 仅允许回环并检查 Host/Origin。
-- [v2.0 §1.3](https://github.com/KongouAirlines/ivoraige/blob/43d3f1fadc4930baa445aeb0cb832b3647aa08d7/docs/requirements/v2.0/01_design_v2.0.md#L90) 原决定是浏览器桌面形态、将托盘留待后续评估；本子方案是用户新需求下的增量设计，需在后续设计基线中明确替代这一决定，不将其说成已实现。三系统目标继续保留。
+- [v2.0 §1.4](https://github.com/KongouAirlines/ivoraige/blob/43d3f1fadc4930baa445aeb0cb832b3647aa08d7/docs/requirements/v2.0/01_design_v2.0.md#L90) 原决定是浏览器桌面形态、将托盘留待后续评估；本子方案是用户新需求下的增量设计，需在后续设计基线中明确替代这一决定，不将其说成已实现。三系统目标继续保留。
 
 ## 推荐责任划分
 

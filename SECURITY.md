@@ -6,7 +6,7 @@ or commit, including reports about the withdrawn release packages.
 ## Report a vulnerability
 
 Use **Security → Advisories → Report a vulnerability** on
-[GitHub](https://github.com/KongouAirlines/ivaraige/security/advisories/new)
+[GitHub](https://github.com/KongouAirlines/ivoraige/security/advisories/new)
 when available. Reports go to repository maintainers. If the button is missing,
 open an issue requesting a private security contact, **without vulnerability
 details or attachments**, and wait for a private channel.

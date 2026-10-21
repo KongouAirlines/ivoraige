@@ -1,6 +1,6 @@
 # 0.1.x 导航、普通翻译与能力管理 UI 草案
 
-本页是待实施的 UI 目标，不是当前能力清单。它是全局导航、独立普通翻译及管理页面的唯一活跃设计入口；[workflows](workflows.md)负责项目内内容工作台、步骤检查与编排编辑，[contracts](contracts.md)负责操作、能力、事件和生命周期。执行状态只在[工作包表](../../plan/0.1.x/work-packages.md)，分期及验证分别见[候选范围](../../plan/0.1.x/releases.md)和[验证矩阵](../../plan/0.1.x/validation.md)。
+本页定义全局导航、独立普通翻译及管理页面。[workflows](workflows.md)负责项目内工作台和编排，[contracts](contracts.md)负责操作/事件/生命周期；交付状态查[工作包索引](../../plan/0.1.x/work-packages.md#状态与证据)，版本范围查[releases](../../plan/0.1.x/releases.md)。
 
 ## 现有设计与替代范围
 
