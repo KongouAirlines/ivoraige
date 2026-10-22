@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
+import { brotliCompressSync } from 'node:zlib'
 import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -42,8 +43,10 @@ async function fixture(t, behaviors, { timeoutMs = 1_000 } = {}) {
       response.write('data: {"choices":[{"delta":{"role":"assistant"},"index":0,"finish_reason":null}]}\n\n')
       return
     }
-    response.writeHead(200, { 'content-type': 'text/event-stream' })
-    response.end(events(behavior.text, behavior.usage, behavior))
+    response.writeHead(200, { 'content-type': 'text/event-stream',
+      ...(behavior.brotli ? { 'content-encoding': 'br' } : {}) })
+    const responseBody = events(behavior.text, behavior.usage, behavior)
+    response.end(behavior.brotli ? brotliCompressSync(responseBody) : responseBody)
   })
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
   const address = server.address()
@@ -85,6 +88,15 @@ test('DSH pi-ai uses a credential reference and returns a constrained translatio
   assert.match(JSON.stringify(f.requests[0].body), /Another sentence/)
   assert.match(JSON.stringify(f.requests[0].body), /scientific translation/)
   assert.doesNotMatch(JSON.stringify(result), /private-local-secret/)
+})
+
+test('the model SDK consumes a valid Brotli-compressed SSE response locally', async t => {
+  const f = await fixture(t, [{ text: 'Cells divide.', brotli: true,
+    usage: { prompt_tokens: 21, completion_tokens: 5 } }])
+  const result = await f.model.translate({ basis })
+  assert.equal(result.text, 'Cells divide.')
+  assert.deepEqual(result.tokens, { input: 21, output: 5 })
+  assert.equal(f.requests.length, 1)
 })
 
 test('unknown pi-ai usage remains null; terms fail before making a request', async t => {

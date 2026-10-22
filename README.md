@@ -33,6 +33,8 @@ The goal is a shared foundation for people and AI: choose the capabilities you n
 
 **Run 0.1.0 from source.** Follow the [installation guide (中文)](docs/plan/0.1.0/installation-guide.md). The previous Releases and their attachments have been withdrawn; prebuilt downloads will return in a later release. Repository access is still required until the repository becomes public.
 
+Use Node.js `>=24.22.1 <25 || >=26.12.1 <27` with npm. Later stable patches within either supported major are suitable for source use; Node 25 and future majors are outside the current supported range. For a Windows portable build, use the fixed Node.js 26.12.1 runtime.
+
 1. Open the workbench and import a TXT or Markdown file.
 2. Configure a model when you want machine translation, or enter translations yourself.
 3. Review and accept revisions, then export the result.
