@@ -37,6 +37,8 @@ DOCX 与 EPUB 优先建立窄范围端到端路径；PPTX、XLSX 分开评估和
 
 ## 软件协作支线
 
+I01/I02 的共用接口、OpenAI 与 KT 切片见[专项路线](external-api.md)，接口细节只在[外部契约](../../requirements/0.1.x/external-api.md)维护；本页继续保留其他软件与文件交接边界。
+
 | 工作包 / 候选 | 首次可验收切片 | 边界与未决 |
 | --- | --- | --- |
 | I01 共用 API / 方案发布 | 复用 P04 与 W01/W02、术语后端，定义[稳定外部边界](../../requirements/0.1.x/contracts.md#稳定对外接口与可调用方案)及 OpenAI/MCP 薄投影；集中管理接 W03 | 不暴露全部内部 operation，不建立第二流程 schema；[#40](https://github.com/KongouAirlines/ivoraige/issues/40)、[#41](https://github.com/KongouAirlines/ivoraige/issues/41) 细化接口与验收 |
