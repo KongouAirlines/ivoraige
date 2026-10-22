@@ -6,6 +6,8 @@
 
 本表维护当前工作包的执行状态及实现/验收证据。“草案”表示尚未实施；分支通过后记录提交与未完成范围，集成验收后再标完成。当前交付能力见[能力表](../0.1.0/capabilities.md)。历史报告及审计映射仅是固定来源，纳入规划不等于修复；已有 follow-up 保留自身事项身份与结案条件，不另复制工作包进度。
 
+子交付以 `父包.名称@契约版本` 引用，定义与责任见[I01 子交付](packages/formats-integrations.md#共享子交付)、[U03.terms@1](packages/ui.md#u03-terms)、[W03.publish-ui@1](packages/workflows.md#w03-publish-ui)。它们不是新顶层工作包；实现/验收证据按子 ID 写入本表所属父包行，不能把某个子交付通过当作父包全部完成。
+
 ## 执行状态与依赖（唯一表）
 
 | ID | 目标 | 前置 | 状态 / 实施与验收证据 | 详情 |
@@ -31,18 +33,18 @@
 | D05 | 桌面候选探针、选型及集成验收 | D01–D04；正式壳依赖稳定接口 | 草案 | [桌面生命周期](packages/desktop.md#d05) |
 | W01 | 能力/产物/来源契约与默认链的真实组合证明 | P02、P03、P04；独立插件证据接 P05 | 草案 | [可组合工作流](packages/workflows.md#w01) |
 | W02 | 可保存模板/实例版本、运行追溯与局部重跑 | W01；紧接基础，复用 P02/P04/P05 | 草案 | [可组合工作流](packages/workflows.md#w02) |
-| W03 | 内容优先工作台与卡片/参数编辑 | W01、W02、D03；自动销毁另依赖 D02 | 草案 | [可组合工作流](packages/workflows.md#w03) |
+| W03 | 内容优先工作台与卡片/参数编辑 | W01、W02、D03；发布管理 UI 子交付 W03.publish-ui@1 另接 I01.callable@1；自动销毁另依赖 D02 | 草案 | [可组合工作流](packages/workflows.md#w03) |
 | W04 | 高级节点图编辑与无损视图切换 | W02、W03；不作为真实组合保存的前置 | 草案 | [可组合工作流](packages/workflows.md#w04) |
 | U01 | 独立普通翻译、局部候选与修订交互 | P04；保留既有 Records/翻译服务；转项目另接 W02 | 草案 | [普通翻译与管理 UI](packages/ui.md#u01) |
 | U02 | 分组导航、五类设置、模型/连接管理与插件配置归属 | P04、P05；项目区接 W02，资源准备接 P08/对应插件 | 草案 | [普通翻译与管理 UI](packages/ui.md#u02) |
-| U03 | 术语页、数据与存储设置子页及可解释预检切片 | U02、Q02、P02；术语切片先接[后端契约](../../requirements/0.1.x/contracts.md#术语服务与翻译复用)；项目挂载接 W02，预检接 P03 | 草案 | [普通翻译与管理 UI](packages/ui.md#u03) |
+| U03 | 术语后端、术语页、数据与存储设置子页及可解释预检切片 | U03.terms@1 仅需 P01/P02 及现有翻译接点，不等 U02/UI；术语页接 U02 与该后端，存储接 Q02/P02，项目挂载接 W02，预检接 P03 | 草案 | [普通翻译与管理 UI](packages/ui.md#u03) |
 | F01 | DOCX 窄范围提取、草稿与原生回写 | P02、P03；公共入口 P04，独立交付 P05 | 草案 | [格式与软件协作](packages/formats-integrations.md#f01) |
 | F02 | 可重排 EPUB 窄范围读取与原生回写 | P02、P03；公共入口 P04，独立交付 P05 | 草案 | [格式与软件协作](packages/formats-integrations.md#f02) |
 | F03 | PPTX 提取与版面约束回填 | P02、P03；公共入口 P04，独立交付 P05 | 草案 | [格式与软件协作](packages/formats-integrations.md#f03) |
 | F04 | XLSX 用户选区文本与公式隔离 | P02、P03；公共入口 P04，独立交付 P05 | 草案 | [格式与软件协作](packages/formats-integrations.md#f04) |
-| I01 | 共用外部 API、可调用方案与薄协议适配；Zotero 高优先切片 | 必要 P04；方案执行接 W01/W02 保存冻结及术语后端，Zotero 按导入/写回能力验收；独立交付接 P05，数据兼容沿用 P02；不等待 KT | 草案 | [格式与软件协作](packages/formats-integrations.md#i01) |
-| I02 | KT 高优先集成；其他网页/OCR 入口后续切片 | I01 的必要共享契约/方案子集可并行联调，端到端验收需其可用；独立交付接 P05，不等待 Zotero 或 OpenAI 包装 | 草案 | [格式与软件协作](packages/formats-integrations.md#i02) |
-| I03 | 笔记/知识库及电子书文件交换 | P04、P05；沿用 I01 通用契约；电子书成品按 F02 | 草案 | [格式与软件协作](packages/formats-integrations.md#i03) |
+| I01 | 共用外部 API、可调用方案与薄协议适配；Zotero 高优先切片 | I01.shared@1 ← P04；I01.callable@1 ← I01.shared@1、W02、U03.terms@1；I01.zotero@1 ← I01.shared@1、P02/P03 导入与产物能力；方案调用再接 I01.callable@1。独立交付接 P05；不等 KT 或 W03 UI | 草案 | [格式与软件协作](packages/formats-integrations.md#i01) |
+| I02 | KT 高优先集成；其他网页/OCR 入口后续切片 | [I01.shared@1、I01.callable@1](packages/formats-integrations.md#共享子交付)（后者含 U03.terms@1），独立交付接 P05；不依赖整个 I01、I01.zotero@1、OpenAI 包装或 W03.publish-ui@1 | 草案 | [格式与软件协作](packages/formats-integrations.md#i02) |
+| I03 | 笔记/知识库及电子书文件交换 | I01.shared@1、P05；电子书成品按 F02 | 草案 | [格式与软件协作](packages/formats-integrations.md#i03) |
 
 ## 每包验收与回退
 
@@ -52,7 +54,7 @@
 
 P01 固定当前基线契约与护栏；运行时升级/同 SHA 构建缩减依[专项评估](runtime-sequence.md)独立切片。Q01/Q03 可先行，Q04、P08 清单及 D04 现有 host/browser 基线可并行。P02/P03 顺序修改 Records，Q02 的释放政策接 P04；P05 兼容复评后推进 P06/P07。
 
-W01 的前置是 P02/P03/P04，P05 只承接独立插件证据；W02 紧接可保存组合，W03 衔接内容工作台，W04 图编辑后置。U01 在 P04 后可独立推进，不等待项目、画布或桌面，转项目接 W02；U02 按导航/设置、模型/连接、插件管理拆 PR，U03 按术语/存储/预检交付。F01/F02 按各自前置进入窄范围支线。KT 与 Zotero 同级高优先，可与共享接口/适配契约并行联调；端到端验收按切片满足必要 P04、保存冻结、术语或来源/写回能力，不要求整个 I01 完成后才开始 I02。KT 原生适配不等待 OpenAI 包装，Zotero 不等待 KT；W03 复用集中管理表单，不等全部 PDF、桌面或 W04 图编辑。
+W01 的前置是 P02/P03/P04，P05 只承接独立插件证据；W02 紧接可保存组合，W03 衔接内容工作台，W04 图编辑后置。U01 在 P04 后可独立推进，不等待项目、画布或桌面，转项目接 W02；U02 按导航/设置、模型/连接、插件管理拆 PR，U03 按术语/存储/预检交付。F01/F02 按各自前置进入窄范围支线。KT 与 Zotero 同级高优先，可与共享接口/适配契约并行联调；端到端验收按上表引用确切子交付版本和验收 ID，不要求整个 I01 完成。I01.callable@1 通过本机受控 CLI 验收发布与运行，W03.publish-ui@1 后置接同一管理服务；U03.terms@1 是实际术语后端前置，不等待 U03 全部页面。KT 不等待 Zotero 或 OpenAI 包装，也不等全部 PDF、桌面或 W04 图编辑。
 
 ## 去重关联与远期边界
 

@@ -41,9 +41,9 @@ I01/I02 的共用接口、OpenAI 与 KT 切片见[专项路线](external-api.md)
 
 | 工作包 / 候选 | 首次可验收切片 | 边界与未决 |
 | --- | --- | --- |
-| I01 共用 API / 方案发布 | 复用 P04 与 W01/W02、术语后端，定义[稳定外部边界](../../requirements/0.1.x/contracts.md#稳定对外接口与可调用方案)及 OpenAI/MCP 薄投影；集中管理接 W03 | 不暴露全部内部 operation，不建立第二流程 schema；共享设计由契约与 [I01](packages/formats-integrations.md#i01) 承接，[#41](https://github.com/KongouAirlines/ivoraige/issues/41) 跟踪 OpenAI 适配 |
+| I01 共用 API / 方案发布 | 按 [I01.shared@1 / I01.callable@1](packages/formats-integrations.md#共享子交付)复用 P04、W02、U03.terms@1，定义[稳定外部边界](../../requirements/0.1.x/contracts.md#稳定对外接口与可调用方案)及 OpenAI/MCP 薄投影；发布先经 owner CLI，界面后接 W03.publish-ui@1 | 不暴露全部内部 operation，不建立第二流程 schema；共享设计由契约与 [I01](packages/formats-integrations.md#i01) 承接，[#41](https://github.com/KongouAirlines/ivoraige/issues/41) 跟踪 OpenAI 适配 |
 | I01 Zotero 高优先切片 | 用户选择条目/附件 → 导入关联 → 公共任务 → 新产物显式附回原条目，拆成只读导入和写回两个验收切片。保存 library/item/attachment 身份及源版本，幂等避免重复附件，展示目标和内容确认 | 不假定首个附件就是正确输入；文献管理归 Zotero。桌面插件/本地 API/Web API 的具体组合与版本需探针选择；旧 v2 四模式/RAG/双语 PDF 不全作首轮门槛，不替换原附件 |
-| I02 网页与截图入口 | 依历史 F-23/F-24，以支持 provider 插件的 Kiss Translator 固定版本验收选文/HTML/批次与术语方案复用（[#42](https://github.com/KongouAirlines/ivoraige/issues/42)）；Pot、Umi-OCR 为后续候选。复用 I01 的共享契约子集，与 Zotero 同级高优先、可并行验证，彼此不作前置 | OCR 与翻译分别授权/计费，入口插件不建第二翻译内核；不笼统声称全平台兼容，不承诺三个软件同时完成 |
+| I02 网页与截图入口 | 依历史 F-23/F-24，以支持 provider 插件的 Kiss Translator 固定版本验收选文/HTML/批次与术语方案复用（[#42](https://github.com/KongouAirlines/ivoraige/issues/42)）；Pot、Umi-OCR 为后续候选。复用 I01.shared@1 / I01.callable@1，与 Zotero 同级高优先、可并行验证，彼此不作前置 | OCR 与翻译分别授权/计费，入口插件不建第二翻译内核；不笼统声称全平台兼容，不承诺三个软件同时完成 |
 | I03 笔记/知识库与电子书文件交换 | 先固定结构化内容/附件/元数据和关联引用契约；历史已有 Obsidian 可先 Markdown + 资源文件交换，calibre Ebook Translator 先文件级候选 | 不要求插件或双向同步才算首片；其余知识库软件由实际需求再选，不编造确定名单/日期；远程空间、自动覆盖/自动上传不作为默认 |
 
 集成通过能力、operation、类型化资源和来源引用接入；工作流可调用这些能力，但简单导入/导出仍可直接使用。Zotero 导入和显式回写是不同能力，回写不是导出的隐式副作用。来源 URL/外部对象标识是定位线索，不构成访问授权；本地与远程凭据继续由 DSH 管理。
@@ -52,7 +52,7 @@ I01/I02 的共用接口、OpenAI 与 KT 切片见[专项路线](external-api.md)
 
 ## 共同验收与恢复
 
-1. 安全与选择：明确文件/条目/远程目标和授权范围；保留既有 Host/Origin/认证边界，不能为本机软件方便而开放任意跨域。导入不执行宏、脚本、外链更新或自动下载未知附件；包内路径越界、解压膨胀、畸形关系、远程资源按受控资源边界检查。
+1. 安全与选择：明确文件/条目/远程目标和授权范围；保留 Host/Origin 检查，对外接入实现[单机客户端授权](../../requirements/0.1.x/contracts.md#单机客户端授权)及旧入口防旁路门禁，不能为本机软件方便而开放任意跨域。导入不执行宏、脚本、外链更新或自动下载未知附件；包内路径越界、解压膨胀、畸形关系、远程资源按受控资源边界检查。
 2. 身份与重复：外部对象身份包含所属库/账户范围和对象标识，内容/修订版本另记。相同对象重复导入可关联已有文档，但新内容形成新来源版本；同名文件或相同哈希不能自动合并不同业务来源。保留 applicability 检查，不自动重复翻译。
 3. 显式写回：源文件默认只读，原生输出写新成品；外部写入显示目标及影响并确认，使用幂等/收据记录。上传成功但响应丢失时先查询；不能确认则标未知并要求人工处理，不能盲目重试或把禁用插件当撤回外部写入。
 4. 外部变化：重命名、移动、删除、权限变化、外部附件或链接更新，展示失联/过期并提供重新关联；不凭旧绝对路径或 URL 自动读取/覆盖另一对象。再次导入与替换绑定必须显式、留痕。

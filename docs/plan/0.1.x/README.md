@@ -23,7 +23,7 @@
 
 ## 依赖总图
 
-图展示实际验收所需的主要关系，完整前置见[执行索引](work-packages.md#执行状态与依赖唯一表)。虚线仅表示证据关联。共享契约与客户端适配可以并行联调；I01/I02 编号不表示实现顺序，KT 与 Zotero 为同级高优先集成。
+图展示实际验收所需的主要关系，完整前置见[执行索引](work-packages.md#执行状态与依赖唯一表)。虚线标注证据关联或条件适用关系，未标条件的实线表示前置。共享契约与客户端适配可以并行联调；I01/I02 编号不表示实现顺序，KT 与 Zotero 为同级高优先集成。
 
 ```mermaid
 flowchart TD
@@ -42,13 +42,24 @@ flowchart TD
   W03 --> W04["W04 高级图"]
   P04 --> U01["U01 独立普通翻译"]
   P05 --> U02["U02 导航/设置/管理"]
-  U02 --> U03["U03 资源/数据/预检"]
+  U02 --> U03["U03 管理页/存储/预检界面"]
   P03 --> Formats["F01–F04 格式"]
-  P04 --> SharedAPI["I01 公共协作契约子集"]
-  W02 --> Callable["I01 可调用方案子集"]
-  SharedAPI --> I01["I01 Zotero 高优先集成"]
+  P04 --> SharedAPI["I01.shared@1 公共协作/授权"]
+  SharedAPI --> Callable["I01.callable@1 方案发布/冻结"]
+  W02 --> Callable
+  P01 --> Terms["U03.terms@1 术语后端"]
+  P02 --> Terms
+  Terms --> Callable
+  Terms --> U03
+  SharedAPI --> Zotero["I01.zotero@1 Zotero 集成"]
+  P02 --> Zotero
+  P03 --> Zotero
+  Callable -. "调用翻译方案的切片才依赖" .-> Zotero
   SharedAPI --> I02["I02 KT 高优先集成"]
   Callable --> I02
+  Callable --> PublishUI["W03.publish-ui@1 发布界面"]
+  W02 --> PublishUI
+  D03["D03 状态/草稿契约"] --> PublishUI
   P05 -. "独立交付证据" .-> SharedAPI
   D04["D04 当前宿主基线，可并行"] --> D05["D05 原生桌面"]
   P04 --> Desktop["D01–D03 共用接口/草稿"]

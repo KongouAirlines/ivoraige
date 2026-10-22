@@ -6,17 +6,17 @@
 
 ## 依赖与可审阅切片
 
-KT 与 Zotero 同级高优先，可并行验证，I01/I02 编号不表示完成顺序。共享接口、OpenAI 包装及各客户端适配契约可并行设计和联调；端到端验收分别满足所用的 P04 注册/调用、W01/W02 保存冻结、术语或来源/写回能力。无需等整个公共 API 完成才开始适配探针，也不以探针替代真实基础上的最终验收。KT 原生适配不等待 OpenAI 包装，Zotero 不等待 KT。P05 承接实际独立插件交付，W03 接中央管理界面；PDF 全链、D05 原生桌面和 W04 图编辑不是前置。W02 可先覆盖不依赖人工等待的文本组合，不用完整项目平台阻塞外部调用。
+KT 与 Zotero 同级高优先，可并行验证，I01/I02 编号不表示完成顺序。共享接口、OpenAI 包装及各客户端适配契约可并行设计和联调；端到端验收按[具名子交付](packages/formats-integrations.md#共享子交付)引用版本与证据：KT 接 I01.shared@1/I01.callable@1（含 W02、U03.terms@1），Zotero 的 I01.zotero@1 接 shared 与来源/产物能力，调用方案时再加 callable。无需等整个公共 API 完成才开始适配探针，也不以探针替代真实基础上的最终验收。KT 原生适配不等待 OpenAI 包装，Zotero 不等待 KT。P05 承接实际独立插件交付，W03.publish-ui@1 后接中央管理界面；此前 owner CLI 必须已能准备和发布；PDF 全链、D05 原生桌面和 W04 图编辑不是前置。W02 可先覆盖不依赖人工等待的文本组合，不用完整项目平台阻塞外部调用。
 
 | 所属 / 切片 | 本次交付与不做项 | 验收与回退 |
 | --- | --- | --- |
-| P04 + W01/W02 + 术语后端 | 公开子集与内部操作分离，保存定义/发布引用/受理冻结/独立运行绑定；术语范围与版本接线。沿用已有 schema 和 tasks/jobs，不建第二执行器；不要求全部术语管理 UI | W-V01/W-V02 与[方案/术语案例](validation/external-api.md#方案与原生调用)；关闭新发布入口，保留旧流程和已受理记录，新增持久字段按迁移备份/双读回退 |
-| I01 原生服务 | 方案发现/描述、批次受理、状态/结果/取消、有限术语及授权边界；不把全部 operation 公开 | I-V01 的[方案与原生调用](validation/external-api.md#方案与原生调用)；禁用新 facade，历史仍可读，撤回发布不删运行，未知副作用不盲重试 |
-| W03 + I01 管理 | 保存/复制/配置/测试/发布表单，复用模型/词库管理器和现有工作流编辑；不新增全局设置标签，不等高级图 | W-V03 与[管理和跨入口一致性](validation/external-api.md#管理和跨入口一致性)；可回退到只读已发布配置，保留草稿和确切引用，不降级删边 |
+| W02 + U03.terms@1 | 公开子集与内部操作分离，保存定义/发布引用/受理冻结/独立运行绑定；术语范围与版本接线。沿用已有 schema 和 tasks/jobs，不建第二执行器；不要求全部术语管理 UI | W-V01/W-V02、[U-V03.terms](validation/ui.md#u-v03-terms)与[方案/术语案例](validation/external-api.md#方案与原生调用)；关闭新发布入口，保留旧流程和已受理记录，新增持久字段按迁移备份/双读回退 |
+| I01.shared@1 / I01.callable@1 | 方案发现/描述、批次受理、状态/结果/取消、有限术语及授权边界；不把全部 operation 公开 | [I-V01.shared/callable](validation/formats-integrations.md#i01)与[方案与原生调用](validation/external-api.md#方案与原生调用)；禁用新 facade，历史仍可读，撤回发布不删运行，未知副作用不盲重试 |
+| W03.publish-ui@1（后接 callable） | 保存/复制/配置/测试/发布表单，复用模型/词库管理器和现有工作流编辑；不新增全局设置标签，不等高级图 | [W-V03.publish-ui](validation/workflows.md#w-v03-publish-ui)与[管理和跨入口一致性](validation/external-api.md#管理和跨入口一致性)；可回退到只读已发布配置，保留草稿和确切引用，不降级删边 |
 | I01 / [#41](https://github.com/KongouAirlines/ivoraige/issues/41) OpenAI | 已发布文本方案模型列表、明确 chat 输入/语言/覆盖和响应子集；先非流式，再验收最终稳定流；不宣称完整聊天、多模态或任意工具兼容 | I-V01 的[OpenAI 案例](validation/external-api.md#openai-兼容)；禁用该协议入口不影响原生方案，保留 runId 与失败记录 |
-| I02 / [#42](https://github.com/KongouAirlines/ivoraige/issues/42) KT | 固定真实插件版本，安装授权、原生请求映射、术语与 HTML/批次回填；不 fork 客户端、不建 KT 业务内核 | I-V02 的[KT 案例](validation/external-api.md#kt-实际集成)；撤销客户端调用权限/禁用桥接，保留中央方案和结果；卸载模板不等于停止旧实例 |
+| I02 / [#42](https://github.com/KongouAirlines/ivoraige/issues/42) KT | 固定真实插件版本，安装授权、原生请求映射、术语与 HTML/批次回填；不 fork 客户端、不建 KT 业务内核 | I-V01.shared/callable 已通过版本与 I-V02 的[KT 案例](validation/external-api.md#kt-实际集成)；撤销客户端调用权限/禁用桥接，保留中央方案和结果；卸载模板不等于停止旧实例 |
 
-Zotero 的选择附件导入和显式新产物写回是 I01 的独立高优先切片，与 KT 并行；沿用[现有范围](formats-integrations.md#软件协作支线)和[I-V01 验收](validation/formats-integrations.md#i01)。本专项细化 KT 的协议映射，不据此降低 Zotero 优先级。Pot/OCR 与其他文件交换按 I02/I03 各自证据推进；单个客户端成功不能代表其他客户端都兼容。所有实现 PR 同时更新代码、测试、激活的契约及受影响指南，实际证据链接回原工作包行；规划 PR 不关闭功能 issue。
+Zotero 的选择附件导入和显式新产物写回是 I01.zotero@1 独立高优先切片，与 KT 并行；沿用[现有范围](formats-integrations.md#软件协作支线)和[I-V01 验收](validation/formats-integrations.md#i01)。本专项细化 KT 的协议映射，不据此降低 Zotero 优先级。Pot/OCR 与其他文件交换按 I02/I03 各自证据推进；单个客户端成功不能代表其他客户端都兼容。所有实现 PR 同时更新代码、测试、激活的契约及受影响指南，实际证据链接回原工作包行；规划 PR 不关闭功能 issue。
 
 ## KT 证据与交付
 
@@ -39,7 +39,7 @@ Zotero 的选择附件导入和显式新产物写回是 I01 的独立高优先�
 | 决策点 | 最小输入与收口时点 |
 | --- | --- |
 | 原生路径、版本协商和 MCP 工具名 | P04 真实注册/现行错误与授权行为；首个 facade PR 固定路径及兼容测试，不自动暴露内部列表 |
-| 方案发布授权、无项目记录归属与保留 | 按 W02 同一实例模型落实所属访问域、可选项目关联及运行数据保留/迁移字段；发布/执行切片前验证，不能以 clientId 代替权限，不先承诺完整多租户 |
+| 授权落地与无项目记录迁移 | [单机授权](../../requirements/0.1.x/contracts.md#单机客户端授权)已固定 owner 签发、principal/grant、scope 和拒绝语义；I01.shared@1 探针确认 DSH 实际存储接点、旧路由门禁和 stdio 身份绑定。W02/I01.callable@1 固定所属引用、保留/迁移字段，不再把认证来源留作未定方案 |
 | 临时 glossary 冲突及抽候选政策 | 至少两来源/同形异义、锁定术语和请求冲突样本；术语切片固定默认及可配置范围，不能先忽略术语让演示通过 |
 | OpenAI 客户端子集与 usage | 至少一个真实兼容客户端的 messages/参数/未知 usage/流式行为；扩字段前证明映射，不以通用聊天语义覆盖中央配置 |
 | KT 版本、原生脚本/声明式选择与安装包 | 实际支持插件的构建、SDK、HTML/聚合/取消探针和打包根目录；联调前固定，商店发行可用性另核验 |
