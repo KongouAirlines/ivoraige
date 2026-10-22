@@ -36,7 +36,7 @@ XLSX 选区字符串及 shared-string 上下文、文本类型保护。
 
 ## I01
 
-受约束来源/交接/方案/任务/产物/幂等/权限契约，共用 API 与可调用方案发布，OpenAI/MCP 等薄投影；复用 W02 保存冻结、W03 管线管理及术语后端。Zotero 选择附件导入及新产物回挂保留为本包后续独立切片，不再绑定公共契约首验。
+受约束来源/交接/方案/任务/产物/幂等/权限契约，共用 API 与可调用方案发布，OpenAI/MCP 等薄投影；复用 W02 保存冻结、W03 管线管理及术语后端。Zotero 选择附件导入及新产物回挂是本包独立高优先切片，与 KT 同级、可并行验证；公共契约不绑定某个客户端率先完成。
 
 - 不做：不将 origin 枚举当实现，不自动取首附件，不要求旧四模式全交付，不开宽权限端口。
 - 验收：[I01 专项](../validation/formats-integrations.md#i01)，并通过 [I-V01](../validation.md#i-v01)。
@@ -44,7 +44,7 @@ XLSX 选区字符串及 shared-string 上下文、文本类型保护。
 
 ## I02
 
-支持 provider 插件的固定版本 Kiss Translator 作为首个实际集成对象；Pot 选文、Umi-OCR 独立识别保留后续候选。KT 页面提取/分段/渲染归客户端，桥接复用 I01 与中央术语配置。
+支持 provider 插件的固定版本 Kiss Translator 与 Zotero 同为高优先集成，可并行联调和验证；Pot 选文、Umi-OCR 独立识别保留后续候选。KT 页面提取/分段/渲染归客户端，桥接复用 I01 与中央术语配置。
 
 - 不做：不重写客户端，不默认外发/付费，不宣称全部平台/三个软件全支持。
 - 验收：[I02 专项](../validation/formats-integrations.md#i02)，并通过 [I-V02](../validation.md#i-v02)。
