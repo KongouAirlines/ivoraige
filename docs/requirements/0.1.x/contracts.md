@@ -56,7 +56,7 @@ DSH 固定提交目前为 `639ed015397290b3745d163aafe02ffee4aa3f84`（[setup-ds
 | `ivoraige.tasks` | DocumentTasks | 必需：DSH jobs、持久状态；可选：按 task kind 声明的执行能力 | 文档任务插件拥有 checkpoint/任务控制器；DSH jobs 拥有调度资源 | 完成/暂停/取消和持久化先于 records/storage 关闭 | 任务操作不可用；仍可执行无 tasks 依赖的查询/设置 |
 | settings / credentials / storage / jobs | 对应现有 DSH 插件 | 按所选 DSH 的真实 inject，不从包 peer 名称猜服务 | DSH 拥有基础设施；ivoraige 的配置/界面贡献由自己的 effect 撤销 | 先移除消费方，最后 dispose DSH 基础服务 | 相应能力 unavailable；诊断不泄露凭据，不建立平行后端 |
 | CLI 业务入口 | CliEntry | 必需：operations/capabilities；可选：events 用于流式显示 | 插件拥有业务命令贡献、stdio 监听和中断处理；进程退出只由 bootstrap 协调 | 停命令分派 → 等待/取消调用 → 移除监听；不在普通命令 disposer 中擅自关闭共享 host | 未装 CLI 插件仍可 help/修复；业务命令明确缺组件 |
-| HTTP-SSE 入口 | HttpEntry | 必需：operations/capabilities；可选：events，未装时不提供 SSE | 插件通过 effect 拥有 server/routes/socket/会话；保留既有 Host/Origin/授权约束 | 停 listen/接单 → 收尾在途请求和 SSE → 关闭 socket/监听 | 未装即不监听端口；由其他入口/修复通道报告，不能期待不存在的 HTTP 端点返回错误 |
+| HTTP-SSE 入口 | HttpEntry | 必需：operations/capabilities；可选：events，未装时不提供 SSE | 插件通过 effect 拥有 server/routes/socket/会话；保留 Host/Origin 约束；对外模式另满足单机客户端授权 | 停 listen/接单 → 收尾在途请求和 SSE → 关闭 socket/监听 | 未装即不监听端口；由其他入口/修复通道报告，不能期待不存在的 HTTP 端点返回错误 |
 | MCP 入口 | McpEntry | 必需：operations/capabilities；可选：events/具体工具贡献 | 插件拥有 server/transport/tool 贡献与取消、关闭句柄 | 停 transport 接入 → drain/取消 → 注销工具及监听 | 未装不启动 MCP transport；其他入口仍可用 |
 
 最小 bootstrap 只负责参数/help、定位清单与数据目录、创建唯一 Context、启动一个可诊断的安全组合，以及委托 AppBoot/Loader 激活所选插件。业务 CLI 命令属于可选入口插件；help、诊断、禁用故障插件、恢复上一完整清单不能依赖所有业务插件成功。恢复操作仍使用同一配置/交付服务的安全模式，不绕开兼容与完整性检查、不写另一套 loader。启动失败要可从终端得到缺件/失败阶段和恢复动作；无 HTTP/MCP/UI 时也不能失去这条通道。
@@ -144,7 +144,40 @@ P04 可提出等价的原子 barrier 方案，但必须证明就绪、状态提�
 
 内部 operation 注册不等于全部公开。复用现有 Operations HTTP/MCP 入口与 P04 注册契约，I01 收口少数稳定对外能力：授权范围内的方案发现/描述、分段批量输入、执行/结果/取消，以及有限术语能力。OpenAI 兼容入口、MCP 和软件专用桥接只做协议投影，复用同一业务调用，不另建翻译内核或透传内部操作、凭据。服务身份、版本、能力和客户端标识用于互认；自报名称不是鉴权，不启用未经授权的自动扫描或通配 CORS。
 
-可调用翻译方案是[保存工作流的受约束发布投影](workflows.md#可调用方案与集中管理)，不新增 workflow schema。稳定方案 ID 对应已发布配置修订；每次受理冻结流程、模型/连接引用、术语库/抽取配置版本及允许覆盖的有效值，不靠切换全局模型处理并发请求。OpenAI `/v1/models` 仅展示调用者获准的已发布文本兼容方案，不列出真实模型；人工等待、二进制流程不伪装为普通聊天模型。具体 wire 字段和客户端适配在独立专项规划收口，不成为 P04 基础注册交付的全部前置。
+可调用翻译方案是[保存工作流的受约束发布投影](workflows.md#可调用方案与集中管理)，不新增 workflow schema。稳定方案 ID 对应已发布配置修订；每次受理冻结流程、模型/连接引用、术语库/抽取配置版本及允许覆盖的有效值，不靠切换全局模型处理并发请求。OpenAI `/v1/models` 仅展示调用者获准的已发布文本兼容方案，不列出真实模型；人工等待、二进制流程不伪装为普通聊天模型。基础交付按 [I01.shared@1 / I01.callable@1 / I01.zotero@1](../../plan/0.1.x/packages/formats-integrations.md#共享子交付)独立认领与验收；方案后端接 W02、U03.terms@1，W03.publish-ui@1 后置接入。具体 wire 字段和客户端适配在独立专项规划收口，不成为 P04 基础注册交付的全部前置。
+
+### 单机客户端授权
+
+当前事实：本节补核主线 2009d8f6 的 [HTTP](../../../src/http.mjs) 只有回环监听与 Host/Origin 检查，[MCP](../../../src/operation-mcp.mjs) 共用内部 operations；尚无下述客户端凭据、principal 或逐调用 scope 校验。下列是 I01.shared@1 的目标，不能把现有本机端口视为已满足。
+
+单机外部接入默认关闭，启用后仍限回环；不引入账号平台、OAuth 或多租户。可信本机 owner 通过受 OS 用户权限保护的 CLI 控制入口批准客户端、签发/撤销授权；后续 UI 调用同一管理器。外部客户端不能自行注册、领取 owner 权限或修改授权。宿主显式绑定本机 stdio 的 owner/客户端启动身份；自报 clientId 不改变身份。
+
+| 项目 | 最小契约 |
+| --- | --- |
+| 凭据来源 | owner 批准后生成至少 256 bit CSPRNG 不透明 bearer，只展示一次；与上游模型 key、Zotero key 分离。验证材料及授权记录沿用经 P01 探针确认的 DSH credentials/storage 能力和 OS 文件权限；缺少的入站授权薄层由 I01 提供，不假定 DSH 已有签发服务，不另建通用凭据后端。秘密不放 URL、方案、模板、日志或公开诊断 |
+| 主体及范围 | 服务端凭据记录映射不可由请求覆盖的 principalId、grantId、有效期/撤销状态；grant 绑定明确 operation 集、方案 ID 与允许的已发布修订策略、资源/术语库范围，以及浏览器客户端的准确 Origin。默认空集合是无权，不是通配。clientId/名称只作标记；loopback、Origin 也不是认证 |
+| 调用检查 | transport 验证凭据后建立与用户参数分离的可信上下文；共用 facade 对每个 operation 再检查授权和资源归属。方案发现只返回获准项；受理及排队执行前复查方案修订/允许覆盖范围；任务、结果、产物、事件读取和取消检查主体所有权或显式共享授权；术语查询与候选/确认写库分别授权。HTTP、HTTP-MCP、受限 stdio MCP 和薄适配使用同一检查，不暴露通用内部 invoke |
+| 错误 | 缺失、无效、过期、撤销凭据返回 HTTP 401 / AUTHENTICATION_REQUIRED；有效主体缺 operation、方案或资源权限返回 403 / PERMISSION_DENIED，不泄露对象是否存在。获准范围内确实不存在才返回 404。HTTP-MCP 连接遵守同一规则，连接后每次工具/资源调用仍校验；stdio 返回等价机器错误，工具错误标为 isError，不回退匿名调用 |
+| 撤销与运行 | 每次调用、排队调度和流重连读当前 grant；撤销后拒绝新调用/调度、关闭相关流与订阅，并请求取消该授权的在途任务。取消按既有 best-effort 语义记录，已发出的供应商请求不保证撤回。结果仍按主体保护，由 owner 处置或重新授权后访问。配置冻结不冻结权限，幂等重试不能绕过撤销 |
+| 浏览器及诊断 | 保留 Host 检查，浏览器 Origin 必须精确命中授权列表，不用通配 CORS；无 Origin 的原生客户端仍须凭据。预检不签发授权、不返回业务数据。诊断只记录安全的 principal/grant ID、operation、拒绝原因和 traceId，不记录 bearer 或正文 |
+
+公开授权按操作拆分，下面的 scope 名是 I01.shared@1 的候选标识，首个实现固定映射；HTTP 路径或 MCP 工具名不同也不得合并掉检查。
+
+| 操作 / scope | 额外范围检查 |
+| --- | --- |
+| 服务描述 / service.read | 已认证主体，只返回获准协议能力 |
+| 方案发现与描述 / plans.read | 授权方案 ID / 发布修订过滤，不泄露未获准项 |
+| 受理运行 / runs.create | 方案、修订、允许覆盖、输入资源和术语库均在范围内；排队执行前复查 |
+| 状态/结果/事件 / runs.read | 本主体运行或明确共享的运行，事件也按对象过滤 |
+| 产物读取 / artifacts.read | 获准运行产生且仍授权的产物，不因拿到路径/ID 扩权 |
+| 取消 / runs.cancel | 独立于读权限，核查目标运行归属 |
+| 术语查询 / terms.read | 指定方案/库/词项范围；可执行翻译不等于可导出全库 |
+| 抽取候选 / terms.candidates.create | 另核输入来源、抽取能力和费用授权 |
+| 确认写库 / terms.write | 目标库明确写权限及确认动作，普通翻译/候选令牌无此权限 |
+
+来源导入/外部写回等新增公开 operation 必须在注册时声明自身 scope、资源检查与副作用确认；缺少授权映射不得发布。上表权限不会自动推导出 owner 管理权限。
+
+启用门禁必须覆盖同一数据域的旧入口：匿名的旧 HTTP/MCP、宽权限内部工具、产物下载及事件流须关闭，或纳入 owner 会话/凭据与同一授权边界；仅另开新端口不能消除旁路。门禁未通过不得广告或启动对外接入。受 OS 用户权限控制的本机 CLI/stdio 管理通道可保留，但不能由远端参数选成 owner。该边界隔离经授权的客户端，不声称能隔离已经控制同一 OS 用户或进程内插件的攻击者。验收统一在 [I-V01.shared](../../plan/0.1.x/validation/formats-integrations.md#i-v01-shared)，各适配追加自身连接探针。
 
 ## 安全、隐私与诊断边界
 
@@ -152,7 +185,7 @@ P04 可提出等价的原子 barrier 方案，但必须证明就绪、状态提�
 
 | 边界 | 信任与责任 | 既有约束入口 |
 | --- | --- | --- |
-| 本地 HTTP / MCP | 回环地址不等于任意网页或调用者可信；HTTP 保留 Host/Origin 与现行授权校验，MCP 连接具有其暴露能力，不能冒称细粒度多用户隔离；资源归属及输入范围由公共操作核查 | [入口与事件](#入口与事件)、[v2 进程/入口协议](../v2.0/03_API-protocol_v2.0.md) |
+| 本地 HTTP / MCP | 回环地址不等于任意网页或调用者可信；当前仅有 HTTP Host/Origin 检查及 MCP 内部能力暴露；目标外部模式按[单机客户端授权](#单机客户端授权)建立 principal/scope 和旧入口防旁路门禁，资源归属由公共操作核查 | [入口与事件](#入口与事件)、[v2 进程/入口协议](../v2.0/03_API-protocol_v2.0.md) |
 | 插件 | 受控来源、版本及依赖检查；进程内插件属于宿主信任域，Cordis inject 不是沙箱，安装不能自动授予私有数据外发用途 | [服务所有权](#cordis-服务插件与资源所有权对照)、[安装契约](../../plan/0.1.x/migration-distribution.md#插件包与安装) |
 | sidecar / 资源 | 文件/环境/网络范围及进程归属明确；不因 stdio 分进程就宣称隔离，来源文件只读，输出与临时资源按 lease 清理 | [生命周期](#生命周期与恢复)、[迁移矩阵](../../plan/0.1.x/migration-distribution.md#兼容矩阵) |
 | 模型提供商 / 外部协作 | 用户内容和上下文按用途授权，实际连接及费用可见，秘密沿用 DSH 受控引用；未知执行结果不盲重试，返回内容视为数据 | [UI 外发交互](ui.md#独立普通文本翻译)、[工作流](workflows.md)、[外部协作](#可组合工作流与外部协作) |
