@@ -9,17 +9,21 @@ permissions:
 
 jobs:
   package-smoke:
-    name: ${{ matrix.os }} / Node 24
+    name: ${{ matrix.os }} / Node ${{ matrix.node }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
+        node: ['24.22.1']
+        include:
+          - os: windows-latest
+            node: '26.12.1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v5
         with:
-          node-version: 24
+          node-version: ${{ matrix.node }}
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'

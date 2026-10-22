@@ -4,9 +4,11 @@
 
 ## 已有能力与尚未证明的部分
 
-2026-10-20 核查：[package.json](../../../package.json) 为 `0.1.0`、`private: true`、Node >= 24，声明 `ivoraige` bin；[打包脚本](../../../scripts/pack-npm.mjs)复制 manifest 到暂存目录，运行 `npm pack --ignore-scripts` 并记录归档证据，没有执行 publish。npm 格式 tarball 和 GitHub 附件不等于 npm registry 发布。按照 [npm package.json 文档](https://docs.npmjs.com/cli/v11/configuring-npm/package-json/)，`private: true` 阻止发布；本轮保留此保护。
+2026-10-20 核查：[package.json](../../../package.json) 为 `0.1.0`、`private: true`、当时 Node >= 24，声明 `ivoraige` bin；[打包脚本](../../../scripts/pack-npm.mjs)复制 manifest 到暂存目录，运行 `npm pack --ignore-scripts` 并记录归档证据，没有执行 publish。npm 格式 tarball 和 GitHub 附件不等于 npm registry 发布。按照 [npm package.json 文档](https://docs.npmjs.com/cli/v11/configuring-npm/package-json/)，`private: true` 阻止发布；本轮保留此保护。
 
-[现有 smoke](../../../scripts/smoke-package.mjs)在隔离目录安装实际 tarball，并直接以 Node 调用已安装的 `src/cli.mjs`，验证持久化和冻结输出；这证明一部分安装链，不证明用户通过 bin shim 或 npm exec 启动成功。[CI](../../../.github/workflows/kernel-smoke.yml)已有 Windows/Linux/macOS、Node 24 的测试和包 smoke，不能将其描述成“三系统安装从未测试”。拆包以后仍须针对新产物重跑。
+2026-10-22 已将运行范围收紧为 `>=24.22.1 <25 || >=26.12.1 <27`，Windows 便携构建固定 `26.12.1`；后续候选沿用[Node 安全基线](node-security.md)，上述历史核查不代表仍接受未修复版本。
+
+[现有 smoke](../../../scripts/smoke-package.mjs)在隔离目录安装实际 tarball，并直接以 Node 调用已安装的 `src/cli.mjs`，验证持久化和冻结输出；这证明一部分安装链，不证明用户通过 bin shim 或 npm exec 启动成功。[CI](../../../.github/workflows/kernel-smoke.yml)配置为 Windows/Linux/macOS 的 Node 24.22.1，另含 Windows Node 26.12.1 的测试和包 smoke，不能将其描述成“三系统安装从未测试”。拆包以后仍须针对新产物重跑。
 
 | 准备项 / 归属 | 验收证据 | 当前缺口与处理边界 |
 | --- | --- | --- |

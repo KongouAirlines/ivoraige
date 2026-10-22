@@ -31,8 +31,8 @@ for the exact artifacts and F-B conditions to revisit before distributing new
 binaries. Withdrawal does not repair the old archives, and the Node bundle
 notice fix described below does not establish coverage for a complete distribution.
 
-The Windows portable base includes Node.js 26.7.0 and its upstream license
-(`scripts/NODE-LICENSE-v26.7.0.txt`), production npm dependencies and generated
+The Windows portable base build is pinned to Node.js 26.12.1 and its upstream license
+(`scripts/NODE-LICENSE-v26.12.1.txt`), production npm dependencies and generated
 DSH/WebUI notices. The component installer uses `tar` 7.5.22 under its ISC
 license; its package and transitive notices remain in the production dependency
 tree. Build scripts and pinned lockfiles are included in the source repository;

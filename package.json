@@ -33,7 +33,7 @@
     "COPYING.LESSER"
   ],
   "engines": {
-    "node": ">=24"
+    "node": ">=24.22.1 <25 || >=26.12.1 <27"
   },
   "scripts": {
     "start": "node src/launch.mjs",

@@ -10,7 +10,9 @@ For bugs, include the version or commit, platform, expected and observed behavio
 and steps to reproduce. Use small original or authorized samples, without private
 documents or credentials. Report vulnerabilities through [SECURITY.md](SECURITY.md).
 
-Use Node.js 24 or newer:
+Use Node.js `>=24.22.1 <25 || >=26.12.1 <27` with npm. Later stable
+patches within either supported major are suitable for source work; Node 25
+and future majors are outside the current supported range:
 
 ```sh
 npm ci

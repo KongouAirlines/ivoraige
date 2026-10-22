@@ -8,7 +8,7 @@
 
 本节适用于 **Windows x64 开发环境**。当前仓库未提供并验证 Linux/macOS 对应的 PDF 准备脚本或发行流程；三平台 Node 内核支持不等于三平台 PDF 组件均已验证。
 
-需要 Node.js ≥24、[uv](https://docs.astral.sh/uv/) 和 PowerShell。以下命令在仓库根目录执行：
+需要 Node.js `>=24.22.1 <25 || >=26.12.1 <27`、[uv](https://docs.astral.sh/uv/) 和 PowerShell。源码运行可使用这两个受支持主版本内更新的稳定补丁版。以下命令在仓库根目录执行：
 
 ```powershell
 npm ci

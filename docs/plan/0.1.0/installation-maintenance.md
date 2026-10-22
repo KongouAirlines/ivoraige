@@ -8,7 +8,7 @@
 
 清单中每个组件／平台／架构只发布一个严格 SemVer 版本；普通安装拒绝降级，允许同版本修复，不提供回滚入口。不要把多个候选版本写入同一平台的清单。
 
-Windows x64 基础包固定使用 Node 26.7.0 构建，应用源码的最低 Node 要求仍为 24：
+Windows x64 基础包固定使用 Node 26.12.1 构建，并包含 `scripts/NODE-LICENSE-v26.12.1.txt` 对应的上游许可文本。源码支持 Node.js `>=24.22.1 <25 || >=26.12.1 <27`，可使用这两个主版本内更新的稳定补丁版；Node 25 和未来主版本暂不在支持范围内：
 
 ```powershell
 npm ci
@@ -24,6 +24,8 @@ PDF 构建使用 Python 3.13、锁定的 BabelDOC 0.6.4／PyMuPDF 1.26.7 和 PyI
 ```
 
 基础包和 PDF 组件产物写入 `evaluation/runs/distribution-<package.json.version>/`（当前为 `distribution-0.1.0/`）。恢复分发时，`components/` 内的清单、运行时归档及资源归档须放在同一目标 Release；先完成[实际包许可与对应源码核验](pdf-license-audit.md#6-恢复二进制分发前的验收)，不能把本地构建成功当成分发许可闭环。基础包包含 Node 和前端许可，PDF 包含 Python 依赖许可，资源包包含 `assets/licenses/` 的来源映射及上游声明。构建后运行 `scripts/smoke-distribution.mjs` 检查实际发行内容，不用源码环境替代它。
+
+便携包使用自身目录中的 `runtime/node.exe`；升级构建机或用户机器的系统 Node 不会替换旧程序目录内的运行时。重建和替换程序目录时保留外置用户数据目录，包括数据库、PDF 原件、设置、凭据和组件。
 
 ### Windows Sandbox 验收
 

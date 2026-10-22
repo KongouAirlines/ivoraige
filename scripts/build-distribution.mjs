@@ -10,10 +10,11 @@ import { copyUserDocs, releaseInfo } from './release-docs.mjs'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const packageJson = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
 const version = packageJson.version
+const nodeVersionRequired = '26.12.1'
 if (process.platform !== 'win32' || process.arch !== 'x64') {
   throw new Error('Windows distribution builds must run on Windows x64')
 }
-if (process.versions.node !== '26.7.0') throw new Error(`Distribution build requires validated Node.js 26.7.0; found ${process.versions.node}`)
+if (process.versions.node !== nodeVersionRequired) throw new Error(`Distribution build requires validated Node.js ${nodeVersionRequired}; found ${process.versions.node}`)
 
 const runsRoot = resolve(root, 'evaluation', 'runs')
 const distribution = join(runsRoot, `distribution-${version}`)
@@ -67,7 +68,7 @@ try {
 
   const runtime = join(runtimeDir, 'node.exe')
   await copyFile(process.execPath, runtime)
-  await copyFile(join(root, 'scripts', 'NODE-LICENSE-v26.7.0.txt'), join(runtimeDir, 'NODE-LICENSE.txt'))
+  await copyFile(join(root, 'scripts', `NODE-LICENSE-v${nodeVersionRequired}.txt`), join(runtimeDir, 'NODE-LICENSE.txt'))
   const launcher = join(stage, 'ivoraige.cmd')
   await writeFile(launcher, [
     '@echo off',
@@ -130,6 +131,7 @@ try {
     arch: 'x64',
     format: 'portable-folder-zip',
     runtime: `Node.js ${process.versions.node} bundled as runtime/node.exe; official upstream license at runtime/NODE-LICENSE.txt`,
+    nodeVersion,
     entry: 'ivoraige.cmd -> runtime/node.exe app/src/launch.mjs',
     seaProbe: 'Node 26.7 ESM SEA built, then failed on esbuild-generated dynamic require("process") in yaml; CJS output fails at bundle time on top-level await/import.meta.',
     output: archive,
