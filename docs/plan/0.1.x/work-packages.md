@@ -40,8 +40,8 @@
 | F02 | 可重排 EPUB 窄范围读取与原生回写 | P02、P03；公共入口 P04，独立交付 P05 | 草案 | [格式与软件协作](packages/formats-integrations.md#f02) |
 | F03 | PPTX 提取与版面约束回填 | P02、P03；公共入口 P04，独立交付 P05 | 草案 | [格式与软件协作](packages/formats-integrations.md#f03) |
 | F04 | XLSX 用户选区文本与公式隔离 | P02、P03；公共入口 P04，独立交付 P05 | 草案 | [格式与软件协作](packages/formats-integrations.md#f04) |
-| I01 | 通用协作契约与 Zotero 导入/显式回写 | P04、P05；数据兼容沿用 P02 | 草案 | [格式与软件协作](packages/formats-integrations.md#i01) |
-| I02 | 网页选文与 OCR/截图入口桥接 | P04、P05；沿用 I01 通用契约，不等待 Zotero 写回交付 | 草案 | [格式与软件协作](packages/formats-integrations.md#i02) |
+| I01 | 共用外部 API、可调用方案与薄协议适配；Zotero 后续切片 | 必要 P04、W01/W02 保存冻结及术语后端；独立交付接 P05，数据兼容沿用 P02 | 草案 | [格式与软件协作](packages/formats-integrations.md#i01) |
+| I02 | KT 首个集成；其他网页/OCR 入口后续切片 | I01 最小外部契约；独立交付接 P05，不等待 Zotero 写回 | 草案 | [格式与软件协作](packages/formats-integrations.md#i02) |
 | I03 | 笔记/知识库及电子书文件交换 | P04、P05；沿用 I01 通用契约；电子书成品按 F02 | 草案 | [格式与软件协作](packages/formats-integrations.md#i03) |
 
 ## 每包验收与回退
@@ -52,7 +52,7 @@
 
 P01 固定当前基线契约与护栏；运行时升级/同 SHA 构建缩减依[专项评估](runtime-sequence.md)独立切片。Q01/Q03 可先行，Q04、P08 清单及 D04 现有 host/browser 基线可并行。P02/P03 顺序修改 Records，Q02 的释放政策接 P04；P05 兼容复评后推进 P06/P07。
 
-W01 的前置是 P02/P03/P04，P05 只承接独立插件证据；W02 紧接可保存组合，W03 衔接内容工作台，W04 图编辑后置。U01 在 P04 后可独立推进，不等待项目、画布或桌面，转项目接 W02；U02 按导航/设置、模型/连接、插件管理拆 PR，U03 按术语/存储/预检交付。F01/F02 及 I01 按各自前置进入窄范围支线。
+W01 的前置是 P02/P03/P04，P05 只承接独立插件证据；W02 紧接可保存组合，W03 衔接内容工作台，W04 图编辑后置。U01 在 P04 后可独立推进，不等待项目、画布或桌面，转项目接 W02；U02 按导航/设置、模型/连接、插件管理拆 PR，U03 按术语/存储/预检交付。F01/F02 按各自前置进入窄范围支线。外部调用先完成必要 P04、W01/W02 最小保存冻结与术语后端切片，再推进 I01 共用 API/方案发布和 OpenAI 包装、I02 KT 联调；W03 复用集中管理表单，不等全部 PDF、桌面或 W04 图编辑。
 
 ## 去重关联与远期边界
 
@@ -63,6 +63,7 @@ W01 的前置是 P02/P03/P04，P05 只承接独立插件证据；W02 紧接可�
 | [#14](https://github.com/KongouAirlines/ivoraige/issues/14)；P7-2/3、P12-2 | P03、P06/P07、P09/P10 | 适配器通用化与真实 PDF 质量分开，不将其视为一个大 PR |
 | [#16](https://github.com/KongouAirlines/ivoraige/issues/16)与 2026-10-20 可保存/按需组合方向 | P02、P05–P07、W01–W04、U01–U03、D01–D05 | 纯解析与真实组合均需证明；完整共享权限/多库管理后续分期，不再将所有项目流程含糊归远期 |
 | v1 F-07、v2 EPUB/Office 目标 | F01–F04 | DOCX/EPUB 按原分期保留；PPTX/XLSX 独立切片，不改旧主优先级、不冒充已实现 |
+| [#40](https://github.com/KongouAirlines/ivoraige/issues/40)、[#41](https://github.com/KongouAirlines/ivoraige/issues/41)、[#42](https://github.com/KongouAirlines/ivoraige/issues/42) | I01/I02，复用 P04、W01–W03 及术语后端 | 共用 API、方案发布、OpenAI 包装与 KT 接入按切片验收，不新建第二任务树 |
 | v1 F-23/F-24/F-25 与历史客户端候选 | I01–I03 | 协作以公共契约及显式交接为核心，软件候选不是承诺全部完成的清单 |
 | [#28](https://github.com/KongouAirlines/ivoraige/issues/28)、[历史许可审计](../0.1.0/pdf-license-audit.md) | P08；发行前独立门禁 | 撤下旧包、加入许可证不等于实际依赖拆分或旧包问题已修 |
 | [pdf-store-relocation](../follow-ups/pdf-store-relocation.md)、[pdf-source-restoration](../follow-ups/pdf-source-restoration.md) | P02/P03 相关兼容回归 | 资源搬迁、同源重导入复用、跨引擎迁移是不同验收 |

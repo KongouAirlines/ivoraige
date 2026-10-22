@@ -62,7 +62,7 @@ format/adapterId 分离；移出 Records 导入；输入类型、排队、可读
 
 ## P04
 
-注册 operation/schema/handler；旧 facade 委托；可选 CLI/HTTP/MCP 插件及 disposer；业务事件与 ctx.emit/on 边界；入口 ID/资源归属查询统一。
+注册 operation/schema/handler；旧 facade 委托；可选 CLI/HTTP/MCP 插件及 disposer；业务事件与 ctx.emit/on 边界；入口 ID/资源归属查询统一。区分内部注册与[稳定对外投影](../../../requirements/0.1.x/contracts.md#稳定对外接口与可调用方案)，I01 复用注册和调用边界；P04 不等待全部外部协议交付。
 
 - 不做：不强制更换 HTTP 库、不改所有 UI、不提供未实现的事件重放。
 - 验收：[P04 专项](../validation/foundation.md#p04)，并通过 [V03](../validation.md#v03)。
