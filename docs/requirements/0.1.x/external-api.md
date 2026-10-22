@@ -1,6 +1,6 @@
 # 0.1.x 可调用翻译方案与共用外部 API 草案
 
-本页细化 [#40](https://github.com/KongouAirlines/ivoraige/issues/40)、[#41](https://github.com/KongouAirlines/ivoraige/issues/41)、[#42](https://github.com/KongouAirlines/ivoraige/issues/42) 的目标接口。基础边界见 [contracts](contracts.md#稳定对外接口与可调用方案)，保存与冻结模型见 [workflows](workflows.md#可调用方案与集中管理)。实施切片和上游依据见[专项路线](../../plan/0.1.x/external-api.md)，验收见[外部调用矩阵](../../plan/0.1.x/validation/external-api.md)；版本范围与执行状态仍分别由 releases、工作包索引维护。
+本页定义共享接口与方案管理，并细化 [#41](https://github.com/KongouAirlines/ivoraige/issues/41) 的 OpenAI 适配及 [#42](https://github.com/KongouAirlines/ivoraige/issues/42) 的 KT 接入契约。基础边界见 [contracts](contracts.md#稳定对外接口与可调用方案)，保存与冻结模型见 [workflows](workflows.md#可调用方案与集中管理)。实施切片和上游依据见[专项路线](../../plan/0.1.x/external-api.md)，验收见[外部调用矩阵](../../plan/0.1.x/validation/external-api.md)；版本范围与执行状态仍分别由 releases、工作包索引维护。
 
 ## 当前起点与责任
 

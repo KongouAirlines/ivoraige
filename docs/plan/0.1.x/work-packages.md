@@ -63,7 +63,7 @@ W01 的前置是 P02/P03/P04，P05 只承接独立插件证据；W02 紧接可�
 | [#14](https://github.com/KongouAirlines/ivoraige/issues/14)；P7-2/3、P12-2 | P03、P06/P07、P09/P10 | 适配器通用化与真实 PDF 质量分开，不将其视为一个大 PR |
 | [#16](https://github.com/KongouAirlines/ivoraige/issues/16)与 2026-10-20 可保存/按需组合方向 | P02、P05–P07、W01–W04、U01–U03、D01–D05 | 纯解析与真实组合均需证明；完整共享权限/多库管理后续分期，不再将所有项目流程含糊归远期 |
 | v1 F-07、v2 EPUB/Office 目标 | F01–F04 | DOCX/EPUB 按原分期保留；PPTX/XLSX 独立切片，不改旧主优先级、不冒充已实现 |
-| [#40](https://github.com/KongouAirlines/ivoraige/issues/40)、[#41](https://github.com/KongouAirlines/ivoraige/issues/41)、[#42](https://github.com/KongouAirlines/ivoraige/issues/42) | I01/I02，复用 P04、W01–W03 及术语后端 | 共用 API、方案发布、OpenAI 包装与 KT 接入按切片验收，不新建第二任务树 |
+| [共享接口契约](../../requirements/0.1.x/contracts.md#稳定对外接口与可调用方案)、[#41](https://github.com/KongouAirlines/ivoraige/issues/41)、[#42](https://github.com/KongouAirlines/ivoraige/issues/42) | I01/I02，复用 P04、W01–W03 及术语后端 | 共用 API、方案发布、OpenAI 包装与 KT 接入按切片验收，不新建第二任务树 |
 | v1 F-23/F-24/F-25 与历史客户端候选 | I01–I03 | 协作以公共契约及显式交接为核心，软件候选不是承诺全部完成的清单 |
 | [#28](https://github.com/KongouAirlines/ivoraige/issues/28)、[历史许可审计](../0.1.0/pdf-license-audit.md) | P08；发行前独立门禁 | 撤下旧包、加入许可证不等于实际依赖拆分或旧包问题已修 |
 | [pdf-store-relocation](../follow-ups/pdf-store-relocation.md)、[pdf-source-restoration](../follow-ups/pdf-source-restoration.md) | P02/P03 相关兼容回归 | 资源搬迁、同源重导入复用、跨引擎迁移是不同验收 |

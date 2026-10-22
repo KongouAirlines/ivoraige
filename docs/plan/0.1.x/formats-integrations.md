@@ -41,7 +41,7 @@ I01/I02 的共用接口、OpenAI 与 KT 切片见[专项路线](external-api.md)
 
 | 工作包 / 候选 | 首次可验收切片 | 边界与未决 |
 | --- | --- | --- |
-| I01 共用 API / 方案发布 | 复用 P04 与 W01/W02、术语后端，定义[稳定外部边界](../../requirements/0.1.x/contracts.md#稳定对外接口与可调用方案)及 OpenAI/MCP 薄投影；集中管理接 W03 | 不暴露全部内部 operation，不建立第二流程 schema；[#40](https://github.com/KongouAirlines/ivoraige/issues/40)、[#41](https://github.com/KongouAirlines/ivoraige/issues/41) 细化接口与验收 |
+| I01 共用 API / 方案发布 | 复用 P04 与 W01/W02、术语后端，定义[稳定外部边界](../../requirements/0.1.x/contracts.md#稳定对外接口与可调用方案)及 OpenAI/MCP 薄投影；集中管理接 W03 | 不暴露全部内部 operation，不建立第二流程 schema；共享设计由契约与 [I01](packages/formats-integrations.md#i01) 承接，[#41](https://github.com/KongouAirlines/ivoraige/issues/41) 跟踪 OpenAI 适配 |
 | I01 Zotero 高优先切片 | 用户选择条目/附件 → 导入关联 → 公共任务 → 新产物显式附回原条目，拆成只读导入和写回两个验收切片。保存 library/item/attachment 身份及源版本，幂等避免重复附件，展示目标和内容确认 | 不假定首个附件就是正确输入；文献管理归 Zotero。桌面插件/本地 API/Web API 的具体组合与版本需探针选择；旧 v2 四模式/RAG/双语 PDF 不全作首轮门槛，不替换原附件 |
 | I02 网页与截图入口 | 依历史 F-23/F-24，以支持 provider 插件的 Kiss Translator 固定版本验收选文/HTML/批次与术语方案复用（[#42](https://github.com/KongouAirlines/ivoraige/issues/42)）；Pot、Umi-OCR 为后续候选。复用 I01 的共享契约子集，与 Zotero 同级高优先、可并行验证，彼此不作前置 | OCR 与翻译分别授权/计费，入口插件不建第二翻译内核；不笼统声称全平台兼容，不承诺三个软件同时完成 |
 | I03 笔记/知识库与电子书文件交换 | 先固定结构化内容/附件/元数据和关联引用契约；历史已有 Obsidian 可先 Markdown + 资源文件交换，calibre Ebook Translator 先文件级候选 | 不要求插件或双向同步才算首片；其余知识库软件由实际需求再选，不编造确定名单/日期；远程空间、自动覆盖/自动上传不作为默认 |

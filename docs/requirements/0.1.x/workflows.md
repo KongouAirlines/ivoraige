@@ -87,7 +87,7 @@
 
 管线管理复用 W03 的列表/表单与参数编辑，集中保存、复制、配置、测试和发布；不等待 W04 高级图。客户端主要选择方案并传输入、语言及有限上下文，避免每个软件重复配置模型、词库和抽取规则。术语与抽取配置集中复用，临时请求术语的范围和冲突规则须明确；抽取候选、本次使用、确认写共享库是三个动作，沿用[术语契约](contracts.md#术语服务与翻译复用)，不隐式污染共享库。
 
-本边界由 [#40](https://github.com/KongouAirlines/ivoraige/issues/40) 承接；协议投影与首个客户端分别见 [#41](https://github.com/KongouAirlines/ivoraige/issues/41)、[#42](https://github.com/KongouAirlines/ivoraige/issues/42)。发布描述、协议与[集中管理细节](external-api.md#管线管理与客户端互认)见专项契约；依赖与版本安排只在工作包索引和 releases 维护。
+本边界由现有 [I01 / W02 / W03 工作包](../../plan/0.1.x/work-packages.md)承接；OpenAI 适配与 KT 接入分别见 [#41](https://github.com/KongouAirlines/ivoraige/issues/41)、[#42](https://github.com/KongouAirlines/ivoraige/issues/42)。发布描述、协议与[集中管理细节](external-api.md#管线管理与客户端互认)见专项契约；依赖与版本安排只在工作包索引和 releases 维护。
 
 ## 分期与最小证明
 

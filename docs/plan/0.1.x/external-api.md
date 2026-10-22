@@ -11,8 +11,8 @@ KT 与 Zotero 同级高优先，可并行验证，I01/I02 编号不表示完成�
 | 所属 / 切片 | 本次交付与不做项 | 验收与回退 |
 | --- | --- | --- |
 | P04 + W01/W02 + 术语后端 | 公开子集与内部操作分离，保存定义/发布引用/受理冻结/独立运行绑定；术语范围与版本接线。沿用已有 schema 和 tasks/jobs，不建第二执行器；不要求全部术语管理 UI | W-V01/W-V02 与[方案/术语案例](validation/external-api.md#方案与原生调用)；关闭新发布入口，保留旧流程和已受理记录，新增持久字段按迁移备份/双读回退 |
-| I01 / [#40](https://github.com/KongouAirlines/ivoraige/issues/40) 原生服务 | 方案发现/描述、批次受理、状态/结果/取消、有限术语及授权边界；不把全部 operation 公开 | I-V01 的[方案与原生调用](validation/external-api.md#方案与原生调用)；禁用新 facade，历史仍可读，撤回发布不删运行，未知副作用不盲重试 |
-| W03 + I01 / #40 管理 | 保存/复制/配置/测试/发布表单，复用模型/词库管理器和现有工作流编辑；不新增全局设置标签，不等高级图 | W-V03 与[管理和跨入口一致性](validation/external-api.md#管理和跨入口一致性)；可回退到只读已发布配置，保留草稿和确切引用，不降级删边 |
+| I01 原生服务 | 方案发现/描述、批次受理、状态/结果/取消、有限术语及授权边界；不把全部 operation 公开 | I-V01 的[方案与原生调用](validation/external-api.md#方案与原生调用)；禁用新 facade，历史仍可读，撤回发布不删运行，未知副作用不盲重试 |
+| W03 + I01 管理 | 保存/复制/配置/测试/发布表单，复用模型/词库管理器和现有工作流编辑；不新增全局设置标签，不等高级图 | W-V03 与[管理和跨入口一致性](validation/external-api.md#管理和跨入口一致性)；可回退到只读已发布配置，保留草稿和确切引用，不降级删边 |
 | I01 / [#41](https://github.com/KongouAirlines/ivoraige/issues/41) OpenAI | 已发布文本方案模型列表、明确 chat 输入/语言/覆盖和响应子集；先非流式，再验收最终稳定流；不宣称完整聊天、多模态或任意工具兼容 | I-V01 的[OpenAI 案例](validation/external-api.md#openai-兼容)；禁用该协议入口不影响原生方案，保留 runId 与失败记录 |
 | I02 / [#42](https://github.com/KongouAirlines/ivoraige/issues/42) KT | 固定真实插件版本，安装授权、原生请求映射、术语与 HTML/批次回填；不 fork 客户端、不建 KT 业务内核 | I-V02 的[KT 案例](validation/external-api.md#kt-实际集成)；撤销客户端调用权限/禁用桥接，保留中央方案和结果；卸载模板不等于停止旧实例 |
 
