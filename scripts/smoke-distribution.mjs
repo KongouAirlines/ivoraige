@@ -3,7 +3,7 @@
 // This uses only the packaged runtime and HTTP entry. It is not clean-VM acceptance.
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { cp, mkdir, stat, writeFile } from 'node:fs/promises'
 import { basename, join, resolve, sep } from 'node:path'
 
@@ -66,6 +66,14 @@ const evidence = {
   checks: [], launches: [], documents: {}, modelCalls: null,
 }
 let server
+
+const runtimeProbe = spawnSync(runtime, ['-p', 'process.versions.node'], {
+  cwd: workDirectory, env, encoding: 'utf8', windowsHide: true, timeout: 10_000,
+})
+assert.ifError(runtimeProbe.error)
+assert.equal(runtimeProbe.status, 0, `Packaged runtime probe failed: ${runtimeProbe.stderr}`)
+evidence.nodeVersion = runtimeProbe.stdout.trim()
+assert.equal(evidence.nodeVersion, '26.12.1', 'Portable smoke must use the validated bundled Node release')
 
 async function makePdfFixture(path) {
   const stream = 'BT /F1 18 Tf 72 720 Td (The sample remained stable.) Tj ET\n'

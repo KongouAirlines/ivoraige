@@ -1,3 +1,4 @@
+import './runtime.mjs'
 import { dirname, join } from 'node:path'
 import { Context, Storage, StorageDomain, StorageSqlite, LlmRuntime, LlmPiAi,
   LocalCredentialProvider, JobsLocal } from '../dist/dsh.mjs'

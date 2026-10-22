@@ -1,7 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { gzipSync } from 'node:zlib'
+import { createServer } from 'node:http'
+import { brotliCompressSync, gzipSync } from 'node:zlib'
 import { mkdtemp, mkdir, readFile, readdir, rm, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import * as tar from 'tar'
@@ -43,6 +44,41 @@ async function boot(directory, fetcher) {
     repository: 'KongouAirlines/ivaraige', releaseTag: 'v0.1.0-dev.0', fetcher })
   return { ...profile, components: profile.ctx.get('ivoraige.components') }
 }
+
+test('component metadata and verified asset downloads consume valid Brotli responses locally', async t => {
+  const directory = await testDirectory('brotli-response')
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const bytes = Buffer.from('A valid component download fixture.')
+  const release = { assets: [{ id: 1, name: 'fixture.tar.gz', size: bytes.length }] }
+  const requested = []
+  const server = createServer((req, res) => {
+    requested.push(req.url)
+    const metadata = req.url.includes('/releases/tags/')
+    const body = metadata ? Buffer.from(JSON.stringify(release)) : bytes
+    res.writeHead(200, { 'content-type': metadata ? 'application/json' : 'application/octet-stream',
+      'content-encoding': 'br' })
+    res.end(brotliCompressSync(body))
+  })
+  await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', resolve)
+  })
+  t.after(() => {
+    server.closeAllConnections()
+    return new Promise(resolve => server.close(resolve))
+  })
+  const base = `http://127.0.0.1:${server.address().port}`
+  // Keep the production GitHub URL checks; only the injected transport routes
+  // these requests to a loopback fixture. No GitHub credentials are needed.
+  const fetcher = (url, options) => fetch(new URL(new URL(url).pathname, base), options)
+  assert.deepEqual(await fetchRelease(fetcher, 'owner/repo', 'v0.1.0'), release)
+  const destination = join(directory, 'fixture.tar.gz')
+  const expected = { size: bytes.length, sha256: hash(bytes) }
+  assert.deepEqual(await downloadAsset(fetcher, 'owner/repo', release.assets[0], undefined,
+    destination, undefined, expected), expected)
+  assert.deepEqual(await readFile(destination), bytes)
+  assert.deepEqual(requested, ['/repos/owner/repo/releases/tags/v0.1.0', '/repos/owner/repo/releases/assets/1'])
+})
 
 test('interrupted asset body reports actionable download guidance without raw network details', async t => {
   const directory = await testDirectory('interrupted-download')
