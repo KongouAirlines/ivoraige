@@ -42,13 +42,13 @@ I01/I02 的共用接口、OpenAI 与 KT 切片见[专项路线](external-api.md)
 | 工作包 / 候选 | 首次可验收切片 | 边界与未决 |
 | --- | --- | --- |
 | I01 共用 API / 方案发布 | 复用 P04 与 W01/W02、术语后端，定义[稳定外部边界](../../requirements/0.1.x/contracts.md#稳定对外接口与可调用方案)及 OpenAI/MCP 薄投影；集中管理接 W03 | 不暴露全部内部 operation，不建立第二流程 schema；[#40](https://github.com/KongouAirlines/ivoraige/issues/40)、[#41](https://github.com/KongouAirlines/ivoraige/issues/41) 细化接口与验收 |
-| I01 Zotero 后续切片 | 用户选择条目/附件 → 导入关联 → 公共任务 → 新产物显式附回原条目，拆成只读导入和写回两个验收切片。保存 library/item/attachment 身份及源版本，幂等避免重复附件，展示目标和内容确认 | 不假定首个附件就是正确输入；文献管理归 Zotero。桌面插件/本地 API/Web API 的具体组合与版本需探针选择；旧 v2 四模式/RAG/双语 PDF 不全作首轮门槛，不替换原附件 |
-| I02 网页与截图入口 | 依历史 F-23/F-24，以支持 provider 插件的 Kiss Translator 固定版本先验收选文/HTML/批次与术语方案复用（[#42](https://github.com/KongouAirlines/ivoraige/issues/42)）；Pot、Umi-OCR 为后续候选。复用 I01，不等待 Zotero | OCR 与翻译分别授权/计费，入口插件不建第二翻译内核；不笼统声称全平台兼容，不承诺三个软件同时完成 |
+| I01 Zotero 高优先切片 | 用户选择条目/附件 → 导入关联 → 公共任务 → 新产物显式附回原条目，拆成只读导入和写回两个验收切片。保存 library/item/attachment 身份及源版本，幂等避免重复附件，展示目标和内容确认 | 不假定首个附件就是正确输入；文献管理归 Zotero。桌面插件/本地 API/Web API 的具体组合与版本需探针选择；旧 v2 四模式/RAG/双语 PDF 不全作首轮门槛，不替换原附件 |
+| I02 网页与截图入口 | 依历史 F-23/F-24，以支持 provider 插件的 Kiss Translator 固定版本验收选文/HTML/批次与术语方案复用（[#42](https://github.com/KongouAirlines/ivoraige/issues/42)）；Pot、Umi-OCR 为后续候选。复用 I01 的共享契约子集，与 Zotero 同级高优先、可并行验证，彼此不作前置 | OCR 与翻译分别授权/计费，入口插件不建第二翻译内核；不笼统声称全平台兼容，不承诺三个软件同时完成 |
 | I03 笔记/知识库与电子书文件交换 | 先固定结构化内容/附件/元数据和关联引用契约；历史已有 Obsidian 可先 Markdown + 资源文件交换，calibre Ebook Translator 先文件级候选 | 不要求插件或双向同步才算首片；其余知识库软件由实际需求再选，不编造确定名单/日期；远程空间、自动覆盖/自动上传不作为默认 |
 
 集成通过能力、operation、类型化资源和来源引用接入；工作流可调用这些能力，但简单导入/导出仍可直接使用。Zotero 导入和显式回写是不同能力，回写不是导出的隐式副作用。来源 URL/外部对象标识是定位线索，不构成访问授权；本地与远程凭据继续由 DSH 管理。
 
-桥接前先固定通用协作契约：来源/文件交接、处理方案或目标输出、任务状态/取消、产物获取、幂等与权限错误；客户端只获受约束操作，不暴露宽权限核心端口。候选接口入口见 [Zotero 插件文档](https://www.zotero.org/support/dev/client_coding/plugin_development)、[KISS Translator](https://github.com/fishjar/kiss-translator)、[Pot](https://github.com/pot-app/pot-desktop)和 [Umi-OCR HTTP 文档](https://github.com/hiroi-sora/Umi-OCR/blob/main/docs/http/README.md)。这些链接是实施前版本/协议复核起点；本轮没有联调、依赖选定或工期估算。
+共享契约设计与各客户端适配可以并行联调，端到端验收时须满足对应的通用协作契约：来源/文件交接、处理方案或目标输出、任务状态/取消、产物获取、幂等与权限错误；客户端只获受约束操作，不暴露宽权限核心端口。候选接口入口见 [Zotero 插件文档](https://www.zotero.org/support/dev/client_coding/plugin_development)、[KISS Translator](https://github.com/fishjar/kiss-translator)、[Pot](https://github.com/pot-app/pot-desktop)和 [Umi-OCR HTTP 文档](https://github.com/hiroi-sora/Umi-OCR/blob/main/docs/http/README.md)。这些链接是实施前版本/协议复核起点；本轮没有联调、依赖选定或工期估算。
 
 ## 共同验收与恢复
 

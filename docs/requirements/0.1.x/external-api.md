@@ -116,4 +116,4 @@ KT 负责页面提取、分段、批次组织及渲染；provider 插件只选�
 | systemPrompt / userPrompt | 仅映射方案允许的 instructions，否则报告不支持；不能绕过中央术语/格式约束或伪称全部 KT 提示词能力已支持 |
 | streaming / cancel | 只发最终稳定内容及合法 item ID，始终返回完整最终结果；SDK 取消/Worker 终止可能使显式 cancel 无法送达，服务侧用有界 deadline 和结果查询收尾，不能报告取消已完成 |
 
-实际支持版本、安装/授权和更新语义见[KT 证据与交付](../../plan/0.1.x/external-api.md#kt-证据与交付)。OpenAI 包装是通用客户端兼容路线，KT 首验优先用原生方案能力；两者共用服务，不为 KT 再造业务 API。
+实际支持版本、安装/授权和更新语义见[KT 证据与交付](../../plan/0.1.x/external-api.md#kt-证据与交付)。OpenAI 包装是通用客户端兼容路线，KT 验证优先用原生方案能力，不等待 OpenAI 包装；KT 与 Zotero 同级高优先、可并行联调，实际端到端验收再满足各自必需的共享能力。两种协议共用服务，不为 KT 再造业务 API。

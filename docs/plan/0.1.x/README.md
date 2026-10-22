@@ -23,7 +23,7 @@
 
 ## 依赖总图
 
-图展示主要关系，完整前置见[执行索引](work-packages.md#执行状态与依赖唯一表)。虚线仅表示证据关联。
+图展示实际验收所需的主要关系，完整前置见[执行索引](work-packages.md#执行状态与依赖唯一表)。虚线仅表示证据关联。共享契约与客户端适配可以并行联调；I01/I02 编号不表示实现顺序，KT 与 Zotero 为同级高优先集成。
 
 ```mermaid
 flowchart TD
@@ -44,10 +44,12 @@ flowchart TD
   P05 --> U02["U02 导航/设置/管理"]
   U02 --> U03["U03 资源/数据/预检"]
   P03 --> Formats["F01–F04 格式"]
-  P04 --> I01["I01 共用外部接口"]
-  W02 --> I01
-  I01 --> I02["I02 KT 首个集成"]
-  P05 -. "独立交付证据" .-> I01
+  P04 --> SharedAPI["I01 公共协作契约子集"]
+  W02 --> Callable["I01 可调用方案子集"]
+  SharedAPI --> I01["I01 Zotero 高优先集成"]
+  SharedAPI --> I02["I02 KT 高优先集成"]
+  Callable --> I02
+  P05 -. "独立交付证据" .-> SharedAPI
   D04["D04 当前宿主基线，可并行"] --> D05["D05 原生桌面"]
   P04 --> Desktop["D01–D03 共用接口/草稿"]
   Desktop --> D05
@@ -56,7 +58,7 @@ flowchart TD
 ## 专项与历史参考
 
 - P01/P05：[运行时顺序评估](runtime-sequence.md)；P02/P03/P05/P08：[迁移与分发](migration-distribution.md)。
-- D01–D05：[桌面方案与测量协议](desktop.md)；F/I：[格式与软件协作](formats-integrations.md)；I01/I02：[共用外部 API 与 KT 首验](external-api.md)。
+- D01–D05：[桌面方案与测量协议](desktop.md)；F/I：[格式与软件协作](formats-integrations.md)；I01/I02：[共用外部 API 与软件集成](external-api.md)。
 - [基础优先的缘由](../0.1.0/foundation-plan.md)、[npm 就绪准备](../0.1.0/npm-readiness.md)。
 - [136 条历史发现 → 75 个主题的来源映射](audit/README.md)、[五份一次性 PR 审查归档](../0.1.0/pr-review/README.md)。
 
