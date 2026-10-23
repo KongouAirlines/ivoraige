@@ -72,6 +72,7 @@ export class Parse extends Service {
   }
 
   projectOutputView(frozen, { views = [] } = {}) {
+    if (!views.length) return frozen
     const { sourceBinding: binding, document } = frozen
     const adapter = this.adapters.get(binding?.adapterId)
     if (!adapter) throw new KernelError('COMPONENT_MISSING', 'Source adapter is unavailable for output projection',

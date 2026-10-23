@@ -91,6 +91,52 @@ test('readable-text projection does not block a binary source export', async t =
     { contentMode: 'source', outputs: [{ format: 'json' }] }), /text unavailable/)
 })
 
+test('binary frozen output survives absent and upgraded source projection plugins', async t => {
+  const { app } = await fixture(t)
+  const removeSource = app.parse.register(source('binary-source'))
+  app.outputs.register({ id: 'frozen-bytes', formats: ['frozen-bytes'], requiredViews: [],
+    supports: binding => binding.adapterId === 'binary-source',
+    rebuild: async frozen => {
+      assert.equal(frozen.sourceBinding.adapterId, 'binary-source')
+      assert.equal(frozen.units[0].text, 'Original')
+      return Buffer.from([0, 255, 4])
+    } })
+  const { document } = await app.records.importDocument(
+    { format: 'fixture', adapterId: 'binary-source', content: 'Original' }, metadata)
+  const snapshot = await app.records.createSnapshot(document.id, { contentMode: 'source' })
+  removeSource()
+  const without = await app.exporter.exportDocument(document.id,
+    { contentMode: 'source', snapshotId: snapshot.id, outputs: [{ format: 'frozen-bytes' }] })
+  assert.deepEqual(await readFile(without.artifacts[0].path), Buffer.from([0, 255, 4]))
+  await assert.rejects(app.exporter.exportDocument(document.id,
+    { contentMode: 'source', snapshotId: snapshot.id, outputs: [{ format: 'json' }] }),
+  { code: 'COMPONENT_MISSING' })
+  app.parse.register(source('binary-source', { version: '2' }))
+  const upgraded = await app.exporter.exportDocument(document.id,
+    { contentMode: 'source', snapshotId: snapshot.id, outputs: [{ format: 'frozen-bytes' }] })
+  assert.deepEqual(await readFile(upgraded.artifacts[0].path), Buffer.from([0, 255, 4]))
+  await assert.rejects(app.exporter.exportDocument(document.id,
+    { contentMode: 'source', snapshotId: snapshot.id, outputs: [{ format: 'json' }] }),
+  { code: 'PRECONDITION_FAILED' })
+})
+
+test('unavailable or input-incompatible sibling cannot divert a UTF-8 import', async t => {
+  const { app } = await fixture(t)
+  app.parse.register({ ...source('route-text'), inputKinds: ['text'] })
+  const removeUnavailable = app.parse.register({ ...source('route-bytes', { importMode: 'queued' }), inputKinds: ['bytes'],
+    status: () => ({ state: 'unavailable' }) })
+  const request = { format: 'fixture', contentBase64: Buffer.from('Readable UTF-8').toString('base64'),
+    language: 'en', sourceId: 'route-case' }
+  const { document } = await app.operations.invoke('importDocument', request)
+  assert.equal(document.sourceAdapterId, 'route-text')
+  await assert.rejects(app.operations.invoke('importDocument', { ...request, adapterId: 'route-bytes' }),
+    { code: 'COMPONENT_MISSING' })
+  removeUnavailable()
+  app.parse.register({ ...source('route-bytes', { importMode: 'queued' }), inputKinds: ['bytes'] })
+  const second = await app.operations.invoke('importDocument', { ...request, sourceId: 'route-case-2' })
+  assert.equal(second.document.sourceAdapterId, 'route-text')
+})
+
 test('source validator pins implementation version on human edits and old-revision acceptance', async t => {
   const { app } = await fixture(t)
   const unregister = app.parse.register(source('validator', { validateTranslation: (_binding, _unit, text) => {

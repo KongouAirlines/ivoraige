@@ -92,34 +92,43 @@ export class Operations extends Service {
       case 'importDocument': {
         if ((p.path === undefined) === (p.contentBase64 === undefined)) throw new KernelError('INVALID_ARGUMENT', 'Specify path or contentBase64, exclusively')
         const sourceAdapters = [...this.ctx.get('ivoraige.parse').adapters.values()]
-        const candidates = sourceAdapters.filter(adapter =>
+        const matching = sourceAdapters.filter(adapter =>
           (p.adapterId === undefined || adapter.id === p.adapterId) &&
           (p.format ? (adapter.formats ?? [adapter.id]).includes(p.format) :
             adapter.match({ path: p.path }) > 0))
+        const candidates = matching.filter(adapter => p.adapterId !== undefined ||
+          !['unavailable', 'disabled', 'failed'].includes(adapter.status?.().state))
         // Preserve the 0.1.0 queued PDF wire response when its optional
         // component is absent; installed adapters use their own descriptor.
-        const legacyPdf = !candidates.length && (p.format === 'pdf' || /\.pdf$/i.test(p.path ?? ''))
-        const queued = candidates.some(adapter => adapter.importMode === 'queued') || legacyPdf
-        const binary = candidates.some(adapter => adapter.inputKinds?.includes('bytes') &&
-          !adapter.inputKinds.includes('text')) || legacyPdf
+        const legacyPdf = p.adapterId === undefined && !matching.length &&
+          (p.format === 'pdf' || /\.pdf$/i.test(p.path ?? ''))
+        let routed = p.path === undefined ? [] : candidates.filter(adapter =>
+          !adapter.inputKinds || adapter.inputKinds.includes('managed-resource'))
         let content
         if (p.contentBase64 !== undefined) {
           if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(p.contentBase64)) {
             throw new KernelError('INVALID_ARGUMENT', 'contentBase64 is not valid base64')
           }
           const bytes = Buffer.from(p.contentBase64, 'base64')
-          if (binary) content = bytes
-          else {
-            try { content = new TextDecoder('utf-8', { fatal: true }).decode(bytes) }
-            catch { throw new KernelError('INVALID_ARGUMENT', 'Input must be UTF-8 text') }
+          let decoded
+          try { decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes) } catch {}
+          const text = candidates.filter(adapter => !adapter.inputKinds || adapter.inputKinds.includes('text'))
+          const binary = candidates.filter(adapter => !adapter.inputKinds || adapter.inputKinds.includes('bytes'))
+          const binaryOnly = binary.filter(adapter => adapter.inputKinds && !adapter.inputKinds.includes('text'))
+          if (decoded !== undefined && text.length) { content = decoded; routed = text }
+          else if (binaryOnly.length || (decoded !== undefined && binary.length) || legacyPdf) {
+            content = bytes; routed = binaryOnly.length ? binaryOnly : binary
           }
+          else if (decoded !== undefined) content = decoded
+          else throw new KernelError('INVALID_ARGUMENT', 'Input must be UTF-8 text')
         }
+        const queued = routed.some(adapter => adapter.importMode === 'queued') || legacyPdf
         result = await this.tasks.importDocument({ ...(p.path ? { path: p.path } : { content }),
           ...(p.format ? { format: p.format } : {}), ...(p.adapterId ? { adapterId: p.adapterId } : {}),
           ...(p.title ? { title: p.title } : {}) },
         { language: p.language, origin: p.origin, ...(p.sourceId ? { sourceId: p.sourceId } : {}),
           ...(p.externalRef ? { externalRef: p.externalRef } : {}) },
-        { wait: !queued, deferSelection: queued })
+        { wait: !queued, deferSelection: queued && p.adapterId === undefined })
         break
       }
       case 'listDocuments': result = paginate(r.listDocuments().filter(item =>

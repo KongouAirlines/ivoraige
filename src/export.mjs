@@ -62,8 +62,6 @@ export class Exporter extends Service {
       if (snapshot.targetLang !== targetLang || (snapshot.contentMode ?? 'accepted-translation') !== contentMode)
         throw new KernelError('PRECONDITION_FAILED', 'Snapshot mode or target language mismatch')
       release = this.records.retainSnapshot(docId, snapshot.id)
-      const parser = this.ctx.get('ivoraige.parse')
-      if (!parser) throw new KernelError('COMPONENT_MISSING', 'Source adapter registry is unavailable')
       const frozen = freeze(this.records.resolveSnapshot(docId, snapshot.id))
       const adapters = outputs.map(output => this.outputs.get(output.format,
         { adapterId: output.adapterId, binding: frozen.sourceBinding, contentMode }))
@@ -82,7 +80,13 @@ export class Exporter extends Service {
         // Deliberately unbound: adapters get data and format only, no service object.
         const rebuild = adapters[index].rebuild
         signal?.throwIfAborted()
-        const view = freeze(parser.projectOutputView(frozen, { views: adapters[index].requiredViews ?? [] }))
+        const requiredViews = adapters[index].requiredViews ?? []
+        let view = frozen
+        if (requiredViews.length) {
+          const parser = this.ctx.get('ivoraige.parse')
+          if (!parser) throw new KernelError('COMPONENT_MISSING', 'Source adapter registry is unavailable')
+          view = freeze(parser.projectOutputView(frozen, { views: requiredViews }))
+        }
         const rendered = await rebuild(view, Object.freeze({ format: outputs[index].format,
           ...(signal ? { signal } : {}) }))
         signal?.throwIfAborted()
