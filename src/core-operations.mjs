@@ -47,8 +47,8 @@ function recordHandlers(ctx, ops) {
       const sourceAdapters = [...ctx.get('ivoraige.parse').adapters.values()]
       const matching = sourceAdapters.filter(adapter =>
         (p.adapterId === undefined || adapter.id === p.adapterId) &&
-        (p.format ? (adapter.formats ?? [adapter.id]).includes(p.format) : adapter.match({ path: p.path }) > 0) &&
-        (!adapter.inputKinds || inputKinds.some(kind => adapter.inputKinds.includes(kind))))
+        (!adapter.inputKinds || inputKinds.some(kind => adapter.inputKinds.includes(kind))) &&
+        (p.format ? (adapter.formats ?? [adapter.id]).includes(p.format) : adapter.match({ path: p.path }) > 0))
       const candidates = matching.filter(adapter => p.adapterId !== undefined || adapter.status?.().state !== 'unavailable')
       // Only input-compatible sources can replace the 0.1.0 PDF fallback.
       // A text-only source cannot consume a managed path or invalid UTF-8.

@@ -22,7 +22,10 @@ function textPdf() {
   return {
     id: 'text-pdf', version: '1', bindingSchemaVersion: 1,
     formats: ['pdf'], inputKinds: ['text'],
-    match: file => file.format === 'pdf' || /\.pdf$/i.test(file.path ?? '') ? 1 : 0,
+    match: file => {
+      assert.equal(typeof file.content, 'string', 'text-only matcher must not receive another input kind')
+      return file.format === 'pdf' ? 1 : 0
+    },
     parse: async file => ({ format: 'pdf', title: 'Readable PDF text',
       units: [{ order: 0, kind: 'body', sourceText: file.content, translatable: true }],
       chapters: [], resources: [], sourceBinding: { adapterId: 'text-pdf' } }),
