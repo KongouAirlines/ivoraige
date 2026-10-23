@@ -120,3 +120,20 @@ test('version-one record remains readable and restores from a consistent backup'
   assert.equal(app.records.listSnapshots(document.id).length, 1)
   assert.equal(app.records.resolveSnapshot(document.id, snapshot.id).units[0].text, 'Legacy translation.')
 })
+
+test('legacy PDF upgrade keeps an approximate identity when source inventory is unknown', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-source-pdf-legacy-'))
+  const app = await createApp({ store: join(directory, 'records.sqlite') })
+  t.after(async () => { await app.dispose(); await rm(directory, { recursive: true, force: true }) })
+  const { document } = await app.records.importDocument({ format: 'txt', content: 'Extracted PDF unit.' },
+    { sourceId: 'legacy:pdf', language: 'en' })
+  await app.records.table.update(document.id, record => {
+    const { schemaVersion, sourceIR, ...legacy } = record
+    return { ...legacy, document: { ...legacy.document, format: 'pdf' } }
+  })
+  await app.records.createSnapshot(document.id, { contentMode: 'source' })
+  const upgraded = app.records.record(document.id)
+  assert.equal(upgraded.sourceIR.identityScope, 'approximate-legacy')
+  assert.equal(upgraded.sourceIR.chapters, undefined)
+  assert.equal(upgraded.sourceIR.resources, undefined)
+})
