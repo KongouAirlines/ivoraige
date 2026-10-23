@@ -17,13 +17,15 @@ Internal operations: call OPERATION --set JSON
 MCP: mcp --stdio [--store FILE]; serve exposes /mcp unless --no-mcp
 Components: status, catalog, credential --token-env NAME, install, local --path MANIFEST, task ID, cancel ID
 Common options: --target-lang LANG, --json, --json-events, --no-wait, --url URL, --store FILE, --pdf-config FILE
+Export: --format md,json --content-mode source|accepted-translation [--target-lang LANG]
+Import/export: --adapter ID selects a registered source/output adapter
 `
 
 function parse(argv) {
   const positional = [], options = {}
   const boolean = new Set(['json', 'json-events', 'help', 'no-wait', 'stdio', 'no-mcp'])
   const known = new Set([...boolean, 'url', 'store', 'export-dir', 'settings-dir', 'pdf-config', 'host', 'port', 'static-dir',
-    'path', 'format', 'source-id', 'external-ref', 'source-lang', 'title', 'target-lang', 'cursor',
+    'path', 'format', 'adapter', 'source-id', 'external-ref', 'source-lang', 'title', 'target-lang', 'cursor',
     'limit', 'origin', 'filter', 'text', 'base-revision', 'expected-accepted', 'mode',
     'units', 'out', 'snapshot', 'on-missing-accepted', 'state', 'kind', 'set', 'ref', 'value', 'token-env',
     'file-action', 'content-mode', 'adapter'])

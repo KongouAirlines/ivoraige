@@ -2,10 +2,11 @@
 // Copyright (c) 2026 ivoraige contributors; see LICENSE for the full notice.
 
 import { randomUUID } from 'node:crypto'
-import { resolve } from 'node:path'
 import { Service, StorageDomain, z } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
 import { basisFor, digest, sameBasis } from './basis.mjs'
+import { documentRequiresRetention, importRequiresRetention } from './retention-payload.mjs'
+import { managedPathKey } from './managed-path.mjs'
 
 const clone = value => structuredClone(value)
 const now = () => new Date().toISOString()
@@ -15,6 +16,8 @@ const language = value => typeof value === 'string' && value !== 'auto' &&
 const required = (condition, message) => { if (!condition) throw new KernelError('INVALID_ARGUMENT', message) }
 const missing = (kind, value) => { throw new KernelError('NOT_FOUND', `${kind} not found`, { [kind]: value }) }
 const keyFor = (unitId, targetLang) => `${unitId}\u0000${targetLang}`
+const sourceIdentity = (format, language, units, chapters, resources) =>
+  digest({ format, language, units, chapters, resources })
 const activeTask = state => ['queued', 'running', 'paused'].includes(state)
 const taskSchema = z.object({
   id: z.string(), kind: z.literal('translate'), docId: z.string(), targetLang: z.string(),
@@ -100,13 +103,6 @@ const importTaskSchema = operationTaskSchema.omit({ docId: true }).extend({ kind
 const spec = version => StorageDomain.defineDomain({ name: 'ivoraige_records', version, layout: 'per-record',
   tables: { documents: StorageDomain.domainTable(recordSchema), imports: StorageDomain.domainTable(importTaskSchema) } })
 
-function requiresRetention(record) {
-  return record.schemaVersion === 3 || (record.artifactCleanup?.length ?? 0) > 0 ||
-    record.artifacts?.some(artifact => artifact.managedFile) ||
-    record.tasks?.some(task => task.state === 'abandoned') ||
-    record.operationTasks?.some(task => task.state === 'abandoned')
-}
-
 export class Records {
   static inject = ['storageDomain']
 
@@ -159,14 +155,21 @@ export class Records {
         { schemaVersion: current.schemaVersion, sourceIRVersion: current.sourceIR?.version })
       let next = transform(current)
       if ((current.schemaVersion ?? 1) === 1) {
-        next = { ...next, schemaVersion: next.schemaVersion === 3 ? 3 : 2,
-          sourceIR: next.sourceIR ?? { version: 1, legacy: true,
-          identity: digest({ format: current.document.format, language: current.document.language,
-            units: current.units.map(({ id: unitId, docId: owner, ...unit }) => unit) }) } }
+        const units = current.units.map(({ id: unitId, docId: owner, ...unit }) => unit)
+        const binding = current.sourceBinding
+        const reconstructable = (current.document.format === 'txt' && binding?.adapterId === 'txt' &&
+          Object.keys(binding).length === 1) ||
+          (current.document.format === 'md' && binding?.adapterId === 'markdown' &&
+            typeof binding.raw === 'string' && Array.isArray(binding.spans))
+        next = { ...next, schemaVersion: next.schemaVersion === 3 ? 3 : 2, sourceIR: next.sourceIR ?? { version: 1, legacy: true,
+          identityScope: reconstructable ? 'reconstructed-text' : 'approximate-legacy',
+          identity: reconstructable
+            ? sourceIdentity(current.document.format, current.document.language, units, [], [])
+            : digest({ format: current.document.format, language: current.document.language, units }) } }
       }
       assertJson(next)
       recordSchema.parse(next)
-      if (requiresRetention(next)) this.activateRetention()
+      if (documentRequiresRetention(next)) this.activateRetention()
       return next
     })
   }
@@ -310,8 +313,8 @@ export class Records {
       ['id', 'mediaType', 'contentDigest', 'version'].filter(key => resource[key] !== undefined)
         .map(key => [key, resource[key]])))
     const sourceIR = { version: 1, units: clone(parsed.units), chapters: clone(parsed.chapters ?? []),
-      resources: clone(resources), identity: digest({ format: parsed.format, language: sourceLang,
-        units: parsed.units, chapters: parsed.chapters ?? [], resources }) }
+      resources: clone(resources), identity: sourceIdentity(parsed.format, sourceLang,
+        parsed.units, parsed.chapters ?? [], resources) }
     const record = { schemaVersion: 2, sourceIR, document, fingerprint, sourceBinding: clone(parsed.sourceBinding),
       sourceBindingRef: digest({ docId, fingerprint, binding: parsed.sourceBinding }),
       sourceBindingDigest: digest(parsed.sourceBinding),
@@ -493,7 +496,7 @@ export class Records {
         required(next.id === current.id && next.kind === 'import', 'Import task identity is immutable')
         assertJson(next)
         importTaskSchema.parse(next)
-        if (next.schemaVersion === 3 || next.state === 'abandoned') this.activateRetention()
+        if (importRequiresRetention(next)) this.activateRetention()
         return next
       })
       return clone(updated)
@@ -867,7 +870,7 @@ export class Records {
     return clone(artifact)
   }
   listArtifacts(docId) { return clone(this.record(docId).artifacts) }
-  pathKey(path) { const key = resolve(path); return process.platform === 'win32' ? key.toLowerCase() : key }
+  pathKey(path) { return managedPathKey(path) }
   cleanupForPath(key) {
     return [...this.table.entries()].some(([, record]) => (record.artifactCleanup ?? [])
       .some(item => this.pathKey(item.path) === key))

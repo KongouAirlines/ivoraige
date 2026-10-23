@@ -295,7 +295,10 @@ export class ModelSettings extends Service {
       const conflict = error instanceof KernelError && error.code === 'CONFLICT' ?
         { expected: error.details?.expected, actual: error.details?.actual } : {}
       const mapped = settingsError(error)
-      throw new KernelError(mapped instanceof KernelError && isPublicErrorCode(mapped.code) ? mapped.code : 'UPSTREAM_FAILURE',
+      // The first write is durable: a later validation failure is a partial
+      // upstream failure, not an invalid request that left settings untouched.
+      throw new KernelError(mapped instanceof KernelError && isPublicErrorCode(mapped.code) &&
+        mapped.code !== 'INVALID_ARGUMENT' ? mapped.code : 'UPSTREAM_FAILURE',
         'Provider route was saved, but the model list and any requested selection were not; reload settings before retrying',
         { ...conflict, partialSave: {
           persisted: 'routes', failed: 'selected', revisions: { routes: revision },

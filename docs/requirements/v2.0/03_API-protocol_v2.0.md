@@ -118,16 +118,18 @@ interface TaskStats {
 }
 
 interface Artifact {
-  id: Id; docId: Id; targetLang: string; format: string; path: string;
+  id: Id; docId: Id; contentMode?: "source" | "accepted-translation";
+  targetLang?: string; format: string; path: string;
   snapshotId: Id; revisionSetHash: string; createdAt: ISODate;
   warnings?: string[];                  // 对应本次输出的质量诊断，不改变冻结快照
 }
 
 interface ExportSnapshot {
-  id: Id; docId: Id; targetLang: string;
+  id: Id; docId: Id; contentMode?: "source" | "accepted-translation";
+  targetLang?: string;
   sourceBindingRef: string;             // 来源绑定标识（适配器私有）
   resourceVersions: Record<string, string>; // 输出所需资源的版本引用
-  items: { unitId: Id; decision: { type: "revision"; revisionId: Id } | { type: "skip" | "keepOriginal" } }[];
+  items: { unitId: Id; decision: { type: "revision"; revisionId: Id } | { type: "skip" | "keepOriginal" | "source" } }[];
   revisionSetHash: string;              // 创建时计算一次
   createdAt: ISODate;
 }
@@ -181,7 +183,7 @@ interface RagChunk {
 
 | 方法 | 路径 | 请求 | 响应 |
 |---|---|---|---|
-| POST | `/api/documents/{docId}/export` | `{ targetLang: string, outputs: { format: string, out?: string }[], snapshotId?: Id, onMissingAccepted?: "fail" \| "skip" }`（默认 fail，《设计》§3.3） | `{ taskId: Id, snapshotId: Id }`；任务产物在 Task.artifacts |
+| POST | `/api/documents/{docId}/export` | `{ contentMode?: "source" \| "accepted-translation", targetLang?: string, outputs: { format: string, out?: string }[], snapshotId?: Id, onMissingAccepted?: "fail" \| "skip" }`; `targetLang` is required for accepted translation and omitted for source | `{ taskId: Id, snapshotId: Id }` |
 | GET | `/api/documents/{docId}/artifacts` | — | Artifact[] |
 | GET | `/api/documents/{docId}/snapshots` | `?targetLang=` | ExportSnapshot[]（发现可用快照；CLI `--snapshot` 的 id 来源） |
 | GET | `/api/documents/{docId}/snapshots/{snapshotId}` | — | `{ snapshot: ExportSnapshot }` |
@@ -306,7 +308,7 @@ MCP 是可选入口服务 `ivoraige.mcp`，不拥有文档或 PDF 业务逻辑�
 | `documents_list` / `document_get` | `listDocuments` / `getDocument` | 文档列表与元数据 |
 | `units_list` / `unit_get` / `revisions_list` | `listUnits` / `getUnit` / `listRevisions` | 源单位与语言范围内的修订 |
 | `unit_update` / `revision_accept` / `unit_unaccept` | `writeRevision` / `acceptRevision` / `unaccept` | 分别使用 `baseRevisionId`、`expectedAcceptedRevisionId` 乐观锁；冲突后重读 |
-| `translate` / `export` | `translate` / `exportDocument` | 返回持久任务；导出仅使用已接受修订或冻结快照，不调用模型 |
+| `translate` / `export` | `translate` / `exportDocument` | Export accepts `contentMode: "source"` without `targetLang` or accepted revisions, or `contentMode: "accepted-translation"` with required `targetLang`. Both modes freeze a snapshot and never invoke a translation model. |
 | `artifacts_list` / `snapshots_list` / `snapshot_get` / `snapshot_delete` | 同名列表、读取、删除操作 | 删除只允许未被引用的快照 |
 | `tasks_list` / `task_status` / `task_pause` / `task_resume` / `task_cancel` | `listTasks` / `getTask` / `pauseTask` / `resumeTask` / `cancelTask` | `task_status` 支持 `waitSeconds≤60`；断开等待不取消持久任务 |
 | `settings_get` / `settings_update` / `credential_set` | `getSettings` / `updateSettings` / `setCredential` | 仅在设置服务装配时注册；写设置和凭据须有用户明确授权 |
@@ -374,6 +376,10 @@ BabelDOC `parse` 按来源位置关联回调与完成后的 tracker payload；tr
 5. 权重下载任务：断网中断后 Range 续传完成，digest 校验失败有明确 failed 状态。
 6. 导出期间接受新译文，已有多格式任务仍输出同一 snapshotId 的内容；显式复用该快照增加格式不调用模型。上下文、同名风格预设或相关术语变更后，不得仅凭旧 reuseKey 复用不适用译文。
 
+For source exports, omit targetLang; the frozen snapshot records contentMode: source and source decisions. Existing snapshots without contentMode mean accepted translation and retain their stored target language. A source snapshot cannot be replayed as accepted translation, or vice versa.
+Version-one records from the known built-in TXT/Markdown source bindings upgraded on first write retain their persisted fingerprint and derive source IR identity from recoverable units plus their contractually empty chapters/resources. Unknown or custom bindings, including those declaring TXT/Markdown format, and version-one PDF records retain an approximate legacy identity because their chapter and resource inventory cannot be proven or recovered. Approximate identity must not be compared as a full source IR identity.
+
+
 ### Q02 retained artifacts and failed-task abandonment (0.1.x additive operations)
 
 `POST /api/tasks/{taskId}/abandon` accepts only `failed` (idempotently also `abandoned`) and returns the task in `abandoned` state with its original error and history. It is not cancellation and cannot resume. An export snapshot remains pinned by queued/running/paused/failed tasks, artifact records, active snapshot leases, and pending file cleanup; an abandoned task alone no longer pins it.
@@ -382,9 +388,12 @@ BabelDOC `parse` 按来源位置关联回调与完成后的 tracker payload；tr
 
 The matching CLI forms are `abandon TASK_ID`, `artifacts DOC_ID delete ARTIFACT_ID [--file-action delete-owned]`, and `artifacts DOC_ID cleanup`. MCP tools are `task_abandon`, `artifact_delete`, and `artifact_cleanup_list` with the same parameters and responses. Artifact downloads and MCP resource reads hold a read lease until the read ends. No operation translates or rebuilds an artifact.
 
-Records mark a document with `schemaVersion: 3` on its first Q02 ownership, abandonment or deletion write; untouched v1/v2 records remain as stored. A v1 first write still synthesizes the established source IR. Older 0.1.0 binaries refuse schema 3 writes (and cannot read `abandoned` task rows); rolling back code alone is unsupported after a Q02 write. Restore the complete pre-upgrade SQLite backup and retained export files to roll back. No real user-library migration is performed in this stage.
+Records mark a document with `schemaVersion: 3` on its first Q02 ownership, abandonment or deletion write; untouched v1/v2 records remain as stored. A v1 first write still synthesizes the established source IR. The payload schema is separate from the DSH storage unit version: before the first retention write, the pinned-layout adapter fences the store by promoting its existing unit from 1 to 2; a fresh store starts at unit 2. Older 0.1.0 binaries reject that unit version before writing. Ordinary legacy unit-1 reads and non-retention writes remain at unit 1; rolling back code alone is unsupported after retention activation. Restore the complete pre-upgrade SQLite backup and retained export files to roll back. No real user-library migration is performed in this stage.
 
 Q02 relocated-root recovery: a missing original artifact file or parent directory completes cleanup on explicit retry without unlink; a still-existing file under an old root remains protected when the configured managed root changes.
+
+Q02 event and entry detail: `task.abandoned` carries `{ taskId }` after a failed task is explicitly abandoned. It is a terminal event alongside `task.succeeded`, `task.failed`, `task.paused`, and `task.canceled`; clients should refresh task lists and snapshot references on receipt. `task_abandon`, `artifact_delete`, and `artifact_cleanup_list` map to `abandonTask`, `deleteArtifact`, and `listArtifactCleanup` on the shared operation facade. The matching HTTP endpoints and response semantics are specified above; these are available through the MCP tool registry as `ivoraige_task_abandon`, `ivoraige_artifact_delete`, and `ivoraige_artifact_cleanup_list`.
+
 
 ### P04 current entry projection
 

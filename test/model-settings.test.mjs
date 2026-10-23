@@ -336,3 +336,62 @@ test('missing DSH settings forms use a public component error', async t => {
   await assert.rejects(app.settings.update({ provider: 'local', model: 'science' }),
     { code: 'COMPONENT_MISSING' })
 })
+
+test('DSH validation in the second settings write reports a durable partial save', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-partial-validation-'))
+  const app = await bootModelSettings({ directory })
+  t.after(async () => { await app.dispose(); await rm(directory, { recursive: true, force: true }) })
+  let validationError
+  try {
+    await app.ctx.settings.mutate('ivoraige-model', [
+      { op: 'set', path: ['timeoutMs'], value: -1 },
+    ])
+  } catch (error) { validationError = error }
+  assert.equal(validationError?.name, 'ValidationError')
+  const original = app.ctx.settings.mutate
+  const secondWrite = t.mock.method(app.ctx.settings, 'mutate', function (namespace, ...args) {
+    if (namespace === 'ivoraige-model') throw validationError
+    return original.call(this, namespace, ...args)
+  })
+  const before = await app.settings.get()
+  await assert.rejects(app.settings.update({
+    provider: 'local', model: 'science', api: 'openai-completions',
+    baseURL: 'http://127.0.0.1:9999/v1', contextWindow: 8192, maxTokens: 512,
+  }), error => {
+    assert.equal(error.code, 'UPSTREAM_FAILURE')
+    assert.equal(errorEnvelope(error).status, 502)
+    assert.equal(errorEnvelope(error).exitCode, 4)
+    assert.deepEqual(error.details.partialSave, {
+      persisted: 'routes', failed: 'selected', revisions: { routes: before.revisions.routes + 1 },
+    })
+    return true
+  })
+  const after = await app.settings.get()
+  assert.ok(after.routes.local)
+  assert.equal(after.revisions.routes, before.revisions.routes + 1)
+  assert.equal(after.revisions.selected, before.revisions.selected)
+  secondWrite.mock.restore()
+
+  const firstWrite = t.mock.method(app.ctx.settings, 'mutate', function (namespace, ...args) {
+    if (namespace === 'llm-pi-ai') throw validationError
+    return original.call(this, namespace, ...args)
+  })
+  await assert.rejects(app.settings.update({
+    provider: 'other', model: 'science', api: 'openai-completions',
+    baseURL: 'http://127.0.0.1:9999/v1', contextWindow: 8192, maxTokens: 512,
+  }), { code: 'INVALID_ARGUMENT' })
+  firstWrite.mock.restore()
+  assert.deepEqual((await app.settings.get()).revisions, after.revisions)
+
+  const ioError = Object.assign(new Error('Injected write failure'), { code: 'EIO' })
+  const ioWrite = t.mock.method(app.ctx.settings, 'mutate', function (namespace, ...args) {
+    if (namespace === 'llm-pi-ai') throw ioError
+    return original.call(this, namespace, ...args)
+  })
+  await assert.rejects(app.settings.update({
+    provider: 'other', model: 'science', api: 'openai-completions',
+    baseURL: 'http://127.0.0.1:9999/v1', contextWindow: 8192, maxTokens: 512,
+  }), error => error === ioError)
+  ioWrite.mock.restore()
+  assert.deepEqual((await app.settings.get()).revisions, after.revisions)
+})

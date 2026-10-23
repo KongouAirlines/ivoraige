@@ -1,8 +1,9 @@
-import { open, lstat, readFile, realpath, unlink } from 'node:fs/promises'
+import { open, lstat, readFile, unlink } from 'node:fs/promises'
 import { basename, dirname, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
 import { Service } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
+import { sameDirectory } from './managed-path.mjs'
 
 // Both entry protocols read the same saved resource under the same Records lease.
 export class ResourceAccess extends Service {
@@ -75,8 +76,7 @@ export class ResourceAccess extends Service {
       throw error
     }
     const root = this.ctx.get('ivoraige.export')?.root
-    if (!root || dirname(resolve(path)) !== resolve(root) ||
-        await realpath(dirname(path)) !== await realpath(root))
+    if (!await sameDirectory(dirname(resolve(path)), root))
       throw new KernelError('PRECONDITION_FAILED', 'Artifact path is outside the managed export directory', { path })
     if (!info.isFile() || info.isSymbolicLink())
       throw new KernelError('PRECONDITION_FAILED', 'Owned artifact path is not a regular file', { path })

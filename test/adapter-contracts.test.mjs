@@ -1,10 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createApp } from '../src/app.mjs'
+import { runCli } from '../src/cli.mjs'
 
 const sha = value => createHash('sha256').update(value).digest('hex')
 const metadata = { language: 'en', sourceId: 'adapter-contract' }
@@ -24,6 +25,37 @@ function source(id, { version = '1', importMode, validateTranslation } = {}) {
     inputKinds: ['text', 'bytes'], cancellable: true, importMode,
     match: file => file.format === 'fixture' ? 1 : 0, parse, validateTranslation }
 }
+
+test('registration rejects invalid source provenance before persistence', async t => {
+  const { app } = await fixture(t)
+  const initial = app.parse.adapters.size
+  for (const version of [1, '', ' '])
+    assert.throws(() => app.parse.register({ ...source('bad-version'), version }), { code: 'INVALID_ARGUMENT' })
+  for (const bindingSchemaVersion of [0, -1, 1.5, '1'])
+    assert.throws(() => app.parse.register({ ...source('bad-binding'), bindingSchemaVersion }),
+      { code: 'INVALID_ARGUMENT' })
+  assert.equal(app.parse.adapters.size, initial)
+  assert.equal(app.records.listDocuments().length, 0)
+})
+
+test('CLI accepts explicit source and output adapter options', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-adapter-cli-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const store = join(directory, 'records.sqlite')
+  const path = join(directory, 'source.txt')
+  await writeFile(path, 'Source text')
+  let out = '', err = ''
+  const sink = { stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } }
+  const imported = await runCli(['--store', store, 'import', '--format', 'txt', '--adapter', 'txt',
+    '--source-lang', 'en', '--path', path], sink)
+  assert.equal(imported, 0, err)
+  const docId = JSON.parse(out).document.id
+  out = ''; err = ''
+  const exported = await runCli(['--store', store, 'export', docId, '--format', 'json',
+    '--adapter', 'json', '--content-mode', 'source'], sink)
+  assert.equal(exported, 0, err)
+  assert.ok(JSON.parse(out).snapshotId)
+})
 
 test('same-format source adapters need explicit selection and cannot forge another binding', async t => {
   const { app } = await fixture(t)
@@ -220,6 +252,25 @@ test('source validator pins implementation version on human edits and old-revisi
   removeReplacement()
   app.parse.register(source('validator'))
   await app.records.acceptRevision(revision.id, { expectedAcceptedRevisionId: null })
+})
+
+test('model checkpoint rejects source validator version drift before writing a revision', async t => {
+  const { app } = await fixture(t)
+  const unregister = app.parse.register(source('model-validator'))
+  const { document } = await app.records.importDocument(
+    { format: 'fixture', adapterId: 'model-validator', content: 'A' }, metadata)
+  const unit = app.records.listUnits(document.id, { targetLang: 'zh' })[0]
+  const task = await app.records.createTranslationTask(document.id, { targetLang: 'zh' })
+  await app.records.updateTask(task.id, value => ({ ...value, state: 'running' }))
+  unregister()
+  app.parse.register(source('model-validator', { version: '2' }))
+  await assert.rejects(app.records.commitTaskUnit(task.id, { unitId: unit.id,
+    expectedBasis: app.records.getBasis(unit.id, { targetLang: 'zh' }),
+    baseRevisionId: null, expectedAcceptedRevisionId: null,
+    result: { text: 'Translated', modelId: 'fixture-model', tokens: { input: 1, output: 1 } } }),
+  { code: 'PRECONDITION_FAILED' })
+  assert.equal(app.records.getTask(task.id).cursor, 0)
+  assert.equal(app.records.record(document.id).revisions.length, 0)
 })
 
 test('reimport with a new source implementation version keeps the old document and creates new provenance', async t => {

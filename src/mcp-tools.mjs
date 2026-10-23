@@ -14,7 +14,7 @@ const aliases = {
   acceptRevision: ['revision_accept', 'Accept a revision using expectedAcceptedRevisionId.'],
   unaccept: ['unit_unaccept', 'Remove acceptance using expectedAcceptedRevisionId.'],
   translate: ['translate', 'Start translation with the configured DSH model; may incur model usage.'],
-  exportDocument: ['export', 'Export from a frozen snapshot; this never invokes a translation model.'],
+  exportDocument: ['export', 'Start export with contentMode source (no targetLang or accepted revisions needed) or accepted-translation (targetLang required), optionally from a matching saved snapshotId. Never invokes a translation model; outputs share a frozen snapshot.'],
   listArtifacts: ['artifacts_list', 'List saved artifacts.'],
   listArtifactCleanup: ['artifact_cleanup_list', 'List pending or failed managed-file cleanups.'],
   deleteArtifact: ['artifact_delete', 'Delete an artifact record; delete-owned explicitly removes managed bytes.'],

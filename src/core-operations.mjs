@@ -40,8 +40,10 @@ function recordHandlers(ctx, ops) {
         (p.format ? (adapter.formats ?? [adapter.id]).includes(p.format) : adapter.match({ path: p.path }) > 0))
       const candidates = matching.filter(adapter => p.adapterId !== undefined || adapter.status?.().state !== 'unavailable')
       // Preserve the queued PDF response when its optional component is absent.
-      const legacyPdf = p.adapterId === undefined && !matching.length &&
+      const legacyPdf = p.adapterId === undefined && !candidates.length &&
         (p.format === 'pdf' || /\.pdf$/i.test(p.path ?? ''))
+      if (legacyPdf && matching.some(adapter => adapter.status?.().state === 'unavailable'))
+        throw new KernelError('COMPONENT_MISSING', 'PDF source adapter is unavailable')
       let content
       if (p.contentBase64 !== undefined) {
         if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(p.contentBase64)) {
