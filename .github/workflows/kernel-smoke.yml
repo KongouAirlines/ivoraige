@@ -9,16 +9,23 @@ permissions:
 
 jobs:
   package-smoke:
-    name: ${{ matrix.os }} / Node ${{ matrix.node }}
+    name: ${{ matrix.os }} / Node ${{ matrix.node }} / ${{ matrix.runtime }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         node: ['24.22.1']
+        runtime: [pinned, cordis-rc11]
         include:
           - os: windows-latest
             node: '26.12.1'
+            runtime: pinned
+          - os: windows-latest
+            node: '26.12.1'
+            runtime: cordis-rc11
+    env:
+      IVORAIGE_RUNTIME: ${{ matrix.runtime }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v5
@@ -33,4 +40,18 @@ jobs:
       - run: npm ci
       - run: npm run setup:dsh
       - run: npm test
-      - run: npm run smoke:package
+      - name: RC11 isolation and lifecycle gates
+        if: ${{ !cancelled() && matrix.runtime == 'cordis-rc11' }}
+        run: node --test test/runtime-probes/*.test.mjs
+      - name: Clean tarball smoke
+        if: ${{ !cancelled() }}
+        run: npm run smoke:package
+      - name: Runtime source evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-${{ matrix.os }}-${{ matrix.node }}-${{ matrix.runtime }}
+          path: |
+            dist/build-evidence.json
+            dist/web-build-evidence.json
+            dist/runtime-identity.json

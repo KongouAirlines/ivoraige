@@ -7,6 +7,10 @@ const root = resolve(import.meta.dirname, '..')
 const outdir = resolve(root, 'dist/web')
 await mkdir(outdir, { recursive: true })
 const dsh = resolve(root, 'experiments/vendor/deepseek-harness')
+const runtimeMode = process.env.IVORAIGE_RUNTIME ?? 'pinned'
+if (!['pinned', 'cordis-rc11'].includes(runtimeMode)) throw new Error(`Unknown IVORAIGE_RUNTIME: ${runtimeMode}`)
+const candidate = runtimeMode === 'cordis-rc11'
+  ? await import('./runtime-patches/0.1.x/candidate-rc11.mjs') : null
 const pinnedClient = {
   '@deepseek-ai/dsh-client-ui-slots': resolve(dsh, 'packages/client/ui-slots/src/index.ts'),
   '@deepseek-ai/cordis': resolve(dsh, 'vendor/cordis/src/index.ts'),
@@ -19,16 +23,26 @@ const plugin = { name: 'pinned-dsh-client', setup(builder) {
     return { path }
   })
 } }
+const plugins = [...(candidate ? candidate.candidateBuildOptions.plugins : []), plugin]
 // Node tests need an importable build of the browser source. This file is
 // outside dist/web and outside the package's published "files" allowlist.
-await build({ absWorkingDir: root, entryPoints: ['web/settings-runtime.mjs'], outfile: 'dist/settings-runtime-test.mjs',
-  bundle: true, minify: false, format: 'esm', platform: 'neutral', target: 'es2022', plugins: [plugin] })
+const settingsBuild = await build({ absWorkingDir: root, entryPoints: ['web/settings-runtime.mjs'], outfile: 'dist/settings-runtime-test.mjs',
+  bundle: true, minify: false, format: 'esm', platform: 'neutral', target: 'es2022', metafile: true, plugins })
 // Remove the browser duplicate produced by an earlier build layout. The SPA
 // includes the runtime in app.js; no page fetches this standalone file.
 await rm(resolve(outdir, 'settings-runtime.mjs'), { force: true })
 const appBuild = await build({ absWorkingDir: root, entryPoints: ['web/app.jsx'], outfile: 'dist/web/app.js',
   bundle: true, minify: true, format: 'esm', platform: 'browser', target: 'es2022', write: false,
-  loader: { '.jsx': 'jsx' }, plugins: [plugin] })
+  loader: { '.jsx': 'jsx' }, metafile: true, plugins })
+const webInputs = [...Object.keys(settingsBuild.metafile.inputs), ...Object.keys(appBuild.metafile.inputs)]
+const coreRoots = [...new Set(webInputs.map(path => path.replaceAll('\\', '/').match(
+  /^(.*(?:vendor\/cordis|cordis-rc11\/packages\/core))\/src\//)?.[1]).filter(Boolean))]
+const expectedCore = candidate ? 'cordis-rc11/packages/core' : 'deepseek-harness/vendor/cordis'
+if (coreRoots.length !== 1 || !coreRoots[0].endsWith(expectedCore)) {
+  throw new Error(`Browser runtime must have one ${expectedCore} source; found ${JSON.stringify(coreRoots)}`)
+}
+await writeFile(resolve(root, 'dist/web-build-evidence.json'), JSON.stringify({ runtimeMode, coreRoots,
+  settings: settingsBuild.metafile, app: appBuild.metafile }, null, 2) + '\n')
 for (const output of appBuild.outputFiles) {
   if (output.path.endsWith('app.js')) await writeFile(output.path, output.contents)
 }
@@ -41,9 +55,13 @@ const notices = await Promise.all(['react', 'react-dom', 'scheduler'].map(async 
   const pkg = JSON.parse(await readFile(resolve(directory, 'package.json'), 'utf8'))
   return `${pkg.name} ${pkg.version}\n${await readFile(resolve(directory, 'LICENSE'), 'utf8')}`
 }))
-for (const directory of [dsh, resolve(dsh, 'vendor/cordis'), resolve(dsh, 'vendor/cosmokit')]) {
+for (const directory of [dsh, ...(candidate ? [] : [resolve(dsh, 'vendor/cordis')]), resolve(dsh, 'vendor/cosmokit')]) {
   const pkg = JSON.parse(await readFile(resolve(directory, 'package.json'), 'utf8'))
   notices.push(`${pkg.name} ${pkg.version}\n${await readFile(resolve(directory, 'LICENSE'), 'utf8')}`)
+}
+if (candidate) {
+  const pkg = JSON.parse(await readFile(resolve(candidate.candidateSource.path, 'packages/core/package.json'), 'utf8'))
+  notices.push(`${pkg.name} ${pkg.version}\n${await readFile(resolve(candidate.candidateSource.path, 'LICENSE'), 'utf8')}`)
 }
 await writeFile(resolve(outdir, 'THIRD_PARTY_LICENSES.txt'), notices.join('\n\n'))
 console.log('Built dist/web')

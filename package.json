@@ -13,6 +13,9 @@
   "files": [
     "src/",
     "dist/dsh.mjs",
+    "dist/build-evidence.json",
+    "dist/web-build-evidence.json",
+    "dist/runtime-identity.json",
     "dist/web/",
     "dist/DSH-LICENSE.txt",
     "dist/THIRD_PARTY_LICENSES.txt",
@@ -39,7 +42,7 @@
     "start": "node src/launch.mjs",
     "build:distribution": "npm run build && node scripts/build-distribution.mjs",
     "setup:dsh": "node scripts/setup-dsh.mjs",
-    "build": "node scripts/build.mjs && node scripts/build-web.mjs",
+    "build": "node scripts/build.mjs && node scripts/build-web.mjs && node scripts/verify-runtime-identity.mjs",
     "test": "npm run build && node --test test/*.test.mjs",
     "pack:npm": "npm run build && node scripts/pack-npm.mjs",
     "smoke:package": "node scripts/smoke-package.mjs",

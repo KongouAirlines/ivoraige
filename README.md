@@ -47,6 +47,8 @@ For PDF, prepare the optional Windows development environment using the [PDF dev
 
 For configuration, debugging, and contributing, see the [development guide](docs/plan/0.1.0/development-guide.md). Detailed guides are currently mostly in Chinese.
 
+Runtime development: the default build retains the fixed DSH runtime. The isolated `IVORAIGE_RUNTIME=cordis-rc11` mode reproduces a blocked migration candidate; it is not an adopted runtime. See the [fixed sources, commands and failing gates](docs/plan/0.1.x/evidence/cordis-rc11-candidate.md) before using that mode.
+
 Component installation and document tasks share a bounded background-job quota. A queued document task waits for installation to finish; an installation requested during active document work reports a conflict so you can retry.
 
 ## What works today

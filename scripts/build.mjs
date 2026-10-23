@@ -6,6 +6,10 @@ import { root, upstream, DSH_COMMIT, verifySource } from './setup-dsh.mjs'
 
 if (!existsSync(upstream)) throw new Error('DSH source missing. Run npm run setup:dsh first.')
 verifySource()
+const runtimeMode = process.env.IVORAIGE_RUNTIME ?? 'pinned'
+if (!['pinned', 'cordis-rc11'].includes(runtimeMode)) throw new Error(`Unknown IVORAIGE_RUNTIME: ${runtimeMode}`)
+const candidate = runtimeMode === 'cordis-rc11'
+  ? await import('./runtime-patches/0.1.x/candidate-rc11.mjs') : null
 const dependencies = join(root, 'node_modules')
 if (!existsSync(join(dependencies, 'esbuild/package.json'))) {
   throw new Error('Project dependencies missing. Run npm ci at the repository root first.')
@@ -33,7 +37,7 @@ const result = await build({
   platform: 'node', format: 'esm', target: 'node24', metafile: true,
   nodePaths: [dependencies],
   banner: { js: 'import { createRequire as __ivoraigeCreateRequire } from "node:module"; const require = __ivoraigeCreateRequire(import.meta.url);' },
-  plugins: [{ name: 'pinned-dsh-source', setup(builder) {
+  plugins: [...(candidate ? candidate.candidateBuildOptions.plugins : []), { name: 'pinned-dsh-source', setup(builder) {
     builder.onLoad({ filter: /[\\/]llm[\\/]src[\\/]attribution\.ts$/ }, async args => {
       // Embed its package version so the generated bundle does not depend on
       // the original source path or read this project's package manifest.
@@ -59,7 +63,7 @@ const licenseRoots = new Set([upstream])
 for (const input of Object.keys(result.metafile.inputs)) {
   const normalized = input.replaceAll('\\', '/')
   const npmRoot = normalized.match(/^(.*node_modules\/(?:@[^/]+\/)?[^/]+)(?:\/|$)/)?.[1]
-  const vendorRoot = normalized.match(/^(.*\/vendor\/(?:cordis|cosmokit|schemastery))(?:\/|$)/)?.[1]
+  const vendorRoot = normalized.match(/^(.*\/vendor\/(?:cordis|cosmokit|schemastery|loader|include|group))(?:\/|$)/)?.[1]
   if (npmRoot || vendorRoot) licenseRoots.add(resolve(root, npmRoot ?? vendorRoot))
 }
 const licenseSections = []
@@ -92,6 +96,16 @@ for (const directory of [...licenseRoots].sort()) {
   }
   licenseSections.push(`${pkg.name} ${pkg.version} (${pkg.license ?? 'see notice'})\n${texts.join('\n').trim()}`)
 }
+if (candidate) {
+  const notice = await readFile(join(candidate.candidateSource.path, 'LICENSE'), 'utf8')
+  for (const dir of ['core', 'loader']) {
+    const pkg = JSON.parse(await readFile(join(candidate.candidateSource.path, 'packages', dir, 'package.json'), 'utf8'))
+    licenseSections.push(`${pkg.name} ${pkg.version} (${pkg.license})\n${notice.trim()}`)
+  }
+}
 await writeFile(join(root, 'dist/THIRD_PARTY_LICENSES.txt'), licenseSections.join('\n\n====================\n\n') + '\n')
-await writeFile(join(root, 'dist/build-evidence.json'), JSON.stringify({ dshCommit: DSH_COMMIT, inputs: Object.keys(result.metafile.inputs) }, null, 2) + '\n')
-console.log(`Built dist/dsh.mjs from ${Object.keys(result.metafile.inputs).length} source files (${DSH_COMMIT})`)
+await writeFile(join(root, 'dist/build-evidence.json'), JSON.stringify({ runtimeMode, dshCommit: DSH_COMMIT,
+  cordisCommit: candidate?.candidateSource.commit ?? null, patchIds: candidate?.candidatePatchIds ?? [],
+  replacements: candidate?.candidateSource.replacements ?? [], inputs: Object.keys(result.metafile.inputs),
+  outputs: result.metafile.outputs }, null, 2) + '\n')
+console.log(`Built dist/dsh.mjs from ${Object.keys(result.metafile.inputs).length} source files (${runtimeMode})`)

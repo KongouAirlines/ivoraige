@@ -1,7 +1,7 @@
 import { cp, mkdir, mkdtemp, readdir, rm, writeFile, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
 import assert from 'node:assert/strict'
 import { validatePackagedLinks } from './release-docs.mjs'
@@ -97,7 +97,7 @@ try {
     'dist/web/index.html', 'dist/web/app.js', 'dist/web/app.css',
     'dist/web/pdf-guide.html', 'dist/web/release-info.json', 'README.md', 'README.zh-CN.md',
     'CONTRIBUTING.md', 'SECURITY.md', 'docs/plan/0.1.0/capabilities.md',
-    'dist/DSH-LICENSE.txt', 'dist/THIRD_PARTY_LICENSES.txt']
+    'dist/DSH-LICENSE.txt', 'dist/THIRD_PARTY_LICENSES.txt', 'dist/build-evidence.json', 'dist/web-build-evidence.json', 'dist/runtime-identity.json']
   for (const path of required) {
     if (!files.has(path)) throw new Error(`Package is missing required file: ${path}`)
   }
@@ -113,6 +113,11 @@ try {
   const tarball = join(work, packed[0].filename)
   await writeFile(join(work, 'package.json'), JSON.stringify({ private: true, type: 'module' }))
   run(process.execPath, [npmCli, 'install', '--ignore-scripts', '--omit=dev', '--no-audit', '--no-fund', tarball], work)
+  const installed = join(work, 'node_modules', packed[0].name)
+  const identity = JSON.parse(await readFile(join(installed, 'dist/runtime-identity.json'), 'utf8'))
+  assert.deepEqual(identity, JSON.parse(await readFile(join(root, 'dist/runtime-identity.json'), 'utf8')))
+  assert.equal(identity.mode, process.env.IVORAIGE_RUNTIME ?? 'pinned')
+  assert.ok(identity.coreBytes > 0)
   await validatePackagedLinks(join(work, 'node_modules', 'ivoraige'),
     JSON.parse(await readFile(join(work, 'node_modules', 'ivoraige', 'dist/web/release-info.json'), 'utf8')))
   const probe = join(work, 'installed-package-smoke.mjs')
@@ -120,7 +125,12 @@ try {
     import assert from 'node:assert/strict'
     import { readFile } from 'node:fs/promises'
     import { createApp } from ${JSON.stringify(packed[0].name)}
+    const runtime = await import(${JSON.stringify(pathToFileURL(join(work, 'node_modules', packed[0].name, 'dist/dsh.mjs')).href)})
+    for (const name of ['LlmRuntime', 'ConfigEditor', 'SettingsForms']) {
+      assert.ok(runtime[name].prototype instanceof runtime.Service)
+    }
     const app = await createApp()
+    assert.ok(runtime.Context.is(app.ctx))
     try {
       if (!app.parse || !app.outputs || typeof app.dispose !== 'function') {
         throw new Error('Installed package createApp() did not expose the expected parse/output services')
@@ -131,6 +141,8 @@ try {
       await app.dispose()
     }
     const persistent = await createApp({ store: './smoke.sqlite', exportDir: './outputs' })
+    assert.ok(runtime.Context.is(persistent.records.ctx))
+    assert.equal(persistent.records.ctx.root, persistent.ctx.root)
     let docId
     try {
       const { document } = await persistent.records.importDocument({ format: 'txt', content: 'Package test.' },
