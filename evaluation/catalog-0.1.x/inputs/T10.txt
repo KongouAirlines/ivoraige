@@ -1,0 +1,1 @@
+The device 青岚-A reports ΔT = 0.5 K and status OK.

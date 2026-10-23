@@ -1,0 +1,578 @@
+{
+  "schemaVersion": 1,
+  "catalogId": "ivoraige-synthetic-0.1.x-v1",
+  "visibility": "synthetic",
+  "samples": [
+    {
+      "id": "T01",
+      "split": "dev",
+      "format": "txt",
+      "sourceLanguage": "en",
+      "targetLanguage": "zh",
+      "path": "inputs/T01.txt",
+      "sha256": "0f99af8917e9717ebb89defc27067ef087ab56121e90cdfb01cd197644cb58db",
+      "referencePath": "references/T01.json",
+      "referenceSha256": "2d8e8a4b1104dc7f65beaaa0421ff87631786d3ba1892972d4d22bdcc799ee32",
+      "category": "terminology",
+      "tags": [
+        "terminology"
+      ],
+      "acceptance": {
+        "failure": "Distinguish physical quantity from process; equivalent wording is acceptable.",
+        "allowedDifferences": "Equivalent phrasing, line wrapping and punctuation require human review; no cross-format byte equality gate.",
+        "protectedSpans": []
+      },
+      "source": {
+        "kind": "original-synthetic",
+        "author": "Codex (AI-assisted project fixture)",
+        "url": null,
+        "acquiredAt": "2026-10-23",
+        "version": "1",
+        "license": "MIT",
+        "licenseEvidence": "LICENSE.txt",
+        "allowedUses": [
+          "offline-regression",
+          "human-review"
+        ],
+        "externalModel": "denied"
+      },
+      "validation": {
+        "status": "pending-human",
+        "reviewer": null,
+        "notes": "Synthetic engineering fixture; no human sign-off or measured translation quality."
+      }
+    },
+    {
+      "id": "T02",
+      "split": "dev",
+      "format": "txt",
+      "sourceLanguage": "en",
+      "targetLanguage": "zh",
+      "path": "inputs/T02.txt",
+      "sha256": "d77aea7c97ca0ca2af226cf796c17b55d16678c9443b258792663f96b2eca10c",
+      "referencePath": "references/T02.json",
+      "referenceSha256": "74d8e6db812a6367d2317ddbc94262b1bcb48406d011db37dea15f340aecf5bd",
+      "category": "numbers-units",
+      "tags": [
+        "numbers-units"
+      ],
+      "acceptance": {
+        "failure": "Reject changed numbers or units; equivalent typography is acceptable.",
+        "allowedDifferences": "Equivalent phrasing, line wrapping and punctuation require human review; no cross-format byte equality gate.",
+        "protectedSpans": [
+          "12 nm",
+          "300 K",
+          "2.5 mT"
+        ]
+      },
+      "source": {
+        "kind": "original-synthetic",
+        "author": "Codex (AI-assisted project fixture)",
+        "url": null,
+        "acquiredAt": "2026-10-23",
+        "version": "1",
+        "license": "MIT",
+        "licenseEvidence": "LICENSE.txt",
+        "allowedUses": [
+          "offline-regression",
+          "human-review"
+        ],
+        "externalModel": "denied"
+      },
+      "validation": {
+        "status": "pending-human",
+        "reviewer": null,
+        "notes": "Synthetic engineering fixture; no human sign-off or measured translation quality."
+      }
+    },
+    {
+      "id": "T03",
+      "split": "dev",
+      "format": "txt",
+      "sourceLanguage": "en",
+      "targetLanguage": "zh",
+      "path": "inputs/T03.txt",
+      "sha256": "b3491dc16904687e9f0f203fd1e4e721b8e7403dea475a84dfc3262e93580c2c",
+      "referencePath": "references/T03.json",
+      "referenceSha256": "1d33693c1d69ee44a6cf044178091ca789ad766a0fcd3a7ae6e1e3d2130e367a",
+      "category": "negation",
+      "tags": [
+        "negation"
+      ],
+      "acceptance": {
+        "failure": "Preserve both negation scopes; do not generalize beyond the tested range.",
+        "allowedDifferences": "Equivalent phrasing, line wrapping and punctuation require human review; no cross-format byte equality gate.",
+        "protectedSpans": []
+      },
+      "source": {
+        "kind": "original-synthetic",
+        "author": "Codex (AI-assisted project fixture)",
+        "url": null,
+        "acquiredAt": "2026-10-23",
+        "version": "1",
+        "license": "MIT",
+        "licenseEvidence": "LICENSE.txt",
+        "allowedUses": [
+          "offline-regression",
+          "human-review"
+        ],
+        "externalModel": "denied"
+      },
+      "validation": {
+        "status": "pending-human",
+        "reviewer": null,
+        "notes": "Synthetic engineering fixture; no human sign-off or measured translation quality."
+      }
+    },
+    {
+      "id": "T04",
+      "split": "dev",
+      "format": "txt",
+      "sourceLanguage": "en",
+      "targetLanguage": "zh",
+      "path": "inputs/T04.txt",
+      "sha256": "fae597fc0c61f11fc52303fbfab6f85cfccd1711ede243ef2295df8490e89468",
+      "referencePath": "references/T04.json",
+      "referenceSha256": "da2efc5a13a49d69d0035249b3f4d0991f05b03b33fba0c26d22bdf7a2e6e5cc",
+      "category": "ambiguity",
+      "tags": [
+        "ambiguity"
+      ],
+      "acceptance": {
+        "failure": "Use the second sentence to resolve crane; equivalent natural phrasing is acceptable.",
+        "allowedDifferences": "Equivalent phrasing, line wrapping and punctuation require human review; no cross-format byte equality gate.",
+        "protectedSpans": []
+      },
+      "source": {
+        "kind": "original-synthetic",
+        "author": "Codex (AI-assisted project fixture)",
+        "url": null,
+        "acquiredAt": "2026-10-23",
+        "version": "1",
+        "license": "MIT",
+        "licenseEvidence": "LICENSE.txt",
+        "allowedUses": [
+          "offline-regression",
+          "human-review"
+        ],
+        "externalModel": "denied"
+      },
+      "validation": {
+        "status": "pending-human",
+        "reviewer": null,
+        "notes": "Synthetic engineering fixture; no human sign-off or measured translation quality."
+      }
+    },
+    {
+      "id": "T05",
+      "split": "dev",
+      "format": "txt",
+      "sourceLanguage": "en",
+      "targetLanguage": "zh",
+      "path": "inputs/T05.txt",
+      "sha256": "d7663c40ffb13c158d35a58dd56a9c5374fd1e0fe5774a57e71b0368952fb394",
+      "referencePath": "references/T05.json",
+      "referenceSha256": "23c68b45ef7c94ed273bc2add48c493c6a612c402300a2ec5e86761c25e5982a",
+      "category": "instruction-like",
+      "tags": [
+        "instruction-like"
+      ],
+      "acceptance": {
+        "failure": "Quoted commands remain data; no tool or instruction execution.",
+        "allowedDifferences": "Equivalent phrasing, line wrapping and punctuation require human review; no cross-format byte equality gate.",
+        "protectedSpans": [
+          "SECRET"
+        ]
+      },
+      "source": {
+        "kind": "original-synthetic",
+        "author": "Codex (AI-assisted project fixture)",
+        "url": null,
+        "acquiredAt": "2026-10-23",
+        "version": "1",
+        "license": "MIT",
+        "licenseEvidence": "LICENSE.txt",
+        "allowedUses": [
+          "offline-regression",
+          "human-review"
+        ],
+        "externalModel": "denied"
+      },
+      "validation": {
+        "status": "pending-human",
+        "reviewer": null,
+        "notes": "Synthetic engineering fixture; no human sign-off or measured translation quality."
+      }
+    },
+    {
+      "id": "T06",
+      "split": "dev",
+      "format": "txt",
+      "sourceLanguage": "en",
+      "targetLanguage": "zh",
+      "path": "inputs/T06.txt",
+      "sha256": "8a55b8bd509969dff0b594f7e8ef35835c0488e978d03bb332b8d30b6ad4a8c5",
+      "referencePath": "references/T06.json",
+      "referenceSha256": "f127406adc6185cfa4651a564734689707a6d1fd46a35400f54ad2e9f8c307f7",
+      "category": "repeated-sentences",
+      "tags": [
+        "repeated-sentences"
+      ],
+      "acceptance": {
+        "failure": "Equal paragraphs retain separate unit identities and source locators.",
+        "allowedDifferences": "Equivalent phrasing, line wrapping and punctuation require human review; no cross-format byte equality gate.",
+        "protectedSpans": []
+      },
+      "source": {
+        "kind": "original-synthetic",
+        "author": "Codex (AI-assisted project fixture)",
+        "url": null,
+        "acquiredAt": "2026-10-23",
+        "version": "1",
+        "license": "MIT",
+        "licenseEvidence": "LICENSE.txt",
+        "allowedUses": [
+          "offline-regression",
+          "human-review"
+        ],
+        "externalModel": "denied"
+      },
+      "validation": {
+        "status": "pending-human",
+        "reviewer": null,
+        "notes": "Synthetic engineering fixture; no human sign-off or measured translation quality."
+      }
+    },
+    {
+      "id": "T07",
+      "split": "dev",
+      "format": "txt",
+      "sourceLanguage": "zh",
+      "targetLanguage": "en",
+      "path": "inputs/T07.txt",
+      "sha256": "6017f72eedfec4f7c1bab7666ac426d9f65636a0e0dad2f723883ec43850b57c",
+      "referencePath": "references/T07.json",
+      "referenceSha256": "b86d276a28a96c8eca4415468d319d10e2151d29ab507e60dc251f539248ba5b",
+      "category": "formula",
+      "tags": [
+        "formula"
+      ],
+      "acceptance": {
+        "failure": "Keep both adjacent expressions and denominator condition intact.",
+        "allowedDifferences": "Equivalent phrasing, line wrapping and punctuation require human review; no cross-format byte equality gate.",
+        "protectedSpans": [
+          "r = A/B",
+          "B != 0",
+          "q = r*r"
+        ]
+      },
+      "source": {
+        "kind": "original-synthetic",
+        "author": "Codex (AI-assisted project fixture)",
+        "url": null,
+        "acquiredAt": "2026-10-23",
+        "version": "1",
+        "license": "MIT",
+        "licenseEvidence": "LICENSE.txt",
+        "allowedUses": [
+          "offline-regression",
+          "human-review"
+        ],
+        "externalModel": "denied"
+      },
+      "validation": {
+        "status": "pending-human",
+        "reviewer": null,
+        "notes": "Synthetic engineering fixture; no human sign-off or measured translation quality."
+      }
+    },
+    {
+      "id": "T08",
+      "split": "dev",
+      "format": "md",
+      "sourceLanguage": "en",
+      "targetLanguage": "zh",
+      "path": "inputs/T08.md",
+      "sha256": "5f73e3584e4274e88649667d61b1b71aa93b6f127793b788b0bb625d753c4bc3",
+      "referencePath": "references/T08.json",
+      "referenceSha256": "6cd054b524d49f4ac051e461d16f774cad66a378d27d9f7827b11a51dfcca6f5",
+      "category": "identifiers",
+      "tags": [
+        "identifiers"
+      ],
+      "acceptance": {
+        "failure": "Identifiers are protected; wording around them may vary.",
+        "allowedDifferences": "Equivalent phrasing, line wrapping and punctuation require human review; no cross-format byte equality gate.",
+        "protectedSpans": [
+          "sample_id",
+          "x >= 0"
+        ]
+      },
+      "source": {
+        "kind": "original-synthetic",
+        "author": "Codex (AI-assisted project fixture)",
+        "url": null,
+        "acquiredAt": "2026-10-23",
+        "version": "1",
+        "license": "MIT",
+        "licenseEvidence": "LICENSE.txt",
+        "allowedUses": [
+          "offline-regression",
+          "human-review"
+        ],
+        "externalModel": "denied"
+      },
+      "validation": {
+        "status": "pending-human",
+        "reviewer": null,
+        "notes": "Synthetic engineering fixture; no human sign-off or measured translation quality."
+      }
+    },
+    {
+      "id": "T09",
+      "split": "dev",
+      "format": "txt",
+      "sourceLanguage": "en",
+      "targetLanguage": "zh",
+      "path": "inputs/T09.txt",
+      "sha256": "7236ee34b8ab459f220de0ce1a69b2b60cb07eeaa9c432d9a9b216fc7b9479a4",
+      "referencePath": "references/T09.json",
+      "referenceSha256": "325f6e4013df5d7538a8515d2018bf78ad404171aa9388dd96556aac934bc80d",
+      "category": "long-translation",
+      "tags": [
+        "long-translation"
+      ],
+      "acceptance": {
+        "failure": "Artificially long seeded output tests preservation only; semantic quality is deliberately not asserted.",
+        "allowedDifferences": "Equivalent phrasing, line wrapping and punctuation require human review; no cross-format byte equality gate.",
+        "protectedSpans": []
+      },
+      "source": {
+        "kind": "original-synthetic",
+        "author": "Codex (AI-assisted project fixture)",
+        "url": null,
+        "acquiredAt": "2026-10-23",
+        "version": "1",
+        "license": "MIT",
+        "licenseEvidence": "LICENSE.txt",
+        "allowedUses": [
+          "offline-regression",
+          "human-review"
+        ],
+        "externalModel": "denied"
+      },
+      "validation": {
+        "status": "pending-human",
+        "reviewer": null,
+        "notes": "Synthetic engineering fixture; no human sign-off or measured translation quality."
+      }
+    },
+    {
+      "id": "T10",
+      "split": "dev",
+      "format": "txt",
+      "sourceLanguage": "en",
+      "targetLanguage": "zh",
+      "path": "inputs/T10.txt",
+      "sha256": "85c10f5ead95d562c8dcaeb3edc52e73537adc137db822e9e77127f0edfc291e",
+      "referencePath": "references/T10.json",
+      "referenceSha256": "76ffe6606eeef55db3fdee6f1940f6bef52a49fd904c1bf3c752d924b17bbefd",
+      "category": "mixed-script",
+      "tags": [
+        "mixed-script"
+      ],
+      "acceptance": {
+        "failure": "Preserve mixed script name, symbols and status.",
+        "allowedDifferences": "Equivalent phrasing, line wrapping and punctuation require human review; no cross-format byte equality gate.",
+        "protectedSpans": [
+          "青岚-A",
+          "ΔT = 0.5 K",
+          "OK"
+        ]
+      },
+      "source": {
+        "kind": "original-synthetic",
+        "author": "Codex (AI-assisted project fixture)",
+        "url": null,
+        "acquiredAt": "2026-10-23",
+        "version": "1",
+        "license": "MIT",
+        "licenseEvidence": "LICENSE.txt",
+        "allowedUses": [
+          "offline-regression",
+          "human-review"
+        ],
+        "externalModel": "denied"
+      },
+      "validation": {
+        "status": "pending-human",
+        "reviewer": null,
+        "notes": "Synthetic engineering fixture; no human sign-off or measured translation quality."
+      }
+    },
+    {
+      "id": "T11",
+      "split": "heldout",
+      "format": "txt",
+      "sourceLanguage": "en",
+      "targetLanguage": "zh",
+      "path": "inputs/T11.txt",
+      "sha256": "673f644894e85271430e7270f5f8a551c81998e73e5bafe61c1bc178b8eb6bc3",
+      "referencePath": "references/T11.json",
+      "referenceSha256": "0633c32074dfef026e131020281a090e28f7b70a076a07862898dfa5be8928f2",
+      "category": "conditions",
+      "tags": [
+        "conditions"
+      ],
+      "acceptance": {
+        "failure": "Do not turn may into must; retain condition and obligation.",
+        "allowedDifferences": "Equivalent phrasing, line wrapping and punctuation require human review; no cross-format byte equality gate.",
+        "protectedSpans": []
+      },
+      "source": {
+        "kind": "original-synthetic",
+        "author": "Codex (AI-assisted project fixture)",
+        "url": null,
+        "acquiredAt": "2026-10-23",
+        "version": "1",
+        "license": "MIT",
+        "licenseEvidence": "LICENSE.txt",
+        "allowedUses": [
+          "offline-regression",
+          "human-review"
+        ],
+        "externalModel": "denied"
+      },
+      "validation": {
+        "status": "pending-human",
+        "reviewer": null,
+        "notes": "Synthetic engineering fixture; no human sign-off or measured translation quality."
+      }
+    },
+    {
+      "id": "T12",
+      "split": "heldout",
+      "format": "txt",
+      "sourceLanguage": "zh",
+      "targetLanguage": "en",
+      "path": "inputs/T12.txt",
+      "sha256": "613e3a41e59b85664a59c8218ccf42e6ff5035455729937441748d1241fdfec9",
+      "referencePath": "references/T12.json",
+      "referenceSha256": "868a8e20ca1dc2a4dee3dfb2650d6a13f638f2d08d9f04e3f75870cde2220d67",
+      "category": "numbers-units",
+      "tags": [
+        "numbers-units"
+      ],
+      "acceptance": {
+        "failure": "Preserve quantities, repetition count and negation.",
+        "allowedDifferences": "Equivalent phrasing, line wrapping and punctuation require human review; no cross-format byte equality gate.",
+        "protectedSpans": [
+          "0.25 g",
+          "3"
+        ]
+      },
+      "source": {
+        "kind": "original-synthetic",
+        "author": "Codex (AI-assisted project fixture)",
+        "url": null,
+        "acquiredAt": "2026-10-23",
+        "version": "1",
+        "license": "MIT",
+        "licenseEvidence": "LICENSE.txt",
+        "allowedUses": [
+          "offline-regression",
+          "human-review"
+        ],
+        "externalModel": "denied"
+      },
+      "validation": {
+        "status": "pending-human",
+        "reviewer": null,
+        "notes": "Synthetic engineering fixture; no human sign-off or measured translation quality."
+      }
+    },
+    {
+      "id": "P01",
+      "split": "dev",
+      "format": "pdf",
+      "sourceLanguage": "en",
+      "targetLanguage": "zh",
+      "path": "inputs/P01.pdf",
+      "sha256": "a7cfa52fd27cd13d338eb84525c2a943d7e9972530db307a7a3e0996aa798747",
+      "referencePath": null,
+      "referenceSha256": null,
+      "category": "pdf-layout",
+      "tags": [
+        "pdf",
+        "formula",
+        "numbers-units"
+      ],
+      "acceptance": {
+        "failure": "Adjacent formulas must keep both expressions, condition and order; missing or corrupt placeholders are failures.",
+        "allowedDifferences": "Equivalent phrasing, line wrapping and punctuation require human review; no cross-format byte equality gate.",
+        "protectedSpans": []
+      },
+      "source": {
+        "kind": "original-synthetic",
+        "author": "Codex (AI-assisted project fixture)",
+        "url": null,
+        "acquiredAt": "2026-10-23",
+        "version": "1",
+        "license": "MIT",
+        "licenseEvidence": "LICENSE.txt",
+        "allowedUses": [
+          "offline-regression",
+          "human-review"
+        ],
+        "externalModel": "denied"
+      },
+      "validation": {
+        "status": "pending-human",
+        "reviewer": null,
+        "notes": "Original page rendered and inspected by agent; native engine parse/rebuild and human review not run."
+      }
+    },
+    {
+      "id": "P02",
+      "split": "dev",
+      "format": "pdf",
+      "sourceLanguage": "en",
+      "targetLanguage": "zh",
+      "path": "inputs/P02.pdf",
+      "sha256": "21be20242b2731d869cbbbb6ed267b27c5c8cb2d7172ddd3f8249fca371c9a0f",
+      "referencePath": null,
+      "referenceSha256": null,
+      "category": "pdf-layout",
+      "tags": [
+        "pdf",
+        "two-column",
+        "repeated-sentences",
+        "long-translation"
+      ],
+      "acceptance": {
+        "failure": "Identical sentences in different columns retain distinct positions; inspect reading order and long Chinese output overflow separately.",
+        "allowedDifferences": "Equivalent phrasing, line wrapping and punctuation require human review; no cross-format byte equality gate.",
+        "protectedSpans": []
+      },
+      "source": {
+        "kind": "original-synthetic",
+        "author": "Codex (AI-assisted project fixture)",
+        "url": null,
+        "acquiredAt": "2026-10-23",
+        "version": "1",
+        "license": "MIT",
+        "licenseEvidence": "LICENSE.txt",
+        "allowedUses": [
+          "offline-regression",
+          "human-review"
+        ],
+        "externalModel": "denied"
+      },
+      "validation": {
+        "status": "pending-human",
+        "reviewer": null,
+        "notes": "Original page rendered and inspected by agent; native engine parse/rebuild and human review not run."
+      }
+    }
+  ]
+}

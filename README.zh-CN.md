@@ -69,6 +69,8 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 
 这些方向不代表交付日期。[0.1.x 计划](docs/plan/0.1.x/README.md)提出增量契约与工作包，不代表功能已经交付；[0.1.0 路线图](docs/plan/0.1.0/roadmap.md)保留此前方向与讨论背景。
 
+[离线样本库](docs/plan/0.1.x/sample-catalog.md)提供原创合成夹具、冻结重放检查和带人工备注的比较报告，不调用模型，不将回归通过视为译文质量。
+
 ## 了解更多与参与
 
 [工作台使用](docs/plan/0.1.0/workbench-guide.md) · [模型设置](docs/plan/0.1.0/settings-guide.md) · [开发指南](docs/plan/0.1.0/development-guide.md) · [问题反馈](https://github.com/KongouAirlines/ivoraige/issues)

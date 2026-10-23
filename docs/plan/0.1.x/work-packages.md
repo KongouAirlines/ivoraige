@@ -71,7 +71,7 @@ W01 的前置是 P02/P03/P04，P05 只承接独立插件证据；W02 紧接可�
 | [pdf-store-relocation](../follow-ups/pdf-store-relocation.md)、[pdf-source-restoration](../follow-ups/pdf-source-restoration.md) | P02/P03 相关兼容回归 | 资源搬迁、同源重导入复用、跨引擎迁移是不同验收 |
 | [#23](https://github.com/KongouAirlines/ivoraige/issues/23) 的 F6-3/F9-4 | 小型协议校验修复可独立，完整服务管理远期 | 同一非法 compat/reasoningEfforts 错误映射只算一类；不等待模型目录重设计 |
 | [records-update-validation](../follow-ups/records-update-validation.md) | D04 可先观察；是否优化由测量决定 | 不为性能删除事务/适用性/schema 校验 |
-| [#13](https://github.com/KongouAirlines/ivoraige/issues/13) | 合规小样本、私有评测接口 | 基础链不等待完整长期私有样本库；不默认外发或公开材料 |
+| [#13](https://github.com/KongouAirlines/ivoraige/issues/13) | 合规小样本、私有评测接口；[最小切片与边界](sample-catalog.md)、[分支验证证据](evidence/sample-catalog.md)，待合入 | 基础链不等待完整长期私有样本库；不默认外发或公开材料 |
 | [#21](https://github.com/KongouAirlines/ivoraige/issues/21)、[#22](https://github.com/KongouAirlines/ivoraige/issues/22)、[#23](https://github.com/KongouAirlines/ivoraige/issues/23) | 远期；接口留实际扩展点 | 风格/漫画/超分/完整服务配置不阻塞首轮；不预定 schema 或默认引擎 |
 
 完整报告复核已进入 [审计映射](audit/README.md)。若实现时发现阻塞本轮验收的正确性缺陷，先拆小修复 PR，不能借“架构重构以后处理”跳过；表外低优先主题按原事项触发条件处理。
