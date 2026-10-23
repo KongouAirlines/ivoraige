@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { isMap, parseDocument } from 'yaml'
 import { KernelError } from '../errors.mjs'
+import { renderMarkdown } from './markdown-output.mjs'
 
 const invalid = message => { throw new KernelError('INVALID_ARGUMENT', `Unsupported Markdown: ${message}`) }
 
@@ -101,6 +102,10 @@ function inline(raw, from, to, add, kind) {
 
 export const markdownSource = {
   id: 'markdown',
+  version: '0.1.0', bindingSchemaVersion: 1,
+  formats: ['md', 'markdown'],
+  inputKinds: ['text', 'bytes', 'managed-resource'], cancellable: true,
+  renderMarkdown,
   match(file) {
     if (file.format !== undefined) return ['md', 'markdown'].includes(file.format.toLowerCase()) ? 1 : 0
     return /\.(?:md|markdown)$/i.test(file.path ?? file.name ?? '') ? 0.8 : 0

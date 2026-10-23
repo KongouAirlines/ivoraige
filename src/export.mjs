@@ -41,22 +41,37 @@ export class Exporter extends Service {
     if (snapshotId !== undefined && onMissingAccepted !== undefined) {
       throw new KernelError('INVALID_ARGUMENT', 'An existing snapshot fixes its missing-translation decisions')
     }
-    const adapters = outputs.map(output => this.outputs.get(output.format))
+    // Reject unavailable or changed implementations before creating a snapshot.
+    // Frozen-stage selection below repeats this check against the pinned binding.
+    const binding = this.records.record(docId).sourceBinding
+    for (const output of outputs) {
+      const adapter = this.outputs.get(output.format,
+        { adapterId: output.adapterId, binding, contentMode })
+      if (output.adapterVersion !== undefined &&
+          output.adapterVersion !== (adapter.version ?? 'unversioned'))
+        throw new KernelError('PRECONDITION_FAILED', 'Pinned output adapter version is unavailable',
+          { adapterId: adapter.id, adapterVersion: output.adapterVersion })
+    }
     const snapshot = snapshotId === undefined
       ? await this.records.createSnapshot(docId, { contentMode, targetLang,
         onMissingAccepted: onMissingAccepted ?? 'fail' })
       : this.records.getSnapshot(docId, snapshotId)
-    if (snapshot.targetLang !== targetLang || (snapshot.contentMode ?? 'accepted-translation') !== contentMode) {
-      throw new KernelError('PRECONDITION_FAILED', 'Snapshot mode or target language mismatch')
-    }
-    const release = this.records.retainSnapshot(docId, snapshot.id)
+    let release, failure
     const artifacts = []
     try {
+      if (snapshot.targetLang !== targetLang || (snapshot.contentMode ?? 'accepted-translation') !== contentMode)
+        throw new KernelError('PRECONDITION_FAILED', 'Snapshot mode or target language mismatch')
+      release = this.records.retainSnapshot(docId, snapshot.id)
+      const parser = this.ctx.get('ivoraige.parse')
+      if (!parser) throw new KernelError('COMPONENT_MISSING', 'Source adapter registry is unavailable')
       const frozen = freeze(this.records.resolveSnapshot(docId, snapshot.id))
-      for (const adapter of adapters) {
-        if (!adapter.supports(frozen.sourceBinding)) {
-          throw new KernelError('PRECONDITION_FAILED', `Output ${adapter.id} does not support the frozen source binding`)
-        }
+      const adapters = outputs.map(output => this.outputs.get(output.format,
+        { adapterId: output.adapterId, binding: frozen.sourceBinding, contentMode }))
+      for (const [index, adapter] of adapters.entries()) {
+        if (outputs[index].adapterVersion !== undefined &&
+            outputs[index].adapterVersion !== (adapter.version ?? 'unversioned'))
+          throw new KernelError('PRECONDITION_FAILED', 'Pinned output adapter version is unavailable',
+            { adapterId: adapter.id, adapterVersion: outputs[index].adapterVersion })
       }
       const paths = outputs.map(output => resolve(output.out ?? join(this.root,
         `${snapshot.id}-${randomBytes(6).toString('hex')}.${output.format}`)))
@@ -67,7 +82,8 @@ export class Exporter extends Service {
         // Deliberately unbound: adapters get data and format only, no service object.
         const rebuild = adapters[index].rebuild
         signal?.throwIfAborted()
-        const rendered = await rebuild(frozen, Object.freeze({ format: outputs[index].format,
+        const view = freeze(parser.projectOutputView(frozen, { views: adapters[index].requiredViews ?? [] }))
+        const rendered = await rebuild(view, Object.freeze({ format: outputs[index].format,
           ...(signal ? { signal } : {}) }))
         signal?.throwIfAborted()
         const wrapped = rendered !== null && typeof rendered === 'object' && !Buffer.isBuffer(rendered)
@@ -91,6 +107,8 @@ export class Exporter extends Service {
           signal?.throwIfAborted()
           artifacts.push(await this.records.addArtifact(docId, {
             snapshotId: snapshot.id, targetLang, format: outputs[index].format, path: paths[index],
+            adapterId: adapters[index].id,
+            adapterVersion: adapters[index].version ?? 'unversioned',
             ...(warnings.length ? { warnings } : {}),
             ...(taskId ? { taskId, outputIndex: outputIndex + index } : {}),
           }))
@@ -102,13 +120,21 @@ export class Exporter extends Service {
       return { snapshotId: snapshot.id, artifacts,
         warnings: artifacts.flatMap(artifact => artifact.warnings ?? []) }
     } catch (error) {
+      failure = error
       // Any earlier successful format remains discoverable rather than lost.
       if (artifacts.length) {
         error.details = { ...error.details, snapshotId: snapshot.id, artifactIds: artifacts.map(artifact => artifact.id) }
       }
       throw error
     } finally {
-      release()
+      release?.()
+      if (failure && snapshotId === undefined && !taskId && !artifacts.length) {
+        try { await this.records.deleteSnapshot(docId, snapshot.id) }
+        catch (error) {
+          failure.details = { ...failure.details, snapshotId: snapshot.id,
+            snapshotCleanupError: error.message }
+        }
+      }
     }
   }
 }

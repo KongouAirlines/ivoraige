@@ -140,7 +140,7 @@ test('nontranslatable source is kept and invalid persisted data is rejected', as
     parse: async () => ({ format: 'txt', title: 'Mixed', units: [
       { order: 0, kind: 'formula', sourceText: 'E=mc²', translatable: false },
       { order: 1, kind: 'body', sourceText: 'Energy', translatable: true },
-    ], chapters: [], resources: [], sourceBinding: { adapterId: 'txt' } }) })
+    ], chapters: [], resources: [], sourceBinding: { adapterId: 'mixed' } }) })
   t.after(unregister)
   const { document } = await f.app.records.importDocument({ format: 'mixed', content: 'ignored' },
     { sourceId: 'mixed:1', language: 'en' })
@@ -173,7 +173,7 @@ test('a matching reuse key still requires the same source structure and contextu
   const unregister = f.app.parse.register({ id: 'other-binding', match: file => file.format === 'other' ? 1 : 0,
     parse: async () => ({ format: 'txt', title: 'Other source', units: [{ order: 0, kind: 'body',
       sourceText: 'Field H.', locator: { paragraph: 3 }, translatable: true }],
-    chapters: [], resources: [], sourceBinding: { adapterId: 'txt', structureVersion: 'other' } }) })
+    chapters: [], resources: [], sourceBinding: { adapterId: 'other-binding', structureVersion: 'other' } }) })
   t.after(unregister)
   const { document: other } = await f.app.records.importDocument({ format: 'other', content: 'Field H.' },
     { sourceId: 'different:source', language: 'en' })

@@ -7,7 +7,7 @@ import { constants } from 'node:fs'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { SidecarClient } from '../sidecar.mjs'
 import { KernelError } from '../errors.mjs'
-import { validatePdfTranslation } from './pdf-text.mjs'
+import { readablePdfText, validatePdfTranslation } from './pdf-text.mjs'
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 const fail = message => { throw new KernelError('PRECONDITION_FAILED', message) }
@@ -232,15 +232,24 @@ export function Pdf(ctx, config) {
   ctx.effect(() => () => runtime.client.close())
   ctx.effect(() => ctx.get('ivoraige.parse').register({
     id: 'babeldoc',
+    version: '0.1.0', bindingSchemaVersion: 1,
+    formats: ['pdf'],
+    inputKinds: ['bytes', 'managed-resource'], cancellable: true,
+    importMode: 'queued',
     status: () => ({ ...runtime.status }),
     match: file => file.format !== undefined ? (file.format.toLowerCase() === 'pdf' ? 1 : 0) :
       /\.pdf$/i.test(file.path ?? file.name ?? '') ? 0.9 : 0,
     parse: file => runtime.parse(file),
     import: (file, persist, isReferenced) => runtime.import(file, persist, isReferenced),
     validateTranslation: validatePdfTranslation,
+    readableText: readablePdfText,
   }))
   ctx.effect(() => ctx.get('ivoraige.outputs').register({
-    id: 'pdf', supports: binding => binding?.adapterId === 'babeldoc' && runtime.status.state !== 'unavailable',
+    id: 'pdf', formats: ['pdf'],
+    version: '0.1.0',
+    canRunUnavailable: contentMode => contentMode === 'source',
+    supports: (binding, contentMode) => binding?.adapterId === 'babeldoc' &&
+      (contentMode === 'source' || runtime.status.state !== 'unavailable'),
     status: () => ({ ...runtime.status }),
     rebuild: (frozen, options) => runtime.rebuild(frozen, options),
   }))

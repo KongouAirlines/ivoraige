@@ -7,6 +7,9 @@ import { KernelError } from '../errors.mjs'
 
 export const txt = {
   id: 'txt',
+  version: '0.1.0', bindingSchemaVersion: 1,
+  formats: ['txt'],
+  inputKinds: ['text', 'bytes', 'managed-resource'], cancellable: true,
   match(file) {
     if (file.format !== undefined) return file.format.toLowerCase() === 'txt' ? 1 : 0
     return /\.txt$/i.test(file.path ?? file.name ?? '') ? 0.8 : 0

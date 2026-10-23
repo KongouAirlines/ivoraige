@@ -62,7 +62,7 @@ function route(command, args, o) {
       }
     }
     case 'import': return ['importDocument', { path: o.path ?? required(args[0], 'file path'),
-      format: o.format, sourceId: o['source-id'], externalRef: o['external-ref'],
+      format: o.format, adapterId: o.adapter, sourceId: o['source-id'], externalRef: o['external-ref'],
       language: required(o['source-lang'], '--source-lang'), title: o.title, origin: 'cli' }, 'POST', '/api/documents/import']
     case 'documents': return args[0] ? ['getDocument', { docId }, 'GET', `/api/documents/${docId}`] :
       ['listDocuments', { ...paging, origin: o.origin, format: o.format }, 'GET', '/api/documents']
@@ -82,12 +82,13 @@ function route(command, args, o) {
       mode: o.mode, unitIds: o.units?.split(',') }, 'POST', `/api/documents/${docId}/translate`]
     case 'export': {
       const formats = required(o.format, '--format').split(',')
-      if (o.out && formats.length !== 1)
-        throw new KernelError('INVALID_ARGUMENT', '--out requires exactly one --format')
+      if ((o.out || o.adapter) && formats.length !== 1)
+        throw new KernelError('INVALID_ARGUMENT', '--out and --adapter require exactly one --format')
       return ['exportDocument', { docId: required(docId, 'document ID'),
       contentMode: o['content-mode'],
       targetLang: o['content-mode'] === 'source' ? targetLang : required(targetLang, '--target-lang'),
-      outputs: formats.map(format => ({ format, ...(o.out ? { out: o.out } : {}) })),
+      outputs: formats.map(format => ({ format, ...(o.adapter ? { adapterId: o.adapter } : {}),
+        ...(o.out ? { out: o.out } : {}) })),
       snapshotId: o.snapshot, onMissingAccepted: o['on-missing-accepted'] }, 'POST', `/api/documents/${docId}/export`]
     }
     case 'snapshots': return args[1] === 'delete' ? ['deleteSnapshot',
