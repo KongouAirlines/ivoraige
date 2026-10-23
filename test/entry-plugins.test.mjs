@@ -7,7 +7,7 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { createApp } from '../src/app.mjs'
 import { runCli } from '../src/cli.mjs'
 import { serve } from '../src/http.mjs'
-import { z } from '../dist/dsh.mjs'
+import { Service, z } from '../dist/dsh.mjs'
 import { KernelError } from '../src/errors.mjs'
 import { createMcpServer } from '../src/mcp.mjs'
 import { InMemoryTransport } from '@modelcontextprotocol/server'
@@ -196,16 +196,29 @@ test('live MCP discovery keeps registered tools callable across required-service
   const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair()
   await server.connect(serverTransport); await client.connect(clientTransport)
   t.after(() => client.close())
-  const tool = 'ivoraige_capabilities'
+  class ProbeAvailability extends Service {
+    constructor(ctx) { super(ctx, 'ivoraige.probeAvailability') }
+  }
+  const unregister = app.operationCatalog.register({ id: 'probeAvailability',
+    inputSchema: z.object({}).strict(), resultSchema: z.object({ ready: z.boolean() }).strict(),
+    requires: ['ivoraige.probeAvailability'], handler: () => ({ ready: true }) })
+  t.after(unregister)
+  const tool = 'ivoraige_op_probeAvailability'
   assert.ok((await client.listTools()).tools.some(item => item.name === tool))
+  const missing = await client.callTool({ name: tool, arguments: {} })
+  assert.equal(missing.isError, true)
+  assert.equal(missing.structuredContent.error.code, 'COMPONENT_MISSING')
+  const first = app.ctx.plugin(ProbeAvailability)
+  await first
   assert.equal((await client.callTool({ name: tool, arguments: {} })).isError, undefined)
-  const get = app.ctx.get.bind(app.ctx)
-  app.ctx.get = name => name === 'ivoraige.parse' ? undefined : get(name)
-  try {
-    assert.ok((await client.listTools()).tools.some(item => item.name === tool))
-    const missing = await client.callTool({ name: tool, arguments: {} })
-    assert.equal(missing.isError, true)
-    assert.equal(missing.structuredContent.error.code, 'COMPONENT_MISSING')
-  } finally { app.ctx.get = get }
+  await first.dispose()
+  assert.ok((await client.listTools()).tools.some(item => item.name === tool))
+  const withdrawn = await client.callTool({ name: tool, arguments: {} })
+  assert.equal(withdrawn.isError, true)
+  assert.equal(withdrawn.structuredContent.error.code, 'COMPONENT_MISSING')
+  const second = app.ctx.plugin(ProbeAvailability)
+  await second
   assert.equal((await client.callTool({ name: tool, arguments: {} })).isError, undefined)
+  await unregister()
+  assert.equal((await client.listTools()).tools.some(item => item.name === tool), false)
 })

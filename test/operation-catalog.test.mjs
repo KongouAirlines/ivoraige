@@ -105,10 +105,18 @@ test('known MCP operations stay discoverable across late required services and r
     assert.ok(registry.tools.has(name))
   await assert.rejects(registry.tools.get('ivoraige_documents_list').invoke({}, {}), { code: 'COMPONENT_MISSING' })
   await assert.rejects(registry.tools.get('ivoraige_capabilities').invoke({}, {}), { code: 'COMPONENT_MISSING' })
-  await ctx.plugin(Outputs)
-  await ctx.plugin(Parse)
+  const outputsFiber = ctx.plugin(Outputs)
+  await outputsFiber
+  const parseFiber = ctx.plugin(Parse)
+  await parseFiber
   assert.equal((await registry.tools.get('ivoraige_capabilities').invoke({}, {})).apiVersion, '2.0')
   assert.equal(registry.tools.has('ivoraige_capabilities'), true)
+  await parseFiber.dispose()
+  assert.equal(registry.tools.has('ivoraige_capabilities'), true)
+  await assert.rejects(registry.tools.get('ivoraige_capabilities').invoke({}, {}), { code: 'COMPONENT_MISSING' })
+  const replacement = ctx.plugin(Parse)
+  await replacement
+  assert.equal((await registry.tools.get('ivoraige_capabilities').invoke({}, {})).apiVersion, '2.0')
 })
 
 test('catalog drains active handlers and keeps a timed-out close retryable', async t => {
