@@ -34,15 +34,11 @@ export class Tasks extends Service {
     this.importControllers = new Set()
     this.pendingImports = new Map()
     this.quotaBlocked = false
-    this.pendingJobRemoval = new Set()
     this.jobWaitTimeoutMs = 30_000
     this.detachJobEvents = this.jobs.events.subscribe({ owner: undefined }, event => {
-      if (event.type !== 'settled') return
-      if (this.pendingJobRemoval.delete(event.job.id)) this.jobs.remove(event.job.id)
-      if (this.quotaBlocked) {
-        this.quotaBlocked = false
-        this.schedule()
-      }
+      if (event.type !== 'settled' || !this.quotaBlocked) return
+      this.quotaBlocked = false
+      this.schedule()
     })
     this.ready = this.recover()
     ctx.effect(() => () => this.shutdown(), 'ivoraige.tasks teardown')
@@ -274,7 +270,7 @@ export class Tasks extends Service {
           this.queue.unshift(taskId)
           const defer = current => {
             const state = desiredState()
-            return { ...current, state, progress: { ...current.progress, stage: state } }
+            return { ...current, state }
           }
           let deferred = await this.records.updateTask(taskId, current => current.state === 'running' ? defer(current) : current)
           // Intent can arrive while the storage commit is in flight, after
@@ -310,17 +306,31 @@ export class Tasks extends Service {
   }
 
   cleanupJob(jobId) {
-    const job = this.jobs.get(jobId)
+    const jobs = this.jobs
+    const job = jobs.get(jobId)
     if (['completed', 'killed', 'failed'].includes(job.status)) {
-      this.jobs.remove(jobId)
+      jobs.remove(jobId)
       return
     }
-    this.pendingJobRemoval.add(jobId)
-    this.jobs.kill(jobId, undefined, 'Business task job did not settle')
-    // A synchronous settlement can race registration and kill.
-    if (this.pendingJobRemoval.has(jobId) &&
-      ['completed', 'killed', 'failed'].includes(this.jobs.get(jobId).status) &&
-      this.pendingJobRemoval.delete(jobId)) this.jobs.remove(jobId)
+    // This one-shot cleanup belongs to the job's lifetime. It can finish after
+    // the Tasks subscription is detached during close or plugin reload.
+    let removed = false
+    const removeIfSettled = () => {
+      if (removed || !['completed', 'killed', 'failed'].includes(jobs.get(jobId).status)) return
+      removed = true
+      jobs.remove(jobId)
+      detachCleanup()
+    }
+    const detachCleanup = jobs.events.subscribe({ owner: undefined }, event => {
+      if (event.type === 'settled' && event.job.id === jobId) removeIfSettled()
+    })
+    try {
+      jobs.kill(jobId, undefined, 'Business task job did not settle')
+      removeIfSettled()
+    } catch (error) {
+      detachCleanup()
+      throw error
+    }
   }
 
   async execute(live, job) {

@@ -114,9 +114,9 @@ test('component and business work share the pinned unowned quota without reporti
   businessId = business.taskId
   await blocked.promise
   assert.equal((await app.tasks.get(business.taskId)).state, 'queued')
-  assert.equal((await app.tasks.get(business.taskId)).progress.stage, 'queued')
+  assert.equal((await app.tasks.get(business.taskId)).progress.stage, 'translate')
   assert.ok(events.some(event => event.type === 'task.queued'))
-  assert.ok(events.some(event => event.type === 'task.progress' && event.data.stage === 'queued'))
+  assert.ok(events.some(event => event.type === 'task.progress' && event.data.stage === 'translate'))
   assert.equal((await app.tasks.get(business.taskId)).stats.llmCalls, 0)
   assert.equal(calls, 0)
   install.resolve()
@@ -194,11 +194,30 @@ test('a stopping DSH job is removed only after its producer settles', { timeout:
     run: () => ({ done: producer.promise, cancel: () => {} }) })
   app.tasks.cleanupJob(jobId)
   assert.equal(jobs.get(jobId).status, 'stopping')
-  assert.equal(app.tasks.pendingJobRemoval.has(jobId), true)
+  assert.equal(jobs.hub.unscoped.size, 2)
   producer.resolve({ status: 'killed' })
   await new Promise(resolve => setImmediate(resolve))
-  assert.equal(app.tasks.pendingJobRemoval.has(jobId), false)
+  assert.equal(jobs.hub.unscoped.size, 1)
   assert.equal(jobs.list().length, 0)
+})
+
+test('close and teardown remove an already stopping job after later DSH settlement', { timeout: 10_000 }, async t => {
+  for (const action of ['close', 'shutdown']) await t.test(action, async t => {
+    const root = await directory(t)
+    const app = await createApp({ store: join(root, 'records.sqlite') })
+    t.after(async () => { await app.dispose(); await rm(root, { recursive: true, force: true }) })
+    const jobs = app.ctx.get('jobs')
+    const producer = deferred()
+    const jobId = jobs.start({ kind: 'closing-business', label: 'Closing business job',
+      run: () => ({ done: producer.promise, cancel: () => {} }) })
+    app.tasks.cleanupJob(jobId)
+    await app.tasks[action]()
+    assert.equal(jobs.get(jobId).status, 'stopping')
+    producer.resolve({ status: 'killed' })
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(jobs.list().length, 0)
+    assert.equal(jobs.hub.unscoped.size, 0)
+  })
 })
 
 test('pause, cancel and close win a race with saturated job admission', { timeout: 10_000 }, async t => {
