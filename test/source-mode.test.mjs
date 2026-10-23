@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createApp } from '../src/app.mjs'
 import { parameters } from '../src/protocol.mjs'
+import { runCli } from '../src/cli.mjs'
 
 test('source export needs no target language and never reads accepted translation', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-source-'))
@@ -51,6 +52,22 @@ test('accepted export requires targetLang at the entry boundary', () => {
     targetLang: 'zh', outputs: [{ format: 'json' }] }).success, false)
 })
 
+test('CLI accepts source content mode without a target language', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-source-cli-'))
+  const store = join(directory, 'records.sqlite')
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const app = await createApp({ store })
+  const { document } = await app.records.importDocument({ format: 'txt', content: 'Original source.' },
+    { sourceId: 'cli:source', language: 'en' })
+  await app.dispose()
+  let out = '', err = ''
+  const code = await runCli(['--store', store, 'export', document.id, '--format', 'json',
+    '--content-mode', 'source'],
+  { stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
+  assert.equal(code, 0, err)
+  assert.ok(JSON.parse(out).snapshotId)
+})
+
 test('version-one record remains readable and restores from a consistent backup', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-source-legacy-'))
   const store = join(directory, 'records.sqlite')
@@ -82,6 +99,11 @@ test('version-one record remains readable and restores from a consistent backup'
   await app.records.createSnapshot(document.id, { contentMode: 'source' })
   assert.equal(app.records.record(document.id).schemaVersion, 2)
   assert.equal(app.records.record(document.id).sourceIR.legacy, true)
+  const upgradedIdentity = app.records.record(document.id).sourceIR.identity
+  const fresh = await app.records.importDocument({ format: 'txt', content: 'Legacy source.' },
+    { sourceId: 'legacy:fresh', language: 'en' })
+  assert.equal(upgradedIdentity, app.records.record(fresh.document.id).sourceIR.identity)
+  assert.equal(app.records.record(document.id).fingerprint, legacy.fingerprint)
   for (const schemaVersion of [3, 0, -1]) {
     await app.records.table.update(document.id, record => ({ ...record, schemaVersion }))
     await assert.rejects(app.records.createSnapshot(document.id, { contentMode: 'source' }),

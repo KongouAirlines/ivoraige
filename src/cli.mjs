@@ -16,6 +16,7 @@ Commands: import, documents, units, unit, revisions, edit, accept, unaccept,
 MCP: mcp --stdio [--store FILE]; serve exposes /mcp unless --no-mcp
 Components: status, catalog, credential --token-env NAME, install, local --path MANIFEST, task ID, cancel ID
 Common options: --target-lang LANG, --json, --json-events, --no-wait, --url URL, --store FILE, --pdf-config FILE
+Export: --format md,json --content-mode source|accepted-translation [--target-lang LANG]
 `
 
 function parse(argv) {
@@ -24,7 +25,7 @@ function parse(argv) {
   const known = new Set([...boolean, 'url', 'store', 'export-dir', 'settings-dir', 'pdf-config', 'host', 'port', 'static-dir',
     'path', 'format', 'source-id', 'external-ref', 'source-lang', 'title', 'target-lang', 'cursor',
     'limit', 'origin', 'filter', 'text', 'base-revision', 'expected-accepted', 'mode',
-    'units', 'out', 'snapshot', 'on-missing-accepted', 'state', 'kind', 'set', 'ref', 'value', 'token-env'])
+    'units', 'out', 'snapshot', 'content-mode', 'on-missing-accepted', 'state', 'kind', 'set', 'ref', 'value', 'token-env'])
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i]
     if (!token.startsWith('--')) { positional.push(token); continue }
