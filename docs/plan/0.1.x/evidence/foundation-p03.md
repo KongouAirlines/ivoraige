@@ -2,6 +2,8 @@
 
 This branch is a staged P03 implementation on P02. It is verified on a branch and awaits integration; it does not mark P04, P05 or any PDF subpackage complete.
 
+Draft review: [PR #49](https://github.com/KongouAirlines/ivoraige/pull/49), based on the final P02 branch [PR #48](https://github.com/KongouAirlines/ivoraige/pull/48).
+
 - `format` identifies a document or output type; `adapterId` identifies an implementation. Source descriptors declare supported formats, input kinds, version, binding schema and queue behavior. Tied matches fail rather than selecting registration order. A source must return a binding owned by its selected implementation.
 - Importer owns parse-to-persist coordination. Records owns transactions, source IR, revisions and snapshots without mandatory Parse or Outputs injection. Translation-only compositions can omit Importer; import calls then return `COMPONENT_MISSING`. Read operations on existing records remain available if a source plugin is absent; human revision, model checkpoint and old-revision acceptance require the compatible private validator.
 - Source IR resource identity stores `id`, `mediaType`, `contentDigest` and `version` without its location. The source binding retains private address and applicability data. Snapshots freeze the resource-version map and reject replay after a same-id content change.

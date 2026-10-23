@@ -2,7 +2,7 @@
 
 - ID: design-v3
 - 状态: 处理中
-- 实施分支／PR: codex/0.1.x-foundation-plan（规划）；[P01 PR #45](https://github.com/KongouAirlines/ivoraige/pull/45)、[Q01/Q03 PR #46](https://github.com/KongouAirlines/ivoraige/pull/46)、[P02 PR #48](https://github.com/KongouAirlines/ivoraige/pull/48)、P03 codex/0.1.x-foundation-adapters（待草稿 PR）；2026-10-18 热修证据保留
+- 实施分支／PR: codex/0.1.x-foundation-plan（规划）；[P01 PR #45](https://github.com/KongouAirlines/ivoraige/pull/45)、[Q01/Q03 PR #46](https://github.com/KongouAirlines/ivoraige/pull/46)、[P02 PR #48](https://github.com/KongouAirlines/ivoraige/pull/48)、[P03 PR #49](https://github.com/KongouAirlines/ivoraige/pull/49)；2026-10-18 热修证据保留
 - 类型: 改进
 - 发现依据: 2026-10-17 全部 18 个 PR 审查，main `dde75f5`；[issue #29](https://github.com/KongouAirlines/ivaraige/issues/29)，相关讨论 [#14](https://github.com/KongouAirlines/ivaraige/issues/14)、[#16](https://github.com/KongouAirlines/ivaraige/issues/16)、[#23](https://github.com/KongouAirlines/ivaraige/issues/23)
 - 目标分支: main
