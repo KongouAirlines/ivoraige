@@ -301,6 +301,12 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
         settingsDir: o['settings-dir'] ?? join(dirname(store), 'settings'), pdf: await readPdfConfig(o['pdf-config']) })
     }
     if (!remote && !app.cli) throw new KernelError('COMPONENT_MISSING', 'CLI entry is not enabled')
+    if (command === 'call' && !remote && !suppliedApp) {
+      const operation = app.operationCatalog.get(name)
+      if (operation.longRunning || operation.cancellable === 'task')
+        throw new KernelError('INVALID_ARGUMENT',
+          'Local call cannot own a background task; use its waiting CLI alias or --url with a persistent host')
+    }
     const invoke = remote ? (_name, p, m, url) => invokeRemote(o.url, m, url, p, requestSignal) :
       (operation, p) => app.cli.invoke(operation, clean(p), { signal: requestSignal })
     if (o['json-events'] && startsTask)

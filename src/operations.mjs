@@ -73,6 +73,7 @@ export class Operations extends Service {
     })
   }
   async invoke(name, input = {}, options = {}) {
-    return { apiVersion: API_VERSION, ...await this.catalog.invoke(name, input, options) }
+    // The facade owns wire metadata, even if a validated business payload names it.
+    return { ...await this.catalog.invoke(name, input, options), apiVersion: API_VERSION }
   }
 }

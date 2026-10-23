@@ -142,6 +142,7 @@ export function apply(ctx) {
       const requires = id === 'capabilities' ? ['ivoraige.parse', 'ivoraige.outputs'] :
         id.startsWith('component') ? ['ivoraige.components'] :
           ['getSettings', 'updateSettings', 'setCredential'].includes(id) ? ['ivoraige.modelSettings'] :
+            id === 'importDocument' ? ['ivoraige.records', 'ivoraige.tasks', 'ivoraige.parse', 'ivoraige.import'] :
             taskOps.has(id) ? ['ivoraige.records', 'ivoraige.tasks'] :
               documentOps.has(id) ? ['ivoraige.records'] : []
       ctx.effect(() => catalog.register({ id, inputSchema: parameters[id], resultSchema: results[id],

@@ -88,10 +88,13 @@ function queryParams(searchParams) {
   return query
 }
 
+function decodePath(value) {
+  try { return decodeURIComponent(value) }
+  catch { throw new KernelError('INVALID_ARGUMENT', 'Invalid URL encoding') }
+}
 async function staticFile(res, staticDir, pathname) {
   if (!staticDir) throw new KernelError('NOT_FOUND', 'Route not found')
-  let decoded
-  try { decoded = decodeURIComponent(pathname) } catch { throw new KernelError('INVALID_ARGUMENT', 'Invalid URL encoding') }
+  const decoded = decodePath(pathname)
   if (decoded.includes('\0') || decoded.includes('\\') || decoded.split('/').includes('..'))
     throw new KernelError('NOT_FOUND', 'Route not found')
   const root = await realpath(staticDir)
@@ -201,14 +204,14 @@ async function listenHttp(app, { host = '127.0.0.1', port = 8787, staticDir, all
       }
       const dynamicOperation = /^\/api\/operations\/([^/]+)$/.exec(pathname)
       if (req.method === 'POST' && dynamicOperation) {
-        send(res, 200, await app.operations.invoke(decodeURIComponent(dynamicOperation[1]), await readBody(req), { signal })); return
+        send(res, 200, await app.operations.invoke(decodePath(dynamicOperation[1]), await readBody(req), { signal })); return
       }
       if (req.method === 'GET' && (pathname === '/api/events' || /^\/api\/tasks\/[^/]+\/events$/.test(pathname))) {
-        events(req, res, app, pathname === '/api/events' ? undefined : decodeURIComponent(pathname.split('/')[3]), activeEvents); return
+        events(req, res, app, pathname === '/api/events' ? undefined : decodePath(pathname.split('/')[3]), activeEvents); return
       }
       const download = req.method === 'GET' && /^\/api\/artifacts\/[^/]+\/download$/.exec(pathname)
       if (download) {
-        const artifactId = decodeURIComponent(pathname.split('/')[3])
+        const artifactId = decodePath(pathname.split('/')[3])
         if (app.resources) {
           let resource, stream, disconnected = false
           const finish = () => { if (resource) void resource.close().catch(error => res.destroy(error)) }
@@ -272,7 +275,7 @@ async function listenHttp(app, { host = '127.0.0.1', port = 8787, staticDir, all
       for (const [method, pattern, operation, keys = []] of routes) {
         const match = method === req.method && pattern.exec(pathname)
         if (!match) continue
-        const ids = Object.fromEntries(keys.map((key, index) => [key, decodeURIComponent(match[index + 1])]))
+        const ids = Object.fromEntries(keys.map((key, index) => [key, decodePath(match[index + 1])]))
         const body = ['POST', 'PATCH', 'PUT'].includes(method) ? await readBody(req) : {}
         const result = await app.operations.invoke(operation, { ...queryParams(url.searchParams), ...body, ...ids }, { signal })
         send(res, 200, result)
