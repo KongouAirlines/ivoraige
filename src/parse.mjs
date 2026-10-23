@@ -43,8 +43,12 @@ export class Parse extends Service {
     if (adapter.cancellable !== undefined && typeof adapter.cancellable !== 'boolean')
       throw new KernelError('INVALID_ARGUMENT', 'Source adapter cancellable must be boolean')
     this.adapters.set(adapter.id, adapter)
+    this.ctx.emit('ivoraige/capabilities-changed', { kind: 'source', id: adapter.id })
     return () => {
-      if (this.adapters.get(adapter.id) === adapter) this.adapters.delete(adapter.id)
+      if (this.adapters.get(adapter.id) === adapter) {
+        this.adapters.delete(adapter.id)
+        this.ctx.emit('ivoraige/capabilities-changed', { kind: 'source', id: adapter.id })
+      }
     }
   }
 

@@ -40,7 +40,7 @@ test('PDF base64 remains binary at the operation boundary; text remains UTF-8', 
   const inputs = []
   app.tasks.importDocument = async (file, _metadata, options) => {
     inputs.push({ file, options })
-    return file.format === 'txt' ? { document: { id: 'example' } } : { taskId: 'import.example' }
+    return file.format === 'txt' ? { taskId: 'import.text', document: { id: 'example' } } : { taskId: 'import.example' }
   }
   const binary = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0xff, 0x00])
   const pending = await app.operations.invoke('importDocument', { format: 'pdf', contentBase64: binary.toString('base64'), language: 'en' })

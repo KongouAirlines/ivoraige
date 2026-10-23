@@ -21,8 +21,12 @@ export class Outputs extends Service {
         adapter.requiredViews.some(view => !['readable-text', 'native-markdown'].includes(view))))
       throw new KernelError('INVALID_ARGUMENT', 'Output adapter requiredViews is invalid')
     this.adapters.set(adapter.id, adapter)
+    this.ctx.emit('ivoraige/capabilities-changed', { kind: 'output', id: adapter.id })
     return () => {
-      if (this.adapters.get(adapter.id) === adapter) this.adapters.delete(adapter.id)
+      if (this.adapters.get(adapter.id) === adapter) {
+        this.adapters.delete(adapter.id)
+        this.ctx.emit('ivoraige/capabilities-changed', { kind: 'output', id: adapter.id })
+      }
     }
   }
 

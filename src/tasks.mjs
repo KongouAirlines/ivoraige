@@ -46,7 +46,7 @@ export class Tasks extends Service {
   async recover() {
     await this.records.ready
     for (const task of this.records.listTasks()) {
-      if (active.has(task.state) && task.kind === 'import' && task.id.startsWith('import.')) {
+      if (active.has(task.state) && task.kind === 'import') {
         await this.records.recoverImportTask(task.id)
         continue
       }
@@ -65,6 +65,7 @@ export class Tasks extends Service {
   }
 
   emit(type, data) {
+    this.ctx.emit('ivoraige/task-event', { type, data })
     for (const listener of this.listeners) {
       try {
         const result = listener({ type, data: structuredClone(data) })

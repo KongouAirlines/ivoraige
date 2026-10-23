@@ -12,7 +12,8 @@ import { KernelError } from './errors.mjs'
 const usage = `ivoraige [--url URL | --store FILE] [--pdf-config FILE] [--json] COMMAND [arguments] [options]
 Commands: import, documents, units, unit, revisions, edit, accept, unaccept,
   translate, export, snapshots, artifacts, tasks, task, pause, resume, cancel, abandon,
-  settings, capabilities, components, serve, mcp, help
+  settings, capabilities, components, call, serve, mcp, help
+Internal operations: call OPERATION --set JSON
 MCP: mcp --stdio [--store FILE]; serve exposes /mcp unless --no-mcp
 Components: status, catalog, credential --token-env NAME, install, local --path MANIFEST, task ID, cancel ID
 Common options: --target-lang LANG, --json, --json-events, --no-wait, --url URL, --store FILE, --pdf-config FILE
@@ -25,7 +26,7 @@ function parse(argv) {
     'path', 'format', 'source-id', 'external-ref', 'source-lang', 'title', 'target-lang', 'cursor',
     'limit', 'origin', 'filter', 'text', 'base-revision', 'expected-accepted', 'mode',
     'units', 'out', 'snapshot', 'on-missing-accepted', 'state', 'kind', 'set', 'ref', 'value', 'token-env',
-    'file-action'])
+    'file-action', 'content-mode', 'adapter'])
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i]
     if (!token.startsWith('--')) { positional.push(token); continue }
@@ -47,6 +48,13 @@ function route(command, args, o) {
   const targetLang = o['target-lang']
   const paging = { cursor: o.cursor, limit: o.limit === undefined ? undefined : Number(o.limit) }
   switch (command) {
+    case 'call': {
+      const operation = required(args[0], 'operation ID')
+      const input = parseSettingsJson(o.set ?? '{}')
+      if (!input || typeof input !== 'object' || Array.isArray(input))
+        throw new KernelError('INVALID_ARGUMENT', '--set must contain a JSON object')
+      return [operation, input, 'POST', `/api/operations/${encodeURIComponent(operation)}`]
+    }
     case 'components': {
       switch (args[0] ?? 'status') {
         case 'status': return ['componentStatus', {}, 'GET', '/api/components']
@@ -153,13 +161,13 @@ async function webDirectory() {
   const path = resolve(import.meta.dirname, '../dist/web')
   try { return (await stat(join(path, 'index.html'))).isFile() ? path : undefined } catch { return undefined }
 }
-async function invokeRemote(base, method, path, params) {
+async function invokeRemote(base, method, path, params, signal) {
   const url = new URL(path, base)
   const queryMethod = method === 'GET' || method === 'DELETE'
   const keys = queryMethod ? Object.keys(params).filter(key => params[key] !== undefined &&
     !['docId', 'unitId', 'taskId', 'snapshotId', 'artifactId'].includes(key)) : []
   for (const key of keys) url.searchParams.set(key, String(params[key]))
-  const response = await fetch(url, { method, headers: queryMethod ? {} : { 'Content-Type': 'application/json' },
+  const response = await fetch(url, { method, signal, headers: queryMethod ? {} : { 'Content-Type': 'application/json' },
     body: queryMethod ? undefined : JSON.stringify(clean(params)) })
   const body = await response.json()
   if (!response.ok) {
@@ -237,14 +245,24 @@ async function observeEvents(app, base, stdout, stderr) {
     waitForTerminal, close() { controller.abort(); reader.cancel().catch(() => {}) } }
 }
 
-export async function runCli(argv = process.argv.slice(2), { stdout = process.stdout, stderr = process.stderr } = {}) {
-  let app, server, observer, mcpStdio = false
+export async function runCli(argv = process.argv.slice(2), { stdout = process.stdout, stderr = process.stderr,
+  app: suppliedApp, signal } = {}) {
+  let app = suppliedApp, server, observer, mcpStdio = false, stop
+  const controller = new AbortController()
+  const onSignal = () => { controller.abort(); stop?.() }
+  const requestSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
   try {
     const { positional, options: o } = parse(argv)
     const command = positional.shift() ?? 'help'
     mcpStdio = command === 'mcp' && !!o.stdio
     if (o.stdio && command !== 'mcp') throw new KernelError('INVALID_ARGUMENT', '--stdio is only supported by mcp')
     if (command === 'help' || o.help) { stdout.write(usage); return 0 }
+    if (suppliedApp && (['serve', 'mcp'].includes(command) ||
+        ['url', 'store', 'settings-dir', 'export-dir', 'pdf-config'].some(key => o[key] !== undefined)))
+      throw new KernelError('INVALID_ARGUMENT', 'A supplied host owns its configuration; use business commands without host options')
+    if (command !== 'mcp') {
+      process.once('SIGINT', onSignal); process.once('SIGTERM', onSignal)
+    }
     if (command === 'mcp' && (!o.stdio || o.url))
       throw new KernelError('INVALID_ARGUMENT', 'Use mcp --stdio for a local kernel, or connect an HTTP MCP client to the running /mcp endpoint')
     if (command === 'serve' || command === 'mcp') {
@@ -262,7 +280,7 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
       server = await serve(app, { host: o.host ?? '127.0.0.1', port: o.port ? Number(o.port) : 8787,
         mcp: !o['no-mcp'], staticDir: o['static-dir'] ?? await webDirectory() })
       stdout.write(`${server.url}\n`)
-      await new Promise(resolveStop => { process.once('SIGINT', resolveStop); process.once('SIGTERM', resolveStop) })
+      await new Promise(resolveStop => { stop = resolveStop; if (requestSignal.aborted) resolveStop() })
       return 0
     }
     const [name, params, method, path] = route(command, positional, o)
@@ -275,18 +293,20 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
       throw new KernelError('INVALID_ARGUMENT', '--no-wait requires --url so the live server owns the task')
     if (o['json-events'] && o['no-wait'] && startsTask)
       throw new KernelError('INVALID_ARGUMENT', '--json-events cannot be combined with --no-wait')
-    if (!remote) {
+    if (!remote && !suppliedApp) {
       const store = storePath(o)
       await mkdir(dirname(store), { recursive: true })
       app = await createApp({ store, exportDir: o['export-dir'],
         components: { directory: join(dirname(resolve(store)), 'components') },
         settingsDir: o['settings-dir'] ?? join(dirname(store), 'settings'), pdf: await readPdfConfig(o['pdf-config']) })
     }
-    const invoke = remote ? (_name, p, m, url) => invokeRemote(o.url, m, url, p) :
-      (operation, p) => app.operations.invoke(operation, clean(p))
+    if (!remote && !app.cli) throw new KernelError('COMPONENT_MISSING', 'CLI entry is not enabled')
+    const invoke = remote ? (_name, p, m, url) => invokeRemote(o.url, m, url, p, requestSignal) :
+      (operation, p) => app.cli.invoke(operation, clean(p), { signal: requestSignal })
     if (o['json-events'] && startsTask)
       observer = await observeEvents(app, o.url, stdout, stderr)
     const result = await invoke(name, params, method, path)
+    if (command === 'call') { stdout.write(`${serialize(result)}\n`); return 0 }
     if (startsComponent) {
       stdout.write(`${serialize(result)}\n`)
       if (o['no-wait']) return 0
@@ -322,15 +342,17 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
     }
     return 0
   } catch (error) {
+    if (error.name === 'AbortError') error = new KernelError('UPSTREAM_FAILURE', 'Request canceled', { canceled: true })
     const mapped = errorEnvelope(error)
     if (argv.includes('--json') && !mcpStdio) stdout.write(`${serialize(mapped.body)}\n`)
     stderr.write(`${mapped.body.error.message}\n`)
     return mapped.exitCode
   } finally {
+    process.off('SIGINT', onSignal); process.off('SIGTERM', onSignal)
     let failure
     try { observer?.close() } catch (error) { failure = error }
     try { await server?.close() } catch (error) { failure ??= error }
-    try { await app?.dispose() } catch (error) { failure ??= error }
+    try { if (!suppliedApp) await app?.dispose() } catch (error) { failure ??= error }
     if (failure) throw failure
   }
 }

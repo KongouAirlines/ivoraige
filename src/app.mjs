@@ -19,12 +19,25 @@ import { acquireStoreLock } from './store-lock.mjs'
 import { Pdf } from './adapters/pdf.mjs'
 import { McpRegistry } from './mcp-registry.mjs'
 import * as OperationMcp from './operation-mcp.mjs'
-import * as ComponentMcp from './component-mcp.mjs'
-import * as ModelSettingsMcp from './model-settings-mcp.mjs'
 import { SettingsPages } from './settings-pages.mjs'
+import { CapabilityCatalog, CapabilityContributions } from './capability-catalog.mjs'
+import { OperationCatalog } from './operation-catalog.mjs'
+import * as CoreOperations from './core-operations.mjs'
+import { OperationTools } from './mcp-tools.mjs'
+import { EntryEvents } from './entry-events.mjs'
+import { installEventState } from './event-state.mjs'
+import { ResourceAccess } from './resource-access.mjs'
+import { CliEntry } from './cli-entry.mjs'
+import { HttpEntry } from './http.mjs'
+import { McpEntry } from './mcp-entry.mjs'
 
 // Composition only: business capabilities live in Cordis services.
-export async function createApp({ store, exportDir, translation, settingsDir, pdf, components, mcp = true } = {}) {
+export async function createApp({ store, exportDir, translation, settingsDir, pdf, components, mcp = true,
+  entries = {}, events = true, maxArtifactBytes = null } = {}) {
+  if (!entries || typeof entries !== 'object' || Array.isArray(entries) ||
+      Object.entries(entries).some(([key, value]) => !['cli', 'http', 'mcp'].includes(key) || typeof value !== 'boolean') ||
+      typeof events !== 'boolean' || typeof mcp !== 'boolean')
+    throw new KernelError('INVALID_ARGUMENT', 'Entry switches must be booleans')
   if (components !== undefined && (!settingsDir || !components || typeof components !== 'object' || Array.isArray(components))) {
     throw new KernelError('INVALID_ARGUMENT', 'Component installation requires a settings directory and configuration')
   }
@@ -40,8 +53,8 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
   if (settingsDir !== undefined && (typeof settingsDir !== 'string' || !settingsDir.trim())) {
     throw new KernelError('INVALID_ARGUMENT', 'settingsDir must be a nonempty directory path')
   }
-  if (settingsDir !== undefined && (!store || translation !== undefined)) {
-    throw new KernelError('INVALID_ARGUMENT', 'settingsDir requires store and cannot be combined with translation')
+  if (settingsDir !== undefined && translation !== undefined) {
+    throw new KernelError('INVALID_ARGUMENT', 'settingsDir cannot be combined with translation')
   }
   if (translation !== undefined) {
     if (!store || !translation || typeof translation !== 'object' || Array.isArray(translation) ||
@@ -60,6 +73,9 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
   try {
     ctx = settingsDir === undefined ? new Context() :
       (await bootModelSettings({ directory: settingsDir })).ctx
+    await ctx.plugin(CapabilityCatalog)
+    await ctx.plugin(OperationCatalog)
+    if (events) await ctx.plugin(EntryEvents)
     if (!ctx.get('ivoraige.settingsPages')) await ctx.plugin(SettingsPages)
     await ctx.plugin(Outputs)
     await ctx.plugin(Parse)
@@ -81,6 +97,7 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
       await ctx.plugin(StorageDomain, { backend: 'sqlite' })
       await ctx.plugin(Records)
       await ctx.get('ivoraige.records').ready
+      await ctx.plugin(ResourceAccess, { maxArtifactBytes })
       await ctx.plugin(Importer)
       await ctx.plugin(TextOutputs)
       await ctx.plugin(Exporter, { root: exportDir ?? join(dirname(store), 'exports') })
@@ -99,14 +116,20 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
       }
       await ctx.plugin(Tasks)
       await ctx.get('ivoraige.tasks').ready
-      await ctx.plugin(Operations, { dataDirectory: dirname(storeLock.path) })
-      if (mcp) {
-        await ctx.plugin(McpRegistry)
-        await ctx.plugin(OperationMcp)
-        if (settingsDir !== undefined) await ctx.plugin(ModelSettingsMcp)
-        if (components !== undefined) await ctx.plugin(ComponentMcp)
-      }
     }
+    await ctx.plugin(Operations, { dataDirectory: storeLock ? dirname(storeLock.path) : settingsDir })
+    await ctx.plugin(CoreOperations)
+    if (entries.cli !== false) await ctx.plugin(CliEntry)
+    if (entries.http !== false) await ctx.plugin(HttpEntry)
+    if (mcp && entries.mcp !== false) {
+      await ctx.plugin(McpRegistry)
+      await ctx.plugin(OperationTools)
+      if (store !== undefined) await ctx.plugin(OperationMcp)
+      await ctx.plugin(McpEntry)
+    }
+    await ctx.plugin(CapabilityContributions)
+    if (events) ctx.effect(() => installEventState(ctx))
+    let disposed = false, disposing
     return {
       ctx,
       parse: ctx.get('ivoraige.parse'),
@@ -118,16 +141,39 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
       operations: ctx.get('ivoraige.operations'),
       settings: ctx.get('ivoraige.modelSettings'),
       components: ctx.get('ivoraige.components'),
+      capabilities: ctx.get('ivoraige.capabilities'),
+      operationCatalog: ctx.get('ivoraige.operationCatalog'),
+      events: ctx.get('ivoraige.events'),
+      resources: ctx.get('ivoraige.resources'),
+      cli: ctx.get('ivoraige.cliEntry'),
       dispose: async () => {
-        let failure
-        try { await ctx.get('ivoraige.tasks')?.close() } catch (error) { failure = error }
-        try { await ctx.get('ivoraige.components')?.close() } catch (error) { failure ??= error }
-        try { await ctx.fiber.dispose() } catch (error) { failure ??= error }
-        try { storeLock?.release() } catch (error) { failure ??= error }
-        if (failure) throw failure
+        if (disposed) return
+        if (!disposing) disposing = (async () => {
+          let failure
+          const close = async fn => { try { await fn() } catch (error) { failure ??= error } }
+          await close(() => ctx.get('ivoraige.httpEntry')?.close())
+          await close(() => ctx.get('ivoraige.mcpEntry')?.close())
+          await close(() => ctx.get('ivoraige.cliEntry')?.close())
+          // A noncooperating request must not keep writing after storage is closed.
+          // A failed drain leaves the context/store owner intact for a later retry.
+          await ctx.get('ivoraige.operationCatalog')?.close()
+          await close(() => ctx.get('ivoraige.resources')?.close())
+          await close(() => ctx.get('ivoraige.tasks')?.close())
+          await close(() => ctx.get('ivoraige.components')?.close())
+          await close(() => ctx.get('ivoraige.events')?.close())
+          await close(() => ctx.fiber.dispose())
+          await close(() => storeLock?.release())
+          disposed = true
+          if (failure) throw failure
+        })().finally(() => { disposing = undefined })
+        return disposing
       },
     }
   } catch (error) {
+    try { await ctx?.get('ivoraige.httpEntry')?.close() } catch { /* Preserve boot error. */ }
+    try { await ctx?.get('ivoraige.mcpEntry')?.close() } catch { /* Preserve boot error. */ }
+    try { await ctx?.get('ivoraige.cliEntry')?.close() } catch { /* Preserve boot error. */ }
+    try { await ctx?.get('ivoraige.operationCatalog')?.close() } catch { /* No requests during boot. */ }
     try { await ctx?.get('ivoraige.tasks')?.close() } catch { /* Preserve the boot error. */ }
     try { await ctx?.get('ivoraige.components')?.close() } catch { /* Preserve the boot error. */ }
     try { await ctx?.fiber.dispose() } catch { /* Preserve the boot error. */ }

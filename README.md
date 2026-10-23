@@ -85,3 +85,5 @@ Tell us what you are trying to translate or process, where the workflow gets in 
 See [contribution guidance](CONTRIBUTING.md) and [security reporting](SECURITY.md). The core uses **LGPL-3.0-or-later**; the business modules listed in [LICENSE](LICENSE) use **MIT**. The optional BabelDOC Python plugin uses **AGPL-3.0-only** and is packaged separately. Contributions require DCO sign-off.
 
 Built with Cordis and DSH, with optional BabelDOC support. See [third-party acknowledgements](THIRD_PARTY.md).
+
+Operation and entry composition is available for in-process hosts: register one schema/handler in `operationCatalog`, keep the returned disposer, and use the existing CLI/REST/MCP aliases or the internal generic operation projection. HTTP/CLI/MCP can be omitted independently. The existing workbench uses a subscription-ready barrier and authoritative state refetch; saved artifact reads share ownership, size policy and read leases. See [composition usage](docs/plan/0.1.0/development-guide.md#p04-operation-and-entry-composition) and [P04 evidence](docs/plan/0.1.x/evidence/foundation-p04.md).

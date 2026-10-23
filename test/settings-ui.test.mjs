@@ -19,17 +19,26 @@ function fixture({ hash = '#/workbench/doc', modelReadFails = 0, deferModelSave 
   })
   const { window } = dom
   const calls = []
+  const streams = [], snapshots = []
   let failures = modelReadFails
   let settings = structuredClone(modelSettings)
   let releaseSave
+  window.structuredClone = structuredClone
   window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} })
   window.confirm = () => true
   window.HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
   window.HTMLDialogElement.prototype.close = function () { this.removeAttribute('open') }
-  window.EventSource = class { addEventListener() {} close() {} }
+  window.EventSource = class {
+    constructor(url) { this.url = url; this.listeners = new Map(); streams.push(this) }
+    addEventListener(type, callback) { this.listeners.set(type, callback) }
+    emit(type, data) { this.listeners.get(type)?.({ data: JSON.stringify(data) }) }
+    close() { this.closed = true }
+  }
   window.fetch = async (url, options = {}) => {
     const path = String(url).replace(/^\/api/, '')
     calls.push({ path, method: options.method ?? 'GET', body: options.body })
+    if (path.startsWith('/state?')) return new Promise(resolve => snapshots.push(value =>
+      resolve({ ok: true, status: 200, json: async () => value })))
     if (path === '/settings/modelconfig' && failures-- > 0) {
       return { ok: false, status: 503, json: async () => ({ error: { message: 'temporary read failure' } }) }
     }
@@ -69,7 +78,7 @@ function fixture({ hash = '#/workbench/doc', modelReadFails = 0, deferModelSave 
     return { ok: true, status: 200, json: async () => data }
   }
   window.eval(bundle)
-  return { window, calls, releaseSave: () => releaseSave?.(), close: () => window.close() }
+  return { window, calls, streams, snapshots, releaseSave: () => releaseSave?.(), close: () => window.close() }
 }
 
 async function until(check, message) {
@@ -250,3 +259,22 @@ for (const identity of ['new', 'changed']) {
     })
   }
 }
+
+test('existing WebUI waits for the ready barrier and drains a final invalidation during snapshot application', async () => {
+  const f = fixture()
+  try {
+    const stream = await until(() => f.streams[0], 'state stream did not mount')
+    assert.equal(stream.url, '/api/events/state')
+    const ready = { subscriptionId: 'ui-session', generation: 'ui-host', scope: {}, barrierRevision: 0 }
+    stream.emit('state.ready', ready)
+    await until(() => f.snapshots.length === 1, 'ready did not trigger authoritative read')
+    assert.equal(f.window.document.querySelector('.connection.online'), null)
+    stream.emit('state.invalidated', { ...ready, type: 'state.invalidated', stateRevision: 2 })
+    f.snapshots[0]({ ...ready, stateRevision: 1, state: {} })
+    await until(() => f.snapshots.length === 2, 'buffered invalidation did not re-read')
+    assert.equal(f.window.document.querySelector('.connection.online'), null)
+    f.snapshots[1]({ ...ready, stateRevision: 2, state: {} })
+    await until(() => f.window.document.querySelector('.connection.online'), 'quiescent state did not synchronize')
+    assert.equal(f.snapshots.length, 2)
+  } finally { f.close() }
+})

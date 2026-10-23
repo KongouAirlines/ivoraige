@@ -309,6 +309,7 @@ export class ModelSettings extends Service {
     value = nonempty(value, 'value')
     try { await this.ctx.credentials.set(ref, value) }
     catch (error) { throw settingsError(error) }
+    this.ctx.emit('ivoraige/settings-changed', { namespace: 'credentials' })
     return this.ctx.credentials.describe(ref)
   }
 }

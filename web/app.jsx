@@ -5,6 +5,8 @@ import { PdfSettings } from './pdf-settings.jsx'
 import { SettingsWindow } from './settings-window.jsx'
 import { createSettingsRuntime } from './settings-runtime.mjs'
 import { isSettingsPath, initialSettingsLocation, settingsLocation, readSettingsHistory, settingsHistoryState, nextSettingsHistory, reverseSettingsTraversal, hashRoute } from './settings-navigation.mjs'
+import { createStateSync } from '../src/state-sync.mjs'
+import { resourcePolicy } from '../src/resource-policy.mjs'
 import { refreshDisposition, savedEditIsCurrent } from './editor-state.mjs'
 
 const h = React.createElement
@@ -62,7 +64,7 @@ function Upload({ onDone, compact = false, inputFormats = [], pdfStatus }) {
     const format = file.name.toLowerCase().endsWith('.md') ? 'md' : file.name.toLowerCase().endsWith('.txt') ? 'txt' :
       pdfEnabled && file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : null
     if (!format) { setError(`目前支持 ${supported} 文件。`); return }
-    if (file.size > 7 * 1024 * 1024) { setError('文件超过当前接口的 7 MB 上传限额。'); return }
+    if (file.size > resourcePolicy.uploadFileBytes) { setError('文件超过当前接口的 7 MB 上传限额。'); return }
     setBusy(true); setUploadingFormat(format); setError('')
     try {
       const contentBase64 = await new Promise((resolve,reject) => { const reader = new FileReader(); reader.onload=()=>resolve(String(reader.result).split(',')[1]); reader.onerror=()=>reject(new Error('文件读取失败')); reader.readAsDataURL(file) })
@@ -241,7 +243,28 @@ function App() {
   useEffect(()=>{if(!settingsOpen)guardRef.current={dirty:false,busy:false}},[settingsOpen])
   useEffect(()=>{const apply=()=>{document.documentElement.dataset.theme=theme==='system'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):theme};apply();localStorage.setItem('ivoraige.theme',theme);const media=matchMedia('(prefers-color-scheme: dark)');media.addEventListener('change',apply);return()=>media.removeEventListener('change',apply)},[theme])
   useEffect(()=>{localStorage.setItem('ivoraige.sidebar',collapsed?'collapsed':'expanded')},[collapsed])
-  useEffect(()=>{let es,timer,invalidationTimer,delay=1000,stopped=false;const refresh=()=>{clearTimeout(invalidationTimer);invalidationTimer=undefined;setEpoch(x=>x+1)};const schedule=()=>{if(!invalidationTimer)invalidationTimer=setTimeout(refresh,500)};function connect(){if(stopped)return;es=new EventSource('/api/events');es.addEventListener('settings.pages.changed',()=>setCapabilityTick(x=>x+1));es.onopen=()=>{setConnected(true);delay=1000;refresh();setCapabilityTick(x=>x+1)};es.onerror=()=>{setConnected(false);es.close();timer=setTimeout(connect,delay);delay=Math.min(30000,delay*2)};for(const type of ['task.queued','task.started','task.progress','task.resumed','unit.completed'])es.addEventListener(type,schedule);for(const type of ['task.succeeded','task.failed','task.paused','task.canceled'])es.addEventListener(type,()=>{refresh();setCapabilityTick(x=>x+1)})}connect();return()=>{stopped=true;clearTimeout(timer);clearTimeout(invalidationTimer);es?.close()}},[])
+  useEffect(() => {
+    const sync = createStateSync({
+      connect({ onReady, onNotice, onDisconnect }) {
+        const stream = new EventSource('/api/events/state')
+        const read = listener => event => { try { listener(JSON.parse(event.data)) } catch { onDisconnect() } }
+        stream.addEventListener('state.ready', read(onReady))
+        stream.addEventListener('state.invalidated', read(onNotice))
+        stream.addEventListener('resync-required', read(onNotice))
+        stream.onerror = onDisconnect
+        return () => stream.close()
+      },
+      async snapshot(ready, { signal }) {
+        const response = await fetch('/api/state?subscriptionId=' + encodeURIComponent(ready.subscriptionId),
+          { signal, cache: 'no-store' })
+        if (!response.ok) throw new Error('State synchronization failed')
+        return response.json()
+      },
+      onState() { setEpoch(x => x + 1); setCapabilityTick(x => x + 1) },
+      onStatus(status) { setConnected(status === 'synchronized') },
+    })
+    return () => sync.stop()
+  }, [])
   const pages=[['/','主页','⌂'],['/documents','文档','▤'],...(capabilities.value?.features?.includes('workbench')?[['/workbench','工作台','◫']]:[]),...(capabilities.value?.features?.includes('tasks')?[['/tasks','任务','◷']]:[])]
   useEffect(()=>{const key=e=>{if(settingsOpen)return;if(!(e.ctrlKey||e.metaKey)||!/^\d$/.test(e.key))return;const item=pages[Number(e.key)-1];if(item){e.preventDefault();navigate(item[0]==='/workbench'?'/documents':item[0])}};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key)},[pages.map(p=>p[0]).join(','),settingsOpen])
   const title=path.startsWith('/workbench/')?'精翻工作台':path.startsWith('/documents')?'文档':path.startsWith('/tasks')?'任务':path.startsWith('/settings')?'设置':'主页'

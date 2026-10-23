@@ -24,7 +24,7 @@ export class SettingsPages extends Service {
   }
 
   changed() {
-    this.ctx.get('ivoraige.tasks')?.emit('settings.pages.changed', { settingsPages: this.list() })
+    this.ctx.emit('ivoraige/settings-pages-changed', { settingsPages: this.list() })
   }
 
   list() {

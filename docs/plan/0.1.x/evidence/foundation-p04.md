@@ -1,0 +1,31 @@
+# P04 operation and entry composition evidence
+
+P04 is implemented on `codex/0.1.x-operation-entries`, stacked on [Q02 #51](https://github.com/KongouAirlines/ivoraige/pull/51), which in turn depends on the reviewed P03 #49. The DSH pin remains `639ed015397290b3745d163aafe02ffee4aa3f84` and Node 24.22.1 / 26.12.1 remains the supported baseline. This work does not select the independent runtime candidate.
+
+## Activated contract
+
+One `OperationCatalog` owns each operation's input/result schema, dependency requirements, handler and cancellation metadata. Core contributions group records/tasks, settings, components and discovery. `Operations.invoke` delegates to the catalog and preserves the v2 envelope. CLI aliases, REST aliases and the existing MCP names still delegate to those same registrations; generic `call OP --set JSON`, `/api/operations/OP` and `ivoraige_op_OP` are internal projections for contributed operations, not the complete stable external API in I01. The retained `parameters` export is a compatibility schema export, not another runtime router.
+
+CLI, HTTP and MCP services own their invocation controllers, servers, transports and subscriptions. Entries can be omitted independently; help remains a bootstrap command. Host shutdown stops entry admission, cancels/drains request handlers, then closes resources/tasks/components before withdrawing Records/storage and releasing its owner lock. A handler that ignores cancellation and misses the drain deadline leaves storage open and reports failure; it cannot be treated as a completed shutdown. Arbitrary third-party hot unload is not promised.
+
+Records resolves exact stored unit/revision/task/artifact IDs. Entries no longer derive ownership by splitting or prefix-matching IDs. HTTP and MCP read artifacts through the common resource service, including the same optional size limit and Records read lease. The default artifact read limit remains unlimited for compatibility; the HTTP JSON body limit is 10 MiB and the browser file limit is 7 MiB to leave Base64/JSON overhead.
+
+The event bridge projects Cordis notifications, including the pinned DSH's post-commit `domain/changed` and settings revision notifications. It does not send raw stored values, credential values, Context or services. Settings page events do not require Tasks. State snapshots contain public document/task summaries, setting revisions, capability descriptions and component task status; they do not pretend to be an atomic copy of workbench text bodies. Existing body queries continue through their owning services.
+
+V03 uses subscription-first ready (`subscriptionId`, host `generation`, `scope`, `barrierRevision`), then a stable synchronous authoritative snapshot. The active subscription stays installed through refetch and application. Revisions at or below the applied snapshot are discarded; newer notifications trigger refetch. Buffer overflow, disconnect, changed generation/scope or unstable readers invalidate synchronization and require a new handshake. The browser's existing effect uses this helper; there are no new screens or UI features. No persistent event replay is claimed.
+
+## Verification
+
+- Catalog tests cover one schema/handler registration, owner disposal, missing capability, parse-only/settings-only compositions, result data-only checks, canceled/drained calls and the preflight/close race.
+- Real CLI/HTTP/MCP parity covers contributed result, invalid input, cancellation, removal and discovery. MCP retains SDK discovery/transport ownership; its supported request-handler hook dispatches arguments to the single kernel validator so SDK error strings do not replace the public envelope.
+- Controlled event tests cover real Records backend commit, DSH partial settings save, no-Tasks pages, ready/snapshot/refetch boundaries, delayed/duplicate/filtered notifications, generation/scope changes, overflow and cleanup. A final reentrant invalidation after snapshot application converges without another event.
+- Resource tests cover IDs whose spelling has no owner prefix, mismatched URI document ownership, common size policy and a client disconnect while lease acquisition is awaiting.
+- The existing built browser bundle is exercised in jsdom for the ready barrier and a last invalidation during snapshot response. Existing dirty-draft and settings-navigation regressions remain covered. This is not desktop or real PDF acceptance.
+
+The first complete integrated run passed 345/345 tests. Two fixture adjustments were required by the activated boundaries: the jsdom window now exposes the browser `structuredClone` API, and the import mock returns the real accepted `taskId` field. Neither relaxed the corresponding assertion or product validation. Exact final-head checks and CI are recorded with the PR once the Q02 review fixes are synchronized.
+
+## Remaining boundaries
+
+Q02's storage-version compatibility gate is tracked separately in #51; a payload version field alone does not stop the older main writer. New retention semantics must not be represented as safe for older binaries until that gate is verified. The ownership/digest check for explicit physical deletion assumes exclusive use of the managed output path during the command and is not an atomic defense against another local process replacing that path between checking and unlink.
+
+P05 package delivery, W01 workflows, external client authorization, all external APIs and real third-party PDF/desktop acceptance remain outside this change. The design-v3 follow-up stays in progress until accepted integration and its remaining scope is implemented.
