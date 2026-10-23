@@ -907,11 +907,13 @@ export class Records {
   async deleteArtifact(docId, artifactId, { deleteOwned = false, unlinkFile } = {}) {
     await this.ready
     const candidate = this.artifactCandidate(docId, artifactId)
-    const key = this.pathKey(candidate.path)
+    // Record-only deletion leaves bytes untouched and must remain usable even
+    // when the external path cannot be inspected. Physical deletion requires
+    // the identity key for shared-reference and in-flight write protection.
+    const key = deleteOwned ? this.pathKey(candidate.path) : undefined
     const snapshotKey = `${docId}\u0000${candidate.snapshotId}`
     if (this.deletingArtifacts.has(artifactId) || this.deletingArtifacts.has(snapshotKey) ||
-        this.deletingPaths.has(key) ||
-        this.pendingArtifactPaths.has(key))
+        (deleteOwned && (this.deletingPaths.has(key) || this.pendingArtifactPaths.has(key))))
       throw new KernelError('CONFLICT', 'Artifact deletion is in progress', { artifactId })
     if (this.artifactLeases.has(artifactId) || this.leases.has(snapshotKey))
       throw new KernelError('CONFLICT', 'Artifact or snapshot is in use', { artifactId })
@@ -921,7 +923,7 @@ export class Records {
       throw new KernelError('CONFLICT', 'File is shared by another artifact', { artifactId })
     this.deletingArtifacts.add(artifactId)
     this.deletingArtifacts.add(snapshotKey)
-    this.deletingPaths.add(key)
+    if (deleteOwned) this.deletingPaths.add(key)
     try {
       if (candidate.state !== 'pending' && candidate.state !== 'failed') {
         await this.update(docId, current => {
@@ -957,7 +959,7 @@ export class Records {
     } finally {
       this.deletingArtifacts.delete(artifactId)
       this.deletingArtifacts.delete(snapshotKey)
-      this.deletingPaths.delete(key)
+      if (deleteOwned) this.deletingPaths.delete(key)
     }
   }
 }

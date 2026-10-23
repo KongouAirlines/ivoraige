@@ -1,8 +1,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import { Context, Storage, StorageDomain, StorageSqlite, z } from '../dist/dsh.mjs'
 import { createApp } from '../src/app.mjs'
@@ -185,4 +186,25 @@ test('unrelated SQLite file is not mistaken for a fresh DSH store', async t => {
   const check = new DatabaseSync(store, { readOnly: true })
   try { assert.equal(check.prepare("SELECT 1 FROM sqlite_master WHERE name = 'units'").get(), undefined) }
   finally { check.close() }
+})
+
+test('a foreign bundled DSH pin rejects before touching an existing store', async t => {
+  const f = await fixture(t)
+  await document(f.app)
+  await f.close()
+  stamp(f.store, 1)
+  const before = await readFile(f.store)
+  const foreign = join(f.store + '-foreign')
+  await mkdir(join(foreign, 'src'), { recursive: true })
+  await mkdir(join(foreign, 'dist'))
+  for (const name of ['retention-domain.mjs', 'retention-payload.mjs', 'errors.mjs']) {
+    await copyFile(new URL(`../src/${name}`, import.meta.url), join(foreign, 'src', name))
+  }
+  await writeFile(join(foreign, 'dist', 'dsh.mjs'),
+    "export const IVORAIGE_DSH_COMMIT = 'foreign-build-commit'\n")
+  const { inspectRetentionDomain } = await import(pathToFileURL(join(foreign, 'src', 'retention-domain.mjs')))
+  assert.throws(() => inspectRetentionDomain(f.store), { code: 'PRECONDITION_FAILED' })
+  assert.deepEqual(await readFile(f.store), before)
+  assert.equal(version(f.store), 1)
+  await rm(foreign, { recursive: true, force: true })
 })
