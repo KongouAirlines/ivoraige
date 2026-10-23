@@ -47,7 +47,7 @@
     "followups": "node scripts/followups.mjs"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "0.87.1",
+    "@earendil-works/pi-ai": "1.1.0",
     "@eslint-community/regexpp": "4.12.2",
     "@modelcontextprotocol/node": "2.1.1",
     "@modelcontextprotocol/server": "2.3.1",

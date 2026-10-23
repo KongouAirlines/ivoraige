@@ -65,6 +65,7 @@ for (const input of Object.keys(result.metafile.inputs)) {
 const licenseSections = []
 const pinnedLicenseFallbacks = new Map([
   ['@earendil-works/pi-ai@0.87.1', 'pi-MIT.txt'],
+  ['@earendil-works/pi-ai@1.1.0', 'pi-MIT.txt'],
   ['standardwebhooks@1.1.1', 'standardwebhooks-MIT.txt'],
 ])
 for (const directory of [...licenseRoots].sort()) {

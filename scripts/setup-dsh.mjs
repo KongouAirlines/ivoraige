@@ -4,7 +4,7 @@ import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFileSync } from 'node:child_process'
 
-export const DSH_COMMIT = '639ed015397290b3745d163aafe02ffee4aa3f84'
+export const DSH_COMMIT = '687f282e8625c6b8d11ff58211a90524be2e4317'
 export const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 export const upstream = resolve(root, 'experiments/vendor/deepseek-harness')
 

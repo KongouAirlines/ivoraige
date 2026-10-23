@@ -10,7 +10,7 @@ test('built Node bundle carries complete notices for its bundled dependencies', 
     assert.ok(body.join('\n').trim(), `Missing bundled license notice: ${heading}`)
   }
   for (const [name, copyright] of [
-    ['@earendil-works/pi-ai 0.87.1', 'Copyright (c) 2025 Mario Zechner'],
+    ['@earendil-works/pi-ai 1.1.0', 'Copyright (c) 2025 Mario Zechner'],
     ['data-uri-to-buffer 4.0.1', 'Copyright (c) 2014 Nathan Rajlich'],
     ['standardwebhooks 1.1.1', 'Copyright (c) 2023 Svix'],
   ]) {
