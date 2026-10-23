@@ -82,8 +82,12 @@ function recordHandlers(ctx, ops) {
     listArtifactCleanup: async p => paginate(records().listArtifactCleanup(p.docId), p),
     deleteArtifact: async p => {
       const candidate = records().artifactCandidate(p.docId, p.artifactId)
-      if (p.fileAction === 'delete-owned' && candidate.managedFile !== true)
-        throw new KernelError('PRECONDITION_FAILED', 'Artifact file is not managed')
+      if (p.fileAction === 'delete-owned') {
+        if (candidate.managedFile !== true)
+          throw new KernelError('PRECONDITION_FAILED', 'Artifact file is not managed')
+        if (!ctx.get('ivoraige.resources') || !ctx.get('ivoraige.export'))
+          throw new KernelError('COMPONENT_MISSING', 'Managed artifact deletion requires resource access and export ownership')
+      }
       return records().deleteArtifact(p.docId, p.artifactId, { deleteOwned: p.fileAction === 'delete-owned',
         ...(p.fileAction === 'delete-owned' ? { unlinkFile: (path, digest) => ops.removeOwnedFile(path, digest) } : {}) })
     },

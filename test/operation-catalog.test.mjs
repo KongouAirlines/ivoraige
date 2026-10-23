@@ -78,6 +78,39 @@ test('settings-only app exposes settings operations without a task service', asy
   assert.ok(!capabilities.features.includes('documents'))
 })
 
+test('store-only options are rejected while settings-only composition stays valid', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-option-validation-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const settingsDir = join(directory, 'settings')
+  for (const options of [
+    { settingsDir, components: { directory: join(directory, 'components') } },
+    { settingsDir, exportDir: join(directory, 'exports') },
+    { settingsDir, maxArtifactBytes: 1024 },
+  ]) await assert.rejects(createApp(options), { code: 'INVALID_ARGUMENT' })
+  const app = await createApp({ settingsDir })
+  t.after(() => app.dispose())
+  assert.ok((await app.operations.invoke('getSettings')).settings)
+})
+
+test('known MCP operations stay discoverable across late required services and report missing capability', async t => {
+  const ctx = new Context()
+  t.after(() => ctx.fiber.dispose())
+  await ctx.plugin(OperationCatalog)
+  await ctx.plugin(Operations)
+  await ctx.plugin(CoreOperations)
+  await ctx.plugin(McpRegistry)
+  await ctx.plugin(OperationTools)
+  const registry = ctx.get('ivoraige.mcp')
+  for (const name of ['ivoraige_capabilities', 'ivoraige_documents_list', 'ivoraige_artifacts_list'])
+    assert.ok(registry.tools.has(name))
+  await assert.rejects(registry.tools.get('ivoraige_documents_list').invoke({}, {}), { code: 'COMPONENT_MISSING' })
+  await assert.rejects(registry.tools.get('ivoraige_capabilities').invoke({}, {}), { code: 'COMPONENT_MISSING' })
+  await ctx.plugin(Outputs)
+  await ctx.plugin(Parse)
+  assert.equal((await registry.tools.get('ivoraige_capabilities').invoke({}, {})).apiVersion, '2.0')
+  assert.equal(registry.tools.has('ivoraige_capabilities'), true)
+})
+
 test('catalog drains active handlers and keeps a timed-out close retryable', async t => {
   const ctx = new Context()
   t.after(() => ctx.fiber.dispose())

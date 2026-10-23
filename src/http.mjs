@@ -113,15 +113,14 @@ async function staticFile(res, staticDir, pathname) {
 }
 
 function events(req, res, app, taskId, activeEvents) {
-  if (app.ctx && !app.events) throw new KernelError('COMPONENT_MISSING', 'Event entry is not enabled')
-  res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8',
-    'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Event-Id': String(Date.now()) })
-  res.write(': connected\n\n')
   const unsubscribe = app.operations.subscribe(event => {
     if (taskId && event?.data?.taskId !== taskId) return
     if (!/^[\w.]+$/.test(event?.type ?? '')) return
     res.write(`event: ${event.type}\ndata: ${serialize(event.data)}\n\n`)
   })
+  res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Event-Id': String(Date.now()) })
+  res.write(': connected\n\n')
   activeEvents.add(res)
   const cleanup = () => { unsubscribe?.(); activeEvents.delete(res) }
   req.once('close', cleanup)

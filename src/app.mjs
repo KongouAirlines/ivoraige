@@ -57,6 +57,9 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
   if (settingsDir !== undefined && translation !== undefined) {
     throw new KernelError('INVALID_ARGUMENT', 'settingsDir cannot be combined with translation')
   }
+  if (store === undefined && (components !== undefined || exportDir !== undefined || maxArtifactBytes !== null)) {
+    throw new KernelError('INVALID_ARGUMENT', 'components, exportDir and maxArtifactBytes require a store')
+  }
   if (translation !== undefined) {
     if (!store || !translation || typeof translation !== 'object' || Array.isArray(translation) ||
         typeof translation.provider !== 'string' || !translation.provider.trim() ||

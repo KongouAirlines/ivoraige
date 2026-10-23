@@ -53,7 +53,10 @@ export class Operations extends Service {
     return resources.artifact(artifactId, options)
   }
   removeOwnedFile(path, fileDigest) {
-    return this.ctx.get('ivoraige.resources').removeOwnedFile(path, fileDigest)
+    const resources = this.ctx.get('ivoraige.resources')
+    if (!resources || !this.ctx.get('ivoraige.export'))
+      throw new KernelError('COMPONENT_MISSING', 'Managed artifact deletion requires resource access and export ownership')
+    return resources.removeOwnedFile(path, fileDigest)
   }
   async waitTask(taskId, seconds, signal) {
     const task = this.records.getTask(taskId)

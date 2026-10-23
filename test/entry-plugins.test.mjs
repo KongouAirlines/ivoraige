@@ -62,6 +62,43 @@ test('a contributed operation has one schema/result/error contract through CLI, 
   assert.equal((await (await fetch(server.url + '/api/operations/probeEcho', { method: 'POST', body: '{}' })).json()).error.code, 'NOT_FOUND')
 })
 
+test('events:false keeps legacy SSE and remote JSON task events while state streams are unavailable', async t => {
+  const { app } = await fixture(t, { events: false })
+  const server = await serve(app, { port: 0 }); t.after(() => server.close())
+  const stream = await fetch(server.url + '/api/events')
+  assert.equal(stream.status, 200)
+  await stream.body.cancel()
+  assert.equal((await fetch(server.url + '/api/events/state')).status, 503)
+  const stdout = output(), stderr = output()
+  const source = join((await import('node:os')).tmpdir(), `ivoraige-event-${Date.now()}.txt`)
+  const { writeFile, rm } = await import('node:fs/promises')
+  await writeFile(source, 'Legacy task event.')
+  t.after(() => rm(source, { force: true }))
+  const code = await runCli(['--url', server.url, '--json-events', 'import', source, '--source-lang', 'en'],
+    { stdout, stderr })
+  assert.equal(code, 0, stderr.text)
+  assert.match(stdout.text, /"type":"task.succeeded"/)
+})
+
+test('remote CLI encodes opaque route IDs as one segment for task and component paths', async t => {
+  const { app } = await fixture(t)
+  const server = await serve(app, { port: 0 }); t.after(() => server.close())
+  for (const opaque of ['a/b', 'a?b', 'a#b', 'a%b']) {
+    const encoded = encodeURIComponent(opaque)
+    for (const [args, path] of [
+      [['task', opaque], `/api/tasks/${encoded}`],
+      [['components', 'task', opaque], `/api/components/tasks/${encoded}`],
+      [['documents', opaque], `/api/documents/${encoded}`],
+      [['snapshots', opaque, 'target'], `/api/documents/${encoded}/snapshots/target`],
+    ]) {
+      const direct = await (await fetch(server.url + path)).json()
+      const stdout = output(), stderr = output()
+      await runCli(['--url', server.url, '--json', ...args], { stdout, stderr })
+      assert.deepEqual(JSON.parse(stdout.text), direct, `${args.join(' ')} should match the exact HTTP route`)
+    }
+  }
+})
+
 test('HTTP disconnect cancels a request handler and application disposal stops entries before withdrawing dependencies', async t => {
   const { app } = await fixture(t)
   const entered = gate(), canceled = gate()
@@ -150,4 +187,25 @@ test('a live MCP server keeps kernel argument errors after dynamic operation reg
   assert.equal(error.isError, true)
   assert.equal(error.structuredContent.apiVersion, '2.0')
   assert.equal(error.structuredContent.error.code, 'INVALID_ARGUMENT')
+})
+
+test('live MCP discovery keeps registered tools callable across required-service withdrawal and return', async t => {
+  const { app } = await fixture(t)
+  const server = createMcpServer(app)
+  const client = new Client({ name: 'p04-service-availability-test', version: '1.0.0' })
+  const [serverTransport, clientTransport] = InMemoryTransport.createLinkedPair()
+  await server.connect(serverTransport); await client.connect(clientTransport)
+  t.after(() => client.close())
+  const tool = 'ivoraige_capabilities'
+  assert.ok((await client.listTools()).tools.some(item => item.name === tool))
+  assert.equal((await client.callTool({ name: tool, arguments: {} })).isError, undefined)
+  const get = app.ctx.get.bind(app.ctx)
+  app.ctx.get = name => name === 'ivoraige.parse' ? undefined : get(name)
+  try {
+    assert.ok((await client.listTools()).tools.some(item => item.name === tool))
+    const missing = await client.callTool({ name: tool, arguments: {} })
+    assert.equal(missing.isError, true)
+    assert.equal(missing.structuredContent.error.code, 'COMPONENT_MISSING')
+  } finally { app.ctx.get = get }
+  assert.equal((await client.callTool({ name: tool, arguments: {} })).isError, undefined)
 })

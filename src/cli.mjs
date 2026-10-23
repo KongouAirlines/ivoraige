@@ -43,6 +43,7 @@ function required(value, label) {
   if (!value) throw new KernelError('INVALID_ARGUMENT', `Missing ${label}`)
   return value
 }
+const segment = value => encodeURIComponent(value)
 function route(command, args, o) {
   const docId = args[0], unitId = args[0], taskId = args[0]
   const targetLang = o['target-lang']
@@ -65,30 +66,30 @@ function route(command, args, o) {
         case 'credential-clear': return ['componentCredentialClear', {}, 'DELETE', '/api/components/credential']
         case 'install': return ['componentInstall', { id: 'babeldoc' }, 'POST', '/api/components/install']
         case 'local': return ['componentLocal', { path: required(o.path, '--path manifest') }, 'POST', '/api/components/local']
-        case 'task': return ['componentTask', { taskId: required(args[1], 'component task ID') }, 'GET', `/api/components/tasks/${args[1]}`]
-        case 'cancel': return ['componentCancel', { taskId: required(args[1], 'component task ID') }, 'POST', `/api/components/tasks/${args[1]}/cancel`]
+        case 'task': return ['componentTask', { taskId: required(args[1], 'component task ID') }, 'GET', `/api/components/tasks/${segment(args[1])}`]
+        case 'cancel': return ['componentCancel', { taskId: required(args[1], 'component task ID') }, 'POST', `/api/components/tasks/${segment(args[1])}/cancel`]
         default: throw new KernelError('INVALID_ARGUMENT', 'Unknown components command')
       }
     }
     case 'import': return ['importDocument', { path: o.path ?? required(args[0], 'file path'),
       format: o.format, adapterId: o.adapter, sourceId: o['source-id'], externalRef: o['external-ref'],
       language: required(o['source-lang'], '--source-lang'), title: o.title, origin: 'cli' }, 'POST', '/api/documents/import']
-    case 'documents': return args[0] ? ['getDocument', { docId }, 'GET', `/api/documents/${docId}`] :
+    case 'documents': return args[0] ? ['getDocument', { docId }, 'GET', `/api/documents/${segment(docId)}`] :
       ['listDocuments', { ...paging, origin: o.origin, format: o.format }, 'GET', '/api/documents']
     case 'units': return ['listUnits', { docId: required(docId, 'document ID'), targetLang: required(targetLang, '--target-lang'),
-      filter: o.filter, ...paging }, 'GET', `/api/documents/${docId}/units`]
+      filter: o.filter, ...paging }, 'GET', `/api/documents/${segment(docId)}/units`]
     case 'unit': return ['getUnit', { unitId: required(unitId, 'unit ID'), targetLang: required(targetLang, '--target-lang') },
-      'GET', `/api/units/${unitId}`]
+      'GET', `/api/units/${segment(unitId)}`]
     case 'revisions': return ['listRevisions', { unitId: required(unitId, 'unit ID'), targetLang: required(targetLang, '--target-lang'), ...paging },
-      'GET', `/api/units/${unitId}/revisions`]
+      'GET', `/api/units/${segment(unitId)}/revisions`]
     case 'edit': return ['writeRevision', { unitId: required(unitId, 'unit ID'), targetLang: required(targetLang, '--target-lang'),
-      text: required(o.text, '--text'), baseRevisionId: o['base-revision'] ?? null }, 'PATCH', `/api/units/${unitId}`]
+      text: required(o.text, '--text'), baseRevisionId: o['base-revision'] ?? null }, 'PATCH', `/api/units/${segment(unitId)}`]
     case 'accept': return ['acceptRevision', { revisionId: required(args[0], 'revision ID'),
-      expectedAcceptedRevisionId: o['expected-accepted'] ?? null }, 'POST', `/api/revisions/${args[0]}/accept`]
+      expectedAcceptedRevisionId: o['expected-accepted'] ?? null }, 'POST', `/api/revisions/${segment(args[0])}/accept`]
     case 'unaccept': return ['unaccept', { unitId: required(unitId, 'unit ID'), targetLang: required(targetLang, '--target-lang'),
-      expectedAcceptedRevisionId: o['expected-accepted'] ?? null }, 'POST', `/api/units/${unitId}/unaccept`]
+      expectedAcceptedRevisionId: o['expected-accepted'] ?? null }, 'POST', `/api/units/${segment(unitId)}/unaccept`]
     case 'translate': return ['translate', { docId: required(docId, 'document ID'), targetLang: required(targetLang, '--target-lang'),
-      mode: o.mode, unitIds: o.units?.split(',') }, 'POST', `/api/documents/${docId}/translate`]
+      mode: o.mode, unitIds: o.units?.split(',') }, 'POST', `/api/documents/${segment(docId)}/translate`]
     case 'export': {
       const formats = required(o.format, '--format').split(',')
       if ((o.out || o.adapter) && formats.length !== 1)
@@ -98,23 +99,23 @@ function route(command, args, o) {
       targetLang: o['content-mode'] === 'source' ? targetLang : required(targetLang, '--target-lang'),
       outputs: formats.map(format => ({ format, ...(o.adapter ? { adapterId: o.adapter } : {}),
         ...(o.out ? { out: o.out } : {}) })),
-      snapshotId: o.snapshot, onMissingAccepted: o['on-missing-accepted'] }, 'POST', `/api/documents/${docId}/export`]
+      snapshotId: o.snapshot, onMissingAccepted: o['on-missing-accepted'] }, 'POST', `/api/documents/${segment(docId)}/export`]
     }
     case 'snapshots': return args[1] === 'delete' ? ['deleteSnapshot',
       { docId: required(docId, 'document ID'), snapshotId: required(args[2], 'snapshot ID') },
-      'DELETE', `/api/documents/${docId}/snapshots/${args[2]}`] : args[1] ? ['getSnapshot', { docId: required(docId, 'document ID'), snapshotId: args[1] },
-      'GET', `/api/documents/${docId}/snapshots/${args[1]}`] :
-      ['listSnapshots', { docId: required(docId, 'document ID'), targetLang, ...paging }, 'GET', `/api/documents/${docId}/snapshots`]
+      'DELETE', `/api/documents/${segment(docId)}/snapshots/${segment(args[2])}`] : args[1] ? ['getSnapshot', { docId: required(docId, 'document ID'), snapshotId: args[1] },
+      'GET', `/api/documents/${segment(docId)}/snapshots/${segment(args[1])}`] :
+      ['listSnapshots', { docId: required(docId, 'document ID'), targetLang, ...paging }, 'GET', `/api/documents/${segment(docId)}/snapshots`]
     case 'artifacts': return args[1] === 'delete' ? ['deleteArtifact',
       { docId: required(docId, 'document ID'), artifactId: required(args[2], 'artifact ID'), fileAction: o['file-action'] },
-      'DELETE', `/api/documents/${docId}/artifacts/${args[2]}`] : args[1] === 'cleanup' ?
+      'DELETE', `/api/documents/${segment(docId)}/artifacts/${segment(args[2])}`] : args[1] === 'cleanup' ?
       ['listArtifactCleanup', { docId: required(docId, 'document ID'), ...paging }, 'GET',
-        `/api/documents/${docId}/artifact-cleanup`] :
-      ['listArtifacts', { docId: required(docId, 'document ID'), ...paging }, 'GET', `/api/documents/${docId}/artifacts`]
+        `/api/documents/${segment(docId)}/artifact-cleanup`] :
+      ['listArtifacts', { docId: required(docId, 'document ID'), ...paging }, 'GET', `/api/documents/${segment(docId)}/artifacts`]
     case 'tasks': return ['listTasks', { ...paging, state: o.state, kind: o.kind }, 'GET', '/api/tasks']
-    case 'task': return ['getTask', { taskId: required(taskId, 'task ID') }, 'GET', `/api/tasks/${taskId}`]
+    case 'task': return ['getTask', { taskId: required(taskId, 'task ID') }, 'GET', `/api/tasks/${segment(taskId)}`]
     case 'pause': case 'resume': case 'cancel': case 'abandon': return [`${command}Task`, { taskId: required(taskId, 'task ID') },
-      'POST', `/api/tasks/${taskId}/${command}`]
+      'POST', `/api/tasks/${segment(taskId)}/${command}`]
     case 'settings': return args[0] === 'credential' ? ['setCredential',
       { ref: required(o.ref, '--ref'), value: required(o.value, '--value') }, 'PUT', '/api/settings/credentials'] :
       o.set ? ['updateSettings', parseSettingsJson(o.set), 'PATCH', '/api/settings/modelconfig'] :
@@ -179,7 +180,7 @@ async function invokeRemote(base, method, path, params, signal) {
 }
 async function waitForTask(invoke, taskId) {
   while (true) {
-    const body = await invoke('getTask', { taskId }, 'GET', `/api/tasks/${taskId}`)
+    const body = await invoke('getTask', { taskId }, 'GET', `/api/tasks/${segment(taskId)}`)
     const task = body.task
     if (!task) return body
     if (['succeeded', 'failed', 'canceled', 'abandoned', 'paused'].includes(task.state)) return body
@@ -317,7 +318,7 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
       stdout.write(`${serialize(result)}\n`)
       if (o['no-wait']) return 0
       while (true) {
-        const state = await invoke('componentTask', { taskId: result.taskId }, 'GET', `/api/components/tasks/${result.taskId}`)
+        const state = await invoke('componentTask', { taskId: result.taskId }, 'GET', `/api/components/tasks/${segment(result.taskId)}`)
         if (!['queued', 'running', 'stopping'].includes(state.task.state)) {
           stdout.write(`${serialize(state)}\n`)
           return state.task.state === 'completed' ? 0 : state.task.state === 'killed' ? 5 : 4

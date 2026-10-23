@@ -48,7 +48,7 @@ export const OperationTools = {
     const operations = ctx.get('ivoraige.operations')
     const active = new Map()
     const sync = () => {
-      const wanted = new Map(catalog.list({ availableOnly: true }).map(entry => {
+      const wanted = new Map(catalog.list().map(entry => {
         const [alias, description] = aliases[entry.id] ?? [`op_${entry.id}`, entry.description || `Run ${entry.id}.`]
         return [`ivoraige_${alias}`, { entry, description }]
       }))
