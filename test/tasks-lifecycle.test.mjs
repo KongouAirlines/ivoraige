@@ -80,18 +80,21 @@ test('direct root disposal aborts running work and startup recovery pauses it', 
 
 test('task plugin unload aborts work and detaches its controller', async t => {
   const f = await fixture(t)
+  assert.equal(f.tasks.jobs.hub.unscoped.size, 1)
   const waiting = assert.rejects(f.tasks.wait(f.taskId), { code: 'PRECONDITION_FAILED' })
   await f.tasksFiber.dispose()
   await waiting
   assert.equal(aborts, 1)
   assert.equal(f.records.getTask(f.taskId).state, 'running')
   assert.equal(f.tasks.jobs.servesOwner(undefined), false)
+  assert.equal(f.tasks.jobs.hub.unscoped.size, 0)
   await f.tasks.shutdown()
   assert.equal(aborts, 1)
   const remounted = f.ctx.plugin(Tasks)
   await remounted
   await f.ctx.get('ivoraige.tasks').ready
   assert.equal(f.records.getTask(f.taskId).state, 'paused')
+  assert.equal(f.tasks.jobs.hub.unscoped.size, 1)
 })
 
 test('records plugin unload waits for dependent tasks before closing its domain', async t => {
