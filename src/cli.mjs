@@ -84,7 +84,9 @@ function route(command, args, o) {
       const formats = required(o.format, '--format').split(',')
       if (o.out && formats.length !== 1)
         throw new KernelError('INVALID_ARGUMENT', '--out requires exactly one --format')
-      return ['exportDocument', { docId: required(docId, 'document ID'), targetLang: required(targetLang, '--target-lang'),
+      return ['exportDocument', { docId: required(docId, 'document ID'),
+      contentMode: o['content-mode'],
+      targetLang: o['content-mode'] === 'source' ? targetLang : required(targetLang, '--target-lang'),
       outputs: formats.map(format => ({ format, ...(o.out ? { out: o.out } : {}) })),
       snapshotId: o.snapshot, onMissingAccepted: o['on-missing-accepted'] }, 'POST', `/api/documents/${docId}/export`]
     }

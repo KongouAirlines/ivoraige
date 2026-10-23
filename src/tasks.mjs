@@ -171,7 +171,7 @@ export class Tasks extends Service {
   async exportDocument(docId, options) {
     await this.ready
     if (this.closing) throw new KernelError('PRECONDITION_FAILED', 'Task service is closing')
-    const { targetLang, outputs, snapshotId, onMissingAccepted } = structuredClone(options)
+    const { contentMode = 'accepted-translation', targetLang, outputs, snapshotId, onMissingAccepted } = structuredClone(options)
     if (!Array.isArray(outputs) || !outputs.length || outputs.some(item => !item || typeof item.format !== 'string')) {
       throw new KernelError('INVALID_ARGUMENT', 'outputs must contain requested formats')
     }
@@ -187,7 +187,10 @@ export class Tasks extends Service {
     const admission = (async () => {
       const created = !snapshotId
       const snapshot = snapshotId ? this.records.getSnapshot(docId, snapshotId) :
-        await this.records.createSnapshot(docId, { targetLang, onMissingAccepted: onMissingAccepted ?? 'fail' })
+        await this.records.createSnapshot(docId, { contentMode, targetLang,
+          onMissingAccepted: onMissingAccepted ?? 'fail' })
+      if ((snapshot.contentMode ?? 'accepted-translation') !== contentMode || snapshot.targetLang !== targetLang)
+        throw new KernelError('PRECONDITION_FAILED', 'Export snapshot mode or target language mismatch')
       let release
       let admitted = false
       let admissionError
@@ -345,7 +348,9 @@ export class Tasks extends Service {
         if (task.kind === 'export') {
           const exporter = this.ctx.get('ivoraige.export')
           if (!exporter) throw new KernelError('COMPONENT_MISSING', 'Install an export service before exporting')
-          await exporter.exportDocument(task.docId, { targetLang: task.targetLang,
+          const snapshot = this.records.getSnapshot(task.docId, task.snapshotId)
+          await exporter.exportDocument(task.docId, { contentMode: snapshot.contentMode ?? 'accepted-translation',
+            targetLang: task.targetLang,
             snapshotId: task.snapshotId, outputs: [task.outputs[index]], taskId, outputIndex: index,
             signal: controller.signal })
           task = this.records.getTask(taskId)

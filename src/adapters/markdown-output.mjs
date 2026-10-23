@@ -24,7 +24,7 @@ export function renderMarkdown({ sourceBinding, units }) {
     const item = byOrder.get(span.order)
     const original = sourceBinding.raw.slice(span.start, span.end)
     if (!item || item.unit.sourceText !== original || !item.unit.translatable ||
-        !['revision', 'skip', 'keepOriginal'].includes(item.decision.type)) {
+        !['revision', 'skip', 'keepOriginal', 'source'].includes(item.decision.type)) {
       throw new KernelError('PRECONDITION_FAILED', 'Frozen Markdown unit does not match its source span')
     }
     let replacement = original
