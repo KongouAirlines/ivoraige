@@ -14,6 +14,8 @@ const language = value => typeof value === 'string' && value !== 'auto' &&
 const required = (condition, message) => { if (!condition) throw new KernelError('INVALID_ARGUMENT', message) }
 const missing = (kind, value) => { throw new KernelError('NOT_FOUND', `${kind} not found`, { [kind]: value }) }
 const keyFor = (unitId, targetLang) => `${unitId}\u0000${targetLang}`
+const sourceIdentity = (format, language, units, chapters, resources) =>
+  digest({ format, language, units, chapters, resources })
 const activeTask = state => ['queued', 'running', 'paused'].includes(state)
 const taskSchema = z.object({
   id: z.string(), kind: z.literal('translate'), docId: z.string(), targetLang: z.string(),
@@ -137,9 +139,13 @@ export class Records {
         { schemaVersion: current.schemaVersion, sourceIRVersion: current.sourceIR?.version })
       let next = transform(current)
       if ((current.schemaVersion ?? 1) === 1) {
+        const units = current.units.map(({ id: unitId, docId: owner, ...unit }) => unit)
+        const reconstructable = ['txt', 'md'].includes(current.document.format)
         next = { ...next, schemaVersion: 2, sourceIR: next.sourceIR ?? { version: 1, legacy: true,
-          identity: digest({ format: current.document.format, language: current.document.language,
-            units: current.units.map(({ id: unitId, docId: owner, ...unit }) => unit) }) } }
+          identityScope: reconstructable ? 'reconstructed-text' : 'approximate-legacy',
+          identity: reconstructable
+            ? sourceIdentity(current.document.format, current.document.language, units, [], [])
+            : digest({ format: current.document.format, language: current.document.language, units }) } }
       }
       assertJson(next)
       recordSchema.parse(next)
@@ -265,8 +271,8 @@ export class Records {
       ['id', 'mediaType', 'contentDigest', 'version'].filter(key => resource[key] !== undefined)
         .map(key => [key, resource[key]])))
     const sourceIR = { version: 1, units: clone(parsed.units), chapters: clone(parsed.chapters ?? []),
-      resources: clone(resources), identity: digest({ format: parsed.format, language: sourceLang,
-        units: parsed.units, chapters: parsed.chapters ?? [], resources }) }
+      resources: clone(resources), identity: sourceIdentity(parsed.format, sourceLang,
+        parsed.units, parsed.chapters ?? [], resources) }
     const record = { schemaVersion: 2, sourceIR, document, fingerprint, sourceBinding: clone(parsed.sourceBinding),
       sourceBindingRef: digest({ docId, fingerprint, binding: parsed.sourceBinding }),
       sourceBindingDigest: digest(parsed.sourceBinding),
