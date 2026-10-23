@@ -97,7 +97,7 @@ export class Operations extends Service {
           (p.format ? (adapter.formats ?? [adapter.id]).includes(p.format) :
             adapter.match({ path: p.path }) > 0))
         const candidates = matching.filter(adapter => p.adapterId !== undefined ||
-          !['unavailable', 'disabled', 'failed'].includes(adapter.status?.().state))
+          adapter.status?.().state !== 'unavailable')
         // Preserve the 0.1.0 queued PDF wire response when its optional
         // component is absent; installed adapters use their own descriptor.
         const legacyPdf = p.adapterId === undefined && !matching.length &&
