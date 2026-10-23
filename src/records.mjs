@@ -131,7 +131,11 @@ export class Records {
       let next = transform(current)
       if ((current.schemaVersion ?? 1) === 1) {
         const units = current.units.map(({ id: unitId, docId: owner, ...unit }) => unit)
-        const reconstructable = ['txt', 'md'].includes(current.document.format)
+        const binding = current.sourceBinding
+        const reconstructable = (current.document.format === 'txt' && binding?.adapterId === 'txt' &&
+          Object.keys(binding).length === 1) ||
+          (current.document.format === 'md' && binding?.adapterId === 'markdown' &&
+            typeof binding.raw === 'string' && Array.isArray(binding.spans))
         next = { ...next, schemaVersion: 2, sourceIR: next.sourceIR ?? { version: 1, legacy: true,
           identityScope: reconstructable ? 'reconstructed-text' : 'approximate-legacy',
           identity: reconstructable
