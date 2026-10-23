@@ -57,6 +57,30 @@ original error without advancing either revision.
   1/1 passed. The full affected suites had passed immediately before those
   additional assertions; a later full run is pending stack integration.
 
+## #46 CAS review correction — native DSH settings conflicts
+
+DSH can raise `SettingsConflictError` with code `SETTINGS_CONFLICT` when its
+settings revision changes between the entry precheck and the actual mutate.
+The settings boundary now converts that native error to public `CONFLICT` and
+preserves its `expected` and `actual` revisions. A first-write race returns
+HTTP 409 / CLI exit 3 without a route partial-save marker. If the route write
+has already persisted, a second-write race also returns `CONFLICT`, with the
+same expected/actual pair plus `details.partialSave` and the durable route
+revision. Validation failures after that first write remain
+`UPSTREAM_FAILURE`; ordinary first-write `EIO` remains unchanged.
+
+Tests use the real pinned DSH `settings.mutate` to perform a competing write
+inside the mutation hook, then let the requested write reach DSH with its
+stale revision. `test/model-settings.test.mjs` checks both stages and stored
+state. `test/mcp.test.mjs` checks six combinations of the two stages and HTTP,
+remote CLI, and installed MCP, including the first-write no-route result and
+the second-write persisted route and partial-save details.
+
+- `node --test --test-name-pattern='(native DSH|DSH validation in the second settings write|settings errors map consistently)' test/model-settings.test.mjs test/mcp.test.mjs`:
+  4/4 passed, using a worktree-local temporary directory and local loopback.
+  This is focused evidence; stack-level full tests and PR CI are tracked
+  separately.
+
 ## Q03 review correction — nullable and withheld compat fields
 
 Review reproduced two synthetically configured inputs, `compat: { supportsStore: null }` and `compat: { openRouterRouting: {} }`, with an otherwise valid `openai-completions` route. At `91c9aa3`, each raised a plain DSH resolver `Error` and mapped to `INTERNAL`; neither changed routes or revisions. The pinned DSH schemastery config accepts nullable member values and undeclared keys before its resolver rejects them. Its compat gate offers `supportsStore` and withholds `openRouterRouting`.

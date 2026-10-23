@@ -119,6 +119,72 @@ test('settings errors map consistently through HTTP, CLI and installed MCP tools
   assert.equal(JSON.parse(out).error.code, 'COMPONENT_MISSING')
 })
 
+test('native DSH settings CAS races reach HTTP, remote CLI and MCP as conflicts', async t => {
+  const f = await fixture(t, { settingsDir: true })
+  const connection = await f.connect()
+  const original = f.app.ctx.settings.mutate
+  await original.call(f.app.ctx.settings, 'ivoraige-model',
+    [{ op: 'set', path: ['timeoutMs'], value: 120001 }], 0)
+  for (const phase of ['routes', 'selected']) for (const entry of ['http', 'cli', 'mcp']) {
+    const before = await f.app.settings.get()
+    const input = {
+      provider: `cas-${phase}-${entry}`, model: 'science', api: 'openai-completions',
+      baseURL: 'http://127.0.0.1:9999/v1', contextWindow: 8192, maxTokens: 512,
+      routesRevision: before.revisions.routes, selectedRevision: before.revisions.selected,
+    }
+    let raced = false
+    const mutation = t.mock.method(f.app.ctx.settings, 'mutate', async function (namespace, ...args) {
+      if (namespace === (phase === 'routes' ? 'llm-pi-ai' : 'ivoraige-model') && !raced) {
+        raced = true
+        if (phase === 'routes') {
+          await original.call(this, namespace,
+            [{ op: 'set', path: ['providers', `racer-${entry}`], value: {
+              api: 'openai-completions', baseURL: 'http://127.0.0.1:9998/v1',
+              models: [{ id: 'science', contextWindow: 8192, maxTokens: 512 }],
+            } }], before.revisions.routes)
+        } else {
+          await original.call(this, namespace,
+            [{ op: 'set', path: ['timeoutMs'], value: 130001 + before.revisions.selected }], before.revisions.selected)
+        }
+      }
+      return original.call(this, namespace, ...args)
+    })
+    let error
+    if (entry === 'http') {
+      const response = await fetch(`${f.server.url}/api/settings/modelconfig`, {
+        method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input),
+      })
+      assert.equal(response.status, 409)
+      error = (await response.json()).error
+    } else if (entry === 'cli') {
+      let output = ''
+      const exit = await runCli(['--url', f.server.url, '--json', 'settings', '--set', JSON.stringify(input)], {
+        stdout: { write(chunk) { output += chunk } }, stderr: { write() {} },
+      })
+      assert.equal(exit, 3)
+      error = JSON.parse(output).error
+    } else {
+      error = await failure(connection, 'settings_update', input, 'CONFLICT')
+    }
+    mutation.mock.restore()
+    assert.equal(error.code, 'CONFLICT')
+    assert.equal(error.details.expected, before.revisions[phase])
+    assert.equal(error.details.actual, before.revisions[phase] + 1)
+    const after = await f.app.settings.get()
+    assert.equal(after.revisions.routes, before.revisions.routes + 1)
+    assert.equal(after.revisions.selected, before.revisions.selected + (phase === 'selected' ? 1 : 0))
+    if (phase === 'selected') {
+      assert.equal(error.details.partialSave.persisted, 'routes')
+      assert.equal(error.details.partialSave.failed, 'selected')
+      assert.equal(error.details.partialSave.revisions.routes, after.revisions.routes)
+      assert.ok(after.routes[input.provider])
+    } else {
+      assert.equal(error.details.partialSave, undefined)
+      assert.equal(after.routes[input.provider], undefined)
+    }
+  }
+})
+
 test('SDK HTTP clients share documents, frozen outputs, and durable tasks', async t => {
   const f = await fixture(t)
   const first = await f.connect()

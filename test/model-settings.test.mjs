@@ -395,3 +395,54 @@ test('DSH validation in the second settings write reports a durable partial save
   ioWrite.mock.restore()
   assert.deepEqual((await app.settings.get()).revisions, after.revisions)
 })
+
+test('native DSH CAS races map to public conflicts at both settings writes', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-settings-cas-'))
+  const app = await bootModelSettings({ directory })
+  t.after(async () => { await app.dispose(); await rm(directory, { recursive: true, force: true }) })
+  const original = app.ctx.settings.mutate
+  await original.call(app.ctx.settings, 'ivoraige-model', [{ op: 'set', path: ['timeoutMs'], value: 120001 }], 0)
+  for (const phase of ['routes', 'selected']) {
+    const before = await app.settings.get()
+    let raced = false
+    const mutation = t.mock.method(app.ctx.settings, 'mutate', async function (namespace, ...args) {
+      if (namespace === (phase === 'routes' ? 'llm-pi-ai' : 'ivoraige-model') && !raced) {
+        raced = true
+        if (phase === 'routes') {
+          await original.call(this, namespace,
+            [{ op: 'set', path: ['providers', 'racer'], value: {
+              api: 'openai-completions', baseURL: 'http://127.0.0.1:9998/v1',
+              models: [{ id: 'science', contextWindow: 8192, maxTokens: 512 }],
+            } }], before.revisions.routes)
+        } else {
+          await original.call(this, namespace,
+            [{ op: 'set', path: ['timeoutMs'], value: 130001 + before.revisions.selected }], before.revisions.selected)
+        }
+      }
+      return original.call(this, namespace, ...args)
+    })
+    await assert.rejects(app.settings.update({
+      provider: 'local', model: 'science', api: 'openai-completions',
+      baseURL: 'http://127.0.0.1:9999/v1', contextWindow: 8192, maxTokens: 512,
+      routesRevision: before.revisions.routes, selectedRevision: before.revisions.selected,
+    }), error => {
+      assert.equal(error.code, 'CONFLICT')
+      assert.equal(errorEnvelope(error).status, 409)
+      assert.equal(errorEnvelope(error).exitCode, 3)
+      assert.equal(error.details.expected, before.revisions[phase])
+      assert.equal(error.details.actual, before.revisions[phase] + 1)
+      if (phase === 'selected') assert.deepEqual(error.details.partialSave, {
+        persisted: 'routes', failed: 'selected',
+        revisions: { routes: before.revisions.routes + 1 },
+      })
+      else assert.equal(error.details.partialSave, undefined)
+      return true
+    })
+    mutation.mock.restore()
+    const after = await app.settings.get()
+    assert.equal(after.revisions.routes, before.revisions.routes + 1)
+    assert.equal(after.revisions.selected, before.revisions.selected + (phase === 'selected' ? 1 : 0))
+    assert.equal(Boolean(after.routes.local), phase === 'selected')
+    assert.deepEqual(after.selected, before.selected)
+  }
+})

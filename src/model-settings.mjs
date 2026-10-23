@@ -41,6 +41,10 @@ function validateCompat(value) {
 }
 
 function settingsError(error) {
+  if (error?.name === 'SettingsConflictError' && error.code === 'SETTINGS_CONFLICT') {
+    return new KernelError('CONFLICT', 'Model settings changed',
+      { expected: error.expected, actual: error.actual }, { cause: error })
+  }
   if (error?.name === 'ValidationError') {
     return new KernelError('INVALID_ARGUMENT', 'Invalid model settings', {}, { cause: error })
   }
@@ -292,9 +296,9 @@ export class ModelSettings extends Service {
       if (!routePersisted) throw settingsError(error)
       let revision = null
       try { revision = this.ctx.settings.describe().find(row => row.ns === ROUTES_NS)?.revision ?? null } catch {}
-      const conflict = error instanceof KernelError && error.code === 'CONFLICT' ?
-        { expected: error.details?.expected, actual: error.details?.actual } : {}
       const mapped = settingsError(error)
+      const conflict = mapped instanceof KernelError && mapped.code === 'CONFLICT' ?
+        { expected: mapped.details?.expected, actual: mapped.details?.actual } : {}
       // The first write is durable: a later validation failure is a partial
       // upstream failure, not an invalid request that left settings untouched.
       throw new KernelError(mapped instanceof KernelError && isPublicErrorCode(mapped.code) &&
