@@ -39,10 +39,10 @@ XLSX 选区字符串及 shared-string 上下文、文本类型保护。
 受约束来源/交接/方案/任务/产物/幂等/权限契约，共用 API 与可调用方案发布，OpenAI/MCP 等薄投影。按下列子交付分别认领和验收；Zotero 与 KT 同级高优先，互不作为完成前置。
 
 - 不做：不将 origin 枚举当实现，不自动取首附件，不要求旧四模式全交付，不开宽权限端口。
-切片顺序与 issue 分工见[共用外部 API 路线](../external-api.md#依赖与可审阅切片)。
-
 - 验收：[I01 专项](../validation/formats-integrations.md#i01)，并通过 [I-V01](../validation.md#i-v01)。
 - 回退：禁用桥接保留本地数据；外部写入有收据，撤回另作明确动作。
+
+切片顺序与 issue 分工见[共用外部 API 路线](../external-api.md#依赖与可审阅切片)。
 
 ### 共享子交付
 
