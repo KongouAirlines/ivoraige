@@ -123,8 +123,10 @@ export class Operations extends Service {
           adapter.status?.().state !== 'unavailable')
         // Preserve the 0.1.0 queued PDF wire response when its optional
         // component is absent; installed adapters use their own descriptor.
-        const legacyPdf = p.adapterId === undefined && !matching.length &&
+        const legacyPdf = p.adapterId === undefined && !candidates.length &&
           (p.format === 'pdf' || /\.pdf$/i.test(p.path ?? ''))
+        if (legacyPdf && matching.some(adapter => adapter.status?.().state === 'unavailable'))
+          throw new KernelError('COMPONENT_MISSING', 'PDF source adapter is unavailable')
         let content
         if (p.contentBase64 !== undefined) {
           if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(p.contentBase64)) {

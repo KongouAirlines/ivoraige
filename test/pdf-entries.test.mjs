@@ -75,6 +75,18 @@ test('PDF component status changes from unchecked to unavailable without disabli
   assert.equal(after.components.babeldoc.state, 'unavailable')
   assert.ok(!after.inputFormats.includes('pdf'))
   assert.ok(!after.outputFormats.includes('pdf'))
+  for (const input of [
+    { path: join(dir, 'unavailable.pdf') },
+    { format: 'pdf', contentBase64: Buffer.from([0x25, 0x50, 0x44, 0x46, 0xff]).toString('base64') },
+  ]) {
+    try {
+      const pending = await app.operations.invoke('importDocument', { ...input, language: 'en' })
+      assert.ok(pending.taskId)
+      assert.equal((await app.tasks.wait(pending.taskId)).state, 'failed')
+    } catch (error) {
+      assert.equal(error.code, 'COMPONENT_MISSING')
+    }
+  }
   const text = await app.operations.invoke('importDocument', { format: 'txt', language: 'en',
     contentBase64: Buffer.from('Text remains available.').toString('base64') })
   assert.equal(text.document.format, 'txt')
