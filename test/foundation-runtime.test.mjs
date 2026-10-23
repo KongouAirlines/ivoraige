@@ -133,3 +133,71 @@ test('job waits have one total deadline for nonterminal and unresponsive provide
   }
   assert.equal((await waitForJob({ wait: async () => ({ status: 'completed' }) }, 'done', 30)).status, 'completed')
 })
+
+test('pause, cancel and close win a race with saturated job admission', { timeout: 10_000 }, async t => {
+  for (const action of ['pause', 'cancel', 'close']) await t.test(action, async t => {
+    const root = await directory(t)
+    const app = await createApp({ store: join(root, 'records.sqlite') })
+    const entered = deferred(), release = deferred(), installation = deferred()
+    t.after(async () => {
+      release.resolve(); installation.resolve({ status: 'completed' })
+      await app.dispose(); await rm(root, { recursive: true, force: true })
+    })
+    const jobs = app.ctx.get('jobs')
+    jobs.start({ kind: 'component-install', label: 'Held install',
+      run: () => ({ done: installation.promise, cancel: () => installation.resolve({ status: 'killed' }) }) })
+    const { document } = await app.records.importDocument({ format: 'txt', content: 'Source.' },
+      { sourceId: action, language: 'en' })
+    const update = app.records.updateTask.bind(app.records)
+    app.records.updateTask = async (...args) => {
+      const result = await update(...args)
+      if (result.state === 'running') { entered.resolve(); await release.promise }
+      return result
+    }
+    const { taskId } = await app.tasks.submit(document.id, { targetLang: 'zh' })
+    await entered.promise
+    const changing = action === 'close' ? app.tasks.close() : app.tasks[action](taskId)
+    // pause/cancel first read the task through ready's continuation.
+    await Promise.resolve()
+    release.resolve()
+    await changing
+    assert.equal((await app.tasks.get(taskId)).state, action === 'cancel' ? 'canceled' : 'paused')
+    assert.equal((await app.tasks.get(taskId)).stats.llmCalls, 0)
+    assert.equal(app.tasks.queue.includes(taskId), false)
+  })
+})
+
+test('control intent survives the in-flight quota deferral write', { timeout: 10_000 }, async t => {
+  for (const action of ['pause', 'cancel', 'close']) await t.test(action, async t => {
+    const root = await directory(t)
+    const app = await createApp({ store: join(root, 'records.sqlite') })
+    const entered = deferred(), release = deferred(), installation = deferred()
+    t.after(async () => {
+      release.resolve(); installation.resolve({ status: 'completed' })
+      await app.dispose(); await rm(root, { recursive: true, force: true })
+    })
+    app.ctx.get('jobs').start({ kind: 'component-install', label: 'Held install',
+      run: () => ({ done: installation.promise, cancel: () => installation.resolve({ status: 'killed' }) }) })
+    const { document } = await app.records.importDocument({ format: 'txt', content: 'Source.' },
+      { sourceId: `write-${action}`, language: 'en' })
+    const update = app.records.updateTask.bind(app.records)
+    app.records.updateTask = async (taskId, transform) => {
+      if (!app.tasks.quotaBlocked) return update(taskId, transform)
+      // Capture the transform's result while the visible record is running,
+      // then defer its commit. Intent arrives after the transform read flags.
+      const next = transform(app.records.getTask(taskId))
+      entered.resolve()
+      await release.promise
+      return update(taskId, () => next)
+    }
+    const { taskId } = await app.tasks.submit(document.id, { targetLang: 'zh' })
+    await entered.promise
+    const changing = action === 'close' ? app.tasks.close() : app.tasks[action](taskId)
+    await Promise.resolve()
+    release.resolve()
+    await changing
+    assert.equal((await app.tasks.get(taskId)).state, action === 'cancel' ? 'canceled' : 'paused')
+    assert.equal((await app.tasks.get(taskId)).stats.llmCalls, 0)
+    assert.equal(app.tasks.queue.includes(taskId), false)
+  })
+})

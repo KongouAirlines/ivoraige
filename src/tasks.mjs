@@ -271,11 +271,28 @@ export class Tasks extends Service {
         live.markStarted()
         // Both consumers use DSH's unowned bucket. Saturation is admission
         // backpressure, before a producer or model has run. Retry on settlement.
-        if (!live.jobId && /background job limit reached/.test(error.message) && !this.closing) {
+        if (!live.jobId && /background job limit reached/.test(error.message) && !this.tearingDown) {
+          const desiredState = () => live.cancel || (this.closing && task.kind === 'import') ? 'canceled'
+            : live.pause || this.closing ? 'paused' : 'queued'
           this.quotaBlocked = true
           this.queue.unshift(taskId)
-          await this.records.updateTask(taskId, current => current.state === 'running'
-            ? { ...current, state: 'queued', progress: { ...current.progress, stage: 'queued' } } : current)
+          const defer = current => {
+            const state = desiredState()
+            return { ...current, state, progress: { ...current.progress, stage: state } }
+          }
+          let deferred = await this.records.updateTask(taskId, current => current.state === 'running' ? defer(current) : current)
+          // Intent can arrive while the storage commit is in flight, after
+          // its transform already read the live flags. Reconcile before dropping live.
+          while (['queued', 'paused'].includes(deferred.state) && desiredState() !== 'queued' && deferred.state !== desiredState()) {
+            deferred = await this.records.updateTask(taskId, current =>
+              ['queued', 'paused'].includes(current.state) ? defer(current) : current)
+          }
+          if (deferred.state !== 'queued') {
+            this.quotaBlocked = false
+            this.queue = this.queue.filter(id => id !== taskId)
+            this.emit(`task.${deferred.state}`, { taskId })
+            this.settle(deferred)
+          }
         } else if (!this.tearingDown && this.records.getTask(taskId).state === 'running') await this.fail(taskId, error)
       } finally {
         this.running = null
