@@ -13,6 +13,32 @@ const MODEL_NS = 'ivoraige-model'
 const ROUTES_NS = 'llm-pi-ai'
 const PROFILE_BUNDLE = 'ivoraige-model-settings'
 const DEFAULT_TIMEOUT_MS = 120_000
+// Offered route-level switches in the pinned DSH pi-ai compat gates. Its
+// schemastery schema passes null members and undeclared keys to resolution.
+const COMPAT_FIELDS = new Set([
+  'supportsStore', 'supportsDeveloperRole', 'supportsReasoningEffort',
+  'supportsUsageInStreaming', 'supportsFinishReason', 'maxTokensField',
+  'requiresToolResultName', 'requiresAssistantAfterToolResult', 'requiresThinkingAsText',
+  'requiresReasoningContentOnAssistantMessages', 'thinkingFormat', 'chatTemplateKwargs',
+  'chatTemplateArgs', 'supportsThinkingTokenBudget', 'thinkingTokenBudgetField',
+  'vllmPriority', 'supportsStrictMode', 'cacheControlFormat',
+  'supportsLongCacheRetention', 'supportsMaxOutputTokens',
+  'supportsEagerToolInputStreaming', 'supportsCacheControlOnTools',
+  'supportsTemperature', 'forceAdaptiveThinking', 'allowEmptySignature',
+  'supportsStrictTools',
+])
+
+function validateCompat(value) {
+  if (value === undefined || value === null || typeof value !== 'object' || Array.isArray(value)) return
+  for (const [field, setting] of Object.entries(value)) {
+    if (!COMPAT_FIELDS.has(field)) {
+      throw new KernelError('INVALID_ARGUMENT', 'compat contains a nonconfigurable field')
+    }
+    if (setting == null) {
+      throw new KernelError('INVALID_ARGUMENT', `compat.${field} must have a value`)
+    }
+  }
+}
 
 function settingsError(error) {
   if (error?.name === 'ValidationError') {
@@ -135,6 +161,7 @@ export class ModelSettings extends Service {
     if (typeof select !== 'boolean' || typeof selectOnly !== 'boolean') {
       throw new KernelError('INVALID_ARGUMENT', 'select and selectOnly must be booleans')
     }
+    validateCompat(compat)
     validateReasoningEfforts(reasoningEfforts)
     if (selectOnly && Object.keys(input).some(field => ![
       'provider', 'model', 'selectOnly', 'routesRevision', 'selectedRevision',

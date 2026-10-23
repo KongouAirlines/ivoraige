@@ -24,3 +24,15 @@ Model route edits are checked with the pinned DSH `LlmPiAi.Config` schema before
 - Initial default-concurrency `npm test` built successfully but three unrelated component/PDF cases hit 30-second timeouts under full parallel load. The bounded-concurrency run passed those same cases and the full suite. The targeted suites also passed independently.
 
 No paid model service or real user library was used; model tests used local fixtures.
+
+## Q03 review correction — nullable and withheld compat fields
+
+Review reproduced two synthetically configured inputs, `compat: { supportsStore: null }` and `compat: { openRouterRouting: {} }`, with an otherwise valid `openai-completions` route. At `91c9aa3`, each raised a plain DSH resolver `Error` and mapped to `INTERNAL`; neither changed routes or revisions. The pinned DSH schemastery config accepts nullable member values and undeclared keys before its resolver rejects them. Its compat gate offers `supportsStore` and withholds `openRouterRouting`.
+
+The model settings boundary now rejects null compat members and keys outside the pinned DSH offered compat vocabulary as `INVALID_ARGUMENT` before mutation. It continues using the DSH config schema for member types; unrelated resolver or infrastructure errors are not remapped as user input errors. Existing valid compat configurations still pass the full suite.
+
+- `npm run build`: passed at pinned DSH `639ed015397290b3745d163aafe02ffee4aa3f84`.
+- `node --test test/model-settings.test.mjs test/mcp.test.mjs`: 25/25 passed. The two inputs are checked for unchanged routes and revisions in the settings test and for `INVALID_ARGUMENT` through HTTP, remote CLI, and installed MCP tools.
+- `node --test --test-concurrency=4 test/*.test.mjs`: 264/264 passed.
+- A temporary, unchanged copy of `task-2/review46/probe-settings.mjs` run against this branch returned `INVALID_ARGUMENT` for both inputs, with `afterRoutes: {}` and `beforeRevisions` equal to `afterRevisions` (`routes: 0`, `selected: 0`). The copy was removed; the review probe was not edited.
+- `npm run smoke:package`: passed, including isolated tarball install, persisted settings, frozen snapshot/export, MCP, and UI smoke.
