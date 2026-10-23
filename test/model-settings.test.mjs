@@ -309,6 +309,8 @@ test('invalid DSH route values map to public argument errors without persisting 
   for (const changes of [
     { compat: 'invalid' },
     { compat: { supportsStore: 'yes' } },
+    { compat: { supportsStore: null } },
+    { compat: { openRouterRouting: {} } },
     { reasoningEfforts: ['low'] },
     { reasoningEfforts: {} },
     { reasoningEfforts: { low: null } },

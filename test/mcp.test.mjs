@@ -101,6 +101,8 @@ test('settings errors map consistently through HTTP, CLI and installed MCP tools
     assert.equal(JSON.parse(out).error.code, code)
   }
   await check({ ...base, compat: { supportsStore: 'yes' } }, 'INVALID_ARGUMENT', 400, 2)
+  await check({ ...base, compat: { supportsStore: null } }, 'INVALID_ARGUMENT', 400, 2)
+  await check({ ...base, compat: { openRouterRouting: {} } }, 'INVALID_ARGUMENT', 400, 2)
   await check({ ...base, reasoningEfforts: {} }, 'INVALID_ARGUMENT', 400, 2)
   assert.deepEqual((await f.app.settings.get()).routes, {})
 
