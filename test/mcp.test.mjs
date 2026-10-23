@@ -130,11 +130,20 @@ test('SDK HTTP clients share documents, frozen outputs, and durable tasks', asyn
   assert.match(unitTemplate.description, /targetLang.*required/)
   for (const name of ['capabilities', 'import', 'units_list', 'unit_update', 'revision_accept',
     'export', 'task_status', 'snapshots_list', 'artifacts_list']) assert.ok(names.includes(`ivoraige_${name}`), name)
-  assert.ok(!names.includes('ivoraige_settings_update'))
-  assert.ok(!names.includes('ivoraige_credential_set'))
-  assert.ok(!names.includes('ivoraige_component_install'))
+  // Known operations stay discoverable so later service mounts need no second
+  // tool registry. Absent dependencies must still reject before any mutation.
+  for (const [name, input] of [
+    ['settings_update', { provider: 'synthetic', model: 'synthetic' }],
+    ['credential_set', { ref: 'SYNTHETIC_KEY', value: 'synthetic-no-network' }],
+    ['component_install', { id: 'babeldoc' }],
+  ]) {
+    assert.ok(names.includes(`ivoraige_${name}`), name)
+    await failure(first, name, input, 'COMPONENT_MISSING')
+  }
 
   const capabilities = await call(first, 'capabilities')
+  for (const id of ['updateSettings', 'setCredential', 'componentInstall'])
+    assert.equal(capabilities.operations.find(operation => operation.id === id).available, false, id)
   assert.ok(capabilities.inputFormats.includes('txt'))
   assert.ok(capabilities.outputFormats.includes('md'))
   const imported = await call(first, 'import', upload('A measured result.\n\nA second result.'))
