@@ -12,6 +12,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { Service, z } from '../dist/dsh.mjs'
 import { createApp } from '../src/app.mjs'
 import { serve } from '../src/http.mjs'
+import { runCli } from '../src/cli.mjs'
 import { KernelError } from '../src/errors.mjs'
 import packageInfo from '../package.json' with { type: 'json' }
 
@@ -50,7 +51,8 @@ async function fixture(t, options = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-mcp-'))
   const store = join(directory, 'store.sqlite')
   const exportDir = join(directory, 'exports')
-  let app = await createApp({ store, exportDir, ...options })
+  const appOptions = { ...options, ...(options.settingsDir === true ? { settingsDir: join(directory, 'settings') } : {}) }
+  let app = await createApp({ store, exportDir, ...appOptions })
   let server = await serve(app, { port: 0 })
   const connections = []
   t.after(async () => {
@@ -73,11 +75,47 @@ async function fixture(t, options = {}) {
     async restart() {
       await Promise.all(connections.splice(0).map(connection => connection.close()))
       await server.close(); await app.dispose()
-      app = await createApp({ store, exportDir, ...options })
+      app = await createApp({ store, exportDir, ...appOptions })
       server = await serve(app, { port: 0 })
     },
   }
 }
+
+test('settings errors map consistently through HTTP, CLI and installed MCP tools', async t => {
+  const f = await fixture(t, { settingsDir: true })
+  const connection = await f.connect()
+  const base = { provider: 'local', model: 'science', api: 'openai-completions',
+    baseURL: 'http://127.0.0.1:9999/v1', contextWindow: 8192, maxTokens: 512 }
+  async function check(input, code, status, cliExit) {
+    const http = await fetch(`${f.server.url}/api/settings/modelconfig`, {
+      method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input),
+    })
+    assert.equal(http.status, status)
+    assert.equal((await http.json()).error.code, code)
+    await failure(connection, 'settings_update', input, code)
+    let out = ''
+    const exit = await runCli(['--url', f.server.url, '--json', 'settings', '--set', JSON.stringify(input)], {
+      stdout: { write(chunk) { out += chunk } }, stderr: { write() {} },
+    })
+    assert.equal(exit, cliExit)
+    assert.equal(JSON.parse(out).error.code, code)
+  }
+  await check({ ...base, compat: { supportsStore: 'yes' } }, 'INVALID_ARGUMENT', 400, 2)
+  await check({ ...base, reasoningEfforts: {} }, 'INVALID_ARGUMENT', 400, 2)
+  assert.deepEqual((await f.app.settings.get()).routes, {})
+
+  t.mock.method(f.app.ctx.settings, 'describe', () => [])
+  const http = await fetch(`${f.server.url}/api/settings/modelconfig`)
+  assert.equal(http.status, 503)
+  assert.equal((await http.json()).error.code, 'COMPONENT_MISSING')
+  await failure(connection, 'settings_get', {}, 'COMPONENT_MISSING')
+  let out = ''
+  const exit = await runCli(['--url', f.server.url, '--json', 'settings'], {
+    stdout: { write(chunk) { out += chunk } }, stderr: { write() {} },
+  })
+  assert.equal(exit, 3)
+  assert.equal(JSON.parse(out).error.code, 'COMPONENT_MISSING')
+})
 
 test('SDK HTTP clients share documents, frozen outputs, and durable tasks', async t => {
   const f = await fixture(t)
