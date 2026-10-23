@@ -1,13 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { createApp } from '../src/app.mjs'
 import { serve } from '../src/http.mjs'
 import { runCli } from '../src/cli.mjs'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
+import { managedPathKey, sameDirectory } from '../src/managed-path.mjs'
 
 async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), 'ivoraige-q02-'))
@@ -76,6 +77,65 @@ test('managed bytes require explicit deletion, pending cleanup is durable and re
   await assert.rejects(stat(item.path), { code: 'ENOENT' })
   assert.deepEqual(f.app.records.listArtifactCleanup(doc.id), [])
   await f.app.records.deleteSnapshot(doc.id, item.snapshotId)
+})
+
+test('managed directory identity and shared references follow aliases without admitting outside paths', async t => {
+  const f = await fixture(t)
+  const doc = await document(f.app)
+  const item = await artifact(f.app, doc)
+  const root = f.app.exporter.root
+  const alias = join(f.dir, 'export-alias')
+  await symlink(root, alias, process.platform === 'win32' ? 'junction' : 'dir')
+  const aliasPath = join(alias, basename(item.path))
+  assert.equal(await sameDirectory(alias, root), true)
+  assert.equal(managedPathKey(aliasPath), managedPathKey(item.path))
+  if (process.platform === 'win32') {
+    assert.equal(await sameDirectory(root.toUpperCase(), root), true)
+    assert.equal(managedPathKey(item.path.toUpperCase()), managedPathKey(item.path))
+  }
+  const upper = join(f.dir, 'CaseSensitive')
+  const lower = join(f.dir, 'casesensitive')
+  await mkdir(upper)
+  try { await mkdir(lower) } catch (error) { if (error.code !== 'EEXIST') throw error }
+  if ((await stat(upper)).ino !== (await stat(lower)).ino) {
+    assert.equal(await sameDirectory(upper, lower), false)
+    assert.notEqual(managedPathKey(join(upper, 'sample.md')),
+      managedPathKey(join(lower, 'sample.md')))
+  }
+  const other = await document(f.app, 'alias-shared')
+  const snapshot = await f.app.records.createSnapshot(other.id, { contentMode: 'source' })
+  const shared = await f.app.records.addArtifact(other.id, { snapshotId: snapshot.id,
+    format: 'md', path: aliasPath })
+  await assert.rejects(f.app.operations.invoke('deleteArtifact', { docId: doc.id,
+    artifactId: item.id, fileAction: 'delete-owned' }), { code: 'CONFLICT' })
+  await f.app.records.deleteArtifact(other.id, shared.id)
+  const outside = join(f.dir, 'outside.md')
+  const bytes = await readFile(item.path)
+  await writeFile(outside, bytes)
+  await assert.rejects(f.app.operations.removeOwnedFile(outside,
+    createHash('sha256').update(bytes).digest('hex')), { code: 'PRECONDITION_FAILED' })
+  f.app.exporter.root = alias
+  assert.equal((await f.app.operations.invoke('deleteArtifact', { docId: doc.id,
+    artifactId: item.id, fileAction: 'delete-owned' })).fileDeleted, true)
+  assert.equal((await readFile(outside)).equals(bytes), true)
+})
+
+test('missing managed exporter rejects physical deletion before a tombstone but permits record deletion', async t => {
+  const f = await fixture(t)
+  const doc = await document(f.app)
+  const item = await artifact(f.app, doc)
+  const ctx = f.app.operations.ctx
+  const originalGet = ctx.get
+  ctx.get = function (name) { return name === 'ivoraige.export' ? undefined : originalGet.call(this, name) }
+  try {
+    await assert.rejects(f.app.operations.invoke('deleteArtifact', { docId: doc.id,
+      artifactId: item.id, fileAction: 'delete-owned' }), { code: 'COMPONENT_MISSING' })
+    assert.equal(f.app.records.listArtifacts(doc.id).length, 1)
+    assert.deepEqual(f.app.records.listArtifactCleanup(doc.id), [])
+    assert.equal((await f.app.operations.invoke('deleteArtifact', { docId: doc.id,
+      artifactId: item.id })).fileDeleted, false)
+  } finally { ctx.get = originalGet }
+  assert.match(await readFile(item.path, 'utf8'), /Original text\./)
 })
 
 test('artifact read lease and shared path block owned-file deletion; external and legacy files stay protected', async t => {

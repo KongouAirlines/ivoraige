@@ -163,3 +163,26 @@ test('unknown storage domain version rejects before Records starts', async t => 
   await assert.rejects(f.reopen(), error => error.code === 'PRECONDITION_FAILED' && error.details?.version === 99)
   assert.equal(version(f.store), 99)
 })
+
+test('existing SQLite with incompatible pinned layout fails closed without materializing DSH tables', async t => {
+  const f = await fixture(t)
+  await f.close()
+  const db = new DatabaseSync(f.store)
+  try { db.exec('DROP TABLE u_ivoraige_records_imports') } finally { db.close() }
+  await assert.rejects(f.reopen(), { code: 'PRECONDITION_FAILED' })
+  const check = new DatabaseSync(f.store, { readOnly: true })
+  try { assert.equal(check.prepare("SELECT 1 FROM sqlite_master WHERE name = 'u_ivoraige_records_imports'").get(), undefined) }
+  finally { check.close() }
+})
+
+test('unrelated SQLite file is not mistaken for a fresh DSH store', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'ivoraige-incompatible-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  const store = join(dir, 'other.sqlite')
+  const db = new DatabaseSync(store)
+  try { db.exec('CREATE TABLE other (value TEXT)') } finally { db.close() }
+  await assert.rejects(createApp({ store }), { code: 'PRECONDITION_FAILED' })
+  const check = new DatabaseSync(store, { readOnly: true })
+  try { assert.equal(check.prepare("SELECT 1 FROM sqlite_master WHERE name = 'units'").get(), undefined) }
+  finally { check.close() }
+})

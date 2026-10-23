@@ -2,10 +2,11 @@
 // Copyright (c) 2026 ivoraige contributors; see LICENSE for the full notice.
 
 import { randomUUID } from 'node:crypto'
-import { resolve } from 'node:path'
 import { Service, StorageDomain, z } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
 import { basisFor, digest, sameBasis } from './basis.mjs'
+import { documentRequiresRetention, importRequiresRetention } from './retention-payload.mjs'
+import { managedPathKey } from './managed-path.mjs'
 
 const clone = value => structuredClone(value)
 const now = () => new Date().toISOString()
@@ -100,13 +101,6 @@ const importTaskSchema = operationTaskSchema.omit({ docId: true }).extend({ kind
 const spec = version => StorageDomain.defineDomain({ name: 'ivoraige_records', version, layout: 'per-record',
   tables: { documents: StorageDomain.domainTable(recordSchema), imports: StorageDomain.domainTable(importTaskSchema) } })
 
-function requiresRetention(record) {
-  return record.schemaVersion === 3 || (record.artifactCleanup?.length ?? 0) > 0 ||
-    record.artifacts?.some(artifact => artifact.managedFile) ||
-    record.tasks?.some(task => task.state === 'abandoned') ||
-    record.operationTasks?.some(task => task.state === 'abandoned')
-}
-
 export class Records {
   static inject = ['storageDomain']
 
@@ -166,7 +160,7 @@ export class Records {
       }
       assertJson(next)
       recordSchema.parse(next)
-      if (requiresRetention(next)) this.activateRetention()
+      if (documentRequiresRetention(next)) this.activateRetention()
       return next
     })
   }
@@ -476,7 +470,7 @@ export class Records {
         required(next.id === current.id && next.kind === 'import', 'Import task identity is immutable')
         assertJson(next)
         importTaskSchema.parse(next)
-        if (next.schemaVersion === 3 || next.state === 'abandoned') this.activateRetention()
+        if (importRequiresRetention(next)) this.activateRetention()
         return next
       })
       return clone(updated)
@@ -849,7 +843,7 @@ export class Records {
     return clone(artifact)
   }
   listArtifacts(docId) { return clone(this.record(docId).artifacts) }
-  pathKey(path) { const key = resolve(path); return process.platform === 'win32' ? key.toLowerCase() : key }
+  pathKey(path) { return managedPathKey(path) }
   cleanupForPath(key) {
     return [...this.table.entries()].some(([, record]) => (record.artifactCleanup ?? [])
       .some(item => this.pathKey(item.path) === key))

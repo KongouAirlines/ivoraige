@@ -1,9 +1,10 @@
 import { basename, dirname, resolve } from 'node:path'
-import { lstat, readFile, realpath, unlink } from 'node:fs/promises'
+import { lstat, readFile, unlink } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { Service } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
 import { API_VERSION, validate, paginate, taskView } from './protocol.mjs'
+import { sameDirectory } from './managed-path.mjs'
 
 // The entry layers share this business facade and its parameter/response contract.
 export class Operations extends Service {
@@ -58,8 +59,9 @@ export class Operations extends Service {
       throw error
     }
     const root = this.ctx.get('ivoraige.export')?.root
-    if (!root || dirname(resolve(path)) !== resolve(root) ||
-        await realpath(dirname(path)) !== await realpath(root))
+    // Compare the directory itself: spelling, case and junction aliases can
+    // differ while naming the same directory (including on macOS volumes).
+    if (!await sameDirectory(dirname(resolve(path)), root))
       throw new KernelError('PRECONDITION_FAILED', 'Artifact path is outside the managed export directory', { path })
     if (!info.isFile() || info.isSymbolicLink())
       throw new KernelError('PRECONDITION_FAILED', 'Owned artifact path is not a regular file', { path })
@@ -168,6 +170,8 @@ export class Operations extends Service {
         const candidate = r.artifactCandidate(p.docId, p.artifactId)
         if (p.fileAction === 'delete-owned' && candidate.managedFile !== true)
           throw new KernelError('PRECONDITION_FAILED', 'Artifact file is not managed')
+        if (p.fileAction === 'delete-owned' && !this.ctx.get('ivoraige.export'))
+          throw new KernelError('COMPONENT_MISSING', 'Managed export directory is unavailable')
         result = await r.deleteArtifact(p.docId, p.artifactId, { deleteOwned: p.fileAction === 'delete-owned',
           ...(p.fileAction === 'delete-owned' ? { unlinkFile: (path, digest) => this.removeOwnedFile(path, digest) } : {}) })
         break
