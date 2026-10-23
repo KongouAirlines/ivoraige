@@ -174,3 +174,11 @@ test('repeated owner disposal joins the same in-flight drain instead of returnin
   release(); await call; await second
   assert.equal(drained, true)
 })
+
+test('core result contracts reject missing entity fields as INTERNAL without accepting an empty success', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'ivoraige-core-results-'))
+  const app = await createApp({ store: join(dir, 'store.sqlite') })
+  t.after(async () => { await app.dispose(); await rm(dir, { recursive: true, force: true }) })
+  app.records.getDocument = () => undefined
+  await assert.rejects(app.operations.invoke('getDocument', { docId: 'synthetic' }), { code: 'INTERNAL' })
+})

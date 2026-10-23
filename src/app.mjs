@@ -160,7 +160,7 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
           // A noncooperating request must not keep writing after storage is closed.
           // A failed drain leaves the context/store owner intact for a later retry.
           await ctx.get('ivoraige.operationCatalog')?.close()
-          await close(() => ctx.get('ivoraige.resources')?.close())
+          await ctx.get('ivoraige.resources')?.close()
           await close(() => ctx.get('ivoraige.tasks')?.close())
           await close(() => ctx.get('ivoraige.components')?.close())
           await close(() => ctx.get('ivoraige.events')?.close())

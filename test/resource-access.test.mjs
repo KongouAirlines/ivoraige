@@ -126,3 +126,32 @@ test('the shared resource file-stat await releases its lease after a real downlo
   assert.equal(app.resources.opened.size, 0)
   await app.operations.invoke('deleteArtifact', { docId: document.id, artifactId: item.id })
 })
+
+test('shutdown keeps storage owned when a resource file-stat acquisition misses its drain deadline', { timeout: 5000 }, async t => {
+  const { app, dir, document } = await fixture(t)
+  const item = (await app.exporter.exportDocument(document.id, { contentMode: 'source', outputs: [{ format: 'md' }] })).artifacts[0]
+  let enter, resume
+  const entered = new Promise(r => { enter = r }), blocked = new Promise(r => { resume = r })
+  const originalOpen = fs.promises.open
+  fs.promises.open = async (...args) => {
+    const file = await originalOpen(...args)
+    if (args[0] === item.path) {
+      const stat = file.stat.bind(file)
+      file.stat = async () => { enter(); await blocked; return stat() }
+    }
+    return file
+  }
+  syncBuiltinESMExports()
+  t.after(() => { fs.promises.open = originalOpen; syncBuiltinESMExports(); resume() })
+  const pending = app.resources.openArtifact(item.id).catch(error => error)
+  await entered
+  app.resources.drainTimeoutMs = 10
+  await assert.rejects(app.dispose(), /Resource reads did not drain/)
+  assert.ok(app.ctx.get('ivoraige.records'))
+  await assert.rejects(createApp({ store: join(dir, 'store.sqlite') }), { code: 'CONFLICT' })
+  resume()
+  assert.equal((await pending).code, 'PRECONDITION_FAILED')
+  await app.dispose()
+  assert.equal(app.resources.pending.size, 0)
+  assert.equal(app.records.artifactLeases.size, 0)
+})

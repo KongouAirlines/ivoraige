@@ -13,6 +13,8 @@ export class ResourceAccess extends Service {
       throw new KernelError('INVALID_ARGUMENT', 'maxArtifactBytes must be a nonnegative integer or null')
     this.maxArtifactBytes = maxArtifactBytes
     this.opened = new Set()
+    this.pending = new Set()
+    this.drainTimeoutMs = 30_000
     this.closing = false
     ctx.effect(() => () => this.close())
   }
@@ -27,7 +29,12 @@ export class ResourceAccess extends Service {
         artifact.format === 'md' ? 'text/markdown; charset=utf-8' :
           artifact.format === 'pdf' ? 'application/pdf' : 'application/octet-stream' }
   }
-  async openArtifact(artifactId, options) {
+  openArtifact(artifactId, options) {
+    const pending = this.acquireArtifact(artifactId, options)
+    this.pending.add(pending)
+    return pending.finally(() => this.pending.delete(pending))
+  }
+  async acquireArtifact(artifactId, options) {
     if (options?.signal?.aborted) throw new KernelError('UPSTREAM_FAILURE', 'Resource request canceled', { canceled: true })
     const artifact = this.artifact(artifactId, { ...options, retain: true })
     let file
@@ -79,6 +86,16 @@ export class ResourceAccess extends Service {
   }
   async close() {
     this.closing = true
-    await Promise.all([...this.opened].map(resource => resource.close()))
+    let timer
+    try {
+      await Promise.race([
+        (async () => {
+          await Promise.allSettled([...this.pending])
+          await Promise.all([...this.opened].map(resource => resource.close()))
+        })(),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new KernelError(
+          'PRECONDITION_FAILED', 'Resource reads did not drain before the deadline')), this.drainTimeoutMs) }),
+      ])
+    } finally { clearTimeout(timer) }
   }
 }
