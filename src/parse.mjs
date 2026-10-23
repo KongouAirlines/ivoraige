@@ -33,6 +33,11 @@ export class Parse extends Service {
     if (this.adapters.has(adapter.id)) {
       throw new KernelError('INVALID_ARGUMENT', `Source adapter already registered: ${adapter.id}`)
     }
+    if (adapter.version !== undefined && (typeof adapter.version !== 'string' || !adapter.version.trim()))
+      throw new KernelError('INVALID_ARGUMENT', 'Source adapter version must be a nonempty string')
+    if (adapter.bindingSchemaVersion !== undefined &&
+        (!Number.isSafeInteger(adapter.bindingSchemaVersion) || adapter.bindingSchemaVersion <= 0))
+      throw new KernelError('INVALID_ARGUMENT', 'Source adapter bindingSchemaVersion must be a positive integer')
     if (adapter.formats !== undefined && (!Array.isArray(adapter.formats) || !adapter.formats.length ||
         adapter.formats.some(format => typeof format !== 'string' || !format))) {
       throw new KernelError('INVALID_ARGUMENT', 'Source adapter formats must be nonempty')
