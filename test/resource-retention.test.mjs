@@ -282,6 +282,43 @@ test('replaced managed bytes are retained with a retryable cleanup record', asyn
   assert.equal(f.app.records.listArtifactCleanup(doc.id)[0].artifactId, item.id)
 })
 
+test('relocated export root clears absent owned files but never deletes a still-present old-root file', async t => {
+  for (const missing of ['file', 'parent', null]) {
+    const dir = await mkdtemp(join(tmpdir(), 'ivoraige-q02-relocation-'))
+    const store = join(dir, 'store.sqlite')
+    const oldRoot = join(dir, 'exports-1')
+    const newRoot = join(dir, 'exports-2')
+    let app
+    try {
+      app = await createApp({ store, exportDir: oldRoot })
+      const doc = await document(app)
+      const item = await artifact(app, doc)
+      app.operations.removeOwnedFile = async () => { throw new Error('synthetic cleanup interruption') }
+      const interrupted = await app.operations.invoke('deleteArtifact', { docId: doc.id,
+        artifactId: item.id, fileAction: 'delete-owned' })
+      assert.equal(interrupted.cleanupPending, true)
+      await app.dispose(); app = undefined
+      if (missing === 'file') await rm(item.path)
+      if (missing === 'parent') await rm(oldRoot, { recursive: true })
+      app = await createApp({ store, exportDir: newRoot })
+      const result = await app.operations.invoke('deleteArtifact', { docId: doc.id,
+        artifactId: item.id, fileAction: 'delete-owned' })
+      if (missing) {
+        assert.equal(result.fileDeleted, true, `absent ${missing} must clear cleanup`)
+        assert.deepEqual(app.records.listArtifactCleanup(doc.id), [])
+        await app.records.deleteSnapshot(doc.id, item.snapshotId)
+      } else {
+        assert.equal(result.cleanupPending, true)
+        assert.equal((await stat(item.path)).isFile(), true)
+        await assert.rejects(app.records.deleteSnapshot(doc.id, item.snapshotId), { code: 'CONFLICT' })
+      }
+    } finally {
+      await app?.dispose()
+      await rm(dir, { recursive: true, force: true })
+    }
+  }
+})
+
 test('HTTP, CLI and MCP expose the same explicit retention and abandon operations', async t => {
   const f = await fixture(t)
   const server = await serve(f.app, { port: 0 })

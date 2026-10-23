@@ -50,15 +50,17 @@ export class Operations extends Service {
           artifact.format === 'pdf' ? 'application/pdf' : 'application/octet-stream' }
   }
   async removeOwnedFile(path, fileDigest) {
+    let info
+    try { info = await lstat(path) } catch (error) {
+      // No filesystem unlink is needed. This also completes a durable cleanup
+      // after a managed export directory has been moved or removed.
+      if (['ENOENT', 'ENOTDIR'].includes(error.code)) return
+      throw error
+    }
     const root = this.ctx.get('ivoraige.export')?.root
     if (!root || dirname(resolve(path)) !== resolve(root) ||
         await realpath(dirname(path)) !== await realpath(root))
       throw new KernelError('PRECONDITION_FAILED', 'Artifact path is outside the managed export directory', { path })
-    let info
-    try { info = await lstat(path) } catch (error) {
-      if (error.code === 'ENOENT') return
-      throw error
-    }
     if (!info.isFile() || info.isSymbolicLink())
       throw new KernelError('PRECONDITION_FAILED', 'Owned artifact path is not a regular file', { path })
     if (!fileDigest || createHash('sha256').update(await readFile(path)).digest('hex') !== fileDigest)
