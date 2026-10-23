@@ -6,7 +6,7 @@ labels: []
 assignees: []
 ---
 
-Before posting, remove API keys, personal data, private text, and copyrighted source material. For suspected vulnerabilities, follow [SECURITY.md](https://github.com/KongouAirlines/ivaraige/blob/main/SECURITY.md) and do not include details here.
+Before posting, remove API keys, personal data, private text, and copyrighted source material. For suspected vulnerabilities, follow [SECURITY.md](https://github.com/KongouAirlines/ivoraige/blob/main/SECURITY.md) and do not include details here.
 
 **Version or commit:**
 

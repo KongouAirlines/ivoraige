@@ -13,8 +13,8 @@ ivoraige is composable translation and file-processing infrastructure for people
 
 - Software is `0.1.0`, the first formal version; v2.0 is the design document version. Release downloads were withdrawn on 2026-10-19 while preparing source-first open-source release; commit history is retained. Existing installed Windows/PDF components still belong to `0.1.0-dev.0`. The retired MVP is version `0.0.0` on `codex/archive-mvp-0.0.0` and tag `v0.0.0`. Do not count its acceptance results as current implementation progress or restore its business layer by default.
 - For current capabilities and limits use [the 0.1.0 capability map](docs/plan/0.1.0/capabilities.md); for implementation and verification use [the development guide](docs/plan/0.1.0/development-guide.md) and the relevant stage record.
-- The active design baseline is [v2.0](docs/requirements/v2.0/01_design_v2.0.md), with [UI](docs/requirements/v2.0/02_UI-design_v2.0.md) and [process/entry protocol](docs/requirements/v2.0/03_API-protocol_v2.0.md). Requirements [v1.0](docs/requirements/v1.0/) remains frozen (F-01–F-44); do not renumber or reprioritize. C1–C8 in v2.0 §0 are decided constraints, including three OS targets, one kernel for CLI/MCP/WebUI, deployment, DSH reuse, and deferred term-base schema.
-- A v3 design re-plan will replace the target module, adapter and entry contracts after public-release preparation is settled; v2.0 remains the reference until then. The 2026-10-18 correction fixes the known export-isolation wording only. Scope and open gaps: [design-v3](docs/plan/follow-ups/design-v3.md) and issue [#29](https://github.com/KongouAirlines/ivaraige/issues/29).
+- The existing implementation-reference design is [v2.0](docs/requirements/v2.0/01_design_v2.0.md), with [UI](docs/requirements/v2.0/02_UI-design_v2.0.md) and [process/entry protocol](docs/requirements/v2.0/03_API-protocol_v2.0.md). Requirements [v1.0](docs/requirements/v1.0/) remains frozen (F-01–F-44); do not renumber or reprioritize. C1–C8 in v2.0 §0 are decided constraints, including three OS targets, one kernel for CLI/MCP/WebUI, deployment, DSH reuse, and deferred term-base schema.
+- New active planning and design use the target software series [0.1.x](docs/plan/0.1.x/README.md). The [0.1.x contracts](docs/requirements/0.1.x/contracts.md) are a reviewable target, not implemented behavior; each implementation PR identifies the contract it activates and its compatibility path. Retain v1/v2 documents, historical reports and stable IDs, including [design-v3](docs/plan/follow-ups/design-v3.md) / [#29](https://github.com/KongouAirlines/ivoraige/issues/29). Do not create a parallel v3 document numbering scheme or globally renumber requirements.
 
 ## Architecture invariants (do not violate)
 
@@ -34,7 +34,7 @@ Follow [ADR-0002](docs/decisions/0002-plugin-composition-0.1.0.md). The composit
 
 Declare required and optional dependencies, availability behavior, registration, and cleanup for each added capability. Missing optional components must leave unrelated capabilities usable and give a specific unavailable result when selected. Register listeners, routes, adapters, jobs, subprocesses, and UI contributions with their disposer; close owned work before its dependency is disposed. Do not assume runtime hot unload is required for every component: test the lifecycle the product actually supports, including restart activation where applicable. Prefer a mature upstream plugin/tool over parallel infrastructure; verify its real contract before claiming support. If a format issue comes from our invocation timing or data adaptation, fix that boundary; do not implement a parallel upstream parser or reject usable input to conceal an upstream limitation. Validate source ownership, protocol integrity and frozen-output correctness at their owning boundary, while reporting recoverable quality limitations. Add only the abstraction needed by a working composition, and verify both selected and absent capability paths.
 
-The v2.0 module table is a target, not a description of every implemented boundary. Known gaps — format names and adapter ids in shared services, the single `Operations` facade, and non-plugin entry transports — are recorded in issue [#14](https://github.com/KongouAirlines/ivaraige/issues/14) and [design-v3](docs/plan/follow-ups/design-v3.md); do not copy those patterns into new code. A v3 re-plan will replace them.
+The v2.0 module table is a target, not a description of every implemented boundary. Known gaps — format names and adapter ids in shared services, the single `Operations` facade, and non-plugin entry transports — are recorded in issue [#14](https://github.com/KongouAirlines/ivoraige/issues/14) and [design-v3](docs/plan/follow-ups/design-v3.md); do not copy those patterns into new code. The [0.1.x contracts](docs/requirements/0.1.x/contracts.md) define the proposed replacement and distinguish it from current behavior.
 
 ## Repository layout
 
@@ -46,7 +46,7 @@ The v2.0 module table is a target, not a description of every implemented bounda
 - `experiments/` — archive pointer only; old verification rigs are on `codex/archive-mvp-0.0.0` and the `v0.0.0` tag. Ignored local vendor/dependency caches may remain here.
 - `evaluation/private/` — copyrighted originals, extracted text, alignment data. Git-ignored by convention; work directly inside it, do not commit its contents.
 - `evaluation/runs/` — run outputs.
-- `docs/requirements/` (v1.0 frozen, v2.0 active design, amendments), `docs/research/` (tool selection evidence), `docs/plan/mvp/` (milestone records), `docs/decisions/` (ADRs).
+- `docs/requirements/` ([navigation](docs/requirements/README.md): v1.0 frozen, v2.0 implementation-reference design and current protocol subset, 0.1.x proposed contracts, amendments), `docs/research/` (tool selection evidence), `docs/plan/mvp/` (milestone records), `docs/decisions/` (ADRs).
 - `scripts/` — `setup-dsh.mjs` (vendor DSH), `build.mjs` (esbuild bundle for tests).
 
 ## Commands
@@ -62,7 +62,7 @@ Node >=24.22.1 <25 or >=26.12.1 <27. Type "module" (ESM). Do not broaden the eng
 
 ## Conventions
 
-- **Follow the restart decision.** The user requested a fresh business implementation, overriding the earlier incremental migration advice. Keep a thin DSH bridge and small Cordis services; implement the v2.0 target in working stages, without restoring the old business layer by default. Keep the current suites green at every stage.
+- **Preserve the working kernel.** The historical restart retired the 0.0.0 business layer; it does not authorize another rewrite. The 0.1.x work incrementally retains Records, revisions, applicability-based reuse and frozen snapshots. Use the [work packages](docs/plan/0.1.x/work-packages.md) and keep affected compatibility paths working at each step.
 - **Version-based naming, always.** Directories and files that record project content are named by software version (`docs/plan/0.1.0/`), never by relative or process wording (`restart`, `legacy`, `old`, `new`, `final`, `backup`, `current`). Prose may describe a process, but anchors, links, branch names and artifact paths must resolve to a version. The design baseline version (`v2.0`) is a document version, distinct from software versions (`0.0.0` archived MVP, current `0.1.0`); never conflate them. Development branches are named by software version (e.g. `codex/0.1.0-markdown-compat`); run output directories likewise (`evaluation/runs/<name>-0.1.0/`). Sole exception: follow-up item IDs in `docs/plan/follow-ups/` are stable semantic slugs that must not change across versions (see Follow-up tracking).
 - **Boring over clever.** Reuse existing components (DSH plugins, verified OSS) before writing new code. No speculative abstractions, no frameworks for hypothetical needs.
 - **Evidence over assertion.** Never write "verified" for code you didn't run; never claim a capability from a name or README. Distinguish observed results from inference. MVP evidence in `docs/plan/mvp/` is retired reference; old source links are resolved on `codex/archive-mvp-0.0.0` or the `v0.0.0` tag, not the current implementation.
@@ -85,6 +85,14 @@ Node >=24.22.1 <25 or >=26.12.1 <27. Type "module" (ESM). Do not broaden the eng
 ## API and protocol work
 
 `03_API-protocol_v2.0.md` is normative for anything crossing a process or entry boundary: error codes (§1.3), optimistic-lock fields (`baseRevisionId` vs `expectedAcceptedRevisionId`, §1.4), SSE event shapes (§4), CLI stdout/exit-code discipline (§5), MCP tool mapping (§6), sidecar methods (§7). If an implementation need contradicts the spec, update the spec in the same change.
+
+For 0.1.x changes, read the [target contracts](docs/requirements/0.1.x/contracts.md) and [migration matrix](docs/plan/0.1.x/migration-distribution.md), and explicitly document which existing wire behavior is preserved or replaced. Software, plugin, host API, record/snapshot schema, binding, sidecar protocol and external engine versions are independent. Renaming a design directory does not change `API_VERSION` or stored schema versions.
+
+## 0.1.x implementation workflow
+
+- Start with the target row in the [work-package index](docs/plan/0.1.x/work-packages.md), then read only its linked detail, relevant contract sections and verification IDs. Use the [reading routes](docs/plan/0.1.x/README.md) and [task templates](docs/plan/0.1.x/prompts.md); runtime, desktop and historical audit sources are task-specific references, not mandatory whole-document reading.
+- Preserve the working kernel and existing compatibility paths. Keep one compatible DSH/Cordis runtime, use its services and lifecycle owners, and retain a recovery entry when optional capabilities fail. Runtime upgrades, schema migration and distribution changes each require evidence at their own boundary; target designs do not establish current behavior.
+- Update implementation, targeted tests and affected contracts/user guidance in the same PR. Link actual results and remaining scope in the work-package index; preserve stable IDs and historical evidence. The archived PR reviews are one-time sources, not a defect register to refresh.
 
 ## Git workflow
 
@@ -118,4 +126,4 @@ Escalate based on the actual problem, not a mechanical retry count. Do not spawn
 
 ## When unsure
 
-The v2.0 design docs answer most "how" questions; amendment 0001 answers terminology-scope questions; `docs/decisions/` records why. If a real ambiguity remains, ask one short question with the options ranked — do not guess and rewrite.
+For current behavior, use the capability map and existing protocol; for proposed changes, use the 0.1.x contracts and decision register. Amendment 0001 answers terminology-scope questions; `docs/decisions/` records why. If a material ambiguity remains, present the concrete options without rewriting unrelated scope.

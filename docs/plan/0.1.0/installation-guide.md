@@ -1,6 +1,6 @@
 # 0.1.0 安装与首次启动
 
-目前从源码运行。2026-10-19 已撤下 `v0.1.0`、`v0.1.0-dev.0` 的 Release 和附件，安装包延后提供；提交历史保留。项目正在准备正式开源，仓库切换公开前，取得源码仍需仓库访问权限。
+目前从源码运行。2026-10-19 已撤下 `v0.1.0`、`v0.1.0-dev.0` 的 Release 和附件，安装包延后提供；提交历史保留。[源码仓库](https://github.com/KongouAirlines/ivoraige)现已公开，可直接取得源码。
 
 ## 从源码启动
 
@@ -15,11 +15,11 @@ npm start
 
 浏览器会打开工作台；也可访问终端打印的本机地址。首次可跳过模型设置，导入 TXT／Markdown，人工录入并接受译文，再导出 MD／JSON。需要机器翻译时，按[设置指南](settings-guide.md)配置自己的模型和凭据。在线模型会接收待译文本，并按供应商规则收费。
 
-退出时在终端按 Ctrl+C。默认数据与源码目录分开保存：Windows 为 `%LOCALAPPDATA%\ivoraige`，Linux/macOS 为 `$XDG_DATA_HOME/ivoraige`，后者未设置时使用 `~/.local/share/ivoraige`。可用 `IVORAIGE_DATA_DIR` 指定数据目录；更多运行方式见[开发指南](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/development-guide.md)。
+退出时在终端按 Ctrl+C。默认数据与源码目录分开保存：Windows 为 `%LOCALAPPDATA%\ivoraige`，Linux/macOS 为 `$XDG_DATA_HOME/ivoraige`，后者未设置时使用 `~/.local/share/ivoraige`。可用 `IVORAIGE_DATA_DIR` 指定数据目录；更多运行方式见[开发指南](development-guide.md)。
 
 ## 可选 PDF
 
-默认在线组件源指向已撤下的 `v0.1.0-dev.0` Release，现在无法从该源下载；添加 GitHub token 不能恢复已删除的附件。需要 PDF 时，按 [PDF 开发参考](https://github.com/KongouAirlines/ivaraige/blob/main/docs/plan/0.1.0/pdf-development.md)准备 Windows x64 环境，并带 `--pdf-config` 启动。该路径需要 uv、Python 依赖及首次联网下载的字体和模型资源。
+默认在线组件源指向已撤下的 `v0.1.0-dev.0` Release，现在无法从该源下载；添加 GitHub token 不能恢复已删除的附件。需要 PDF 时，按 [PDF 开发参考](pdf-development.md)准备 Windows x64 环境，并带 `--pdf-config` 启动。该路径需要 uv、Python 依赖及首次联网下载的字体和模型资源。
 
 已经安装的组件仍可使用，启动时不会查询远端版本。持有配套 `components-manifest.json` 和两个归档的用户，也可以在设置 → PDF 选择本地清单安装；安装会检查尺寸、摘要及解压路径，完成后重启。具体处理范围见 [PDF 使用指南](pdf-guide.md)。
 

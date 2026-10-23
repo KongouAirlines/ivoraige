@@ -1,10 +1,10 @@
 # 0.1.0 发行构建与验收
 
-本页面向维护者，不随终端用户发行包分发。用户操作见 [安装指南](installation-guide.md)，验证历史见 [安装记录](installation.md)。
+本页面向维护者，不随终端用户发行包分发。当前采用源码使用方式，旧 Release 和附件已撤下；下列构建流程供本地检查与未来恢复分发准备，不表示已有可下载包或实际包验收已完成。用户操作见 [安装指南](installation-guide.md)，验证历史见 [安装记录](installation.md)，后续拆分与迁移见 [0.1.x 方案](../0.1.x/migration-distribution.md)。
 
 ## 维护者构建
 
-基础包与 PDF 组件分别构建，构建者需要工具链；终端用户只需下载产物。实现、证据和未完成验收见 [安装阶段记录](installation.md)。不要把仅缩减 PATH 的开发机探针称为干净系统验收。
+基础包与 PDF 组件分别构建，构建者需要工具链；恢复分发并完成实际包验收后，终端用户才可按对应版本指南下载产物。实现、证据和未完成验收见 [安装阶段记录](installation.md)。不要把仅缩减 PATH 的开发机探针称为干净系统验收。
 
 清单中每个组件／平台／架构只发布一个严格 SemVer 版本；普通安装拒绝降级，允许同版本修复，不提供回滚入口。不要把多个候选版本写入同一平台的清单。
 
@@ -23,7 +23,7 @@ PDF 构建使用 Python 3.13、锁定的 BabelDOC 0.6.4／PyMuPDF 1.26.7 和 PyI
 .\scripts\build-pdf-component.ps1
 ```
 
-产物在 `evaluation/runs/distribution-0.1.0/`；`components/` 内的清单、运行时归档及资源归档必须一起上传到相同的私有 Release。基础包包含 Node 和前端许可，PDF 包含 Python 依赖许可，资源包包含 `assets/licenses/` 的来源映射及上游声明。构建后运行 `scripts/smoke-distribution.mjs` 检查实际发行内容，不用源码环境替代它。
+基础包和 PDF 组件产物写入 `evaluation/runs/distribution-<package.json.version>/`（当前为 `distribution-0.1.0/`）。恢复分发时，`components/` 内的清单、运行时归档及资源归档须放在同一目标 Release；先完成[实际包许可与对应源码核验](pdf-license-audit.md#6-恢复二进制分发前的验收)，不能把本地构建成功当成分发许可闭环。基础包包含 Node 和前端许可，PDF 包含 Python 依赖许可，资源包包含 `assets/licenses/` 的来源映射及上游声明。构建后运行 `scripts/smoke-distribution.mjs` 检查实际发行内容，不用源码环境替代它。
 
 便携包使用自身目录中的 `runtime/node.exe`；升级构建机或用户机器的系统 Node 不会替换旧程序目录内的运行时。重建和替换程序目录时保留外置用户数据目录，包括数据库、PDF 原件、设置、凭据和组件。
 
@@ -47,9 +47,9 @@ PDF 构建使用 Python 3.13、锁定的 BabelDOC 0.6.4／PyMuPDF 1.26.7 和 PyI
 
 构建会把 `docs/plan/0.1.0/` 中的用户指南生成到 `dist/web/*.html`，设置中的 PDF 指南使用本地 `/pdf-guide.html`。`dist/web/release-info.json` 记录 `package.json` 的软件版本、Git 提交、工作树状态和源码链接；页面也展示该信息。开发工作树含未提交改动时，`sourceTree` 为 `modified` 且 `sourceUrl` 为空：此时提交链接仅表示基础提交，不能当作该构建的精确源码。无 `.git` 的源码归档仍可构建，元数据记为 `unavailable`，提交和源码 URL 均为空；这种构建不能通过正式发行校验。用户指南 HTML 随包保存，后续 main 更新不会改变已下载的页面。
 
-Windows 目录包由 `scripts/build-distribution.mjs` 复制双语 README、用户指南、截图、贡献及安全说明，并检查这些文档在包内的相对链接。开发材料若没有随包复制，其链接改为该次基础提交的在线源码地址。npm 包使用 `npm run pack:npm -- <输出目录>` 从临时目录生成：复制用户文档并将开发资料链接固定到来源提交，不修改工作树中的 Markdown。`npm run smoke:package` 在这一实际 tarball 上核对链接，并通过包内 HTTP 服务读取 PDF 指南与元数据。私有仓库的在线源码链接仍要求仓库访问权；本地指南不需要网络。Windows ZIP 的实际启动与内容验收仍须在 Windows x64 执行，macOS 上的 npm 检查不能代替它。
+Windows 目录包由 `scripts/build-distribution.mjs` 复制双语 README、用户指南、截图、贡献及安全说明，并检查这些文档在包内的相对链接。开发材料若没有随包复制，其链接改为该次基础提交的在线源码地址。npm 包使用 `npm run pack:npm -- <输出目录>` 从临时目录生成：复制用户文档并将开发资料链接固定到来源提交，不修改工作树中的 Markdown。`npm run smoke:package` 在这一实际 tarball 上核对链接，并通过包内 HTTP 服务读取 PDF 指南与元数据。本仓库在线源码已公开；来自其他受限来源的链接仍需相应访问权。本地指南不需要网络。Windows ZIP 的实际启动与内容验收仍须在 Windows x64 执行，macOS 上的 npm 检查不能代替它。
 
-正式发布时先确定新的软件版本并完成源码提交，在该提交上创建与 `package.json` 一致的 `v<version>` tag；不要移动旧 tag。首个正式版本 `0.1.0` 发布源码与 npm 安装包，Windows 新包保留待构建、待验收；旧预发行附件不重新标记版本。
+正式发布时先确定新的软件版本并完成源码提交，在该提交上创建与 `package.json` 一致的 `v<version>` tag；不要移动旧 tag。此前 `0.1.0` 的源码／npm 发布已撤下，Windows 新包仍待构建和验收；恢复分发时重新确定发行版本与实际验收范围，不重新标记旧预发行附件。
 
 在干净的 tag 工作树构建 npm 包并验证：
 
@@ -66,4 +66,4 @@ npm run verify:release -- v0.1.0 evaluation/runs/release-0.1.0/ivoraige-0.1.0.bu
 npm run verify:release -- v<version> evaluation/runs/distribution-<version>/build-evidence.json
 ```
 
-校验要求 tag 指向构建提交、指南元数据匹配版本与提交、构建证据中的源码一致，ZIP 大小及 SHA-256 与证据一致，并从源码 Markdown 重新生成预期页面，逐一对比 ZIP 内的元数据、HTML 与用户文档，检查相对链接及基础运行载荷是否存在。此校验不执行 Windows 程序；运行验收仍按前述 Sandbox 步骤进行。Release 正文按 [发行说明模板](release-template.md)填写精确 tag、提交、附件摘要及实际验收范围；不要把附件源码和 GitHub 自动生成的 tag 源码指向不同提交。旧 `v0.1.0-dev.0` 的 tag 和附件保留历史事实，本机制不追认或修改它们。
+校验要求 tag 指向构建提交、指南元数据匹配版本与提交、构建证据中的源码一致，ZIP 大小及 SHA-256 与证据一致，并从源码 Markdown 重新生成预期页面，逐一对比 ZIP 内的元数据、HTML 与用户文档，检查相对链接及基础运行载荷是否存在。此校验不执行 Windows 程序；运行验收仍按前述 Sandbox 步骤进行。Release 正文按 [发行说明模板](release-template.md)填写精确 tag、提交、附件摘要及实际验收范围；不要把附件源码和 GitHub 自动生成的 tag 源码指向不同提交。旧 `v0.1.0-dev.0` 的版本身份与验收只作为历史事实保留；已撤下的 Release 附件不是当前下载入口，本机制不追认旧包。

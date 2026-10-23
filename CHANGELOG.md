@@ -40,5 +40,5 @@ MVP (M0–M4) historical implementation, retired and archived on `codex/archive-
 - Explicit revision acceptance required; automatic version selection and a second parser integration pending.
 - No Web UI, no external dictionary integration yet.
 
-[Unreleased]: https://github.com/KongouAirlines/ivaraige/pull/4
-[0.0.0]: https://github.com/KongouAirlines/ivaraige/tree/codex/archive-mvp-0.0.0
+[Unreleased]: https://github.com/KongouAirlines/ivoraige/pull/4
+[0.0.0]: https://github.com/KongouAirlines/ivoraige/tree/codex/archive-mvp-0.0.0
