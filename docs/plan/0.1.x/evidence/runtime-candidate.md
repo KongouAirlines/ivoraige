@@ -1,6 +1,6 @@
 # 0.1.x runtime candidate comparison (2026-10-23)
 
-Decision: **retain the DSH `639ed015` pin**. The only reproducible candidate from DSH's default branch, `687f282`, still vendors the same Cordis Core, Loader and Include source commits and fails the project's credential-free model preset contract. Updating the DSH number alone would add dependency and AppBoot migration work without obtaining the later upstream Cordis fixes. This is an isolated comparison, not a selected runtime migration.
+Decision: **retain the DSH `639ed015` pin**. The DSH default-branch candidate evaluated here, `687f282`, still vendors the same Cordis Core, Loader and Include source commits and fails the project's credential-free model preset contract. Updating the DSH number alone would add dependency and AppBoot migration work without obtaining the later upstream Cordis fixes. This is an isolated comparison, not a selected runtime migration.
 
 ## Exact source and closure
 
