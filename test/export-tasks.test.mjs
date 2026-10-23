@@ -178,3 +178,29 @@ test('a cleanup failure preserves the original export admission conflict', async
   gate.resolve()
   assert.equal((await bounded(f.app.tasks.wait(first.taskId))).state, 'succeeded')
 })
+
+test('retain failure cleans only a new snapshot and leaves existing references intact', async t => {
+  const f = await fixture(t)
+  const doc = await document(f.app, 'export:retain-failure', 'One source.')
+  const existing = await f.app.records.createSnapshot(doc.id, { targetLang: 'zh', onMissingAccepted: 'fail' })
+  const retained = t.mock.method(f.app.records, 'retainSnapshot', () => {
+    throw new KernelError('UPSTREAM_FAILURE', 'Injected retain failure')
+  })
+  const before = f.app.records.listSnapshots(doc.id).map(item => item.id)
+  await assert.rejects(f.app.tasks.exportDocument(doc.id, {
+    targetLang: 'zh', outputs: [{ format: 'md' }],
+  }), { code: 'UPSTREAM_FAILURE' })
+  assert.deepEqual(f.app.records.listSnapshots(doc.id).map(item => item.id), before)
+  await assert.rejects(f.app.tasks.exportDocument(doc.id, {
+    targetLang: 'zh', snapshotId: existing.id, outputs: [{ format: 'md' }],
+  }), { code: 'UPSTREAM_FAILURE' })
+  assert.deepEqual(f.app.records.listSnapshots(doc.id).map(item => item.id), before)
+  retained.mock.restore()
+
+  const admitted = await f.app.tasks.exportDocument(doc.id, {
+    targetLang: 'zh', snapshotId: existing.id, outputs: [{ format: 'md' }],
+  })
+  assert.equal((await bounded(f.app.tasks.wait(admitted.taskId))).state, 'succeeded')
+  await assert.rejects(f.app.records.deleteSnapshot(doc.id, existing.id), { code: 'CONFLICT' })
+  assert.deepEqual(f.app.records.listSnapshots(doc.id).map(item => item.id), before)
+})

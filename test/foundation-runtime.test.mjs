@@ -101,6 +101,9 @@ test('component and business work share the pinned unowned quota without reporti
   const { document } = await app.records.importDocument({ format: 'txt', content: 'Source.' },
     { sourceId: 'quota', language: 'en' })
   const update = app.records.updateTask.bind(app.records)
+  const events = []
+  app.tasks.subscribe(event => { if (event.data?.taskId === businessId) events.push(event) })
+  let businessId
   app.records.updateTask = async (...args) => {
     const result = await update(...args)
     if (app.tasks.quotaBlocked && result.state === 'queued') blocked.resolve()
@@ -108,8 +111,12 @@ test('component and business work share the pinned unowned quota without reporti
   }
   const installation = app.components.install()
   const business = await app.tasks.submit(document.id, { targetLang: 'zh' })
+  businessId = business.taskId
   await blocked.promise
   assert.equal((await app.tasks.get(business.taskId)).state, 'queued')
+  assert.equal((await app.tasks.get(business.taskId)).progress.stage, 'translate')
+  assert.ok(events.some(event => event.type === 'task.queued'))
+  assert.ok(events.some(event => event.type === 'task.progress' && event.data.stage === 'translate'))
   assert.equal((await app.tasks.get(business.taskId)).stats.llmCalls, 0)
   assert.equal(calls, 0)
   install.resolve()
@@ -132,6 +139,85 @@ test('job waits have one total deadline for nonterminal and unresponsive provide
     assert.ok(performance.now() - started < 2000)
   }
   assert.equal((await waitForJob({ wait: async () => ({ status: 'completed' }) }, 'done', 30)).status, 'completed')
+})
+
+test('job wait timeout preserves a completed task and removes its settled DSH job', { timeout: 10_000 }, async t => {
+  const root = await directory(t)
+  const app = await createApp({ store: join(root, 'records.sqlite') })
+  t.after(async () => { await app.dispose(); await rm(root, { recursive: true, force: true }) })
+  class FixedModel extends Service {
+    constructor(ctx) { super(ctx, 'ivoraige.translationModel') }
+    async translate() { return { text: 'translated' } }
+  }
+  await app.ctx.plugin(FixedModel)
+  const { document } = await app.records.importDocument({ format: 'txt', content: 'Source.' },
+    { sourceId: 'job-timeout-success', language: 'en' })
+  const jobs = app.ctx.get('jobs')
+  const wait = jobs.wait.bind(jobs)
+  jobs.wait = () => new Promise(() => {})
+  app.tasks.jobWaitTimeoutMs = 30
+  const { taskId } = await app.tasks.submit(document.id, { targetLang: 'zh' })
+  const finished = app.tasks.running.finished
+  assert.equal((await app.tasks.wait(taskId)).state, 'succeeded')
+  await finished
+  jobs.wait = wait
+  assert.equal((await app.tasks.get(taskId)).state, 'succeeded')
+  assert.equal(jobs.list().length, 0)
+})
+
+test('job wait timeout fails an active task and removes its settled DSH job', { timeout: 10_000 }, async t => {
+  const root = await directory(t)
+  const app = await createApp({ store: join(root, 'records.sqlite') })
+  t.after(async () => { await app.dispose(); await rm(root, { recursive: true, force: true }) })
+  const { document } = await app.records.importDocument({ format: 'txt', content: 'Source.' },
+    { sourceId: 'job-timeout-active', language: 'en' })
+  const jobs = app.ctx.get('jobs')
+  const wait = jobs.wait.bind(jobs)
+  jobs.wait = () => new Promise(() => {})
+  app.tasks.jobWaitTimeoutMs = 30
+  app.tasks.run = async () => {} // Simulate a producer that returns without settling its business task.
+  const { taskId } = await app.tasks.submit(document.id, { targetLang: 'zh' })
+  const failed = await app.tasks.wait(taskId)
+  jobs.wait = wait
+  assert.equal(failed.state, 'failed')
+  assert.equal(failed.error.stage, 'translate')
+  assert.equal(jobs.list().length, 0)
+})
+
+test('a stopping DSH job is removed only after its producer settles', { timeout: 10_000 }, async t => {
+  const root = await directory(t)
+  const app = await createApp({ store: join(root, 'records.sqlite') })
+  t.after(async () => { await app.dispose(); await rm(root, { recursive: true, force: true }) })
+  const jobs = app.ctx.get('jobs')
+  const producer = deferred()
+  const jobId = jobs.start({ kind: 'stalled-business', label: 'Stalled business job',
+    run: () => ({ done: producer.promise, cancel: () => {} }) })
+  app.tasks.cleanupJob(jobId)
+  assert.equal(jobs.get(jobId).status, 'stopping')
+  assert.equal(jobs.hub.unscoped.size, 2)
+  producer.resolve({ status: 'killed' })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(jobs.hub.unscoped.size, 1)
+  assert.equal(jobs.list().length, 0)
+})
+
+test('close and teardown remove an already stopping job after later DSH settlement', { timeout: 10_000 }, async t => {
+  for (const action of ['close', 'shutdown']) await t.test(action, async t => {
+    const root = await directory(t)
+    const app = await createApp({ store: join(root, 'records.sqlite') })
+    t.after(async () => { await app.dispose(); await rm(root, { recursive: true, force: true }) })
+    const jobs = app.ctx.get('jobs')
+    const producer = deferred()
+    const jobId = jobs.start({ kind: 'closing-business', label: 'Closing business job',
+      run: () => ({ done: producer.promise, cancel: () => {} }) })
+    app.tasks.cleanupJob(jobId)
+    await app.tasks[action]()
+    assert.equal(jobs.get(jobId).status, 'stopping')
+    producer.resolve({ status: 'killed' })
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(jobs.list().length, 0)
+    assert.equal(jobs.hub.unscoped.size, 0)
+  })
 })
 
 test('pause, cancel and close win a race with saturated job admission', { timeout: 10_000 }, async t => {

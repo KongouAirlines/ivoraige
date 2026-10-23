@@ -25,6 +25,38 @@ Model route edits are checked with the pinned DSH `LlmPiAi.Config` schema before
 
 No paid model service or real user library was used; model tests used local fixtures.
 
+## #46 review correction — retain failure and second settings write
+
+If `retainSnapshot` throws before returning a release function, export admission now
+attempts to delete a snapshot created by that admission. The existing guarded
+`Records.deleteSnapshot` protects leased snapshots, snapshots referenced by
+resumable tasks, and snapshots referenced by artifacts. Caller-supplied snapshots
+are excluded from admission cleanup. An injected retain failure test verifies that
+the new snapshot is removed while an existing snapshot remains; it also checks
+that an admitted task's artifact keeps its snapshot protected. The injected
+failure is a fault case, not a claim that normal retention fails.
+
+When the route write has persisted and the second DSH settings write raises a
+`ValidationError`, the response now uses `UPSTREAM_FAILURE` (HTTP 502 / CLI exit
+4), retaining `details.partialSave` with the route revision. Validation before
+the first write still maps to `INVALID_ARGUMENT`; ordinary later errors keep
+their existing mapping. The regression obtains a real DSH `ValidationError` from
+the model settings validator, injects it at the second write, and checks the
+persisted route, unchanged selected revision, response status and partial-save
+details. The same regression checks the pre-persistence DSH validation mapping
+to `INVALID_ARGUMENT`, and confirms an ordinary first-write `EIO` remains the
+original error without advancing either revision.
+
+- `node --test test/export-tasks.test.mjs test/model-settings.test.mjs`: 19/19
+  passed in the local worktree with loopback access and a worktree-local
+  temporary directory. The first sandbox run was 18/19 after correcting a test
+  race; its sole remaining failure was the local HTTP fixture blocked by the
+  sandbox. The unrestricted rerun passed all 19.
+- After adding the first-write and CLI exit-code assertions,
+  `node --test --test-name-pattern='DSH validation in the second settings write' test/model-settings.test.mjs`:
+  1/1 passed. The full affected suites had passed immediately before those
+  additional assertions; a later full run is pending stack integration.
+
 ## Q03 review correction — nullable and withheld compat fields
 
 Review reproduced two synthetically configured inputs, `compat: { supportsStore: null }` and `compat: { openRouterRouting: {} }`, with an otherwise valid `openai-completions` route. At `91c9aa3`, each raised a plain DSH resolver `Error` and mapped to `INTERNAL`; neither changed routes or revisions. The pinned DSH schemastery config accepts nullable member values and undeclared keys before its resolver rejects them. Its compat gate offers `supportsStore` and withholds `openRouterRouting`.

@@ -34,7 +34,8 @@ export class Tasks extends Service {
     this.importControllers = new Set()
     this.pendingImports = new Map()
     this.quotaBlocked = false
-    this.jobs.events.subscribe({ owner: undefined }, event => {
+    this.jobWaitTimeoutMs = 30_000
+    this.detachJobEvents = this.jobs.events.subscribe({ owner: undefined }, event => {
       if (event.type !== 'settled' || !this.quotaBlocked) return
       this.quotaBlocked = false
       this.schedule()
@@ -233,7 +234,7 @@ export class Tasks extends Service {
         release?.()
         // A failed admission must not leave the snapshot it just created behind.
         // Once a task exists, its snapshot remains available for resume/recovery.
-        if (created && !admitted && release) {
+        if (created && !admitted) {
           try { await this.records.deleteSnapshot(docId, snapshot.id) }
           catch (error) {
             reportFailure(new Error(`Export snapshot cleanup failed: ${snapshot.id}`, { cause: error }))
@@ -302,7 +303,7 @@ export class Tasks extends Service {
         live.markStarted()
         if (live.cancel) this.jobs.kill(live.jobId, undefined, 'canceled')
         await live.done
-        const job = await waitForJob(this.jobs, live.jobId)
+        const job = await waitForJob(this.jobs, live.jobId, this.jobWaitTimeoutMs)
         if (['completed', 'killed', 'failed'].includes(job.status)) this.jobs.remove(live.jobId)
       } catch (error) {
         live.markStarted()
@@ -315,7 +316,7 @@ export class Tasks extends Service {
           this.queue.unshift(taskId)
           const defer = current => {
             const state = desiredState()
-            return { ...current, state, progress: { ...current.progress, stage: state } }
+            return { ...current, state }
           }
           let deferred = await this.records.updateTask(taskId, current => current.state === 'running' ? defer(current) : current)
           // Intent can arrive while the storage commit is in flight, after
@@ -330,13 +331,51 @@ export class Tasks extends Service {
             if (deferred.state === 'canceled') this.pendingImports.delete(taskId)
             this.emit(`task.${deferred.state}`, { taskId })
             this.settle(deferred)
+          } else {
+            this.emit('task.queued', { taskId, kind: task.kind })
+            this.progress(deferred, true)
           }
-        } else if (!this.tearingDown && this.records.getTask(taskId).state === 'running') await this.fail(taskId, error)
+        } else if (!this.tearingDown) {
+          try {
+            if (this.records.getTask(taskId).state === 'running') await this.fail(taskId, error)
+            else reportFailure(error, { taskId, jobId: live.jobId })
+          } finally {
+            if (live.jobId) this.cleanupJob(live.jobId)
+          }
+        }
       } finally {
         this.running = null
         live.markFinished()
       }
       if (this.quotaBlocked) break
+    }
+  }
+
+  cleanupJob(jobId) {
+    const jobs = this.jobs
+    const job = jobs.get(jobId)
+    if (['completed', 'killed', 'failed'].includes(job.status)) {
+      jobs.remove(jobId)
+      return
+    }
+    // This one-shot cleanup belongs to the job's lifetime. It can finish after
+    // the Tasks subscription is detached during close or plugin reload.
+    let removed = false
+    const removeIfSettled = () => {
+      if (removed || !['completed', 'killed', 'failed'].includes(jobs.get(jobId).status)) return
+      removed = true
+      jobs.remove(jobId)
+      detachCleanup()
+    }
+    const detachCleanup = jobs.events.subscribe({ owner: undefined }, event => {
+      if (event.type === 'settled' && event.job.id === jobId) removeIfSettled()
+    })
+    try {
+      jobs.kill(jobId, undefined, 'Business task job did not settle')
+      removeIfSettled()
+    } catch (error) {
+      detachCleanup()
+      throw error
     }
   }
 
@@ -568,6 +607,7 @@ export class Tasks extends Service {
       await live.finished
     }
     await Promise.allSettled([...this.admissions])
+    this.detachJobEvents()
     this.detachController()
   }
 
@@ -601,6 +641,7 @@ export class Tasks extends Service {
     } catch (error) {
       if (!this.tearingDown) throw error
     } finally {
+      this.detachJobEvents()
       this.detachController()
     }
   }
