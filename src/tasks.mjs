@@ -303,6 +303,7 @@ export class Tasks extends Service {
           if (deferred.state !== 'queued') {
             this.quotaBlocked = false
             this.queue = this.queue.filter(id => id !== taskId)
+            if (deferred.state === 'canceled') this.pendingImports.delete(taskId)
             this.emit(`task.${deferred.state}`, { taskId })
             this.settle(deferred)
           }
