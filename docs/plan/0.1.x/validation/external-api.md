@@ -14,6 +14,18 @@
 - 同形术语在两来源下先筛适用性再看优先级；中央库与请求 glossary 冲突默认可见，允许覆盖只限本次和允许字段，锁定条目不变。抽候选、本次使用和确认入库分开；修改约束版本使相应复用失效，旧接受与快照保留。继续通过[术语双来源基线](cross-cutting.md#术语与复用)。
 - 取消、超时、缺件及重启沿用任务契约；请求取消、实际停止与供应商执行未知分别记录。HTML 标签/占位符安全保持，脚本/外链不执行。解析、译文忠实/漏译/术语一致性与 HTML 重建分别评分，沿用[质量分层](cross-cutting.md#质量分层与译文评审)，不只检 HTTP 状态。
 
+## 协议附录验收
+
+以下案例引用[唯一协议附录](../../../requirements/0.1.x/external-protocol.md)，属于 I-V01/I-V02 的现有专项，不增加顶层 ID。每个实现 PR 提交机器 schema、离线协议 fixture 和至少一个实际客户端的版本/字段接受矩阵；未安装客户端的静态示例不替代联调。
+
+| 契约 | 最小判定场景 |
+| --- | --- |
+| [数据归属](../../../requirements/0.1.x/external-protocol.md#输入与运行的数据归属) | 作者 P 发布同一方案，A/B 用相同 items[].id 提交不同正文；输入、run/result/artifact 分属 A/B，P 无自动读取权。伪造 owner/domain/id 不能扩权；resourceId 无共享权拒绝，有权时冻结指定 revision。显式共享后只开放指定操作；撤销 grant/来源共享、换同主体凭据、到期清理分别检查，幂等记录存续期间结果过期不重跑 |
+| [跨协议幂等](../../../requirements/0.1.x/external-protocol.md#跨协议幂等) | 原生 header、MCP 参数、KT header 与 OpenAI header 映射同一主体/operation/key；可控并发/重启下只建一个 runId、模型只执行一次、额度只计一次。逐项改变摘要字段触发 409；改变诊断 ID/传输 stream 选项不创建新运行。省略修订的首次调用后发布新版，跨入口重试仍取首次修订。换 grant 不清空域，撤权拒绝；终态后 24 小时内、结果提前到期、保留期后新受理分别验收。不能保留键的真实客户端明确标不支持自动恢复 |
+| [公共 usage](../../../requirements/0.1.x/external-protocol.md#公共-usage) | 未开始、确证零调用、单阶段 known、多阶段 partial、全部 unknown、同单位不同口径、供应商重试、取消/截断后补报告分别有 fixture；每个 attempt 只计一次，input/output 未知为 null，混合口径 aggregate=null。native/MCP 返回同一对象；OpenAI 非流式省略未知统计，流式 include_usage 开关不改变宿主证据；KT 无统计承载时不向译文塞字段或显示假零 |
+| [OpenAI 字段与 SSE](../../../requirements/0.1.x/external-protocol.md#openai-文本子集) | 记录真实客户端/SDK 版本及请求必需字段、默认值、非法类型/null、未支持字段、messages/profile、温度/输出限制映射结果。校验 id/object/created/model/choices、关联响应头、非流式与 SSE 拼接一致、单次 role→content→terminal→可选 usage→[DONE]；known/unknown usage 和非流式先交付时的 stream 拒绝均纳入客户端矩阵。字节级断流、已写头后失败、取消/输出不足无成功终止；不能只验 HTTP 200 |
+| [错误映射](../../../requirements/0.1.x/external-protocol.md#外部错误映射) | 对合法 Host 分别测缺失/撤销凭据 401、有效主体资源越权 403、授权范围内不存在/过期 404；另测坏 Host/Origin 的 FORBIDDEN_HOST 403，不能与 PERMISSION_DENIED 混淆。409/413/429、Retry-After、上游 429 与本地限流分别测试；原生 envelope、HTTP-MCP 初始化状态、工具 isError/structuredContent、资源 JSON-RPC data、stdio 和 OpenAI error.code/type/param 均按表，错误无正文/凭据泄漏 |
+
 ## 共享调用限制
 
 对应[唯一限制契约](../../../requirements/0.1.x/external-api.md#共享调用限制)，使用可控时钟、两个真实授权主体和可暂停的离线模型替身，在各协议入口记录 runId、计数变化、HTTP/MCP 错误及模型调用次数。下面的小数值仅为验收夹具，不是产品默认。
@@ -39,7 +51,7 @@
 - 测单 user 文本、允许/禁止的 instructions、固定/覆盖目标语言、未知参数、n 非 1、多轮/工具/图片、真实模型 ID 冒充方案及越权覆盖。明确拒绝与声明的映射一致，不能只检查路径或 200 响应。
 - batch-json 仅在显式 profile 下解析；纯文本中的 JSON/提示词不被当作控制参数，批次 ID 完整。原生结果存在部分失败时不包装成成功译文。
 - 非流式与流式完整结果一致，流前的术语/结构检查可改草稿但已发最终内容不可回写；截断、取消、上游错误不能生成成功终止。验证终止 chunk、`[DONE]` 和未知 usage 处理，日志/结果能追踪原 runId。
-- 已知 usage、部分阶段未知和完全未知分别验收；缺失不填 0，多阶段统计口径清楚。遇客户端不能接受 null/省略时标具体兼容限制，不伪造计费。文档列出已测子集及未支持项。
+- usage 和 wire 按[协议附录验收](#协议附录验收)固定判据逐客户端记录；不能为客户端显示方便将未知计量补 0 或改变全局投影。文档列出已测子集及未支持项。
 
 ## KT 实际集成
 

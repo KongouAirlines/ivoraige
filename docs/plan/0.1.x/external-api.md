@@ -2,7 +2,7 @@
 
 # 共用外部 API 与软件集成路线
 
-接口权威定义见[可调用翻译方案](../../requirements/0.1.x/external-api.md)。本页负责来源证据、实施切片和待收口问题；[工作包索引](work-packages.md)维护状态，[releases](releases.md#新增支线的阶段安排)维护候选范围。沿用 I01/I02 和现有 W/P/U 包，不另建接口项目的平行进度表。
+接口权威定义见[可调用翻译方案](../../requirements/0.1.x/external-api.md)及[协议附录](../../requirements/0.1.x/external-protocol.md)。本页负责来源证据、实施切片和待收口问题；[工作包索引](work-packages.md)维护状态，[releases](releases.md#新增支线的阶段安排)维护候选范围。沿用 I01/I02 和现有 W/P/U 包，不另建接口项目的平行进度表。
 
 ## 依赖与可审阅切片
 
@@ -41,7 +41,7 @@ Zotero 的选择附件导入和显式新产物写回是 I01.zotero@1 独立高�
 | 原生路径、版本协商和 MCP 工具名 | P04 真实注册/现行错误与授权行为；首个 facade PR 固定路径及兼容测试，不自动暴露内部列表 |
 | 授权落地与无项目记录迁移 | [单机授权](../../requirements/0.1.x/contracts.md#单机客户端授权)已固定 owner 签发、principal/grant、scope 和拒绝语义；I01.shared@1 探针确认 DSH 实际存储接点、旧路由门禁和 stdio 身份绑定。W02/I01.callable@1 固定所属引用、保留/迁移字段，不再把认证来源留作未定方案 |
 | 临时 glossary 冲突及抽候选政策 | 至少两来源/同形异义、锁定术语和请求冲突样本；术语切片固定默认及可配置范围，不能先忽略术语让演示通过 |
-| OpenAI 客户端子集与 usage | 至少一个真实兼容客户端的 messages/参数/未知 usage/流式行为；扩字段前证明映射，不以通用聊天语义覆盖中央配置 |
+| OpenAI 客户端与机器 schema | [协议附录](../../requirements/0.1.x/external-protocol.md#openai-文本子集)固定最小 wire/usage/错误；首个实现 PR 提交机器 schema、至少一个真实客户端的字段/流式矩阵和不兼容项，扩字段前证明映射 |
 | KT 版本、原生脚本/声明式选择与安装包 | 实际支持插件的构建、SDK、HTML/聚合/取消探针和打包根目录；联调前固定，商店发行可用性另核验 |
 | 全文与片段抽取 | KT 实际交付的页面批次、上下文完整性、用户授权与资源限额；未证明全文交接前仅承诺片段范围，不用 URL 抓取代替授权 |
 
