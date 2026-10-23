@@ -7,6 +7,7 @@
 | 对象 | 现有依据 | 目标路径 | 验收与失败恢复 |
 | --- | --- | --- | --- |
 | 0.1.0 Records | `ivoraige_records` domain version 1；[records](../../../src/records.mjs) | 先只读兼容，再新增明确 schema 版本；导入编排迁出不改变既有 ID | 原始 fixture 备份后升级、重启读回、事务失败回滚；未知新版本拒绝写。旧程序回退需恢复完整备份，不只替换可执行文件 |
+| Q02 Records 存储单元门禁 | DSH SQLite `ivoraige_records` unit version 1 | 新库直接使用 unit version 2；已有 version 1 库继续普通读写，首次 Q02 语义写入前同步标记 version 2，不批量改写文档 | 旧程序在 DSH `units.version` 不匹配时拒绝打开；新程序可读取版本 2。记录写入失败后版本 2 仍保守保留；回退需恢复写入前完整 SQLite 与受管文件备份，未验证真实用户库迁移 |
 | 接受修订与 reuseKey | [basis](../../../src/basis.mjs) 与 amendment 0001 | 保留源修订/上下文/目标/约束适用性；新语义身份算法独立版本 | 仅资源搬迁与语义变化分开测试；公式/位置/约束变化不能误复用；不因升级自动重新翻译 |
 | 旧冻结快照 | targetLang、binding、accepted manifest | 旧读取器按原语义回放；新 `source` 快照另设模式 | 同一旧快照编辑后重放不漂移；缺 renderer/资源/兼容版本明确失败，不改快照补当前值 |
 | 原文结构化输出 | 现有 skip 可能使用已接受译文 | 新 source 模式只取原文结构，不要求目标语言或 accepted | 同文已有译文时仍只导出原文；没有翻译插件也能结束任务；无假修订 |

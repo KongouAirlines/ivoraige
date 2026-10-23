@@ -97,14 +97,27 @@ const recordSchema = z.object({
 const importTaskSchema = operationTaskSchema.omit({ docId: true }).extend({ kind: z.literal('import'),
   docId: z.string().optional(), preparedDocId: z.string().optional(), label: z.string(), result: generic.optional(),
   schemaVersion: z.number().int().optional() })
-const spec = StorageDomain.defineDomain({ name: 'ivoraige_records', version: 1, layout: 'per-record',
+const spec = version => StorageDomain.defineDomain({ name: 'ivoraige_records', version, layout: 'per-record',
   tables: { documents: StorageDomain.domainTable(recordSchema), imports: StorageDomain.domainTable(importTaskSchema) } })
+
+function requiresRetention(record) {
+  return record.schemaVersion === 3 || (record.artifactCleanup?.length ?? 0) > 0 ||
+    record.artifacts?.some(artifact => artifact.managedFile) ||
+    record.tasks?.some(task => task.state === 'abandoned') ||
+    record.operationTasks?.some(task => task.state === 'abandoned')
+}
 
 export class Records {
   static inject = ['storageDomain']
 
-  constructor(ctx) {
+  constructor(ctx, { storageVersion = 2, activateRetention } = {}) {
+    if (![1, 2].includes(storageVersion) ||
+        (storageVersion === 1 && typeof activateRetention !== 'function') ||
+        (activateRetention !== undefined && typeof activateRetention !== 'function')) {
+      throw new KernelError('INVALID_ARGUMENT', 'Records storage version and retention activation are invalid')
+    }
     this.ctx = ctx
+    this.activateRetention = activateRetention ?? (() => {})
     this.leases = new Map()
     this.artifactLeases = new Map()
     this.deletingArtifacts = new Set()
@@ -112,7 +125,7 @@ export class Records {
     this.pendingArtifactPaths = new Map()
     this.reuse = new Map()
     this.imports = new Map()
-    this.ready = ctx.get('storageDomain').open(spec).then(domain => {
+    this.ready = ctx.get('storageDomain').open(spec(storageVersion)).then(domain => {
       this.domain = domain
       this.table = domain.table('documents')
       this.importTable = domain.table('imports')
@@ -153,6 +166,7 @@ export class Records {
       }
       assertJson(next)
       recordSchema.parse(next)
+      if (requiresRetention(next)) this.activateRetention()
       return next
     })
   }
@@ -462,6 +476,7 @@ export class Records {
         required(next.id === current.id && next.kind === 'import', 'Import task identity is immutable')
         assertJson(next)
         importTaskSchema.parse(next)
+        if (next.schemaVersion === 3 || next.state === 'abandoned') this.activateRetention()
         return next
       })
       return clone(updated)
