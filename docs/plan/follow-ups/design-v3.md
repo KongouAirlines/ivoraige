@@ -41,7 +41,7 @@ v2.0 的 Cordis 组合契约在实现中出现了可观察的漂移：
 
 ## 处理记录
 
-- 2026-10-23：P01、Q01/Q03、P02 已在分支完成验证，P03 基础适配器切片在独立堆叠分支完成 291/291 本机回归、构建及 npm package smoke；证据见 [P01](../0.1.x/evidence/foundation-runtime.md)、[Q01/Q03](../0.1.x/evidence/foundation-qfix.md)、[P02](../0.1.x/evidence/foundation-p02.md)、[P03](../0.1.x/evidence/foundation-p03.md)。目前均待按依赖顺序集成，P04 入口/事件及其余验收未完成，本 follow-up 保持处理中。
+- 2026-10-23：P01、Q01/Q03、P02 已在分支完成验证，P03 基础适配器切片在独立堆叠分支完成 293/293 本机回归、构建及 npm package smoke；证据见 [P01](../0.1.x/evidence/foundation-runtime.md)、[Q01/Q03](../0.1.x/evidence/foundation-qfix.md)、[P02](../0.1.x/evidence/foundation-p02.md)、[P03](../0.1.x/evidence/foundation-p03.md)。目前均待按依赖顺序集成，P04 入口/事件及其余验收未完成，本 follow-up 保持处理中。
 
 - 2026-10-20：按 [PR #34 审阅](https://github.com/KongouAirlines/ivoraige/pull/34#discussion_r4323789541)修正规划状态为“已安排”；生产实施未开始，不扩展状态机。下方 2026-10-19 的“处理中”是当时误用，保留记录并由本条更正。基础范围见 [0.1.0 基础候选](../0.1.0/foundation-plan.md)，工作包状态仍只在原执行表维护。
 

@@ -114,6 +114,52 @@ test('source validator pins implementation version on human edits and old-revisi
   await app.records.acceptRevision(revision.id, { expectedAcceptedRevisionId: null })
 })
 
+test('reimport with a new source implementation version keeps the old document and creates new provenance', async t => {
+  const { app } = await fixture(t)
+  const removeV1 = app.parse.register(source('versioned'))
+  const file = { format: 'fixture', adapterId: 'versioned', content: 'Same content' }
+  const first = await app.tasks.importDocument(file, metadata)
+  assert.equal(first.document.sourceAdapterVersion, '1')
+  const originalSnapshot = await app.records.createSnapshot(first.document.id, { contentMode: 'source' })
+  removeV1()
+  const removeV2 = app.parse.register(source('versioned', { version: '2' }))
+  const second = await app.tasks.importDocument(file, metadata)
+  assert.notEqual(second.document.id, first.document.id)
+  assert.equal(app.records.record(second.document.id).fingerprint,
+    app.records.record(first.document.id).fingerprint)
+  assert.equal(second.document.sourceAdapterVersion, '2')
+  assert.equal((await app.tasks.get(second.taskId)).adapterVersion, '2')
+  assert.equal(app.records.getDocument(first.document.id).sourceAdapterVersion, '1')
+  assert.deepEqual(app.records.getSnapshot(first.document.id, originalSnapshot.id), originalSnapshot)
+  assert.equal(app.records.resolveSnapshot(first.document.id, originalSnapshot.id).snapshot.id, originalSnapshot.id)
+  assert.equal(app.records.listDocuments().length, 2)
+  removeV2()
+  app.parse.register(source('versioned', { version: '2', importMode: 'queued' }))
+  const queued = await app.tasks.importDocument(file, metadata, { wait: false })
+  const completed = await app.tasks.wait(queued.taskId)
+  assert.equal(completed.state, 'succeeded')
+  assert.equal(completed.preparedDocId, second.document.id)
+  assert.equal(completed.adapterVersion, '2')
+})
+
+test('a pre-P03 unversioned record keeps its legacy deduplication identity', async t => {
+  const { app } = await fixture(t)
+  const removeOld = app.parse.register({ ...source('legacy'), version: undefined })
+  const file = { format: 'fixture', adapterId: 'legacy', content: 'Same content' }
+  const first = await app.records.importDocument(file, metadata)
+  await app.records.update(first.document.id, current => {
+    const { sourceAdapterId, sourceAdapterVersion, bindingSchemaVersion, ...document } = current.document
+    return { ...current, document }
+  })
+  removeOld()
+  app.parse.register(source('legacy', { version: '2' }))
+  const again = await app.tasks.importDocument(file, metadata)
+  assert.equal(again.deduplicated, true)
+  assert.equal(again.document.id, first.document.id)
+  assert.equal((await app.tasks.get(again.taskId)).adapterVersion, '2')
+  assert.equal(app.records.listDocuments().length, 1)
+})
+
 test('binary output keeps selected adapter identity, version and bytes across task admission', async t => {
   const { app } = await fixture(t)
   const { document } = await app.records.importDocument({ format: 'txt', content: 'Input' }, metadata)

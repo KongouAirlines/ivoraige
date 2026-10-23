@@ -202,6 +202,8 @@ P01 固定服务/错误/版本命名及兼容探针，P02 明确旧数据读取�
 
 ### P03 已激活的适配器边界
 
+既有内容 `fingerprint` 算法和值保持不变；有版本来源描述符只在新文档 ID 命名空间加入 adapter id/version/binding schema。相同内容由同一 id 的不兼容新版解析时创建独立新文档，不覆写旧快照、修订或旧记录。无来源版本元数据的 pre-P03 文档沿用历史 ID 和去重路径；本次导入任务仍记录本次实际选择的来源实现及版本。
+
 P03 将 `format` 与 `adapterId` 分开。来源描述符声明 `formats[]`、`inputKinds[]`（`text`、`bytes`、`managed-resource`）、`version`、`bindingSchemaVersion`、可选排队与取消能力；旧描述符缺少这些字段时沿用既有 match 路径。显式指定的适配器必须支持输入种类和格式；并列最高 match 返回 `CONFLICT`。来源插件必须返回属于自身的 `sourceBinding.adapterId`，导入编排由 Importer 承担，Records 只持久化规范化结果。来源资源清单以 `id/mediaType/contentDigest/version` 计算语义身份，不把位置放进 source IR；冻结快照保留资源版本，变更同一 id 的内容会拒绝旧快照重放。来源 binding 仍参与修订适用性检查。
 
 输出描述符以 `formats[]` 声明所支持格式，可按 binding 和 contentMode 判定兼容，并以 `requiredViews[]` 按需索取来源插件的 `readable-text` 或 `native-markdown` 投影。纯二进制输出不需要文本投影。受理时选中的输出 adapter id/version 冻结在任务中，执行和恢复必须再次匹配，产物记录实际 id/version；导入任务同样固定来源实现版本。旧记录无来源版本元数据时保留旧读取兼容路径；带版本元数据的记录在人工写入、模型 checkpoint、接受旧修订和需要来源投影的导出时，若插件缺席或同 id 不兼容替换则拒绝写入/导出，旧记录读取保持可用。直接 Exporter 调用的受理或执行失败会清除本调用新建且无引用的快照，已有快照不受影响。

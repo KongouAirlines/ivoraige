@@ -143,7 +143,8 @@ export class Tasks extends Service {
       const start = Date.now()
       const result = await this.importCoordinator().importDocument({ ...pinnedFile, signal: file.signal
         ? AbortSignal.any([controller.signal, file.signal]) : controller.signal }, metadata, { adapterVersion })
-      const task = await this.records.createOperationTask(result.document.id, { kind: 'import', durationMs: Date.now() - start })
+      const task = await this.records.createOperationTask(result.document.id,
+        { kind: 'import', durationMs: Date.now() - start, sourceAdapter: adapter })
       this.emit('task.succeeded', { taskId: task.id, artifacts: [], stats: task.stats })
       return { ...result, taskId: task.id, warnings: result.document.warnings ?? [] }
     })()

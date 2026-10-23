@@ -219,11 +219,24 @@ export class Records {
       const businessSourceId = sourceId ?? (file.path ? `path:${file.path}` : `manual:${id()}`)
       const fingerprint = digest({ format: parsed.format, language: sourceLang, units: parsed.units,
         chapters: parsed.chapters, resources: parsed.resources, sourceBinding: parsed.sourceBinding })
-      const docId = digest({ sourceId: businessSourceId, fingerprint }).slice(0, 32)
+      const legacyDocId = digest({ sourceId: businessSourceId, fingerprint }).slice(0, 32)
+      // Keep the established content fingerprint unchanged. Versioned parses
+      // receive a separate document namespace so replacing an implementation
+      // cannot silently deduplicate against its older private binding contract.
+      const docId = parsed.sourceAdapterVersion && parsed.sourceAdapterVersion !== 'unversioned'
+        ? digest({ sourceId: businessSourceId, fingerprint, sourceAdapterId: parsed.sourceAdapterId,
+          sourceAdapterVersion: parsed.sourceAdapterVersion,
+          bindingSchemaVersion: parsed.bindingSchemaVersion }).slice(0, 32) : legacyDocId
+      // A pre-P03 record has no implementation provenance; preserve its old
+      // idempotent reimport identity rather than silently rewriting that record.
+      const legacy = this.table.get(legacyDocId)
+      const retainedLegacy = legacy && !legacy.document.sourceAdapterVersion
+      const destination = retainedLegacy ? legacyDocId : docId
       // Persist the deterministic destination before inserting the document, so
       // startup can reconcile a crash between document commit and task completion.
-      if (taskId) await this.updateTask(taskId, task => ({ ...task, preparedDocId: docId }))
+      if (taskId) await this.updateTask(taskId, task => ({ ...task, preparedDocId: destination }))
       file.signal?.throwIfAborted()
+      if (retainedLegacy) return { document: clone(legacy.document), deduplicated: true }
       const existing = this.table.get(docId)
       if (existing) return { document: clone(existing.document), deduplicated: true }
       const pending = this.imports.get(docId)
@@ -382,7 +395,8 @@ export class Records {
         result: { document, deduplicated: true, recovered: true, warnings: document.warnings ?? [] } }
     })
   }
-  async createOperationTask(docId, { kind, targetLang, snapshotId, outputs, durationMs = 0 }) {
+  async createOperationTask(docId, { kind, targetLang, snapshotId, outputs, durationMs = 0,
+    sourceAdapter } = {}) {
     required(['import', 'export'].includes(kind), 'Unsupported operation task')
     let task
     await this.update(docId, current => {
@@ -397,9 +411,9 @@ export class Records {
       }
       const stamp = now()
       task = { id: `${docId}.${id()}`, kind, docId, state: kind === 'import' ? 'succeeded' : 'queued',
-        ...(kind === 'import' && current.document.sourceAdapterId ?
-          { adapterId: current.document.sourceAdapterId,
-            adapterVersion: current.document.sourceAdapterVersion ?? 'unversioned' } : {}),
+        ...(kind === 'import' && (sourceAdapter?.id ?? current.document.sourceAdapterId) ?
+          { adapterId: sourceAdapter?.id ?? current.document.sourceAdapterId,
+            adapterVersion: sourceAdapter?.version ?? current.document.sourceAdapterVersion ?? 'unversioned' } : {}),
         ...(targetLang ? { targetLang } : {}), ...(snapshotId ? { snapshotId, outputs: clone(outputs) } : {}),
         progress: { stage: kind === 'import' ? 'complete' : 'export', done: kind === 'import' ? 1 : 0,
           total: kind === 'import' ? 1 : outputs.length }, cursor: kind === 'import' ? 1 : 0,
