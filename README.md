@@ -43,6 +43,8 @@ For PDF, prepare the optional Windows development environment using the [PDF dev
 
 For configuration, debugging, and contributing, see the [development guide](docs/plan/0.1.0/development-guide.md). Detailed guides are currently mostly in Chinese.
 
+Component installation and document tasks share a bounded background-job quota. A queued document task waits for installation to finish; an installation requested during active document work reports a conflict so you can retry.
+
 ## What works today
 
 **First formal source version: `0.1.0`.** Features and the interface are still evolving.

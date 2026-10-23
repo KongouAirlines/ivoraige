@@ -4,6 +4,7 @@
 import { Service } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
 import { reportFailure } from './diagnostics.mjs'
+import { waitForJob } from './job-wait.mjs'
 import { basename, resolve } from 'node:path'
 
 const terminal = new Set(['succeeded', 'failed', 'canceled'])
@@ -32,6 +33,12 @@ export class Tasks extends Service {
     this.admissions = new Set()
     this.importControllers = new Set()
     this.pendingImports = new Map()
+    this.quotaBlocked = false
+    this.jobs.events.subscribe({ owner: undefined }, event => {
+      if (event.type !== 'settled' || !this.quotaBlocked) return
+      this.quotaBlocked = false
+      this.schedule()
+    })
     this.ready = this.recover()
     ctx.effect(() => () => this.shutdown(), 'ivoraige.tasks teardown')
   }
@@ -249,15 +256,23 @@ export class Tasks extends Service {
         live.markStarted()
         if (live.cancel) this.jobs.kill(live.jobId, undefined, 'canceled')
         await live.done
-        const job = await this.jobs.wait(live.jobId, 30000)
+        const job = await waitForJob(this.jobs, live.jobId)
         if (['completed', 'killed', 'failed'].includes(job.status)) this.jobs.remove(live.jobId)
       } catch (error) {
         live.markStarted()
-        if (!this.tearingDown && this.records.getTask(taskId).state === 'running') await this.fail(taskId, error)
+        // Both consumers use DSH's unowned bucket. Saturation is admission
+        // backpressure, before a producer or model has run. Retry on settlement.
+        if (!live.jobId && /background job limit reached/.test(error.message) && !this.closing) {
+          this.quotaBlocked = true
+          this.queue.unshift(taskId)
+          await this.records.updateTask(taskId, current => current.state === 'running'
+            ? { ...current, state: 'queued', progress: { ...current.progress, stage: 'queued' } } : current)
+        } else if (!this.tearingDown && this.records.getTask(taskId).state === 'running') await this.fail(taskId, error)
       } finally {
         this.running = null
         live.markFinished()
       }
+      if (this.quotaBlocked) break
     }
   }
 
