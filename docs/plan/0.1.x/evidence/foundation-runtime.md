@@ -26,10 +26,7 @@ DSH 的 owner 为 live Agent 生命周期，不可用任意字符串伪造业务
 反向交错保留安装入口的 CONFLICT；业务结束后可再次安装。暂停、取消和关闭与配额拒绝及存储写入交错时，按最新控制意图提交 paused/canceled，不重新排队吞掉意图。
 测试使用真实 jobs-local、可控安装与模型生产者，无网络和付费调用。
 
-`waitForJob()` 对反复返回非终态和完全无响应的 `jobs.wait()` 都设一个总截止期。
-Components 收尾和 Tasks 的 registry 收尾共用它；默认 30 秒，超时为 UPSTREAM_FAILURE，
-不伪造 completed。取消等待不等于强制停止生产者；DSH 原始 dispose 仍依赖生产者合作，
-此护栏不宣称可安全强杀任意插件或保证任意不合作生产者的退出。
+`waitForJob()` applies a fresh total deadline to each invocation, covering repeated nonterminal results and an unresponsive `jobs.wait()`; the default is 30 seconds. Components and Tasks each call the helper independently. This is not an application-wide shared shutdown budget. A timeout reports UPSTREAM_FAILURE rather than completed, and does not prove forced termination of an uncooperative producer or DSH disposal.
 
 ## 验证与范围
 
@@ -43,3 +40,9 @@ Python sidecar fixtures 14 个、归档 fixtures 4 个通过。
 持久化失败及重启回归在完整 suite 中保留。候选迁移另按
 [候选门禁](../runtime-sequence.md#候选兼容门禁与维护成本)核对，当前护栏通过不代表候选通过。
 没有执行真实 PDF 引擎、真实桌面或原始用户库迁移验收。
+
+## Review correction: buffered import cancellation (2026-10-23)
+
+With the component installer holding the shared quota, an import canceled after its running-state write but before job admission became canceled and left the queue while retaining its complete 1 MiB source in `pendingImports`. Quota-deferral cancellation now drops that entry before notifying waiters. Regression coverage gates both the running-state write and the quota-deferral write, for explicit cancellation and service close; all four cases failed on the previous head and pass after the fix. No document is committed and `llmCalls` stays zero.
+
+The original `review45/probe-quota-import.mjs` was preserved and a copy redirected to this checkout. Its output was checked, not just its exit status: `state: canceled`, `pendingImports: false`, `queued: false`, with no retained-content field. Local Node 26.12.1 validation passed: foundation guards 18/18, full suite 276/276 (four test processes), build, and isolated 69-file package smoke including HTTP/MCP. Logs are under ignored `evaluation/runs/foundation-review-0.1.x/`. Final remote SHA and CI are recorded in the PR description.

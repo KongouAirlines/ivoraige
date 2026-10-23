@@ -201,3 +201,45 @@ test('control intent survives the in-flight quota deferral write', { timeout: 10
     assert.equal(app.tasks.queue.includes(taskId), false)
   })
 })
+
+test('canceling an import before quota admission releases its buffered source', { timeout: 20_000 }, async t => {
+  for (const phase of ['running', 'quota-write']) for (const action of ['cancel', 'close']) {
+    await t.test(`${phase}: ${action}`, async t => {
+      const root = await directory(t)
+      const app = await createApp({ store: join(root, 'records.sqlite'), settingsDir: join(root, 'settings'),
+        components: { directory: join(root, 'components') } })
+      const entered = deferred(), release = deferred(), installation = deferred()
+      t.after(async () => {
+        release.resolve(); installation.resolve()
+        await app.dispose(); await rm(root, { recursive: true, force: true })
+      })
+      app.components.performInstall = async () => { await installation.promise; return { restartRequired: false } }
+      app.components.install()
+      const update = app.records.updateTask.bind(app.records)
+      app.records.updateTask = async (taskId, transform) => {
+        if (phase === 'quota-write' && app.tasks.quotaBlocked) {
+          const next = transform(app.records.getTask(taskId))
+          if (next.state === 'queued') { entered.resolve(); await release.promise }
+          return update(taskId, () => next)
+        }
+        const next = await update(taskId, transform)
+        if (phase === 'running' && next.state === 'running') { entered.resolve(); await release.promise }
+        return next
+      }
+      const { taskId } = await app.tasks.importDocument({ format: 'txt', content: 'x'.repeat(1024 * 1024) },
+        { sourceId: `${phase}-${action}`, language: 'en' }, { wait: false })
+      await entered.promise
+      assert.equal(app.tasks.running.jobId, null)
+      assert.equal(app.tasks.pendingImports.get(taskId).file.content.length, 1024 * 1024)
+      const changing = action === 'close' ? app.tasks.close() : app.tasks.cancel(taskId)
+      await Promise.resolve()
+      release.resolve()
+      await changing
+      assert.equal((await app.tasks.get(taskId)).state, 'canceled')
+      assert.equal(app.tasks.queue.includes(taskId), false)
+      assert.equal(app.tasks.pendingImports.has(taskId), false)
+      assert.equal(app.records.listDocuments().length, 0)
+      assert.equal((await app.tasks.get(taskId)).stats.llmCalls, 0)
+    })
+  }
+})
