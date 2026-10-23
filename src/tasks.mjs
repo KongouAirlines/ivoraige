@@ -101,7 +101,7 @@ export class Tasks extends Service {
     return importer
   }
 
-  async importDocument(file, metadata, { wait, deferSelection = false } = {}) {
+  async importDocument(file, metadata, { wait, waitForQueued = true, deferSelection = false } = {}) {
     await this.ready
     if (this.closing) throw new KernelError('PRECONDITION_FAILED', 'Task service is closing')
     this.importCoordinator()
@@ -115,7 +115,7 @@ export class Tasks extends Service {
     const pinnedFile = adapter ? { ...file, adapterId: adapter.id } : file
     const adapterVersion = adapter?.version ?? (adapter ? 'unversioned' : undefined)
     const queued = adapter?.importMode === 'queued' || !adapter
-    const shouldWait = wait ?? true
+    const shouldWait = wait ?? (!queued || waitForQueued)
     if (queued || !shouldWait) {
       const admission = (async () => {
         const task = await this.records.createImportTask(file.title ?? (file.path ? basename(file.path) : 'Import'), adapter)

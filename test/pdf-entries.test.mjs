@@ -40,20 +40,20 @@ test('PDF base64 remains binary at the operation boundary; text remains UTF-8', 
   const inputs = []
   app.tasks.importDocument = async (file, _metadata, options) => {
     inputs.push({ file, options })
-    return options.wait ? { document: { id: 'example' } } : { taskId: 'import.example' }
+    return file.format === 'txt' ? { document: { id: 'example' } } : { taskId: 'import.example' }
   }
   const binary = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0xff, 0x00])
   const pending = await app.operations.invoke('importDocument', { format: 'pdf', contentBase64: binary.toString('base64'), language: 'en' })
   assert.equal(pending.taskId, 'import.example')
   assert.equal(inputs[0].file.format, 'pdf')
-  assert.equal(inputs[0].options.wait, false)
+  assert.equal(inputs[0].options.waitForQueued, false)
   assert.ok(Buffer.isBuffer(inputs[0].file.content))
   assert.deepEqual(inputs[0].file.content, binary)
   await app.operations.invoke('importDocument', { format: 'txt', contentBase64: Buffer.from('中文').toString('base64'), language: 'zh' })
   assert.equal(inputs[1].file.content, '中文')
-  assert.equal(inputs[1].options.wait, true)
+  assert.equal(inputs[1].options.waitForQueued, false)
   await app.operations.invoke('importDocument', { path: join(dir, 'source.PDF'), language: 'en' })
-  assert.equal(inputs[2].options.wait, false)
+  assert.equal(inputs[2].options.waitForQueued, false)
   await assert.rejects(app.operations.invoke('importDocument', {
     format: 'txt', contentBase64: binary.toString('base64'), language: 'en',
   }), { code: 'INVALID_ARGUMENT' })
@@ -97,7 +97,7 @@ test('HTTP PDF import forwards binary bytes and validates base64', async t => {
   assert.equal(response.status, 200)
   assert.equal((await response.json()).taskId, 'import.example')
   assert.deepEqual(captured.file.content, bytes)
-  assert.equal(captured.options.wait, false)
+  assert.equal(captured.options.waitForQueued, false)
   const invalid = await post({ format: 'pdf', language: 'en', contentBase64: 'invalid!' })
   assert.equal(invalid.status, 400)
   assert.equal((await invalid.json()).error.code, 'INVALID_ARGUMENT')

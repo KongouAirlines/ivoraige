@@ -137,6 +137,68 @@ test('unavailable or input-incompatible sibling cannot divert a UTF-8 import', a
   assert.equal(second.document.sourceAdapterId, 'route-text')
 })
 
+test('wire import scheduling follows the selected source while jobs quota is occupied', async t => {
+  const { app } = await fixture(t)
+  let parses = 0
+  const preferred = { ...source('preferred-sync'), inputKinds: ['text'], match: () => 1,
+    parse: async file => { parses++; return source('preferred-sync').parse(file) } }
+  const lower = { ...source('lower-queued', { importMode: 'queued' }), inputKinds: ['text'], match: () => 0.1,
+    parse: async file => { parses++; return source('lower-queued').parse(file) } }
+  app.parse.register(preferred)
+  app.parse.register(lower)
+  let releaseQuota
+  const quota = new Promise(resolve => { releaseQuota = resolve })
+  t.after(() => releaseQuota({ status: 'completed' }))
+  app.ctx.get('jobs').start({ kind: 'held-install-fixture', label: 'Held jobs quota',
+    run: () => ({ done: quota, cancel: () => releaseQuota({ status: 'killed' }) }) })
+  const updateTask = app.records.updateTask.bind(app.records)
+  let quotaDeferred
+  const deferred = new Promise(resolve => { quotaDeferred = resolve })
+  app.records.updateTask = async (...args) => {
+    const result = await updateTask(...args)
+    if (app.tasks.quotaBlocked && result.state === 'queued') quotaDeferred()
+    return result
+  }
+  t.after(() => { app.records.updateTask = updateTask })
+  const request = { format: 'fixture', contentBase64: Buffer.from('A').toString('base64'), language: 'en' }
+  const selected = await app.operations.invoke('importDocument', { ...request, sourceId: 'preferred' })
+  assert.equal(selected.document.sourceAdapterId, 'preferred-sync')
+  assert.equal((await app.tasks.get(selected.taskId)).state, 'succeeded')
+  assert.equal(parses, 1)
+
+  const queued = await app.operations.invoke('importDocument',
+    { ...request, sourceId: 'actual-queued', adapterId: 'lower-queued' })
+  assert.equal(queued.document, undefined)
+  let timeout
+  try { await Promise.race([deferred, new Promise((_resolve, reject) => {
+    timeout = setTimeout(() => reject(new Error('quota deferral did not commit')), 2000)
+  })]) } finally { clearTimeout(timeout) }
+  assert.equal(app.tasks.quotaBlocked, true)
+  const queuedTask = await app.tasks.get(queued.taskId)
+  assert.equal(queuedTask.state, 'queued')
+  assert.equal(queuedTask.adapterId, 'lower-queued')
+  assert.equal(parses, 1)
+
+  const direct = await app.tasks.importDocument({ format: 'fixture', content: 'B', adapterId: 'preferred-sync' },
+    { language: 'en', sourceId: 'direct-wait-false' }, { wait: false })
+  assert.equal((await app.tasks.get(direct.taskId)).state, 'queued')
+  assert.equal(parses, 1)
+
+  const removeTie = app.parse.register({ ...source('tie-sync'), inputKinds: ['text'], match: () => 1 })
+  const beforeConflict = app.records.listTasks().length
+  await assert.rejects(app.operations.invoke('importDocument', { ...request, sourceId: 'tie' }), { code: 'CONFLICT' })
+  assert.equal(app.records.listTasks().length, beforeConflict)
+  const explicit = await app.operations.invoke('importDocument',
+    { ...request, sourceId: 'explicit-preferred', adapterId: 'preferred-sync' })
+  assert.equal(explicit.document.sourceAdapterId, 'preferred-sync')
+  removeTie()
+
+  releaseQuota({ status: 'completed' })
+  assert.equal((await app.tasks.wait(queued.taskId)).state, 'succeeded')
+  assert.equal((await app.tasks.wait(direct.taskId)).state, 'succeeded')
+  assert.equal(parses, 4)
+})
+
 test('source validator pins implementation version on human edits and old-revision acceptance', async t => {
   const { app } = await fixture(t)
   const unregister = app.parse.register(source('validator', { validateTranslation: (_binding, _unit, text) => {

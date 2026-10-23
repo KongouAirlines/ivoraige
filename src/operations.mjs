@@ -102,8 +102,6 @@ export class Operations extends Service {
         // component is absent; installed adapters use their own descriptor.
         const legacyPdf = p.adapterId === undefined && !matching.length &&
           (p.format === 'pdf' || /\.pdf$/i.test(p.path ?? ''))
-        let routed = p.path === undefined ? [] : candidates.filter(adapter =>
-          !adapter.inputKinds || adapter.inputKinds.includes('managed-resource'))
         let content
         if (p.contentBase64 !== undefined) {
           if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(p.contentBase64)) {
@@ -115,20 +113,19 @@ export class Operations extends Service {
           const text = candidates.filter(adapter => !adapter.inputKinds || adapter.inputKinds.includes('text'))
           const binary = candidates.filter(adapter => !adapter.inputKinds || adapter.inputKinds.includes('bytes'))
           const binaryOnly = binary.filter(adapter => adapter.inputKinds && !adapter.inputKinds.includes('text'))
-          if (decoded !== undefined && text.length) { content = decoded; routed = text }
+          if (decoded !== undefined && text.length) content = decoded
           else if (binaryOnly.length || (decoded !== undefined && binary.length) || legacyPdf) {
-            content = bytes; routed = binaryOnly.length ? binaryOnly : binary
+            content = bytes
           }
           else if (decoded !== undefined) content = decoded
           else throw new KernelError('INVALID_ARGUMENT', 'Input must be UTF-8 text')
         }
-        const queued = routed.some(adapter => adapter.importMode === 'queued') || legacyPdf
         result = await this.tasks.importDocument({ ...(p.path ? { path: p.path } : { content }),
           ...(p.format ? { format: p.format } : {}), ...(p.adapterId ? { adapterId: p.adapterId } : {}),
           ...(p.title ? { title: p.title } : {}) },
         { language: p.language, origin: p.origin, ...(p.sourceId ? { sourceId: p.sourceId } : {}),
           ...(p.externalRef ? { externalRef: p.externalRef } : {}) },
-        { wait: !queued, deferSelection: queued && p.adapterId === undefined })
+        { waitForQueued: false, deferSelection: legacyPdf })
         break
       }
       case 'listDocuments': result = paginate(r.listDocuments().filter(item =>
