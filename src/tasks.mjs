@@ -199,7 +199,7 @@ export class Tasks extends Service {
         release?.()
         // A failed admission must not leave the snapshot it just created behind.
         // Once a task exists, its snapshot remains available for resume/recovery.
-        if (created && !admitted && release) {
+        if (created && !admitted) {
           try { await this.records.deleteSnapshot(docId, snapshot.id) }
           catch (error) {
             reportFailure(new Error(`Export snapshot cleanup failed: ${snapshot.id}`, { cause: error }))
