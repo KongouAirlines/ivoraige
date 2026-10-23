@@ -7,6 +7,7 @@ import { createServer } from 'node:http'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { bootModelSettings } from '../src/model-settings.mjs'
 import { createApp } from '../src/app.mjs'
+import { errorEnvelope } from '../src/protocol.mjs'
 
 test('unconfigured model fails before recording an LLM call', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-unconfigured-model-'))
@@ -298,4 +299,38 @@ test('saving the active model without selection preserves its new timeout for th
   assert.deepEqual(saved.savedModels, [{ provider: 'custom', model: 'one', timeoutMs: 5000 }])
   const selected = await app.settings.update({ provider: 'custom', model: 'one', selectOnly: true })
   assert.deepEqual(selected.selected, { provider: 'custom', model: 'one', timeoutMs: 5000 })
+})
+
+test('invalid DSH route values map to public argument errors without persisting settings', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-invalid-model-settings-'))
+  const app = await bootModelSettings({ directory })
+  t.after(async () => { await app.dispose(); await rm(directory, { recursive: true, force: true }) })
+  const before = await app.settings.get()
+  for (const changes of [
+    { compat: 'invalid' },
+    { compat: { supportsStore: 'yes' } },
+    { reasoningEfforts: ['low'] },
+    { reasoningEfforts: {} },
+    { reasoningEfforts: { low: null } },
+  ]) {
+    await assert.rejects(app.settings.update({ provider: 'local', model: 'science',
+      api: 'openai-completions', baseURL: 'http://127.0.0.1:9999/v1',
+      contextWindow: 8192, maxTokens: 512, ...changes }), error => {
+      assert.equal(errorEnvelope(error).body.error.code, 'INVALID_ARGUMENT')
+      return true
+    })
+  }
+  const after = await app.settings.get()
+  assert.deepEqual(after.routes, before.routes)
+  assert.deepEqual(after.revisions, before.revisions)
+})
+
+test('missing DSH settings forms use a public component error', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-missing-settings-'))
+  const app = await bootModelSettings({ directory })
+  t.after(async () => { await app.dispose(); await rm(directory, { recursive: true, force: true }) })
+  t.mock.method(app.ctx.settings, 'describe', () => [])
+  await assert.rejects(app.settings.get(), { code: 'COMPONENT_MISSING' })
+  await assert.rejects(app.settings.update({ provider: 'local', model: 'science' }),
+    { code: 'COMPONENT_MISSING' })
 })
