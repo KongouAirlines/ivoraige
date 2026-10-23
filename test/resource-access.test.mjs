@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createApp } from '../src/app.mjs'
 import { serve } from '../src/http.mjs'
+import fs from 'node:fs'
+import { syncBuiltinESMExports } from 'node:module'
 
 async function fixture(t, options = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'ivoraige-p04-resource-'))
@@ -83,5 +85,44 @@ test('download disconnect while resource acquisition awaits cannot strand a real
   release()
   await cleanedPromise
   assert.equal(app.records.artifactLeases.size, 0)
+  await app.operations.invoke('deleteArtifact', { docId: document.id, artifactId: item.id })
+})
+
+test('the shared resource file-stat await releases its lease after a real download disconnect', { timeout: 5000 }, async t => {
+  const { app, document } = await fixture(t)
+  const item = (await app.exporter.exportDocument(document.id, { contentMode: 'source', outputs: [{ format: 'md' }] })).artifacts[0]
+  const gate = () => { let resolve; const promise = new Promise(r => { resolve = r }); return { promise, resolve } }
+  const entered = gate(), resume = gate(), aborted = gate(), released = gate()
+  let releases = 0
+  const retain = app.records.retainArtifact.bind(app.records)
+  app.records.retainArtifact = (...args) => {
+    const release = retain(...args)
+    return () => { releases++; release(); released.resolve() }
+  }
+  const openResource = app.resources.openArtifact.bind(app.resources)
+  app.resources.openArtifact = (id, options) => {
+    options.signal.addEventListener('abort', aborted.resolve, { once: true })
+    return openResource(id, options)
+  }
+  const originalOpen = fs.promises.open
+  fs.promises.open = async (...args) => {
+    const file = await originalOpen(...args)
+    if (args[0] === item.path) {
+      const originalStat = file.stat.bind(file)
+      file.stat = async () => { entered.resolve(); await resume.promise; return originalStat() }
+    }
+    return file
+  }
+  syncBuiltinESMExports()
+  t.after(() => { fs.promises.open = originalOpen; syncBuiltinESMExports(); resume.resolve() })
+  const server = await serve(app, { port: 0 }); t.after(() => server.close())
+  const controller = new AbortController()
+  const request = fetch(server.url + '/api/artifacts/' + item.id + '/download', { signal: controller.signal })
+  await entered.promise
+  controller.abort(); await assert.rejects(request, { name: 'AbortError' })
+  await aborted.promise; resume.resolve(); await released.promise
+  assert.equal(releases, 1)
+  assert.equal(app.records.artifactLeases.size, 0)
+  assert.equal(app.resources.opened.size, 0)
   await app.operations.invoke('deleteArtifact', { docId: document.id, artifactId: item.id })
 })

@@ -92,6 +92,8 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 
 `artifacts DOC_ID delete ARTIFACT_ID` 默认只删除产物记录，并返回保留文件的 `retainedPath`；显式 `--out` 文件以及没有归属标记的旧产物只能这样处理。只有确定要删除内核默认导出目录中的受管文件时，才加 `--file-action delete-owned`。内核会核对目录归属、原文件摘要、其他产物引用以及任务和读取租约。删除失败后，使用 `artifacts DOC_ID cleanup` 查找持久清理记录，排除原因后对原产物 ID 重试相同的删除命令；清理完成前不能复用该路径或释放相应快照。已经删除的文件只能从自己的备份恢复。
 
-HTTP 和 MCP 有相同语义；参数、恢复步骤及备份边界见[开发指南](docs/plan/0.1.0/development-guide.md)。首次 Q02 写入只把受影响文档标记为 schema 3；旧源码不能安全写入升级后的记录。要退回旧源码，须恢复写入前的完整 SQLite 备份及相关文件，不能只退回程序代码。本阶段没有迁移真实用户库。
+HTTP 和 MCP 有相同语义；参数、恢复步骤及备份边界见[开发指南](docs/plan/0.1.0/development-guide.md)。首次 Q02 写入只把受影响文档标记为 schema 3；旧程序会在存储单元版本检查时拒绝打开升级后的库。要退回旧源码，须恢复写入前的完整 SQLite 备份及相关文件，不能只退回程序代码。本阶段没有迁移真实用户库。
+
+新建库将 DSH ivoraige_records 存储单元标为版本 2。已有版本 1 库仍可读取和进行普通写入；首次所有权、清理或 abandon 写入前，内核先同步将存储单元标为版本 2，再保存对应的 schema 3 记录。其他文档不会被批量改写。旧程序随后会在打开库时因单元版本不匹配而拒绝，不能只退回程序代码；需要恢复写入前的完整 SQLite 与导出文件备份。即使记录保存失败，单元也可能已升为版本 2，这是阻止旧程序写回的保守状态。
 
 进程内宿主现可在 `operationCatalog` 中注册一份 schema/handler，并持有注销句柄；现有 CLI、REST、MCP 别名及内部通用操作入口均委托该注册。HTTP、CLI、MCP 可独立省略。现有工作台通过订阅 ready 屏障后重取权威状态，产物读取共用归属、大小策略和读取租约。见[组合用法](docs/plan/0.1.0/development-guide.md#p04-operation-and-entry-composition)及 [P04 验证记录](docs/plan/0.1.x/evidence/foundation-p04.md)。
