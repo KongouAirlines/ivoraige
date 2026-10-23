@@ -96,7 +96,7 @@ interface Revision {
 }
 
 type TaskKind = "import" | "parse" | "translate" | "export" | "rag";
-type TaskState = "queued" | "running" | "paused" | "succeeded" | "failed" | "canceled";
+type TaskState = "queued" | "running" | "paused" | "succeeded" | "failed" | "canceled" | "abandoned";
 
 interface Task {
   id: Id; kind: TaskKind; docId?: Id; targetLang?: string; state: TaskState;
@@ -373,3 +373,13 @@ BabelDOC `parse` 按来源位置关联回调与完成后的 tracker payload；tr
 4. sidecar 握手版本不匹配、权重缺失、进程崩溃三类故障各映射为规定的错误码与提示。
 5. 权重下载任务：断网中断后 Range 续传完成，digest 校验失败有明确 failed 状态。
 6. 导出期间接受新译文，已有多格式任务仍输出同一 snapshotId 的内容；显式复用该快照增加格式不调用模型。上下文、同名风格预设或相关术语变更后，不得仅凭旧 reuseKey 复用不适用译文。
+
+### Q02 retained artifacts and failed-task abandonment (0.1.x additive operations)
+
+`POST /api/tasks/{taskId}/abandon` accepts only `failed` (idempotently also `abandoned`) and returns the task in `abandoned` state with its original error and history. It is not cancellation and cannot resume. An export snapshot remains pinned by queued/running/paused/failed tasks, artifact records, active snapshot leases, and pending file cleanup; an abandoned task alone no longer pins it.
+
+`DELETE /api/documents/{docId}/artifacts/{artifactId}` accepts optional `fileAction=retain|delete-owned` (default `retain`). It removes the artifact record and the terminal task's embedded artifact checkpoint together. `retain` leaves bytes at the returned `retainedPath`, including for an external `out` file. `delete-owned` requires an artifact marked as created at the kernel-managed default path and a matching file digest. It rejects active/failed task references, snapshot or artifact read leases, shared paths and paths outside the managed export root. Old records without the ownership marker and explicit `out` are ineligible. `GET /api/documents/{docId}/artifact-cleanup` lists durable cleanup tombstones. If unlink fails, the delete response reports `recordDeleted: true`, `fileDeleted: false`, `cleanupPending: true`, `retainedPath` and `cleanupError`; retry the same DELETE with `fileAction=delete-owned` after addressing the cause. A pending cleanup continues to pin the snapshot and block same-path artifacts until resolved. An absent file on retry counts as completed cleanup.
+
+The matching CLI forms are `abandon TASK_ID`, `artifacts DOC_ID delete ARTIFACT_ID [--file-action delete-owned]`, and `artifacts DOC_ID cleanup`. MCP tools are `task_abandon`, `artifact_delete`, and `artifact_cleanup_list` with the same parameters and responses. Artifact downloads and MCP resource reads hold a read lease until the read ends. No operation translates or rebuilds an artifact.
+
+Records mark a document with `schemaVersion: 3` on its first Q02 ownership, abandonment or deletion write; untouched v1/v2 records remain as stored. A v1 first write still synthesizes the established source IR. Older 0.1.0 binaries refuse schema 3 writes (and cannot read `abandoned` task rows); rolling back code alone is unsupported after a Q02 write. Restore the complete pre-upgrade SQLite backup and retained export files to roll back. No real user-library migration is performed in this stage.

@@ -7,7 +7,7 @@ import { reportFailure } from './diagnostics.mjs'
 import { waitForJob } from './job-wait.mjs'
 import { basename, resolve } from 'node:path'
 
-const terminal = new Set(['succeeded', 'failed', 'canceled'])
+const terminal = new Set(['succeeded', 'failed', 'canceled', 'abandoned'])
 const active = new Set(['queued', 'running'])
 const safeMessage = (error, kind = 'translate') => error instanceof KernelError &&
   ['CONFLICT', 'PRECONDITION_FAILED', 'INVALID_ARGUMENT', 'NOT_FOUND', 'COMPONENT_MISSING'].includes(error.code)
@@ -511,6 +511,16 @@ export class Tasks extends Service {
       if (this.running.jobId) this.jobs.kill(this.running.jobId, undefined, 'canceled')
     }
     return this.wait(taskId)
+  }
+
+  async abandon(taskId) {
+    await this.ready
+    if (this.running?.taskId === taskId || this.pendingImports.has(taskId))
+      throw new KernelError('CONFLICT', 'Task is still in progress', { taskId })
+    const task = await this.records.abandonTask(taskId)
+    this.emit('task.abandoned', { taskId })
+    this.settle(task)
+    return task
   }
 
   async resume(taskId) {

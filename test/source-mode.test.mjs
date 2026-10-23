@@ -82,7 +82,7 @@ test('version-one record remains readable and restores from a consistent backup'
   await app.records.createSnapshot(document.id, { contentMode: 'source' })
   assert.equal(app.records.record(document.id).schemaVersion, 2)
   assert.equal(app.records.record(document.id).sourceIR.legacy, true)
-  for (const schemaVersion of [3, 0, -1]) {
+  for (const schemaVersion of [4, 0, -1]) {
     await app.records.table.update(document.id, record => ({ ...record, schemaVersion }))
     await assert.rejects(app.records.createSnapshot(document.id, { contentMode: 'source' }),
       { code: 'PRECONDITION_FAILED' })

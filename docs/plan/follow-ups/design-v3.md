@@ -48,3 +48,5 @@ v2.0 的 Cordis 组合契约在实现中出现了可观察的漂移：
 - 2026-10-19：本地规划分支新增 0.1.x 契约、PR 工作包、迁移/分发、验证矩阵和提示词；状态为“处理中”，不代表实现或验收通过。旧报告保留，第二插件与跨引擎重建分别验收。
 
 - 2026-10-18：登记。同日热修只修正 v2.0 §3.3.4/§4.1 的导出隔离表述、AGENTS 的安全/机制表述和 `docs/plan/0.1.0/pdf.md` 的验证口径；重规划留待 v3。
+
+- 2026-10-23: Q02 resource-retention implementation is on `codex/0.1.x-resource-retention` for branch validation. It adds explicit failed-task abandonment, managed-file retention/cleanup and read/snapshot reference protection. The evidence is in [Q02](../0.1.x/evidence/foundation-q02.md); P04 entry registration and event acceptance remain unfinished. The follow-up stays in progress pending integration.

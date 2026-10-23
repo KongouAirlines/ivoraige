@@ -16,6 +16,8 @@ const tools = {
   translate: ['translate', 'Start translation using configured DSH model settings; may incur model usage. Returns taskId.'],
   export: ['exportDocument', 'Start export from accepted revisions or a saved snapshotId. Never invokes a translation model; outputs share a frozen snapshot.'],
   artifacts_list: ['listArtifacts', 'List saved artifacts; read bytes via ivoraige://artifacts/{artifactId}.'],
+  artifact_cleanup_list: ['listArtifactCleanup', 'List pending or failed managed-file cleanups; retry with artifact_delete.'],
+  artifact_delete: ['deleteArtifact', 'Delete an artifact record, retaining file bytes by default. fileAction=delete-owned explicitly removes a managed file.'],
   snapshots_list: ['listSnapshots', 'List frozen export snapshots.'],
   snapshot_get: ['getSnapshot', 'Read one frozen snapshot.'],
   snapshot_delete: ['deleteSnapshot', 'Delete an unreferenced snapshot; in-use snapshots are protected by the kernel.'],
@@ -24,6 +26,7 @@ const tools = {
   task_pause: ['pauseTask', 'Pause a translation/export task according to kernel lifecycle rules.'],
   task_resume: ['resumeTask', 'Resume a paused persistent task. Translation can incur model usage.'],
   task_cancel: ['cancelTask', 'Explicitly cancel a persistent task. Disconnecting HTTP does not cancel it.'],
+  task_abandon: ['abandonTask', 'Explicitly abandon a failed persistent task and release its resumable snapshot reference.'],
 
 }
 
@@ -48,9 +51,11 @@ export function apply(ctx) {
   ctx.effect(() => registry.registerResource('Artifact', { template: 'ivoraige://artifacts/{artifactId}',
     metadata: { description: 'Read an existing export; this never regenerates or translates.' }, read: async (uri, { artifactId }) => {
       try {
-        const artifact = await app.operations.artifact(artifactId)
-        const bytes = await readFile(artifact.path)
-        return { contents: [{ uri: uri.href, mimeType: artifact.contentType.split(';')[0], blob: bytes.toString('base64') }] }
+        const artifact = await app.operations.artifact(artifactId, { retain: true })
+        try {
+          const bytes = await readFile(artifact.path)
+          return { contents: [{ uri: uri.href, mimeType: artifact.contentType.split(';')[0], blob: bytes.toString('base64') }] }
+        } finally { artifact.release?.() }
       } catch (error) {
         if (['ENOENT', 'ENOTDIR'].includes(error.code)) error = new KernelError('NOT_FOUND', 'Artifact not found')
         throw error
