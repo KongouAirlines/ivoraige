@@ -183,6 +183,7 @@ export class Tasks extends Service {
         await this.records.createSnapshot(docId, { targetLang, onMissingAccepted: onMissingAccepted ?? 'fail' })
       let release
       let admitted = false
+      let admissionError
       try {
         release = this.records.retainSnapshot(docId, snapshot.id)
         const task = await this.records.createOperationTask(docId,
@@ -191,11 +192,20 @@ export class Tasks extends Service {
         if (this.closing) await this.records.updateTask(task.id, current => ({ ...current, state: 'paused' }))
         else { this.queue.push(task.id); this.emit('task.queued', { taskId: task.id, kind: 'export' }); this.schedule() }
         return { taskId: task.id, snapshotId: snapshot.id }
+      } catch (error) {
+        admissionError = error
+        throw error
       } finally {
         release?.()
         // A failed admission must not leave the snapshot it just created behind.
         // Once a task exists, its snapshot remains available for resume/recovery.
-        if (created && !admitted && release) await this.records.deleteSnapshot(docId, snapshot.id)
+        if (created && !admitted && release) {
+          try { await this.records.deleteSnapshot(docId, snapshot.id) }
+          catch (error) {
+            reportFailure(new Error(`Export snapshot cleanup failed: ${snapshot.id}`, { cause: error }))
+            if (!admissionError) throw error
+          }
+        }
       }
     })()
     this.admissions.add(admission)

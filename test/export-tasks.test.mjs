@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createApp } from '../src/app.mjs'
+import { KernelError } from '../src/errors.mjs'
 
 function deferred() {
   let resolve
@@ -148,6 +149,32 @@ test('conflicting export admission removes only its newly created snapshot', asy
     targetLang: 'zh', snapshotId: first.snapshotId, outputs: [{ format: 'md' }],
   }), { code: 'CONFLICT' })
   assert.deepEqual(f.app.records.listSnapshots(doc.id).map(item => item.id), [first.snapshotId])
+  gate.resolve()
+  assert.equal((await bounded(f.app.tasks.wait(first.taskId))).state, 'succeeded')
+})
+
+test('a cleanup failure preserves the original export admission conflict', async t => {
+  const f = await fixture(t)
+  const entered = deferred(), gate = f.gate(), calls = { count: 0 }
+  slowAdapter(f.app, entered, gate, calls)
+  const doc = await document(f.app, 'export:cleanup-failure', 'One source.')
+  const first = await f.app.tasks.exportDocument(doc.id, {
+    targetLang: 'zh', outputs: [{ format: 'slow' }],
+  })
+  await bounded(entered.promise)
+  const cleanup = t.mock.method(f.app.records, 'deleteSnapshot', async () => {
+    throw new KernelError('UPSTREAM_FAILURE', 'Injected cleanup failure')
+  })
+  const diagnostic = t.mock.method(console, 'error', () => {})
+  await assert.rejects(f.app.tasks.exportDocument(doc.id, {
+    targetLang: 'zh', outputs: [{ format: 'md' }],
+  }), { code: 'CONFLICT' })
+  assert.equal(diagnostic.mock.callCount(), 1)
+  cleanup.mock.restore()
+  diagnostic.mock.restore()
+  for (const snapshot of f.app.records.listSnapshots(doc.id)) {
+    if (snapshot.id !== first.snapshotId) await f.app.records.deleteSnapshot(doc.id, snapshot.id)
+  }
   gate.resolve()
   assert.equal((await bounded(f.app.tasks.wait(first.taskId))).state, 'succeeded')
 })
