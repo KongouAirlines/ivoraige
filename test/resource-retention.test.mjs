@@ -138,6 +138,21 @@ test('missing managed exporter rejects physical deletion before a tombstone but 
   assert.match(await readFile(item.path, 'utf8'), /Original text\./)
 })
 
+test('record-only deletion needs no filesystem identity lookup', async t => {
+  const f = await fixture(t)
+  const doc = await document(f.app)
+  const item = await artifact(f.app, doc, join(f.dir, 'external.md'))
+  const original = f.app.records.pathKey
+  f.app.records.pathKey = () => { throw Object.assign(new Error('synthetic access denied'), { code: 'EACCES' }) }
+  try {
+    const removed = await f.app.operations.invoke('deleteArtifact', { docId: doc.id, artifactId: item.id })
+    assert.equal(removed.recordDeleted, true)
+    assert.equal(removed.fileDeleted, false)
+    assert.equal(removed.retainedPath, item.path)
+  } finally { f.app.records.pathKey = original }
+  assert.match(await readFile(item.path, 'utf8'), /Original text\./)
+})
+
 test('artifact read lease and shared path block owned-file deletion; external and legacy files stay protected', async t => {
   const f = await fixture(t)
   const doc = await document(f.app)
