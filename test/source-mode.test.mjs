@@ -137,3 +137,39 @@ test('legacy PDF upgrade keeps an approximate identity when source inventory is 
   assert.equal(upgraded.sourceIR.chapters, undefined)
   assert.equal(upgraded.sourceIR.resources, undefined)
 })
+
+test('legacy text format with an unknown adapter keeps approximate identity', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-source-custom-legacy-'))
+  const app = await createApp({ store: join(directory, 'records.sqlite') })
+  t.after(async () => { await app.dispose(); await rm(directory, { recursive: true, force: true }) })
+  const { document } = await app.records.importDocument({ format: 'txt', content: 'Custom text.' },
+    { sourceId: 'legacy:custom', language: 'en' })
+  await app.records.table.update(document.id, record => {
+    const { schemaVersion, sourceIR, ...legacy } = record
+    return { ...legacy, sourceBinding: { adapterId: 'custom-txt' } }
+  })
+  const before = app.records.record(document.id)
+  await app.records.createSnapshot(document.id, { contentMode: 'source' })
+  const upgraded = app.records.record(document.id)
+  assert.equal(upgraded.sourceIR.identityScope, 'approximate-legacy')
+  assert.equal(upgraded.sourceIR.chapters, undefined)
+  assert.equal(upgraded.sourceIR.resources, undefined)
+  assert.equal(upgraded.fingerprint, before.fingerprint)
+})
+
+test('known legacy Markdown binding reconstructs the native source identity', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-source-md-legacy-'))
+  const app = await createApp({ store: join(directory, 'records.sqlite') })
+  t.after(async () => { await app.dispose(); await rm(directory, { recursive: true, force: true }) })
+  const file = { format: 'md', content: '# Title\n\nBody.\n' }
+  const { document } = await app.records.importDocument(file,
+    { sourceId: 'legacy:markdown', language: 'en' })
+  const nativeIdentity = app.records.record(document.id).sourceIR.identity
+  await app.records.table.update(document.id, record => {
+    const { schemaVersion, sourceIR, ...legacy } = record
+    return legacy
+  })
+  await app.records.createSnapshot(document.id, { contentMode: 'source' })
+  assert.equal(app.records.record(document.id).sourceIR.identityScope, 'reconstructed-text')
+  assert.equal(app.records.record(document.id).sourceIR.identity, nativeIdentity)
+})
