@@ -16,7 +16,7 @@
 | Q02 | 产物、失败导出任务与快照释放 | P01 固定删除/保留政策 | 草案 | [基础契约与正确性](packages/foundation.md#q02) |
 | Q03 | 设置值/缺件错误与 CLI 非法 JSON | 当前协议；可独立于 P01 | 草案 | [基础契约与正确性](packages/foundation.md#q03) |
 | Q04 | 需求/协议差异及源码交付元数据收口 | 相关需求/协议与当前交付元数据；按文档域并行 | 草案 | [基础契约与正确性](packages/foundation.md#q04) |
-| P01 | DSH/Cordis 契约、最小宿主边界与护栏 | 本规划评审 | 草案 | [基础契约与正确性](packages/foundation.md#p01) |
+| P01 | DSH/Cordis 契约、最小宿主边界与护栏 | 本规划评审 | 分支验证中：[固定 pin 护栏与范围](evidence/foundation-runtime.md)，候选另验 | [基础契约与正确性](packages/foundation.md#p01) |
 | P02 | 解析产物、原文快照及旧记录兼容 | P01、Q01 | 草案 | [基础契约与正确性](packages/foundation.md#p02) |
 | P03 | 适配器身份/格式分离与导入编排 | P01、P02 | 草案 | [基础契约与正确性](packages/foundation.md#p03) |
 | P04 | 操作注册、跨域事件及入口收口 | P03；删除入口依赖 Q02 | 草案 | [基础契约与正确性](packages/foundation.md#p04) |

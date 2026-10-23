@@ -126,6 +126,8 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
       },
     }
   } catch (error) {
+    try { await ctx?.get('ivoraige.tasks')?.close() } catch { /* Preserve the boot error. */ }
+    try { await ctx?.get('ivoraige.components')?.close() } catch { /* Preserve the boot error. */ }
     try { await ctx?.fiber.dispose() } catch { /* Preserve the boot error. */ }
     try { storeLock?.release() } catch { /* Preserve the boot error. */ }
     throw error

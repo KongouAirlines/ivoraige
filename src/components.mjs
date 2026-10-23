@@ -7,6 +7,7 @@ import { Transform } from 'node:stream'
 import { lt } from 'semver'
 import { Service } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
+import { waitForJob } from './job-wait.mjs'
 import { COMPONENT_SETTINGS_NS } from './component-settings.mjs'
 import { downloadAsset, extractVerifiedArchive, fetchRelease, findAsset, findComponent,
   inspectComponent, loadManifest, MANIFEST_NAME, repositoryPath, TOKEN_REF } from './component-package.mjs'
@@ -297,8 +298,6 @@ export class Components extends Service {
         this.jobs.kill(taskId, undefined, 'application closing')
       }
     }
-    await Promise.all([...this.tasks.keys()].map(async taskId => {
-      while (!terminal.has((await this.jobs.wait(taskId, 30_000)).status)) { /* Finish activation. */ }
-    }))
+    await Promise.all([...this.tasks.keys()].map(taskId => waitForJob(this.jobs, taskId)))
   }
 }
