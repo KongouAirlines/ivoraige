@@ -34,10 +34,15 @@ export class Tasks extends Service {
     this.importControllers = new Set()
     this.pendingImports = new Map()
     this.quotaBlocked = false
-    this.jobs.events.subscribe({ owner: undefined }, event => {
-      if (event.type !== 'settled' || !this.quotaBlocked) return
-      this.quotaBlocked = false
-      this.schedule()
+    this.pendingJobRemoval = new Set()
+    this.jobWaitTimeoutMs = 30_000
+    this.detachJobEvents = this.jobs.events.subscribe({ owner: undefined }, event => {
+      if (event.type !== 'settled') return
+      if (this.pendingJobRemoval.delete(event.job.id)) this.jobs.remove(event.job.id)
+      if (this.quotaBlocked) {
+        this.quotaBlocked = false
+        this.schedule()
+      }
     })
     this.ready = this.recover()
     ctx.effect(() => () => this.shutdown(), 'ivoraige.tasks teardown')
@@ -256,7 +261,7 @@ export class Tasks extends Service {
         live.markStarted()
         if (live.cancel) this.jobs.kill(live.jobId, undefined, 'canceled')
         await live.done
-        const job = await waitForJob(this.jobs, live.jobId)
+        const job = await waitForJob(this.jobs, live.jobId, this.jobWaitTimeoutMs)
         if (['completed', 'killed', 'failed'].includes(job.status)) this.jobs.remove(live.jobId)
       } catch (error) {
         live.markStarted()
@@ -284,14 +289,38 @@ export class Tasks extends Service {
             if (deferred.state === 'canceled') this.pendingImports.delete(taskId)
             this.emit(`task.${deferred.state}`, { taskId })
             this.settle(deferred)
+          } else {
+            this.emit('task.queued', { taskId, kind: task.kind })
+            this.progress(deferred, true)
           }
-        } else if (!this.tearingDown && this.records.getTask(taskId).state === 'running') await this.fail(taskId, error)
+        } else if (!this.tearingDown) {
+          try {
+            if (this.records.getTask(taskId).state === 'running') await this.fail(taskId, error)
+            else reportFailure(error, { taskId, jobId: live.jobId })
+          } finally {
+            if (live.jobId) this.cleanupJob(live.jobId)
+          }
+        }
       } finally {
         this.running = null
         live.markFinished()
       }
       if (this.quotaBlocked) break
     }
+  }
+
+  cleanupJob(jobId) {
+    const job = this.jobs.get(jobId)
+    if (['completed', 'killed', 'failed'].includes(job.status)) {
+      this.jobs.remove(jobId)
+      return
+    }
+    this.pendingJobRemoval.add(jobId)
+    this.jobs.kill(jobId, undefined, 'Business task job did not settle')
+    // A synchronous settlement can race registration and kill.
+    if (this.pendingJobRemoval.has(jobId) &&
+      ['completed', 'killed', 'failed'].includes(this.jobs.get(jobId).status) &&
+      this.pendingJobRemoval.delete(jobId)) this.jobs.remove(jobId)
   }
 
   async execute(live, job) {
@@ -520,6 +549,7 @@ export class Tasks extends Service {
       await live.finished
     }
     await Promise.allSettled([...this.admissions])
+    this.detachJobEvents()
     this.detachController()
   }
 
@@ -553,6 +583,7 @@ export class Tasks extends Service {
     } catch (error) {
       if (!this.tearingDown) throw error
     } finally {
+      this.detachJobEvents()
       this.detachController()
     }
   }
