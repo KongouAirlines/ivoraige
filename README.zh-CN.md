@@ -78,3 +78,6 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 参与前请阅读[贡献指南](CONTRIBUTING.md)及[安全报告说明](SECURITY.md)。核心采用 **LGPL-3.0-or-later**，[LICENSE](LICENSE) 列出的自有业务模块采用 **MIT**。可选 BabelDOC Python 插件采用 **AGPL-3.0-only**，单独打包分发。贡献提交需附 DCO 签署。
 
 基于 Cordis 与 DSH 构建，可选接入 BabelDOC。参见[第三方致谢](THIRD_PARTY.md)。
+
+导出任务受理冲突时，本次尝试新建的快照会清理；已有快照仍可使用。
+模型兼容性和推理强度的无效配置会在保存前报参数错误；CLI settings --set 的 JSON 格式错误返回退出码 2。

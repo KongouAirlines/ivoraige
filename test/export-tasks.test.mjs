@@ -130,3 +130,24 @@ test('canceling a pending export releases its snapshot when no artifact exists',
   assert.equal((await bounded(f.app.tasks.wait(blocker.taskId))).state, 'succeeded')
   assert.equal((await f.app.tasks.get(pending.taskId)).state, 'canceled')
 })
+
+test('conflicting export admission removes only its newly created snapshot', async t => {
+  const f = await fixture(t)
+  const entered = deferred(), gate = f.gate(), calls = { count: 0 }
+  slowAdapter(f.app, entered, gate, calls)
+  const doc = await document(f.app, 'export:admission-conflict', 'One source.')
+  const first = await f.app.tasks.exportDocument(doc.id, {
+    targetLang: 'zh', outputs: [{ format: 'slow' }],
+  })
+  await bounded(entered.promise)
+  await assert.rejects(f.app.tasks.exportDocument(doc.id, {
+    targetLang: 'zh', outputs: [{ format: 'md' }],
+  }), { code: 'CONFLICT' })
+  assert.deepEqual(f.app.records.listSnapshots(doc.id).map(item => item.id), [first.snapshotId])
+  await assert.rejects(f.app.tasks.exportDocument(doc.id, {
+    targetLang: 'zh', snapshotId: first.snapshotId, outputs: [{ format: 'md' }],
+  }), { code: 'CONFLICT' })
+  assert.deepEqual(f.app.records.listSnapshots(doc.id).map(item => item.id), [first.snapshotId])
+  gate.resolve()
+  assert.equal((await bounded(f.app.tasks.wait(first.taskId))).state, 'succeeded')
+})
