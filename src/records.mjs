@@ -14,6 +14,8 @@ const language = value => typeof value === 'string' && value !== 'auto' &&
 const required = (condition, message) => { if (!condition) throw new KernelError('INVALID_ARGUMENT', message) }
 const missing = (kind, value) => { throw new KernelError('NOT_FOUND', `${kind} not found`, { [kind]: value }) }
 const keyFor = (unitId, targetLang) => `${unitId}\u0000${targetLang}`
+const sourceIdentity = (format, language, units, chapters, resources) =>
+  digest({ format, language, units, chapters, resources })
 const activeTask = state => ['queued', 'running', 'paused'].includes(state)
 const taskSchema = z.object({
   id: z.string(), kind: z.literal('translate'), docId: z.string(), targetLang: z.string(),
@@ -58,6 +60,7 @@ const recordSchema = z.object({
     title: z.string(), origin: z.enum(['manual', 'zotero', 'cli', 'mcp']), externalRef: z.string().optional(), unitCount: z.number(),
     translatableCount: z.number(), availableOutputs: z.array(z.string()), importedAt: z.string(),
     warnings: z.array(z.string()).optional(), sourceCoverage: generic.optional() }),
+  schemaVersion: z.number().int().optional(), sourceIR: generic.optional(),
   fingerprint: z.string(), sourceBinding: generic, sourceBindingRef: z.string(),
   sourceBindingDigest: z.string().optional(),
   resourceVersions: z.record(z.string(), z.string()),
@@ -68,12 +71,15 @@ const recordSchema = z.object({
     reuseKey: z.string(), basis: generic, createdAt: z.string() })),
   latest: z.record(z.string(), z.string()), accepted: z.record(z.string(), z.string()),
   constraints: z.record(z.string(), generic), snapshots: z.array(z.object({ id: z.string(), docId: z.string(),
-    targetLang: z.string(), sourceBindingRef: z.string(), resourceVersions: z.record(z.string(), z.string()),
+    contentMode: z.enum(['source', 'accepted-translation']).optional(), targetLang: z.string().optional(),
+    sourceBindingRef: z.string(), resourceVersions: z.record(z.string(), z.string()),
     items: z.array(z.object({ unitId: z.string(), decision: z.discriminatedUnion('type', [
       z.object({ type: z.literal('revision'), revisionId: z.string() }),
       z.object({ type: z.literal('skip') }), z.object({ type: z.literal('keepOriginal') }),
+      z.object({ type: z.literal('source') }),
     ]) })), revisionSetHash: z.string(), createdAt: z.string() })),
-  artifacts: z.array(z.object({ id: z.string(), docId: z.string(), targetLang: z.string(), format: z.string(),
+  artifacts: z.array(z.object({ id: z.string(), docId: z.string(), contentMode: z.enum(['source', 'accepted-translation']).optional(),
+    targetLang: z.string().optional(), format: z.string(),
     path: z.string(), snapshotId: z.string(), revisionSetHash: z.string(), createdAt: z.string(),
     warnings: z.array(z.string()).optional(),
     taskId: z.string().optional(), outputIndex: z.number().optional() })),
@@ -118,7 +124,24 @@ export class Records {
   async update(docId, transform) {
     this.record(docId)
     return this.table.update(docId, current => {
-      const next = transform(current)
+      if (![1, 2].includes(current.schemaVersion ?? 1) ||
+          (current.sourceIR && current.sourceIR.version !== 1)) throw new KernelError('PRECONDITION_FAILED',
+        'Record schema or source IR version is unsupported',
+        { schemaVersion: current.schemaVersion, sourceIRVersion: current.sourceIR?.version })
+      let next = transform(current)
+      if ((current.schemaVersion ?? 1) === 1) {
+        const units = current.units.map(({ id: unitId, docId: owner, ...unit }) => unit)
+        const binding = current.sourceBinding
+        const reconstructable = (current.document.format === 'txt' && binding?.adapterId === 'txt' &&
+          Object.keys(binding).length === 1) ||
+          (current.document.format === 'md' && binding?.adapterId === 'markdown' &&
+            typeof binding.raw === 'string' && Array.isArray(binding.spans))
+        next = { ...next, schemaVersion: 2, sourceIR: next.sourceIR ?? { version: 1, legacy: true,
+          identityScope: reconstructable ? 'reconstructed-text' : 'approximate-legacy',
+          identity: reconstructable
+            ? sourceIdentity(current.document.format, current.document.language, units, [], [])
+            : digest({ format: current.document.format, language: current.document.language, units }) } }
+      }
       assertJson(next)
       recordSchema.parse(next)
       return next
@@ -212,7 +235,13 @@ export class Records {
       availableOutputs: clone(parsed.availableOutputs), importedAt: now(),
       ...(parsed.warnings?.length ? { warnings: clone(parsed.warnings) } : {}),
       ...(parsed.sourceCoverage ? { sourceCoverage: clone(parsed.sourceCoverage) } : {}) }
-    const record = { document, fingerprint, sourceBinding: clone(parsed.sourceBinding),
+    const resources = (parsed.resources ?? []).map(resource => Object.fromEntries(
+      ['id', 'mediaType', 'contentDigest', 'version'].filter(key => resource[key] !== undefined)
+        .map(key => [key, resource[key]])))
+    const sourceIR = { version: 1, units: clone(parsed.units), chapters: clone(parsed.chapters ?? []),
+      resources: clone(resources), identity: sourceIdentity(parsed.format, sourceLang,
+        parsed.units, parsed.chapters ?? [], resources) }
+    const record = { schemaVersion: 2, sourceIR, document, fingerprint, sourceBinding: clone(parsed.sourceBinding),
       sourceBindingRef: digest({ docId, fingerprint, binding: parsed.sourceBinding }),
       sourceBindingDigest: digest(parsed.sourceBinding), resourceVersions: {}, units, revisions: [],
       latest: {}, accepted: {}, constraints: {}, snapshots: [], artifacts: [], tasks: [] }
@@ -344,7 +373,8 @@ export class Records {
       const conflict = tasks.find(task => task.kind === kind && activeTask(task.state))
       if (conflict) throw new KernelError('CONFLICT', 'Operation already active', { taskId: conflict.id })
       if (kind === 'export') {
-        required(language(targetLang) && Array.isArray(outputs) && outputs.length > 0, 'Export parameters required')
+        required((targetLang === undefined || language(targetLang)) && Array.isArray(outputs) && outputs.length > 0,
+          'Export parameters required')
         const snapshot = current.snapshots.find(item => item.id === snapshotId)
         required(snapshot && snapshot.targetLang === targetLang, 'Matching export snapshot required')
       }
@@ -604,13 +634,17 @@ export class Records {
     return clone(constraints)
   }
 
-  async createSnapshot(docId, { targetLang, onMissingAccepted = 'fail' } = {}) {
+  async createSnapshot(docId, { contentMode = 'accepted-translation', targetLang, onMissingAccepted = 'fail' } = {}) {
     await this.ready
-    required(language(targetLang), 'targetLang must be a real BCP-47 tag')
+    required(['source', 'accepted-translation'].includes(contentMode), 'Invalid contentMode')
+    required(contentMode === 'source' ? targetLang === undefined : language(targetLang),
+      contentMode === 'source' ? 'Source snapshot cannot have targetLang' : 'targetLang must be a real BCP-47 tag')
+    required(contentMode !== 'source' || onMissingAccepted === 'fail', 'Source snapshot cannot use onMissingAccepted')
     required(['fail', 'skip'].includes(onMissingAccepted), 'Invalid onMissingAccepted')
     let snapshot
     await this.update(docId, current => {
       const items = current.units.map(unit => {
+        if (contentMode === 'source') return { unitId: unit.id, decision: { type: 'source' } }
         if (!unit.translatable) return { unitId: unit.id, decision: { type: 'keepOriginal' } }
         const revisionId = current.accepted[keyFor(unit.id, targetLang)]
         const revision = current.revisions.find(r => r.id === revisionId)
@@ -621,7 +655,8 @@ export class Records {
         throw new KernelError('PRECONDITION_FAILED', 'Applicable accepted revision missing',
           { unitId: unit.id, targetLang })
       })
-      snapshot = { id: `${docId}.${id()}`, docId, targetLang, sourceBindingRef: current.sourceBindingRef,
+      snapshot = { id: `${docId}.${id()}`, docId, contentMode,
+        ...(targetLang === undefined ? {} : { targetLang }), sourceBindingRef: current.sourceBindingRef,
         resourceVersions: clone(current.resourceVersions), items, revisionSetHash: digest(items), createdAt: now() }
       return { ...current, snapshots: [...current.snapshots, snapshot] }
     })
@@ -682,16 +717,17 @@ export class Records {
         record.revisions.find(r => r.id === item.decision.revisionId) : undefined
       if (item.decision.type === 'revision' && (!revision || revision.unitId !== unit.id || revision.targetLang !== snapshot.targetLang)) throw new KernelError('PRECONDITION_FAILED',
         'Pinned revision unavailable', { revisionId: item.decision.revisionId })
-      return { unit: { ...clone(unit), targetLang: snapshot.targetLang,
+      return { unit: { ...clone(unit), ...(snapshot.targetLang ? { targetLang: snapshot.targetLang } : {}),
         ...(revision ? { acceptedRevisionId: revision.id } : {}) },
         decision: clone(item.decision), text: revision?.text ?? unit.sourceText,
         ...(revision ? { revision: { ...clone((({ basis, ...publicRevision }) => publicRevision)(revision)), status: 'accepted' } } : {}) }
     })
-    return clone({ snapshot, document: record.document, sourceBinding: record.sourceBinding, units })
+    return clone({ snapshot, document: record.document, sourceBinding: record.sourceBinding,
+      ...(record.sourceIR ? { sourceIR: record.sourceIR } : {}), units })
   }
   async addArtifact(docId, { snapshotId, targetLang, format, path, warnings = [], taskId, outputIndex } = {}) {
     await this.ready
-    required(language(targetLang) && typeof format === 'string' && format &&
+    required((targetLang === undefined || language(targetLang)) && typeof format === 'string' && format &&
       typeof path === 'string' && path, 'Artifact requires targetLang, format and path')
     required(Array.isArray(warnings) && warnings.every(value => typeof value === 'string'),
       'Artifact warnings must be a string array')
@@ -699,7 +735,8 @@ export class Records {
     await this.update(docId, current => {
       const snapshot = current.snapshots.find(s => s.id === snapshotId) ?? missing('snapshotId', snapshotId)
       required(snapshot.targetLang === targetLang, 'Snapshot targetLang mismatch')
-      artifact = { id: `${docId}.${id()}`, docId, targetLang, format, path, snapshotId,
+      artifact = { id: `${docId}.${id()}`, docId, contentMode: snapshot.contentMode ?? 'accepted-translation',
+        ...(targetLang === undefined ? {} : { targetLang }), format, path, snapshotId,
         revisionSetHash: snapshot.revisionSetHash, createdAt: now(),
         ...(warnings.length ? { warnings: clone(warnings) } : {}),
         ...(taskId ? { taskId, outputIndex } : {}) }

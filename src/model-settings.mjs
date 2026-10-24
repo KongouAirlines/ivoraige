@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { AppBoot, ConfigEditor, Context, DshSchema as z, LlmPiAi, LlmRuntime,
+  PiAiCatalogError, resolvePiAiProfiles,
   LocalCredentialProvider, Service, SettingsForms } from '../dist/dsh.mjs'
 import { isPublicErrorCode, KernelError } from './errors.mjs'
 import { modelPresets } from './model-presets.mjs'
@@ -13,6 +14,59 @@ const MODEL_NS = 'ivoraige-model'
 const ROUTES_NS = 'llm-pi-ai'
 const PROFILE_BUNDLE = 'ivoraige-model-settings'
 const DEFAULT_TIMEOUT_MS = 120_000
+// Offered route-level switches in the pinned DSH pi-ai compat gates. Its
+// schemastery schema passes null members and undeclared keys to resolution.
+const COMPAT_FIELDS = new Set([
+  'supportsStore', 'supportsDeveloperRole', 'supportsReasoningEffort',
+  'supportsUsageInStreaming', 'supportsFinishReason', 'maxTokensField',
+  'requiresToolResultName', 'requiresAssistantAfterToolResult', 'requiresThinkingAsText',
+  'requiresReasoningContentOnAssistantMessages', 'thinkingFormat', 'chatTemplateKwargs',
+  'chatTemplateArgs', 'supportsThinkingTokenBudget', 'thinkingTokenBudgetField',
+  'vllmPriority', 'supportsStrictMode', 'cacheControlFormat',
+  'supportsLongCacheRetention', 'supportsMaxOutputTokens',
+  'supportsEagerToolInputStreaming', 'supportsCacheControlOnTools',
+  'supportsTemperature', 'forceAdaptiveThinking', 'allowEmptySignature',
+  'supportsStrictTools',
+])
+
+function validateCompat(value) {
+  if (value === undefined || value === null || typeof value !== 'object' || Array.isArray(value)) return
+  for (const [field, setting] of Object.entries(value)) {
+    if (!COMPAT_FIELDS.has(field)) {
+      throw new KernelError('INVALID_ARGUMENT', 'compat contains a nonconfigurable field')
+    }
+    if (setting == null) {
+      throw new KernelError('INVALID_ARGUMENT', `compat.${field} must have a value`)
+    }
+  }
+}
+
+function settingsError(error) {
+  if (error?.name === 'SettingsConflictError' && error.code === 'SETTINGS_CONFLICT') {
+    return new KernelError('CONFLICT', 'Model settings changed',
+      { expected: error.expected, actual: error.actual }, { cause: error })
+  }
+  if (error?.name === 'ValidationError') {
+    return new KernelError('INVALID_ARGUMENT', 'Invalid model settings', {}, { cause: error })
+  }
+  return error
+}
+
+function validateReasoningEfforts(value) {
+  if (value === undefined || value === null || value === false) return
+  const levels = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+  if (!value || typeof value !== 'object' || Array.isArray(value) ||
+      !Object.keys(value).some(level => level !== 'off') ||
+      Object.entries(value).some(([level, wire]) => !levels.includes(level) ||
+        (wire === null ? level !== 'off' : typeof wire !== 'string' || !wire.length))) {
+    throw new KernelError('INVALID_ARGUMENT', 'reasoningEfforts must declare a thinking level and valid wire values')
+  }
+}
+
+async function mutateSettings(settings, namespace, changes, revision) {
+  try { return await settings.mutate(namespace, changes, revision) }
+  catch (error) { throw settingsError(error) }
+}
 
 const nonempty = (value, field) => {
   if (typeof value !== 'string' || !value.trim()) {
@@ -74,7 +128,7 @@ export class ModelSettings extends Service {
     const descriptors = this.ctx.settings.describe({ redactSecrets: true })
     const routeForm = descriptors.find(row => row.ns === ROUTES_NS)
     const modelForm = descriptors.find(row => row.ns === MODEL_NS)
-    if (!routeForm || !modelForm) throw new Error('DSH model settings forms are unavailable')
+    if (!routeForm || !modelForm) throw new KernelError('COMPONENT_MISSING', 'DSH model settings forms are unavailable')
     const providers = routeForm.value?.providers ?? {}
     const credentials = {}
     for (const [provider, route] of Object.entries(providers)) {
@@ -112,12 +166,17 @@ export class ModelSettings extends Service {
     if (typeof select !== 'boolean' || typeof selectOnly !== 'boolean') {
       throw new KernelError('INVALID_ARGUMENT', 'select and selectOnly must be booleans')
     }
+    validateCompat(compat)
+    validateReasoningEfforts(reasoningEfforts)
     if (selectOnly && Object.keys(input).some(field => ![
       'provider', 'model', 'selectOnly', 'routesRevision', 'selectedRevision',
     ].includes(field))) {
       throw new KernelError('INVALID_ARGUMENT', 'selectOnly accepts only a saved provider and model')
     }
     const forms = this.ctx.settings.describe()
+    if (!forms.some(row => row.ns === ROUTES_NS) || !forms.some(row => row.ns === MODEL_NS)) {
+      throw new KernelError('COMPONENT_MISSING', 'DSH model settings forms are unavailable')
+    }
     for (const [ns, expected] of [[ROUTES_NS, routesRevision], [MODEL_NS, selectedRevision]]) {
       if (expected === undefined) continue
       const actual = forms.find(row => row.ns === ns)?.revision
@@ -134,7 +193,7 @@ export class ModelSettings extends Service {
     }
     if (selectOnly) {
       const saved = savedModels[savedIndex]
-      await this.ctx.settings.mutate(MODEL_NS, [
+      await mutateSettings(this.ctx.settings, MODEL_NS, [
         { op: 'set', path: ['provider'], value: provider },
         { op: 'set', path: ['model'], value: model },
         { op: 'set', path: ['timeoutMs'], value: saved.timeoutMs },
@@ -214,7 +273,18 @@ export class ModelSettings extends Service {
     if (!currentRoute || api !== undefined || baseURL !== undefined || credentialRef !== undefined ||
         contextWindow !== undefined || maxTokens !== undefined || reasoning !== undefined ||
         compat !== undefined || reasoningEfforts !== undefined) {
-      await this.ctx.settings.mutate(ROUTES_NS,
+      // Run both the pinned schema and catalog resolver before either settings
+      // writer persists. Catalog errors are deterministic route input faults.
+      try {
+        const config = LlmPiAi.Config({ providers: { [provider]: route } })
+        resolvePiAiProfiles(config.providers.get())
+      } catch (error) {
+        if (error instanceof PiAiCatalogError) {
+          throw new KernelError('INVALID_ARGUMENT', 'Invalid model route', {}, { cause: error })
+        }
+        throw settingsError(error)
+      }
+      await mutateSettings(this.ctx.settings, ROUTES_NS,
         [{ op: 'set', path: ['providers', provider], value: route }], routesRevision)
       routePersisted = true
     }
@@ -223,7 +293,7 @@ export class ModelSettings extends Service {
     const nextSaved = savedModels.filter(entry => entry.provider !== provider || entry.model !== model)
     nextSaved.push({ provider, model, timeoutMs: effectiveTimeout })
     try {
-      await this.ctx.settings.mutate(MODEL_NS, [
+      await mutateSettings(this.ctx.settings, MODEL_NS, [
         { op: 'set', path: ['savedModels'], value: nextSaved },
         ...(select ? [
           { op: 'set', path: ['provider'], value: provider },
@@ -232,12 +302,16 @@ export class ModelSettings extends Service {
         ] : []),
       ], selectedRevision)
     } catch (error) {
-      if (!routePersisted) throw error
+      if (!routePersisted) throw settingsError(error)
       let revision = null
       try { revision = this.ctx.settings.describe().find(row => row.ns === ROUTES_NS)?.revision ?? null } catch {}
-      const conflict = error instanceof KernelError && error.code === 'CONFLICT' ?
-        { expected: error.details?.expected, actual: error.details?.actual } : {}
-      throw new KernelError(error instanceof KernelError && isPublicErrorCode(error.code) ? error.code : 'UPSTREAM_FAILURE',
+      const mapped = settingsError(error)
+      const conflict = mapped instanceof KernelError && mapped.code === 'CONFLICT' ?
+        { expected: mapped.details?.expected, actual: mapped.details?.actual } : {}
+      // The first write is durable: a later validation failure is a partial
+      // upstream failure, not an invalid request that left settings untouched.
+      throw new KernelError(mapped instanceof KernelError && isPublicErrorCode(mapped.code) &&
+        mapped.code !== 'INVALID_ARGUMENT' ? mapped.code : 'UPSTREAM_FAILURE',
         'Provider route was saved, but the model list and any requested selection were not; reload settings before retrying',
         { ...conflict, partialSave: {
           persisted: 'routes', failed: 'selected', revisions: { routes: revision },
@@ -249,7 +323,8 @@ export class ModelSettings extends Service {
   async setCredential({ ref, value } = {}) {
     ref = nonempty(ref, 'ref')
     value = nonempty(value, 'value')
-    await this.ctx.credentials.set(ref, value)
+    try { await this.ctx.credentials.set(ref, value) }
+    catch (error) { throw settingsError(error) }
     return this.ctx.credentials.describe(ref)
   }
 }

@@ -26,12 +26,14 @@ export class Exporter extends Service {
   }
 
   // Kernel rendering primitive used by the durable export task queue.
-  async exportDocument(docId, { targetLang, outputs, snapshotId, onMissingAccepted, taskId, outputIndex, signal } = {}) {
-    if (typeof targetLang !== 'string' || !targetLang.trim() ||
+  async exportDocument(docId, { contentMode = 'accepted-translation', targetLang, outputs, snapshotId,
+    onMissingAccepted, taskId, outputIndex, signal } = {}) {
+    if (!['source', 'accepted-translation'].includes(contentMode) ||
+        (contentMode === 'source' ? targetLang !== undefined : typeof targetLang !== 'string' || !targetLang.trim()) ||
         !Array.isArray(outputs) || !outputs.length || outputs.some(output =>
           !output || typeof output.format !== 'string' || !/^[a-z][a-z0-9-]*$/.test(output.format) ||
           (output.out !== undefined && (typeof output.out !== 'string' || !output.out.trim())))) {
-      throw new KernelError('INVALID_ARGUMENT', 'Specify targetLang and a nonempty list of output formats/paths')
+      throw new KernelError('INVALID_ARGUMENT', 'Specify a valid content mode and output formats/paths')
     }
     if (snapshotId !== undefined && (typeof snapshotId !== 'string' || !snapshotId)) {
       throw new KernelError('INVALID_ARGUMENT', 'snapshotId must be a nonempty string')
@@ -41,10 +43,11 @@ export class Exporter extends Service {
     }
     const adapters = outputs.map(output => this.outputs.get(output.format))
     const snapshot = snapshotId === undefined
-      ? await this.records.createSnapshot(docId, { targetLang, onMissingAccepted: onMissingAccepted ?? 'fail' })
+      ? await this.records.createSnapshot(docId, { contentMode, targetLang,
+        onMissingAccepted: onMissingAccepted ?? 'fail' })
       : this.records.getSnapshot(docId, snapshotId)
-    if (snapshot.targetLang !== targetLang) {
-      throw new KernelError('PRECONDITION_FAILED', 'Snapshot belongs to a different target language')
+    if (snapshot.targetLang !== targetLang || (snapshot.contentMode ?? 'accepted-translation') !== contentMode) {
+      throw new KernelError('PRECONDITION_FAILED', 'Snapshot mode or target language mismatch')
     }
     const release = this.records.retainSnapshot(docId, snapshot.id)
     const artifacts = []

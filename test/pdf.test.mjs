@@ -54,6 +54,21 @@ async function exported(app, docId, options) {
 
 const outputs = [{ format: 'pdf' }, { format: 'md' }, { format: 'json' }]
 
+test('mock PDF source snapshot copies verified managed bytes without rebuild or translation', async t => {
+  const f = await fixture(t, 'hang-once-rebuild')
+  const document = await imported(f)
+  const source = await exported(f.app, document.id,
+    { contentMode: 'source', outputs: [{ format: 'pdf' }, { format: 'md' }, { format: 'json' }] })
+  assert.deepEqual(await readFile(source.artifacts.pdf.path), Buffer.from(originalBytes))
+  const json = JSON.parse(await readFile(source.artifacts.json.path, 'utf8'))
+  assert.equal(json.contentMode, 'source')
+  assert.equal(json.document.targetLang, undefined)
+  assert.deepEqual(json.units.map(unit => unit.decision.type), ['source', 'source'])
+  assert.equal(source.task.stats.llmCalls, 0)
+  assert.equal(f.app.records.record(document.id).revisions.length, 0)
+  await assert.rejects(readFile(f.marker), { code: 'ENOENT' })
+})
+
 test('unresolved PDF displays preserve tokens and allow import and all frozen outputs', async t => {
   const f = await fixture(t, 'unresolved-mapping')
   const doc = await imported(f)

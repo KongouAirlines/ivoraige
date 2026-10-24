@@ -29,8 +29,11 @@ export const parameters = {
   unaccept: shape({ ...unit, expectedAcceptedRevisionId: lock }),
   translate: shape({ ...document, targetLang: lang, mode: z.enum(['fast', 'careful']).default('fast'),
     unitIds: z.array(id).optional() }),
-  exportDocument: shape({ ...document, targetLang: lang, outputs: z.array(shape({ format: z.string().regex(/^[a-z][a-z0-9-]*$/), out: id.optional() })).min(1),
-    snapshotId: id.optional(), onMissingAccepted: z.enum(['fail', 'skip']).optional() }),
+  exportDocument: shape({ ...document, contentMode: z.enum(['source', 'accepted-translation']).optional(),
+    targetLang: lang.optional(), outputs: z.array(shape({ format: z.string().regex(/^[a-z][a-z0-9-]*$/), out: id.optional() })).min(1),
+    snapshotId: id.optional(), onMissingAccepted: z.enum(['fail', 'skip']).optional() })
+    .refine(value => value.contentMode === 'source' ? value.targetLang === undefined : value.targetLang !== undefined,
+      { path: ['targetLang'], message: 'targetLang is required for accepted translation and forbidden for source' }),
   listArtifacts: shape({ ...document, ...page }), listSnapshots: shape({ ...document, ...page, targetLang: lang.optional() }),
   getSnapshot: shape({ ...document, snapshotId: id }), deleteSnapshot: shape({ ...document, snapshotId: id }),
   listTasks: shape({ ...page, docId: id.optional(), state: z.enum(['queued', 'running', 'paused', 'succeeded', 'failed', 'canceled']).optional(),

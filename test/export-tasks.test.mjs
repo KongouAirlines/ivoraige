@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createApp } from '../src/app.mjs'
+import { KernelError } from '../src/errors.mjs'
 
 function deferred() {
   let resolve
@@ -129,4 +130,77 @@ test('canceling a pending export releases its snapshot when no artifact exists',
   gate.resolve()
   assert.equal((await bounded(f.app.tasks.wait(blocker.taskId))).state, 'succeeded')
   assert.equal((await f.app.tasks.get(pending.taskId)).state, 'canceled')
+})
+
+test('conflicting export admission removes only its newly created snapshot', async t => {
+  const f = await fixture(t)
+  const entered = deferred(), gate = f.gate(), calls = { count: 0 }
+  slowAdapter(f.app, entered, gate, calls)
+  const doc = await document(f.app, 'export:admission-conflict', 'One source.')
+  const first = await f.app.tasks.exportDocument(doc.id, {
+    targetLang: 'zh', outputs: [{ format: 'slow' }],
+  })
+  await bounded(entered.promise)
+  await assert.rejects(f.app.tasks.exportDocument(doc.id, {
+    targetLang: 'zh', outputs: [{ format: 'md' }],
+  }), { code: 'CONFLICT' })
+  assert.deepEqual(f.app.records.listSnapshots(doc.id).map(item => item.id), [first.snapshotId])
+  await assert.rejects(f.app.tasks.exportDocument(doc.id, {
+    targetLang: 'zh', snapshotId: first.snapshotId, outputs: [{ format: 'md' }],
+  }), { code: 'CONFLICT' })
+  assert.deepEqual(f.app.records.listSnapshots(doc.id).map(item => item.id), [first.snapshotId])
+  gate.resolve()
+  assert.equal((await bounded(f.app.tasks.wait(first.taskId))).state, 'succeeded')
+})
+
+test('a cleanup failure preserves the original export admission conflict', async t => {
+  const f = await fixture(t)
+  const entered = deferred(), gate = f.gate(), calls = { count: 0 }
+  slowAdapter(f.app, entered, gate, calls)
+  const doc = await document(f.app, 'export:cleanup-failure', 'One source.')
+  const first = await f.app.tasks.exportDocument(doc.id, {
+    targetLang: 'zh', outputs: [{ format: 'slow' }],
+  })
+  await bounded(entered.promise)
+  const cleanup = t.mock.method(f.app.records, 'deleteSnapshot', async () => {
+    throw new KernelError('UPSTREAM_FAILURE', 'Injected cleanup failure')
+  })
+  const diagnostic = t.mock.method(console, 'error', () => {})
+  await assert.rejects(f.app.tasks.exportDocument(doc.id, {
+    targetLang: 'zh', outputs: [{ format: 'md' }],
+  }), { code: 'CONFLICT' })
+  assert.equal(diagnostic.mock.callCount(), 1)
+  cleanup.mock.restore()
+  diagnostic.mock.restore()
+  for (const snapshot of f.app.records.listSnapshots(doc.id)) {
+    if (snapshot.id !== first.snapshotId) await f.app.records.deleteSnapshot(doc.id, snapshot.id)
+  }
+  gate.resolve()
+  assert.equal((await bounded(f.app.tasks.wait(first.taskId))).state, 'succeeded')
+})
+
+test('retain failure cleans only a new snapshot and leaves existing references intact', async t => {
+  const f = await fixture(t)
+  const doc = await document(f.app, 'export:retain-failure', 'One source.')
+  const existing = await f.app.records.createSnapshot(doc.id, { targetLang: 'zh', onMissingAccepted: 'fail' })
+  const retained = t.mock.method(f.app.records, 'retainSnapshot', () => {
+    throw new KernelError('UPSTREAM_FAILURE', 'Injected retain failure')
+  })
+  const before = f.app.records.listSnapshots(doc.id).map(item => item.id)
+  await assert.rejects(f.app.tasks.exportDocument(doc.id, {
+    targetLang: 'zh', outputs: [{ format: 'md' }],
+  }), { code: 'UPSTREAM_FAILURE' })
+  assert.deepEqual(f.app.records.listSnapshots(doc.id).map(item => item.id), before)
+  await assert.rejects(f.app.tasks.exportDocument(doc.id, {
+    targetLang: 'zh', snapshotId: existing.id, outputs: [{ format: 'md' }],
+  }), { code: 'UPSTREAM_FAILURE' })
+  assert.deepEqual(f.app.records.listSnapshots(doc.id).map(item => item.id), before)
+  retained.mock.restore()
+
+  const admitted = await f.app.tasks.exportDocument(doc.id, {
+    targetLang: 'zh', snapshotId: existing.id, outputs: [{ format: 'md' }],
+  })
+  assert.equal((await bounded(f.app.tasks.wait(admitted.taskId))).state, 'succeeded')
+  await assert.rejects(f.app.records.deleteSnapshot(doc.id, existing.id), { code: 'CONFLICT' })
+  assert.deepEqual(f.app.records.listSnapshots(doc.id).map(item => item.id), before)
 })
