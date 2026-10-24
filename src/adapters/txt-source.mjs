@@ -7,6 +7,9 @@ import { KernelError } from '../errors.mjs'
 
 export const txt = {
   id: 'txt',
+  version: '0.1.0', bindingSchemaVersion: 1,
+  formats: ['txt'],
+  inputKinds: ['text', 'bytes', 'managed-resource'], cancellable: true,
   match(file) {
     if (file.format !== undefined) return file.format.toLowerCase() === 'txt' ? 1 : 0
     return /\.txt$/i.test(file.path ?? file.name ?? '') ? 0.8 : 0
@@ -21,7 +24,12 @@ export const txt = {
     if (file.path !== undefined && (typeof file.path !== 'string' || !file.path.trim())) {
       throw new KernelError('INVALID_ARGUMENT', 'path must be a nonempty string')
     }
-    const raw = file.content === undefined ? await readFile(file.path, 'utf8') : file.content.toString('utf8')
+    const data = file.content === undefined ? await readFile(file.path) : file.content
+    let raw = data
+    if (Buffer.isBuffer(data)) {
+      try { raw = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(data) }
+      catch (error) { throw new KernelError('INVALID_ARGUMENT', 'TXT input must be UTF-8 text', {}, { cause: error }) }
+    }
     const lines = raw.replace(/^\uFEFF/, '').split(/\r\n|\n|\r/)
     const units = []
     let start = -1

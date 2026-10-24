@@ -33,29 +33,49 @@ test('CLI rejects local PDF config on remote invocation', async t => {
   assert.equal(JSON.parse(out).error.code, 'INVALID_ARGUMENT')
 })
 
-test('PDF base64 remains binary at the operation boundary; text remains UTF-8', async t => {
+const fakePdfBytes = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0xff, 0x00])
+function installSyntheticPdf(app, seen) {
+  return app.parse.register({
+    id: 'synthetic-pdf-entry', version: '1', bindingSchemaVersion: 1,
+    formats: ['pdf'], inputKinds: ['bytes', 'managed-resource'], importMode: 'queued',
+    match: file => file.format === 'pdf' || /\.pdf$/i.test(file.path ?? '') ? 1 : 0,
+    parse: async file => {
+      const received = file.path ? await readFile(file.path) : file.content
+      assert.ok(Buffer.isBuffer(received))
+      assert.deepEqual(received, fakePdfBytes)
+      seen.push({ path: file.path, content: file.content })
+      return { format: 'pdf', title: 'Synthetic PDF',
+        units: [{ order: 0, kind: 'body', sourceText: 'Synthetic PDF source.', translatable: true }],
+        chapters: [], resources: [], sourceBinding: { adapterId: 'synthetic-pdf-entry' } }
+    },
+  })
+}
+
+test('PDF bytes and paths reach the selected adapter; TXT retains UTF-8 validation', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'ivoraige-pdf-entry-'))
   const app = await createApp({ store: join(dir, 'records.sqlite') })
   t.after(async () => { await app.dispose(); await rm(dir, { recursive: true, force: true }) })
-  const inputs = []
-  app.tasks.importDocument = async (file, _metadata, options) => {
-    inputs.push({ file, options })
-    return options.wait ? { document: { id: 'example' } } : { taskId: 'import.example' }
-  }
-  const binary = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x2d, 0xff, 0x00])
-  const pending = await app.operations.invoke('importDocument', { format: 'pdf', contentBase64: binary.toString('base64'), language: 'en' })
-  assert.equal(pending.taskId, 'import.example')
-  assert.equal(inputs[0].file.format, 'pdf')
-  assert.equal(inputs[0].options.wait, false)
-  assert.ok(Buffer.isBuffer(inputs[0].file.content))
-  assert.deepEqual(inputs[0].file.content, binary)
-  await app.operations.invoke('importDocument', { format: 'txt', contentBase64: Buffer.from('中文').toString('base64'), language: 'zh' })
-  assert.equal(inputs[1].file.content, '中文')
-  assert.equal(inputs[1].options.wait, true)
-  await app.operations.invoke('importDocument', { path: join(dir, 'source.PDF'), language: 'en' })
-  assert.equal(inputs[2].options.wait, false)
+  const seen = []
+  installSyntheticPdf(app, seen)
+  const pending = await app.operations.invoke('importDocument', { format: 'pdf',
+    contentBase64: fakePdfBytes.toString('base64'), language: 'en' })
+  assert.ok(pending.taskId)
+  const imported = await app.tasks.wait(pending.taskId)
+  assert.equal(imported.state, 'succeeded')
+  assert.equal(imported.result.document.format, 'pdf')
+  assert.deepEqual(seen[0].content, fakePdfBytes)
+  const source = join(dir, 'source.PDF')
+  await writeFile(source, fakePdfBytes)
+  const fromPath = await app.operations.invoke('importDocument', { path: source, language: 'en' })
+  assert.ok(fromPath.taskId)
+  assert.equal((await app.tasks.wait(fromPath.taskId)).state, 'succeeded')
+  assert.equal(seen[1].path, source)
+  const text = await app.operations.invoke('importDocument', { format: 'txt',
+    contentBase64: Buffer.from('\u4e2d\u6587').toString('base64'), language: 'zh' })
+  assert.equal(text.document.format, 'txt')
+  assert.equal(app.records.record(text.document.id).units[0].sourceText, '\u4e2d\u6587')
   await assert.rejects(app.operations.invoke('importDocument', {
-    format: 'txt', contentBase64: binary.toString('base64'), language: 'en',
+    format: 'txt', contentBase64: fakePdfBytes.toString('base64'), language: 'en',
   }), { code: 'INVALID_ARGUMENT' })
 })
 
@@ -75,50 +95,63 @@ test('PDF component status changes from unchecked to unavailable without disabli
   assert.equal(after.components.babeldoc.state, 'unavailable')
   assert.ok(!after.inputFormats.includes('pdf'))
   assert.ok(!after.outputFormats.includes('pdf'))
+  for (const input of [
+    { path: join(dir, 'unavailable.pdf') },
+    { format: 'pdf', contentBase64: Buffer.from([0x25, 0x50, 0x44, 0x46, 0xff]).toString('base64') },
+  ]) {
+    try {
+      const pending = await app.operations.invoke('importDocument', { ...input, language: 'en' })
+      assert.ok(pending.taskId)
+      assert.equal((await app.tasks.wait(pending.taskId)).state, 'failed')
+    } catch (error) {
+      assert.equal(error.code, 'COMPONENT_MISSING')
+    }
+  }
   const text = await app.operations.invoke('importDocument', { format: 'txt', language: 'en',
     contentBase64: Buffer.from('Text remains available.').toString('base64') })
   assert.equal(text.document.format, 'txt')
 })
 
-test('HTTP PDF import forwards binary bytes and validates base64', async t => {
+test('HTTP PDF import validates base64 and remote CLI observes real queued tasks', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'ivoraige-pdf-http-'))
   const app = await createApp({ store: join(dir, 'records.sqlite') })
+  const seen = []
+  installSyntheticPdf(app, seen)
+  const source = join(dir, 'remote.pdf')
+  await writeFile(source, fakePdfBytes)
   const server = await serve(app, { port: 0 })
   t.after(async () => { await server.close(); await app.dispose(); await rm(dir, { recursive: true, force: true }) })
-  let captured
-  app.tasks.importDocument = async (file, _metadata, options) => {
-    captured = { file, options }
-    return { taskId: 'import.example' }
-  }
-  const bytes = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x00, 0xff])
   const post = body => fetch(`${server.url}/api/documents/import`, { method: 'POST',
     headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
-  const response = await post({ format: 'pdf', language: 'en', contentBase64: bytes.toString('base64') })
+  const response = await post({ format: 'pdf', language: 'en', contentBase64: fakePdfBytes.toString('base64') })
   assert.equal(response.status, 200)
-  assert.equal((await response.json()).taskId, 'import.example')
-  assert.deepEqual(captured.file.content, bytes)
-  assert.equal(captured.options.wait, false)
+  const pending = await response.json()
+  assert.ok(pending.taskId)
+  const imported = await app.tasks.wait(pending.taskId)
+  assert.equal(imported.state, 'succeeded')
+  assert.equal(imported.result.document.format, 'pdf')
+  assert.deepEqual(seen[0].content, fakePdfBytes)
   const invalid = await post({ format: 'pdf', language: 'en', contentBase64: 'invalid!' })
   assert.equal(invalid.status, 400)
   assert.equal((await invalid.json()).error.code, 'INVALID_ARGUMENT')
   let output = '', error = ''
   let code = await runCli(['--url', server.url, '--no-wait', 'import',
-    '--path', join(dir, 'remote.pdf'), '--source-lang', 'en', '--json'], {
+    '--path', source, '--source-lang', 'en', '--json'], {
     stdout: { write: text => { output += text } }, stderr: { write: text => { error += text } },
   })
   assert.equal(code, 0, error)
-  assert.equal(JSON.parse(output).taskId, 'import.example')
-  const invoke = app.operations.invoke.bind(app.operations)
-  app.operations.invoke = (name, input) => name === 'getTask' ? Promise.resolve({ apiVersion: '2.0', task: {
-    id: input.taskId, kind: 'import', state: 'succeeded', result: { document: { id: 'done', format: 'pdf' },
-      deduplicated: false, warnings: [] },
-  } }) : invoke(name, input)
+  const queued = JSON.parse(output)
+  assert.ok(queued.taskId)
+  const completed = await app.tasks.wait(queued.taskId)
+  assert.equal(completed.state, 'succeeded')
+  assert.equal(completed.result.document.format, 'pdf')
+  assert.equal(seen[1].path, source)
   output = ''; error = ''
-  code = await runCli(['--url', server.url, 'import', '--path', join(dir, 'remote.pdf'), '--source-lang', 'en', '--json'], {
+  code = await runCli(['--url', server.url, 'import', '--path', source, '--source-lang', 'en', '--json'], {
     stdout: { write: text => { output += text } }, stderr: { write: text => { error += text } },
   })
   assert.equal(code, 0, error)
-  assert.equal(JSON.parse(output).document.id, 'done')
+  assert.equal(JSON.parse(output).document.id, completed.result.document.id)
   assert.equal(output.trim().split('\n').length, 1)
 })
 

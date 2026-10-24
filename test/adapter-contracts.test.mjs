@@ -1,0 +1,479 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { createApp } from '../src/app.mjs'
+import { runCli } from '../src/cli.mjs'
+
+const sha = value => createHash('sha256').update(value).digest('hex')
+const metadata = { language: 'en', sourceId: 'adapter-contract' }
+async function fixture(t) {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-adapters-'))
+  const app = await createApp({ store: join(directory, 'records.sqlite'), exportDir: directory })
+  t.after(async () => { await app.dispose(); await rm(directory, { recursive: true, force: true }) })
+  return { app, directory }
+}
+function source(id, { version = '1', importMode, validateTranslation } = {}) {
+  const parse = async file => ({ format: 'fixture', title: id,
+    units: [{ order: 0, kind: 'body', sourceText: String(file.content), translatable: true }],
+    chapters: [], resources: [{ id: 'image-1', mediaType: 'image/png', contentDigest: sha(String(file.content)),
+      version: '1', location: 'private://may-move' }],
+    sourceBinding: { adapterId: id, address: 'private://may-move' } })
+  return { id, version, bindingSchemaVersion: 1, formats: ['fixture'],
+    inputKinds: ['text', 'bytes'], cancellable: true, importMode,
+    match: file => file.format === 'fixture' ? 1 : 0, parse, validateTranslation }
+}
+
+test('registration rejects invalid source provenance before persistence', async t => {
+  const { app } = await fixture(t)
+  const initial = app.parse.adapters.size
+  for (const version of [1, '', ' '])
+    assert.throws(() => app.parse.register({ ...source('bad-version'), version }), { code: 'INVALID_ARGUMENT' })
+  for (const bindingSchemaVersion of [0, -1, 1.5, '1'])
+    assert.throws(() => app.parse.register({ ...source('bad-binding'), bindingSchemaVersion }),
+      { code: 'INVALID_ARGUMENT' })
+  assert.equal(app.parse.adapters.size, initial)
+  assert.equal(app.records.listDocuments().length, 0)
+})
+
+test('CLI accepts explicit source and output adapter options', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-adapter-cli-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const store = join(directory, 'records.sqlite')
+  const path = join(directory, 'source.txt')
+  await writeFile(path, 'Source text')
+  let out = '', err = ''
+  const sink = { stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } }
+  const imported = await runCli(['--store', store, 'import', '--format', 'txt', '--adapter', 'txt',
+    '--source-lang', 'en', '--path', path], sink)
+  assert.equal(imported, 0, err)
+  const docId = JSON.parse(out).document.id
+  out = ''; err = ''
+  const exported = await runCli(['--store', store, 'export', docId, '--format', 'json',
+    '--adapter', 'json', '--content-mode', 'source'], sink)
+  assert.equal(exported, 0, err)
+  assert.ok(JSON.parse(out).snapshotId)
+})
+
+test('same-format source adapters need explicit selection and cannot forge another binding', async t => {
+  const { app } = await fixture(t)
+  app.parse.register(source('fixture-a'))
+  app.parse.register(source('fixture-b'))
+  const capabilities = await app.operations.invoke('capabilities')
+  assert.equal(capabilities.inputFormats.filter(format => format === 'fixture').length, 1)
+  assert.ok(!capabilities.inputFormats.includes('fixture-a'))
+  await assert.rejects(app.records.importDocument({ format: 'fixture', content: 'A' }, metadata),
+    { code: 'CONFLICT' })
+  const { document } = await app.records.importDocument(
+    { format: 'fixture', adapterId: 'fixture-a', content: 'A' }, metadata)
+  assert.equal(document.sourceAdapterId, 'fixture-a')
+  const record = app.records.record(document.id)
+  assert.deepEqual(record.sourceIR.resources, [{ id: 'image-1', mediaType: 'image/png',
+    contentDigest: sha('A'), version: '1' }])
+  assert.deepEqual(record.resourceVersions, { 'image-1': `1:${sha('A')}` })
+  assert.deepEqual(document.availableOutputs.sort(), ['json', 'md'])
+  const readable = await app.exporter.exportDocument(document.id,
+    { contentMode: 'source', outputs: [{ format: 'md' }, { format: 'json' }] })
+  assert.match(await readFile(readable.artifacts[0].path, 'utf8'), /# fixture-a\n\nA\n/)
+  assert.equal(JSON.parse(await readFile(readable.artifacts[1].path, 'utf8')).units[0].text, 'A')
+  const snapshot = await app.records.createSnapshot(document.id, { contentMode: 'source' })
+  await app.records.update(document.id, current => ({ ...current,
+    resourceVersions: { 'image-1': `1:${sha('B')}` } }))
+  assert.throws(() => app.records.resolveSnapshot(document.id, snapshot.id), { code: 'PRECONDITION_FAILED' })
+  app.parse.register({ ...source('forger'), parse: async file => ({ ...(await source('forger').parse(file)),
+    sourceBinding: { adapterId: 'fixture-a' } }) })
+  await assert.rejects(app.parse.parse({ format: 'fixture', adapterId: 'forger', content: 'A' }),
+    { code: 'INTERNAL' })
+})
+
+test('declared input kinds allow bytes and reject unsupported text before parsing', async t => {
+  const { app } = await fixture(t)
+  app.parse.register({ ...source('bytes-only'), inputKinds: ['bytes'] })
+  await assert.rejects(app.parse.parse({ format: 'fixture', adapterId: 'bytes-only', content: 'text' }),
+    { code: 'INVALID_ARGUMENT' })
+  const parsed = await app.parse.parse({ format: 'fixture', adapterId: 'bytes-only', content: Buffer.from('binary') })
+  assert.equal(parsed.sourceAdapterId, 'bytes-only')
+})
+
+test('Markdown-specific projection does not block JSON output', async t => {
+  const { app } = await fixture(t)
+  app.parse.register({ ...source('projection'), renderMarkdown: () => { throw new Error('MD unavailable') } })
+  const { document } = await app.records.importDocument(
+    { format: 'fixture', adapterId: 'projection', content: 'A' }, metadata)
+  const json = await app.exporter.exportDocument(document.id,
+    { contentMode: 'source', outputs: [{ format: 'json' }] })
+  assert.equal(JSON.parse(await readFile(json.artifacts[0].path, 'utf8')).units[0].text, 'A')
+  await assert.rejects(app.exporter.exportDocument(document.id,
+    { contentMode: 'source', outputs: [{ format: 'md' }] }), /MD unavailable/)
+})
+
+test('readable-text projection does not block a binary source export', async t => {
+  const { app } = await fixture(t)
+  app.parse.register({ ...source('opaque'), readableText: () => { throw new Error('text unavailable') } })
+  app.outputs.register({ id: 'opaque-bin', formats: ['opaque-bin'], supports: binding => binding.adapterId === 'opaque',
+    rebuild: async () => Buffer.from([0, 255]) })
+  const { document } = await app.records.importDocument(
+    { format: 'fixture', adapterId: 'opaque', content: Buffer.from('A') }, metadata)
+  const exported = await app.exporter.exportDocument(document.id,
+    { contentMode: 'source', outputs: [{ format: 'opaque-bin' }] })
+  assert.deepEqual(await readFile(exported.artifacts[0].path), Buffer.from([0, 255]))
+  await assert.rejects(app.exporter.exportDocument(document.id,
+    { contentMode: 'source', outputs: [{ format: 'json' }] }), /text unavailable/)
+})
+
+test('binary frozen output survives absent and upgraded source projection plugins', async t => {
+  const { app } = await fixture(t)
+  const removeSource = app.parse.register(source('binary-source'))
+  app.outputs.register({ id: 'frozen-bytes', formats: ['frozen-bytes'], requiredViews: [],
+    supports: binding => binding.adapterId === 'binary-source',
+    rebuild: async frozen => {
+      assert.equal(frozen.sourceBinding.adapterId, 'binary-source')
+      assert.equal(frozen.units[0].text, 'Original')
+      return Buffer.from([0, 255, 4])
+    } })
+  const { document } = await app.records.importDocument(
+    { format: 'fixture', adapterId: 'binary-source', content: 'Original' }, metadata)
+  const snapshot = await app.records.createSnapshot(document.id, { contentMode: 'source' })
+  removeSource()
+  const without = await app.exporter.exportDocument(document.id,
+    { contentMode: 'source', snapshotId: snapshot.id, outputs: [{ format: 'frozen-bytes' }] })
+  assert.deepEqual(await readFile(without.artifacts[0].path), Buffer.from([0, 255, 4]))
+  await assert.rejects(app.exporter.exportDocument(document.id,
+    { contentMode: 'source', snapshotId: snapshot.id, outputs: [{ format: 'json' }] }),
+  { code: 'COMPONENT_MISSING' })
+  app.parse.register(source('binary-source', { version: '2' }))
+  const upgraded = await app.exporter.exportDocument(document.id,
+    { contentMode: 'source', snapshotId: snapshot.id, outputs: [{ format: 'frozen-bytes' }] })
+  assert.deepEqual(await readFile(upgraded.artifacts[0].path), Buffer.from([0, 255, 4]))
+  await assert.rejects(app.exporter.exportDocument(document.id,
+    { contentMode: 'source', snapshotId: snapshot.id, outputs: [{ format: 'json' }] }),
+  { code: 'PRECONDITION_FAILED' })
+})
+
+test('unavailable sibling is excluded; compatible cross-view ties require explicit selection', async t => {
+  const { app } = await fixture(t)
+  app.parse.register({ ...source('route-text'), inputKinds: ['text'] })
+  const removeUnavailable = app.parse.register({ ...source('route-bytes', { importMode: 'queued' }), inputKinds: ['bytes'],
+    status: () => ({ state: 'unavailable' }) })
+  const request = { format: 'fixture', contentBase64: Buffer.from('Readable UTF-8').toString('base64'),
+    language: 'en', sourceId: 'route-case' }
+  const { document } = await app.operations.invoke('importDocument', request)
+  assert.equal(document.sourceAdapterId, 'route-text')
+  await assert.rejects(app.operations.invoke('importDocument', { ...request, adapterId: 'route-bytes' }),
+    { code: 'COMPONENT_MISSING' })
+  removeUnavailable()
+  app.parse.register({ ...source('route-bytes', { importMode: 'queued' }), inputKinds: ['bytes'] })
+  const before = { documents: app.records.listDocuments().length, tasks: app.records.listTasks().length }
+  await assert.rejects(app.operations.invoke('importDocument', { ...request, sourceId: 'route-tied' }), { code: 'CONFLICT' })
+  assert.deepEqual({ documents: app.records.listDocuments().length, tasks: app.records.listTasks().length }, before)
+  const second = await app.operations.invoke('importDocument', { ...request, adapterId: 'route-text', sourceId: 'route-case-2' })
+  assert.equal(second.document.sourceAdapterId, 'route-text')
+})
+
+test('built-in text sources own strict UTF-8 validation without restricting binary sources', async t => {
+  const { app, directory } = await fixture(t)
+  const bytes = Buffer.from([0xff, 0xfe, 0x41])
+  for (const format of ['txt', 'md']) {
+    const path = join(directory, `invalid.${format}`)
+    await writeFile(path, bytes)
+    for (const file of [{ content: bytes }, { path }])
+      await assert.rejects(app.tasks.importDocument({ ...file, format }, metadata), { code: 'INVALID_ARGUMENT' })
+    await assert.rejects(app.operations.invoke('importDocument', { format,
+      contentBase64: bytes.toString('base64'), language: 'en' }), { code: 'INVALID_ARGUMENT' })
+  }
+  assert.equal(app.records.listDocuments().length, 0)
+  assert.equal(app.records.listTasks().length, 0)
+})
+
+test('wire import scheduling follows the selected source while jobs quota is occupied', async t => {
+  const { app } = await fixture(t)
+  let parses = 0
+  const preferred = { ...source('preferred-sync'), inputKinds: ['text'], match: () => 1,
+    parse: async file => { parses++; return source('preferred-sync').parse(file) } }
+  const lower = { ...source('lower-queued', { importMode: 'queued' }), inputKinds: ['text'], match: () => 0.1,
+    parse: async file => { parses++; return source('lower-queued').parse(file) } }
+  app.parse.register(preferred)
+  app.parse.register(lower)
+  let releaseQuota
+  const quota = new Promise(resolve => { releaseQuota = resolve })
+  t.after(() => releaseQuota({ status: 'completed' }))
+  app.ctx.get('jobs').start({ kind: 'held-install-fixture', label: 'Held jobs quota',
+    run: () => ({ done: quota, cancel: () => releaseQuota({ status: 'killed' }) }) })
+  const updateTask = app.records.updateTask.bind(app.records)
+  let quotaDeferred
+  const deferred = new Promise(resolve => { quotaDeferred = resolve })
+  app.records.updateTask = async (...args) => {
+    const result = await updateTask(...args)
+    if (app.tasks.quotaBlocked && result.state === 'queued') quotaDeferred()
+    return result
+  }
+  t.after(() => { app.records.updateTask = updateTask })
+  const request = { format: 'fixture', contentBase64: Buffer.from('A').toString('base64'), language: 'en' }
+  const selected = await app.operations.invoke('importDocument', { ...request, sourceId: 'preferred' })
+  assert.equal(selected.document.sourceAdapterId, 'preferred-sync')
+  assert.equal((await app.tasks.get(selected.taskId)).state, 'succeeded')
+  assert.equal(parses, 1)
+
+  const queued = await app.operations.invoke('importDocument',
+    { ...request, sourceId: 'actual-queued', adapterId: 'lower-queued' })
+  assert.equal(queued.document, undefined)
+  let timeout
+  try { await Promise.race([deferred, new Promise((_resolve, reject) => {
+    timeout = setTimeout(() => reject(new Error('quota deferral did not commit')), 2000)
+  })]) } finally { clearTimeout(timeout) }
+  assert.equal(app.tasks.quotaBlocked, true)
+  const queuedTask = await app.tasks.get(queued.taskId)
+  assert.equal(queuedTask.state, 'queued')
+  assert.equal(queuedTask.adapterId, 'lower-queued')
+  assert.equal(parses, 1)
+
+  const direct = await app.tasks.importDocument({ format: 'fixture', content: 'B', adapterId: 'preferred-sync' },
+    { language: 'en', sourceId: 'direct-wait-false' }, { wait: false })
+  assert.equal((await app.tasks.get(direct.taskId)).state, 'queued')
+  assert.equal(parses, 1)
+
+  const removeTie = app.parse.register({ ...source('tie-sync'), inputKinds: ['text'], match: () => 1 })
+  const beforeConflict = app.records.listTasks().length
+  await assert.rejects(app.operations.invoke('importDocument', { ...request, sourceId: 'tie' }), { code: 'CONFLICT' })
+  assert.equal(app.records.listTasks().length, beforeConflict)
+  const explicit = await app.operations.invoke('importDocument',
+    { ...request, sourceId: 'explicit-preferred', adapterId: 'preferred-sync' })
+  assert.equal(explicit.document.sourceAdapterId, 'preferred-sync')
+  removeTie()
+
+  releaseQuota({ status: 'completed' })
+  assert.equal((await app.tasks.wait(queued.taskId)).state, 'succeeded')
+  assert.equal((await app.tasks.wait(direct.taskId)).state, 'succeeded')
+  assert.equal(parses, 4)
+})
+
+test('source validator pins implementation version on human edits and old-revision acceptance', async t => {
+  const { app } = await fixture(t)
+  const unregister = app.parse.register(source('validator', { validateTranslation: (_binding, _unit, text) => {
+    if (text !== 'valid') throw new Error('private validator rejected text')
+  } }))
+  const { document } = await app.records.importDocument({ format: 'fixture', adapterId: 'validator', content: 'A' }, metadata)
+  const unit = app.records.listUnits(document.id, { targetLang: 'zh' })[0]
+  await assert.rejects(app.records.writeRevision(unit.id,
+    { targetLang: 'zh', text: 'invalid', baseRevisionId: null }), /private validator rejected/)
+  const revision = await app.records.writeRevision(unit.id,
+    { targetLang: 'zh', text: 'valid', baseRevisionId: null })
+  unregister()
+  assert.equal(app.records.getDocument(document.id).id, document.id)
+  await assert.rejects(app.records.acceptRevision(revision.id, { expectedAcceptedRevisionId: null }),
+    { code: 'COMPONENT_MISSING' })
+  const removeReplacement = app.parse.register(source('validator', { version: '2' }))
+  await assert.rejects(app.records.acceptRevision(revision.id, { expectedAcceptedRevisionId: null }),
+    { code: 'PRECONDITION_FAILED' })
+  removeReplacement()
+  app.parse.register(source('validator'))
+  await app.records.acceptRevision(revision.id, { expectedAcceptedRevisionId: null })
+})
+
+test('model checkpoint rejects source validator version drift before writing a revision', async t => {
+  const { app } = await fixture(t)
+  const unregister = app.parse.register(source('model-validator'))
+  const { document } = await app.records.importDocument(
+    { format: 'fixture', adapterId: 'model-validator', content: 'A' }, metadata)
+  const unit = app.records.listUnits(document.id, { targetLang: 'zh' })[0]
+  const task = await app.records.createTranslationTask(document.id, { targetLang: 'zh' })
+  await app.records.updateTask(task.id, value => ({ ...value, state: 'running' }))
+  unregister()
+  app.parse.register(source('model-validator', { version: '2' }))
+  await assert.rejects(app.records.commitTaskUnit(task.id, { unitId: unit.id,
+    expectedBasis: app.records.getBasis(unit.id, { targetLang: 'zh' }),
+    baseRevisionId: null, expectedAcceptedRevisionId: null,
+    result: { text: 'Translated', modelId: 'fixture-model', tokens: { input: 1, output: 1 } } }),
+  { code: 'PRECONDITION_FAILED' })
+  assert.equal(app.records.getTask(task.id).cursor, 0)
+  assert.equal(app.records.record(document.id).revisions.length, 0)
+})
+
+test('reimport with a new source implementation version keeps the old document and creates new provenance', async t => {
+  const { app } = await fixture(t)
+  const removeV1 = app.parse.register(source('versioned'))
+  const file = { format: 'fixture', adapterId: 'versioned', content: 'Same content' }
+  const first = await app.tasks.importDocument(file, metadata)
+  assert.equal(first.document.sourceAdapterVersion, '1')
+  const originalSnapshot = await app.records.createSnapshot(first.document.id, { contentMode: 'source' })
+  removeV1()
+  const removeV2 = app.parse.register(source('versioned', { version: '2' }))
+  const second = await app.tasks.importDocument(file, metadata)
+  assert.notEqual(second.document.id, first.document.id)
+  assert.equal(app.records.record(second.document.id).fingerprint,
+    app.records.record(first.document.id).fingerprint)
+  assert.equal(second.document.sourceAdapterVersion, '2')
+  assert.equal((await app.tasks.get(second.taskId)).adapterVersion, '2')
+  assert.equal(app.records.getDocument(first.document.id).sourceAdapterVersion, '1')
+  assert.deepEqual(app.records.getSnapshot(first.document.id, originalSnapshot.id), originalSnapshot)
+  assert.equal(app.records.resolveSnapshot(first.document.id, originalSnapshot.id).snapshot.id, originalSnapshot.id)
+  assert.equal(app.records.listDocuments().length, 2)
+  removeV2()
+  app.parse.register(source('versioned', { version: '2', importMode: 'queued' }))
+  const queued = await app.tasks.importDocument(file, metadata, { wait: false })
+  const completed = await app.tasks.wait(queued.taskId)
+  assert.equal(completed.state, 'succeeded')
+  assert.equal(completed.preparedDocId, second.document.id)
+  assert.equal(completed.adapterVersion, '2')
+})
+
+test('a pre-P03 unversioned record keeps its legacy deduplication identity', async t => {
+  const { app } = await fixture(t)
+  const removeOld = app.parse.register({ ...source('legacy'), version: undefined })
+  const file = { format: 'fixture', adapterId: 'legacy', content: 'Same content' }
+  const first = await app.records.importDocument(file, metadata)
+  await app.records.update(first.document.id, current => {
+    const { sourceAdapterId, sourceAdapterVersion, bindingSchemaVersion, ...document } = current.document
+    return { ...current, document }
+  })
+  removeOld()
+  app.parse.register(source('legacy', { version: '2' }))
+  const again = await app.tasks.importDocument(file, metadata)
+  assert.equal(again.deduplicated, true)
+  assert.equal(again.document.id, first.document.id)
+  assert.equal((await app.tasks.get(again.taskId)).adapterVersion, '2')
+  assert.equal(app.records.listDocuments().length, 1)
+})
+
+test('binary output keeps selected adapter identity, version and bytes across task admission', async t => {
+  const { app } = await fixture(t)
+  const { document } = await app.records.importDocument({ format: 'txt', content: 'Input' }, metadata)
+  const first = { id: 'binary-a', version: '1', formats: ['bin'], supports: binding => binding.adapterId === 'txt',
+    rebuild: async () => Buffer.from([0, 255, 1]) }
+  const second = { ...first, id: 'binary-b', rebuild: async () => Buffer.from([2, 254, 3]) }
+  const removeFirst = app.outputs.register(first)
+  app.outputs.register(second)
+  await assert.rejects(app.tasks.exportDocument(document.id,
+    { contentMode: 'source', outputs: [{ format: 'bin' }] }), { code: 'CONFLICT' })
+  const pinned = await app.tasks.exportDocument(document.id,
+    { contentMode: 'source', outputs: [{ format: 'bin', adapterId: 'binary-a' }] })
+  const task = await app.tasks.wait(pinned.taskId)
+  assert.equal(task.state, 'succeeded')
+  assert.equal(task.outputs[0].adapterId, 'binary-a')
+  assert.equal(task.outputs[0].adapterVersion, '1')
+  assert.equal(task.artifacts[0].adapterId, 'binary-a')
+  assert.deepEqual(await readFile(task.artifacts[0].path), Buffer.from([0, 255, 1]))
+  removeFirst()
+  app.outputs.register({ ...first, version: '2' })
+  await assert.rejects(app.exporter.exportDocument(document.id, { contentMode: 'source',
+    snapshotId: pinned.snapshotId, outputs: [{ format: 'bin', adapterId: 'binary-a', adapterVersion: '1' }] }),
+  { code: 'PRECONDITION_FAILED' })
+  await assert.rejects(app.exporter.exportDocument(document.id, { contentMode: 'source',
+    snapshotId: pinned.snapshotId, outputs: [{ format: 'bin', adapterId: 'absent', adapterVersion: '1' }] }),
+  { code: 'COMPONENT_MISSING' })
+})
+
+test('direct exporter rejects missing or changed adapters without orphaning a snapshot', async t => {
+  const { app } = await fixture(t)
+  const { document } = await app.records.importDocument({ format: 'txt', content: 'Input' }, metadata)
+  const before = app.records.listSnapshots(document.id).length
+  await assert.rejects(app.exporter.exportDocument(document.id,
+    { contentMode: 'source', outputs: [{ format: 'missing' }] }), { code: 'INVALID_ARGUMENT' })
+  await assert.rejects(app.exporter.exportDocument(document.id,
+    { contentMode: 'source', outputs: [{ format: 'json', adapterVersion: 'old' }] }),
+  { code: 'PRECONDITION_FAILED' })
+  assert.equal(app.records.listSnapshots(document.id).length, before)
+})
+
+test('direct exporter compensates a snapshot if its adapter disappears during creation', async t => {
+  const { app } = await fixture(t)
+  const { document } = await app.records.importDocument({ format: 'txt', content: 'Input' }, metadata)
+  const original = app.records.createSnapshot.bind(app.records)
+  let entered, release
+  const created = new Promise(resolve => { entered = resolve })
+  const gate = new Promise(resolve => { release = resolve })
+  t.after(() => { release(); app.records.createSnapshot = original })
+  app.records.createSnapshot = async (...args) => {
+    const snapshot = await original(...args)
+    entered()
+    await gate
+    return snapshot
+  }
+  const unregister = app.outputs.register({ id: 'race-output', formats: ['race-bin'],
+    supports: () => true, rebuild: async () => 'unused' })
+  const exporting = app.exporter.exportDocument(document.id,
+    { contentMode: 'source', outputs: [{ format: 'race-bin', adapterId: 'race-output' }] })
+  await created
+  unregister()
+  release()
+  await assert.rejects(exporting, { code: 'COMPONENT_MISSING' })
+  assert.deepEqual(app.records.listSnapshots(document.id), [])
+})
+
+test('queued output cannot drift to a replacement of the same format or version', async t => {
+  const { app } = await fixture(t)
+  const { document } = await app.records.importDocument({ format: 'txt', content: 'Input' }, metadata)
+  const { document: other } = await app.records.importDocument({ format: 'txt', content: 'Other' },
+    { ...metadata, sourceId: 'other' })
+  let started, release
+  const entered = new Promise(resolve => { started = resolve })
+  const gate = new Promise(resolve => { release = resolve })
+  t.after(() => release())
+  app.outputs.register({ id: 'blocker', formats: ['block'], supports: () => true,
+    rebuild: async () => { started(); await gate; return Buffer.from([1]) } })
+  const replace = app.outputs.register({ id: 'queue-a', version: '1', formats: ['queued-bin'],
+    supports: () => true, rebuild: async () => Buffer.from([2]) })
+  const blocker = await app.tasks.exportDocument(document.id,
+    { contentMode: 'source', outputs: [{ format: 'block' }] })
+  await entered
+  const queued = await app.tasks.exportDocument(other.id,
+    { contentMode: 'source', outputs: [{ format: 'queued-bin' }] })
+  assert.equal((await app.tasks.get(queued.taskId)).outputs[0].adapterId, 'queue-a')
+  replace()
+  app.outputs.register({ id: 'queue-b', version: '1', formats: ['queued-bin'],
+    supports: () => true, rebuild: async () => Buffer.from([3]) })
+  release()
+  assert.equal((await app.tasks.wait(blocker.taskId)).state, 'succeeded')
+  assert.equal((await app.tasks.wait(queued.taskId)).state, 'failed')
+  assert.deepEqual(app.records.listArtifacts(other.id), [])
+  const missing = app.outputs.register({ id: 'queue-a', version: '2', formats: ['queued-bin'],
+    supports: () => true, rebuild: async () => Buffer.from([4]) })
+  await assert.rejects(app.exporter.exportDocument(other.id, { contentMode: 'source',
+    snapshotId: queued.snapshotId, outputs: (await app.tasks.get(queued.taskId)).outputs }),
+  { code: 'PRECONDITION_FAILED' })
+  missing()
+})
+
+test('queued source pins adapter and cancel aborts adapter-owned work', async t => {
+  const { app } = await fixture(t)
+  const { document } = await app.records.importDocument({ format: 'txt', content: 'Input' }, metadata)
+  let started, release
+  const entered = new Promise(resolve => { started = resolve })
+  const gate = new Promise(resolve => { release = resolve })
+  t.after(() => release())
+  app.outputs.register({ id: 'blocker', formats: ['block'], supports: () => true,
+    rebuild: async () => { started(); await gate; return 'hold' } })
+  const blocker = await app.tasks.exportDocument(document.id,
+    { contentMode: 'source', outputs: [{ format: 'block' }] })
+  await entered
+  const old = source('queued-source', { importMode: 'queued' })
+  const remove = app.parse.register(old)
+  const queued = await app.tasks.importDocument(
+    { format: 'fixture', content: 'Queued', adapterId: 'queued-source' }, metadata, { wait: false })
+  assert.equal((await app.tasks.get(queued.taskId)).adapterVersion, '1')
+  remove()
+  app.parse.register({ ...old, version: '2' })
+  release()
+  await app.tasks.wait(blocker.taskId)
+  assert.equal((await app.tasks.wait(queued.taskId)).state, 'failed')
+  assert.equal(app.records.listDocuments().length, 1)
+
+  let enteredImport
+  const begun = new Promise(resolve => { enteredImport = resolve })
+  const cancelable = { ...source('cancelable', { importMode: 'queued' }),
+    async import(file, persist) {
+      enteredImport()
+      await new Promise((_resolve, reject) => file.signal.addEventListener('abort',
+        () => reject(file.signal.reason), { once: true }))
+      return persist(await this.parse(file))
+    } }
+  app.parse.register(cancelable)
+  const active = await app.tasks.importDocument(
+    { format: 'fixture', content: 'Cancel', adapterId: 'cancelable' }, metadata, { wait: false })
+  await begun
+  await app.tasks.cancel(active.taskId)
+  assert.equal((await app.tasks.wait(active.taskId)).state, 'canceled')
+  assert.equal(app.records.listDocuments().length, 1)
+})

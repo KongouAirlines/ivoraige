@@ -9,6 +9,7 @@ import { Parse } from '../src/parse.mjs'
 import { Outputs } from '../src/outputs.mjs'
 import { TxtSource } from '../src/adapters/txt-source.mjs'
 import { Records } from '../src/records.mjs'
+import { Importer } from '../src/import.mjs'
 
 let entered
 let markEntered
@@ -37,6 +38,7 @@ async function fixture(t) {
   const recordsFiber = ctx.plugin(Records)
   await recordsFiber
   await ctx.get('ivoraige.records').ready
+  await ctx.plugin(Importer)
   await ctx.plugin(PendingModel)
   await ctx.plugin(JobsLocal, { maxConcurrentJobsPerOwner: 1 })
   const tasksFiber = ctx.plugin(Tasks)

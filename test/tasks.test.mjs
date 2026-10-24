@@ -9,6 +9,7 @@ import { Parse } from '../src/parse.mjs'
 import { Outputs } from '../src/outputs.mjs'
 import { TxtSource } from '../src/adapters/txt-source.mjs'
 import { Records } from '../src/records.mjs'
+import { Importer } from '../src/import.mjs'
 
 let translate = async ({ basis }) => ({ text: `译:${basis.sourceText}`, modelId: 'test',
   promptVersion: 'test-v1', tokens: { input: null, output: null } })
@@ -30,6 +31,7 @@ async function fixture(t) {
     await ctx.plugin(StorageSqlite, { path: store })
     await ctx.plugin(StorageDomain, { backend: 'sqlite' })
     await ctx.plugin(Records)
+    await ctx.plugin(Importer)
     await ctx.plugin(TestModel)
     await ctx.plugin(JobsLocal, { maxConcurrentJobsPerOwner: 1 })
     await ctx.plugin(Tasks)
