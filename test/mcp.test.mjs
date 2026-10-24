@@ -185,6 +185,60 @@ test('native DSH settings CAS races reach HTTP, remote CLI and MCP as conflicts'
   }
 })
 
+test('API-specific compat reaches HTTP, remote CLI and MCP as input validation', async t => {
+  const f = await fixture(t, { settingsDir: true })
+  const connection = await f.connect()
+  async function send(entry, input, expectedCode) {
+    if (entry === 'http') {
+      const response = await fetch(`${f.server.url}/api/settings/modelconfig`, {
+        method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input),
+      })
+      assert.equal(response.status, expectedCode ? 400 : 200)
+      const result = await response.json()
+      if (expectedCode) assert.equal(result.error.code, expectedCode)
+      return result
+    }
+    if (entry === 'cli') {
+      let output = ''
+      const exit = await runCli(['--url', f.server.url, '--json', 'settings', '--set', JSON.stringify(input)], {
+        stdout: { write(chunk) { output += chunk } }, stderr: { write() {} },
+      })
+      assert.equal(exit, expectedCode ? 2 : 0)
+      const result = JSON.parse(output)
+      if (expectedCode) assert.equal(result.error.code, expectedCode)
+      return result
+    }
+    if (expectedCode) return failure(connection, 'settings_update', input, expectedCode)
+    return call(connection, 'settings_update', input)
+  }
+  for (const entry of ['http', 'cli', 'mcp']) {
+    const provider = `compat-${entry}`
+    const custom = { provider, model: 'science', api: 'openai-completions',
+      baseURL: 'http://127.0.0.1:9999/v1', contextWindow: 8192, maxTokens: 512 }
+    const before = await f.app.settings.get()
+    await send(entry, { ...custom, compat: { supportsStrictTools: true } }, 'INVALID_ARGUMENT')
+    assert.deepEqual((await f.app.settings.get()).revisions, before.revisions)
+    assert.equal((await f.app.settings.get()).routes[provider], undefined)
+
+    await send(entry, { ...custom, compat: { supportsStrictMode: true } })
+    const saved = await f.app.settings.get()
+    assert.equal(saved.routes[provider].compat.supportsStrictMode, true)
+    await send(entry, { provider, model: 'science', compat: { supportsStrictTools: true } }, 'INVALID_ARGUMENT')
+    assert.deepEqual((await f.app.settings.get()).revisions, saved.revisions)
+
+    const catalogBefore = await f.app.settings.get()
+    await send(entry, { provider: 'deepseek', model: 'deepseek-flash',
+      compat: { supportsStrictTools: true } }, 'INVALID_ARGUMENT')
+    assert.deepEqual((await f.app.settings.get()).revisions, catalogBefore.revisions)
+
+    const anthropic = `anthropic-${entry}`
+    await send(entry, { provider: anthropic, model: 'science', api: 'anthropic-messages',
+      baseURL: 'http://127.0.0.1:9999/v1', contextWindow: 8192, maxTokens: 512,
+      compat: { supportsStrictTools: true } })
+    assert.equal((await f.app.settings.get()).routes[anthropic].compat.supportsStrictTools, true)
+  }
+})
+
 test('SDK HTTP clients share documents, frozen outputs, and durable tasks', async t => {
   const f = await fixture(t)
   const first = await f.connect()

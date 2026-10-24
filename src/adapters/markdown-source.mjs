@@ -114,7 +114,12 @@ export const markdownSource = {
     if (file.content !== undefined && file.path !== undefined) throw new KernelError('INVALID_ARGUMENT', 'Provide either path or content')
     if (file.content !== undefined && typeof file.content !== 'string' && !Buffer.isBuffer(file.content)) throw new KernelError('INVALID_ARGUMENT', 'Markdown content must be a string or Buffer')
     if (file.path !== undefined && (typeof file.path !== 'string' || !file.path.trim())) throw new KernelError('INVALID_ARGUMENT', 'path must be a nonempty string')
-    const raw = file.content === undefined ? await readFile(file.path, 'utf8') : file.content.toString('utf8')
+    const data = file.content === undefined ? await readFile(file.path) : file.content
+    let raw = data
+    if (Buffer.isBuffer(data)) {
+      try { raw = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(data) }
+      catch (error) { throw new KernelError('INVALID_ARGUMENT', 'Markdown input must be UTF-8 text', {}, { cause: error }) }
+    }
     if (!raw.trim()) throw new KernelError('INVALID_ARGUMENT', 'Markdown source is empty')
     const lines = linesOf(raw)
     const units = []

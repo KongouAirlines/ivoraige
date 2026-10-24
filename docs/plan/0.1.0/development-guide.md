@@ -82,6 +82,10 @@ HTTP equivalents are `POST /api/tasks/{taskId}/abandon`, `DELETE /api/documents/
 
 Q02 recovery refinement: after a failed managed-file cleanup, if the recorded file or its former parent directory no longer exists, repeating `artifacts DOC_ID delete ARTIFACT_ID --file-action delete-owned` completes the durable cleanup without unlinking anything, even when the configured export directory has changed. If the old-root file still exists, the kernel retains it and refuses deletion under the new root; use the original export root configuration to resolve it, or keep the cleanup marker and restore from backup. This behavior was verified on synthetic stores only.
 
+### Prepared import selection
+
+Public uploads pass FileRef data to the same Parse/Importer selection used by direct Tasks calls. Raw bytes and valid UTF-8 views are scored against each source inputKinds; a source advertising both uses its best view, with raw bytes winning an equal same-source score. Different best sources require an explicit adapter. Tasks retains the selection and owned upload input until completion/cancellation, then releases it; execution validates the selected registration/version and does not rescore. TXT/Markdown enforce their own UTF-8 semantics. Managed-resource paths retain their locator and remain subject to adapter-owned file handling.
+
 ### P04 operation and entry composition
 
 `createApp()` now exposes the operation catalog and capability descriptions even without a store. `createApp({ settingsDir })` provides saved-model settings without document tasks. Optional entry switches are `entries: { cli: false, http: false, mcp: false }`; `events: false` disables state streams. Omitted entries do not listen or start transports. Existing CLI commands, REST aliases and MCP tool names keep their v2 envelopes.

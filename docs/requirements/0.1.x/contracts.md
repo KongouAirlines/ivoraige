@@ -208,6 +208,14 @@ P03 将 `format` 与 `adapterId` 分开。来源描述符声明 `formats[]`、`i
 
 输出描述符以 `formats[]` 声明所支持格式，可按 binding 和 contentMode 判定兼容，并以 `requiredViews[]` 按需索取来源插件的 `readable-text` 或 `native-markdown` 投影。`requiredViews: []` 的二进制输出只读取冻结快照，无须来源插件继续安装或保持原版本；需要来源投影的文本输出仍校验来源版本。受理时选中的输出 adapter id/version 冻结在任务中，执行和恢复必须再次匹配，产物记录实际 id/version；导入任务同样固定来源实现版本。旧记录无来源版本元数据时保留旧读取兼容路径；带版本元数据的记录在人工写入、模型 checkpoint、接受旧修订和需要来源投影的导出时，若插件缺席或同 id 不兼容替换则拒绝写入/导出，旧记录读取保持可用。直接 Exporter 调用的受理或执行失败会清除本调用新建且无引用的快照，已有快照不受影响。导入的同格式候选不让 `unavailable` 来源或不适合当前输入种类的来源改变文本/字节路线；同步或排队响应由实际选中的来源描述符决定，低分的排队候选不得改变高分同步来源的受理。显式指定不可用适配器仍返回缺件错误。`disabled`/`failed` 状态的实际执行拦截留待受控插件验收，本批不改变既有行为。
 
+#### P03 输入准备与统一选择补充
+
+公共 Base64 上传不在入口筛选来源或优先转成文本。Parse 准备自有 bytes 副本及严格 UTF-8 视图；路径仅作为 managed-resource，原始 string 输入仍仅为 text。每个来源的每个兼容视图只匹配一次，同一来源保留最高分视图；同一来源视图同分时优先原 bytes，不造成自身歧义。不同来源最高分并列返回 CONFLICT 且不写入任务或文档。未声明 inputKinds 的旧来源保留有效 UTF-8 文本优先的兼容行为。
+
+Importer 将统一选择结果交给 Tasks，固定来源描述符、版本、调度模式、适配后输入和执行函数；执行时只核验注册身份、版本及可用性，不再重新评分。传入 Buffer 在准入时复制，调用方后续改写不影响排队上传；路径只固定 locator，实际文件由来源适配器的导入流程管理。来源替换、版本变化或缺件明确失败，不切换到后来新增的更高分来源。
+
+TXT/Markdown 的严格 UTF-8 语义由各自来源适配器校验，不能据此限制其他二进制来源。原缺 PDF 组件的排队 wire 响应只作为 Importer 的单一版本兼容策略保留，不参与通用输入适配或评分；显式 adapter 仍保持明确的缺件/输入不兼容错误。
+
 ### Q02 active resource-retention contract
 
 Q02 adds explicit `failed -> abandoned`, record-only artifact deletion, opt-in managed-file deletion, durable cleanup retry, and snapshot/artifact read leases. The current 0.1.x implementation guards shared paths and active/failed task references. New SQLite stores use DSH `ivoraige_records` unit version 2. Existing unit-version-1 stores remain readable and permit ordinary writes; before the first Q02 semantic row write, the new binary synchronously stamps the DSH unit version 2. Only the affected document or import task becomes schema 3; existing v1/v2 records are not bulk rewritten. DSH's SQLite unit-version check makes older version-1 binaries refuse to open the store after activation, including if the Q02 row write fails after the stamp. Back up the complete store and files before upgrading; a full backup restore is required to roll back. See the v2.0 protocol Q02 section and the 0.1.0 development guide for operation names and recovery. This does not activate P04 registration/event lifecycle work.

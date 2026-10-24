@@ -103,27 +103,23 @@ export class Tasks extends Service {
     return importer
   }
 
-  async importDocument(file, metadata, { wait, waitForQueued = true, deferSelection = false } = {}) {
+  async importDocument(file, metadata, { wait, waitForQueued = true, deferSelection = false, legacyWire = false } = {}) {
     await this.ready
     if (this.closing) throw new KernelError('PRECONDITION_FAILED', 'Task service is closing')
-    this.importCoordinator()
-    const parser = this.ctx.get('ivoraige.parse')
-    if (!parser) throw new KernelError('COMPONENT_MISSING', 'Source adapter registry is unavailable')
-    let adapter
-    try { adapter = parser.select(file) }
-    catch (error) {
-      if (!deferSelection || !['INVALID_ARGUMENT', 'COMPONENT_MISSING'].includes(error.code)) throw error
-    }
-    const pinnedFile = adapter ? { ...file, adapterId: adapter.id } : file
-    const adapterVersion = adapter?.version ?? (adapter ? 'unversioned' : undefined)
-    const queued = adapter?.importMode === 'queued' || !adapter
+    metadata = metadata && typeof metadata === 'object' ? Object.freeze({ ...metadata }) : metadata
+    const selection = this.importCoordinator().prepare({ ...file,
+      ...(metadata?.language !== undefined ? { language: metadata.language } : {}) }, { legacyWire, deferSelection })
+    const adapter = selection.descriptor
+    const pinnedFile = selection.file
+    const adapterVersion = selection.adapterVersion
+    const queued = selection.importMode === 'queued' || !adapter
     const shouldWait = wait ?? (!queued || waitForQueued)
     if (queued || !shouldWait) {
       const admission = (async () => {
         const task = await this.records.createImportTask(file.title ?? (file.path ? basename(file.path) : 'Import'), adapter)
         if (this.closing) await this.records.updateTask(task.id, current => ({ ...current, state: 'canceled' }))
         else {
-          this.pendingImports.set(task.id, { file: pinnedFile, metadata })
+          this.pendingImports.set(task.id, { file: pinnedFile, metadata, selection })
           this.queue.push(task.id)
           this.emit('task.queued', { taskId: task.id, kind: 'import' })
           this.schedule()
@@ -144,7 +140,7 @@ export class Tasks extends Service {
     const admission = (async () => {
       const start = Date.now()
       const result = await this.importCoordinator().importDocument({ ...pinnedFile, signal: file.signal
-        ? AbortSignal.any([controller.signal, file.signal]) : controller.signal }, metadata, { adapterVersion })
+        ? AbortSignal.any([controller.signal, file.signal]) : controller.signal }, metadata, { adapterVersion, selection })
       const task = await this.records.createOperationTask(result.document.id,
         { kind: 'import', durationMs: Date.now() - start, sourceAdapter: adapter })
       this.emit('task.succeeded', { taskId: task.id, artifacts: [], stats: task.stats })
@@ -154,7 +150,7 @@ export class Tasks extends Service {
     try { return await admission } finally { this.admissions.delete(admission); this.importControllers.delete(controller) }
   }
 
-  async runImport(task, file, metadata, controller, job) {
+  async runImport(task, file, metadata, controller, job, selection) {
     const started = Date.now()
     try {
       controller.signal.throwIfAborted()
@@ -163,7 +159,7 @@ export class Tasks extends Service {
         onProgress: progress => {
           job.updateProgress(progress.stage)
           this.emit('task.progress', { taskId: task.id, ...progress })
-        } }, metadata, { taskId: task.id, adapterVersion: task.adapterVersion })
+        } }, metadata, { taskId: task.id, adapterVersion: task.adapterVersion, selection })
       // Once the document has committed, report success even if cancellation
       // races that commit; otherwise a canceled task could hide an imported document.
       if (this.tearingDown) return { state: 'canceled' }
@@ -403,7 +399,7 @@ export class Tasks extends Service {
       if (task.kind === 'import') {
         const input = this.pendingImports.get(taskId)
         if (!input) throw new KernelError('PRECONDITION_FAILED', 'Import source is unavailable; submit it again')
-        await this.runImport(task, input.file, input.metadata, controller, job)
+        await this.runImport(task, input.file, input.metadata, controller, job, input.selection)
         return
       }
       for (let index = task.cursor; index < task.progress.total; index++) {

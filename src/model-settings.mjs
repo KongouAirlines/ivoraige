@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
 import { AppBoot, ConfigEditor, Context, DshSchema as z, LlmPiAi, LlmRuntime,
+  PiAiCatalogError, resolvePiAiProfiles,
   LocalCredentialProvider, Service, SettingsForms } from '../dist/dsh.mjs'
 import { isPublicErrorCode, KernelError } from './errors.mjs'
 import { modelPresets } from './model-presets.mjs'
@@ -272,9 +273,17 @@ export class ModelSettings extends Service {
     if (!currentRoute || api !== undefined || baseURL !== undefined || credentialRef !== undefined ||
         contextWindow !== undefined || maxTokens !== undefined || reasoning !== undefined ||
         compat !== undefined || reasoningEfforts !== undefined) {
-      // Validate with the pinned DSH schema before its settings writer persists anything.
-      try { LlmPiAi.Config({ providers: { [provider]: route } }) }
-      catch (error) { throw settingsError(error) }
+      // Run both the pinned schema and catalog resolver before either settings
+      // writer persists. Catalog errors are deterministic route input faults.
+      try {
+        const config = LlmPiAi.Config({ providers: { [provider]: route } })
+        resolvePiAiProfiles(config.providers.get())
+      } catch (error) {
+        if (error instanceof PiAiCatalogError) {
+          throw new KernelError('INVALID_ARGUMENT', 'Invalid model route', {}, { cause: error })
+        }
+        throw settingsError(error)
+      }
       await mutateSettings(this.ctx.settings, ROUTES_NS,
         [{ op: 'set', path: ['providers', provider], value: route }], routesRevision)
       routePersisted = true

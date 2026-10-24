@@ -24,7 +24,12 @@ export const txt = {
     if (file.path !== undefined && (typeof file.path !== 'string' || !file.path.trim())) {
       throw new KernelError('INVALID_ARGUMENT', 'path must be a nonempty string')
     }
-    const raw = file.content === undefined ? await readFile(file.path, 'utf8') : file.content.toString('utf8')
+    const data = file.content === undefined ? await readFile(file.path) : file.content
+    let raw = data
+    if (Buffer.isBuffer(data)) {
+      try { raw = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(data) }
+      catch (error) { throw new KernelError('INVALID_ARGUMENT', 'TXT input must be UTF-8 text', {}, { cause: error }) }
+    }
     const lines = raw.replace(/^\uFEFF/, '').split(/\r\n|\n|\r/)
     const units = []
     let start = -1
