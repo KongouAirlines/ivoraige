@@ -1,0 +1,236 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "catalogId",
+    "visibility",
+    "samples"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "catalogId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "visibility": {
+      "enum": [
+        "synthetic",
+        "private"
+      ]
+    },
+    "samples": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "split",
+          "format",
+          "sourceLanguage",
+          "targetLanguage",
+          "path",
+          "sha256",
+          "referencePath",
+          "referenceSha256",
+          "category",
+          "tags",
+          "acceptance",
+          "source",
+          "validation"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]{1,63}$"
+          },
+          "split": {
+            "enum": [
+              "dev",
+              "heldout"
+            ]
+          },
+          "format": {
+            "enum": [
+              "txt",
+              "md",
+              "pdf"
+            ]
+          },
+          "sourceLanguage": {
+            "type": "string",
+            "minLength": 1
+          },
+          "targetLanguage": {
+            "type": "string",
+            "minLength": 1
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "referencePath": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "referenceSha256": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "category": {
+            "type": "string",
+            "minLength": 1
+          },
+          "tags": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "acceptance": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "failure",
+              "allowedDifferences",
+              "protectedSpans"
+            ],
+            "properties": {
+              "failure": {
+                "type": "string",
+                "minLength": 1
+              },
+              "allowedDifferences": {
+                "type": "string",
+                "minLength": 1
+              },
+              "protectedSpans": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              }
+            }
+          },
+          "source": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "author",
+              "url",
+              "acquiredAt",
+              "version",
+              "license",
+              "licenseEvidence",
+              "allowedUses",
+              "externalModel"
+            ],
+            "properties": {
+              "kind": {
+                "enum": [
+                  "original-synthetic",
+                  "licensed",
+                  "permission-pending"
+                ]
+              },
+              "author": {
+                "type": "string",
+                "minLength": 1
+              },
+              "url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "acquiredAt": {
+                "type": "string",
+                "minLength": 1
+              },
+              "version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "license": {
+                "type": "string",
+                "minLength": 1
+              },
+              "licenseEvidence": {
+                "type": "string",
+                "minLength": 1
+              },
+              "allowedUses": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "offline-regression",
+                    "human-review",
+                    "external-evaluation"
+                  ]
+                }
+              },
+              "externalModel": {
+                "enum": [
+                  "denied",
+                  "pending",
+                  "allowed"
+                ]
+              }
+            }
+          },
+          "validation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "status",
+              "reviewer",
+              "notes"
+            ],
+            "properties": {
+              "status": {
+                "enum": [
+                  "pending-human",
+                  "human-verified",
+                  "blocked"
+                ]
+              },
+              "reviewer": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "notes": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

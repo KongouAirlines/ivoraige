@@ -44,7 +44,8 @@
     "pack:npm": "npm run build && node scripts/pack-npm.mjs",
     "smoke:package": "node scripts/smoke-package.mjs",
     "verify:release": "node scripts/verify-release.mjs",
-    "followups": "node scripts/followups.mjs"
+    "followups": "node scripts/followups.mjs",
+    "evaluate:samples": "node scripts/evaluate-samples.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.87.1",
