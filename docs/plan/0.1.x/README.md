@@ -69,7 +69,7 @@ flowchart TD
 ## 专项与历史参考
 
 - P01/P05：[运行时顺序评估](runtime-sequence.md)；P02/P03/P05/P08：[迁移与分发](migration-distribution.md)。
-- D01–D05：[桌面方案与测量协议](desktop.md)；F/I：[格式与软件协作](formats-integrations.md)。
+- D01–D05：[桌面方案与测量协议](desktop.md)；F/I：[格式与软件协作](formats-integrations.md)；I01/I02：[共用外部 API 与软件集成](external-api.md)。
 - [基础优先的缘由](../0.1.0/foundation-plan.md)、[npm 就绪准备](../0.1.0/npm-readiness.md)。
 - [136 条历史发现 → 75 个主题的来源映射](audit/README.md)、[五份一次性 PR 审查归档](../0.1.0/pr-review/README.md)。
 
