@@ -249,3 +249,7 @@ interface FeaturePage {
 - 本文只定义界面结构、交互与前端工程；接口字段、任务模型、存储规则以《设计与验收基线 v2.0》为准。
 - 页面注册表（§4）的 `id` 与后端插件服务名一致，是唯一耦合点；新增功能 = 后端加插件 + 前端加一条注册。
 - 词库相关页面（§5.5）随词库结构研判结果调整，本文不锁定字段。
+
+### Q02 retention state in the task view
+
+The task view labels `abandoned` as `已放弃`, provides a filter for that terminal state, and offers an explicit `放弃任务` action only for failed tasks. The action preserves the failure detail and updates the list. The Web UI refreshes on `task.abandoned` as on other terminal task events. Artifact record deletion and managed file cleanup remain available through CLI, HTTP and MCP; the Web UI does not imply that a task abandonment deletes an artifact or file.

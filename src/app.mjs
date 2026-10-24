@@ -16,6 +16,7 @@ import { Operations } from './operations.mjs'
 import { MarkdownSource } from './adapters/markdown-source.mjs'
 import { bootModelSettings } from './model-settings.mjs'
 import { acquireStoreLock } from './store-lock.mjs'
+import { inspectRetentionDomain } from './retention-domain.mjs'
 import { Pdf } from './adapters/pdf.mjs'
 import { McpRegistry } from './mcp-registry.mjs'
 import * as OperationMcp from './operation-mcp.mjs'
@@ -58,6 +59,7 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
   const storeLock = store === undefined ? undefined : await acquireStoreLock(store)
   let ctx
   try {
+    const retentionDomain = storeLock ? inspectRetentionDomain(storeLock.path) : undefined
     ctx = settingsDir === undefined ? new Context() :
       (await bootModelSettings({ directory: settingsDir })).ctx
     if (!ctx.get('ivoraige.settingsPages')) await ctx.plugin(SettingsPages)
@@ -79,7 +81,8 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
       await ctx.plugin(Storage)
       await ctx.plugin(StorageSqlite, { path: storeLock.path })
       await ctx.plugin(StorageDomain, { backend: 'sqlite' })
-      await ctx.plugin(Records)
+      await ctx.plugin(Records, { storageVersion: retentionDomain.version,
+        activateRetention: retentionDomain.activateRetention })
       await ctx.get('ivoraige.records').ready
       await ctx.plugin(Importer)
       await ctx.plugin(TextOutputs)

@@ -13,7 +13,7 @@
 | ID | 目标 | 前置 | 状态 / 实施与验收证据 | 详情 |
 | --- | --- | --- | --- | --- |
 | Q01 | 导出受理冲突的快照原子性/补偿 | 按现有契约先复现；可独立于 P01 | 分支已实现／待集成；修复提交 `4e929478`，本地专项验证见 [Q01 证据](evidence/foundation-qfix.md#q01--export-admission)；[PR #46 旧 head CI](https://github.com/KongouAirlines/ivoraige/actions/runs/39927549289) 不覆盖本次修复 | [基础契约与正确性](packages/foundation.md#q01) |
-| Q02 | 产物、失败导出任务与快照释放 | P01 固定删除/保留政策 | 草案 | [基础契约与正确性](packages/foundation.md#q02) |
+| Q02 | 产物、失败任务与快照引用释放 | P01 固定删除/恢复边界 | 分支验证通过、待集成；[证据](evidence/foundation-q02.md)，PR/CI 待补 | [详细契约及退化](packages/foundation.md#q02) |
 | Q03 | 设置值/缺件错误与 CLI 非法 JSON | 当前协议；可独立于 P01 | 分支已实现／待集成；修复提交 `4e929478`，本地专项验证见 [Q03 证据](evidence/foundation-qfix.md#q03--settings-and-cli-errors)；[PR #46 旧 head CI](https://github.com/KongouAirlines/ivoraige/actions/runs/39927549289) 不覆盖本次修复 | [基础契约与正确性](packages/foundation.md#q03) |
 | Q04 | 需求/协议差异及源码交付元数据收口 | 相关需求/协议与当前交付元数据；按文档域并行 | 草案 | [基础契约与正确性](packages/foundation.md#q04) |
 | P01 | DSH/Cordis 契约、最小宿主边界与护栏 | 本规划评审 | 分支验证通过、待集成：[固定 pin 证据](evidence/foundation-runtime.md)、[PR #45](https://github.com/KongouAirlines/ivoraige/pull/45)、[CI](https://github.com/KongouAirlines/ivoraige/actions/runs/39909072802)；[候选隔离 PR #47](https://github.com/KongouAirlines/ivoraige/pull/47) 未进入合并链 | [基础契约与正确性](packages/foundation.md#p01) |

@@ -22,6 +22,8 @@ const routes = [
   ['POST', new RegExp(`^/api/documents/${id}/translate$`), 'translate', ['docId']],
   ['POST', new RegExp(`^/api/documents/${id}/export$`), 'exportDocument', ['docId']],
   ['GET', new RegExp(`^/api/documents/${id}/artifacts$`), 'listArtifacts', ['docId']],
+  ['GET', new RegExp(`^/api/documents/${id}/artifact-cleanup$`), 'listArtifactCleanup', ['docId']],
+  ['DELETE', new RegExp(`^/api/documents/${id}/artifacts/${id}$`), 'deleteArtifact', ['docId', 'artifactId']],
   ['GET', new RegExp(`^/api/documents/${id}/snapshots$`), 'listSnapshots', ['docId']],
   ['GET', new RegExp(`^/api/documents/${id}/snapshots/${id}$`), 'getSnapshot', ['docId', 'snapshotId']],
   ['DELETE', new RegExp(`^/api/documents/${id}/snapshots/${id}$`), 'deleteSnapshot', ['docId', 'snapshotId']],
@@ -35,6 +37,7 @@ const routes = [
   ['POST', new RegExp(`^/api/tasks/${id}/pause$`), 'pauseTask', ['taskId']],
   ['POST', new RegExp(`^/api/tasks/${id}/resume$`), 'resumeTask', ['taskId']],
   ['POST', new RegExp(`^/api/tasks/${id}/cancel$`), 'cancelTask', ['taskId']],
+  ['POST', new RegExp(`^/api/tasks/${id}/abandon$`), 'abandonTask', ['taskId']],
   ['GET', /^\/api\/settings\/modelconfig$/, 'getSettings'],
   ['PATCH', /^\/api\/settings\/modelconfig$/, 'updateSettings'],
   ['PUT', /^\/api\/settings\/credentials$/, 'setCredential'],
@@ -150,29 +153,46 @@ export async function serve(app, { host = '127.0.0.1', port = 8787, staticDir, a
       const download = req.method === 'GET' && /^\/api\/artifacts\/[A-Za-z0-9_.-]+\/download$/.exec(pathname)
       if (download) {
         const artifactId = pathname.split('/')[3]
-        const artifact = await app.operations.artifact(artifactId)
-        if (!artifact?.path) throw new KernelError('NOT_FOUND', 'Artifact not found')
-        let info
-        try { info = await stat(artifact.path) } catch (error) {
-          if (['ENOENT', 'ENOTDIR'].includes(error.code)) throw new KernelError('NOT_FOUND', 'Artifact not found')
-          throw error
+        let artifact, stream, closed = false, released = false
+        const release = () => {
+          if (!artifact || released) return
+          released = true
+          artifact.release?.()
         }
-        if (!info.isFile()) throw new KernelError('NOT_FOUND', 'Artifact not found')
-        const stream = createReadStream(artifact.path)
-        await new Promise((resolveOpen, rejectOpen) => {
-          const onOpen = () => { stream.off('error', onError); resolveOpen() }
-          const onError = error => { stream.off('open', onOpen); rejectOpen(error) }
-          stream.once('open', onOpen)
-          stream.once('error', onError)
-        }).catch(error => {
-          if (['ENOENT', 'ENOTDIR'].includes(error.code)) throw new KernelError('NOT_FOUND', 'Artifact not found')
-          throw error
-        })
-        stream.on('error', error => res.destroy(error))
-        res.writeHead(200, { 'Content-Type': artifact.contentType ?? 'application/octet-stream',
-          'Content-Length': info.size, 'Content-Disposition': `attachment; filename="${String(artifact.filename ?? artifactId).replace(/["\r\n]/g, '_')}"`,
-          'X-Content-Type-Options': 'nosniff' })
-        stream.pipe(res)
+        res.once('close', () => { closed = true; stream?.destroy(); release() })
+        try {
+          artifact = await app.operations.artifact(artifactId, { retain: true })
+          if (closed || res.destroyed) { release(); return }
+          if (!artifact?.path) throw new KernelError('NOT_FOUND', 'Artifact not found')
+          let info
+          try { info = await stat(artifact.path) } catch (error) {
+            if (['ENOENT', 'ENOTDIR'].includes(error.code)) throw new KernelError('NOT_FOUND', 'Artifact not found')
+            throw error
+          }
+          if (closed || res.destroyed) { release(); return }
+          if (!info.isFile()) throw new KernelError('NOT_FOUND', 'Artifact not found')
+          stream = createReadStream(artifact.path)
+          let streamError
+          stream.once('close', release)
+          stream.on('error', error => { streamError = error; if (!closed && res.headersSent) res.destroy(error) })
+          const opened = await new Promise((resolveOpen, rejectOpen) => {
+            const onOpen = () => { stream.off('error', onError); stream.off('close', onClose); resolveOpen(true) }
+            const onError = error => { stream.off('open', onOpen); stream.off('close', onClose); rejectOpen(error) }
+            const onClose = () => { stream.off('open', onOpen); stream.off('error', onError); resolveOpen(false) }
+            stream.once('open', onOpen)
+            stream.once('error', onError)
+            stream.once('close', onClose)
+          }).catch(error => {
+            if (['ENOENT', 'ENOTDIR'].includes(error.code)) throw new KernelError('NOT_FOUND', 'Artifact not found')
+            throw error
+          })
+          if (closed || res.destroyed || !opened) { stream.destroy(); release(); return }
+          if (streamError) throw streamError
+          res.writeHead(200, { 'Content-Type': artifact.contentType ?? 'application/octet-stream',
+            'Content-Length': info.size, 'Content-Disposition': `attachment; filename="${String(artifact.filename ?? artifactId).replace(/["\r\n]/g, '_')}"`,
+            'X-Content-Type-Options': 'nosniff' })
+          stream.pipe(res)
+        } catch (error) { stream?.destroy(); release(); throw error }
         return
       }
       for (const [method, pattern, operation, keys = []] of routes) {
