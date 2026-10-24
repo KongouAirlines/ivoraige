@@ -152,7 +152,7 @@ test('binary frozen output survives absent and upgraded source projection plugin
   { code: 'PRECONDITION_FAILED' })
 })
 
-test('unavailable or input-incompatible sibling cannot divert a UTF-8 import', async t => {
+test('unavailable sibling is excluded; compatible cross-view ties require explicit selection', async t => {
   const { app } = await fixture(t)
   app.parse.register({ ...source('route-text'), inputKinds: ['text'] })
   const removeUnavailable = app.parse.register({ ...source('route-bytes', { importMode: 'queued' }), inputKinds: ['bytes'],
@@ -165,8 +165,26 @@ test('unavailable or input-incompatible sibling cannot divert a UTF-8 import', a
     { code: 'COMPONENT_MISSING' })
   removeUnavailable()
   app.parse.register({ ...source('route-bytes', { importMode: 'queued' }), inputKinds: ['bytes'] })
-  const second = await app.operations.invoke('importDocument', { ...request, sourceId: 'route-case-2' })
+  const before = { documents: app.records.listDocuments().length, tasks: app.records.listTasks().length }
+  await assert.rejects(app.operations.invoke('importDocument', { ...request, sourceId: 'route-tied' }), { code: 'CONFLICT' })
+  assert.deepEqual({ documents: app.records.listDocuments().length, tasks: app.records.listTasks().length }, before)
+  const second = await app.operations.invoke('importDocument', { ...request, adapterId: 'route-text', sourceId: 'route-case-2' })
   assert.equal(second.document.sourceAdapterId, 'route-text')
+})
+
+test('built-in text sources own strict UTF-8 validation without restricting binary sources', async t => {
+  const { app, directory } = await fixture(t)
+  const bytes = Buffer.from([0xff, 0xfe, 0x41])
+  for (const format of ['txt', 'md']) {
+    const path = join(directory, `invalid.${format}`)
+    await writeFile(path, bytes)
+    for (const file of [{ content: bytes }, { path }])
+      await assert.rejects(app.tasks.importDocument({ ...file, format }, metadata), { code: 'INVALID_ARGUMENT' })
+    await assert.rejects(app.operations.invoke('importDocument', { format,
+      contentBase64: bytes.toString('base64'), language: 'en' }), { code: 'INVALID_ARGUMENT' })
+  }
+  assert.equal(app.records.listDocuments().length, 0)
+  assert.equal(app.records.listTasks().length, 0)
 })
 
 test('wire import scheduling follows the selected source while jobs quota is occupied', async t => {

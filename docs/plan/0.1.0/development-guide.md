@@ -69,3 +69,7 @@ npm run smoke:package
 来源插件描述格式、输入类型（文本、字节或文件资源）、排队/取消与 binding 版本。Importer 负责调用插件，Records 持久化通用 IR、修订和冻结快照。MD/JSON 输出需要来源插件的可读投影；原 PDF 二进制输出从受管原件校验复制，不调用重建 sidecar。任务受理时记录来源/输出实现及版本；执行前若该实现缺席或升版，任务失败并可在恢复适配器后重试，绝不自动改用同格式的其他实现。旧记录可只读；没有相容的来源校验器时不能提交或接受需私有校验的修订。
 
 对旧数据库先备份数据库及配套资源目录。存储 domain 仍为 v1，记录载荷在首次写入时按需升级为 v2；未知载荷或 IR 版本拒绝写入。若要回退旧程序，先关闭服务，再恢复升级前的完整备份；不要把已升级的库直接交给旧程序写入。本批只使用临时 fixture 做升级/恢复验证，不迁移真实用户库。
+
+### Prepared import selection
+
+Public uploads pass FileRef data to the same Parse/Importer selection used by direct Tasks calls. Raw bytes and valid UTF-8 views are scored against each source inputKinds; a source advertising both uses its best view, with raw bytes winning an equal same-source score. Different best sources require an explicit adapter. Tasks retains the selection and owned upload input until completion/cancellation, then releases it; execution validates the selected registration/version and does not rescore. TXT/Markdown enforce their own UTF-8 semantics. Managed-resource paths retain their locator and remain subject to adapter-owned file handling.
