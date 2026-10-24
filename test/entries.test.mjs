@@ -356,6 +356,16 @@ test('non-MCP --stdio is rejected with the ordinary JSON error contract', async 
   assert.match(err, /only supported by mcp/)
 })
 
+test('CLI settings --set malformed JSON exits 2 with the public error envelope', async () => {
+  let out = '', err = ''
+  const code = await runCli(['--json', 'settings', '--set', '{broken'], {
+    stdout: { write: chunk => { out += chunk } }, stderr: { write: chunk => { err += chunk } },
+  })
+  assert.equal(code, 2)
+  assert.equal(JSON.parse(out).error.code, 'INVALID_ARGUMENT')
+  assert.match(err, /valid JSON/)
+})
+
 test('CLI releases SSE, HTTP port and SQLite even when MCP endpoint close fails', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-mcp-close-failure-'))
   const store = join(directory, 'store.sqlite')
