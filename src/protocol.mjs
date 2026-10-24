@@ -24,7 +24,7 @@ export const parameters = {
   listDocuments: shape({ ...page, origin: z.string().optional(), format: z.string().optional() }),
   getDocument: shape(document),
   listUnits: shape({ ...document, targetLang: lang, ...page, filter: z.enum(['all', 'untranslated', 'draft', 'accepted']).default('all') }),
-  getUnit: shape(unit), listRevisions: shape({ ...unit, ...page }),
+  getUnit: shape({ ...unit, docId: id.optional() }), listRevisions: shape({ ...unit, ...page }),
   writeRevision: shape({ ...unit, baseRevisionId: lock, text: z.string().min(1) }),
   acceptRevision: shape({ revisionId: id, expectedAcceptedRevisionId: lock }),
   unaccept: shape({ ...unit, expectedAcceptedRevisionId: lock }),
@@ -58,6 +58,37 @@ export const parameters = {
     selectedRevision: z.number().int().min(0).optional(),
   }),
   setCredential: shape({ ref: id, value: z.string().min(1) }),
+}
+
+// Result checks protect the shared entry boundary without changing the
+// existing payloads. The catalog additionally rejects non-JSON values.
+const result = fields => z.object(fields).passthrough()
+const anyObject = result({})
+const pageResult = result({ items: z.array(z.unknown()), nextCursor: z.string().optional() })
+const taskResult = result({ task: z.object({ id: id, state: z.string() }).passthrough() })
+const componentTaskResult = result({ task: z.object({ taskId: id, state: z.string() }).passthrough() })
+export const results = {
+  capabilities: result({ features: z.array(z.string()), settingsPages: z.array(z.unknown()),
+    inputFormats: z.array(z.string()), outputFormats: z.array(z.string()) }),
+  componentStatus: result({ installed: anyObject.nullable(), credentialConfigured: z.boolean() }),
+  componentCatalog: result({ catalog: result({ components: z.array(z.unknown()) }) }),
+  componentCredential: result({ configured: z.boolean() }), componentCredentialClear: result({ configured: z.boolean() }),
+  componentInstall: result({ taskId: id }), componentLocal: result({ taskId: id }),
+  componentTask: componentTaskResult, componentCancel: componentTaskResult,
+  importDocument: result({ taskId: id }),
+  listDocuments: pageResult, getDocument: result({ document: result({ id }) }),
+  listUnits: pageResult, getUnit: result({ unit: z.object({ id }).passthrough() }), listRevisions: pageResult,
+  writeRevision: result({ revision: result({ id }) }), acceptRevision: result({ accepted: result({ id }) }),
+  unaccept: result({ accepted: z.null() }), translate: result({ taskId: id }),
+  exportDocument: result({ taskId: id, snapshotId: id }),
+  listArtifacts: pageResult, listArtifactCleanup: pageResult,
+  deleteArtifact: result({ recordDeleted: z.boolean(), fileDeleted: z.boolean() }),
+  listSnapshots: pageResult,
+  getSnapshot: result({ snapshot: result({ id }) }), deleteSnapshot: result({ deleted: z.literal(true) }),
+  listTasks: pageResult, getTask: taskResult, pauseTask: taskResult,
+  resumeTask: taskResult, cancelTask: taskResult, abandonTask: taskResult,
+  getSettings: result({ settings: anyObject }), updateSettings: result({ settings: anyObject }),
+  setCredential: result({ configured: z.boolean() }),
 }
 
 export function validate(name, value) {

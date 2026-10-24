@@ -12,7 +12,8 @@ import { KernelError } from './errors.mjs'
 const usage = `ivoraige [--url URL | --store FILE] [--pdf-config FILE] [--json] COMMAND [arguments] [options]
 Commands: import, documents, units, unit, revisions, edit, accept, unaccept,
   translate, export, snapshots, artifacts, tasks, task, pause, resume, cancel, abandon,
-  settings, capabilities, components, serve, mcp, help
+  settings, capabilities, components, call, serve, mcp, help
+Internal operations: call OPERATION --set JSON
 MCP: mcp --stdio [--store FILE]; serve exposes /mcp unless --no-mcp
 Components: status, catalog, credential --token-env NAME, install, local --path MANIFEST, task ID, cancel ID
 Common options: --target-lang LANG, --json, --json-events, --no-wait, --url URL, --store FILE, --pdf-config FILE
@@ -26,8 +27,8 @@ function parse(argv) {
   const known = new Set([...boolean, 'url', 'store', 'export-dir', 'settings-dir', 'pdf-config', 'host', 'port', 'static-dir',
     'path', 'format', 'adapter', 'source-id', 'external-ref', 'source-lang', 'title', 'target-lang', 'cursor',
     'limit', 'origin', 'filter', 'text', 'base-revision', 'expected-accepted', 'mode',
-    'units', 'out', 'snapshot', 'content-mode', 'on-missing-accepted', 'state', 'kind', 'set', 'ref', 'value', 'token-env',
-    'file-action'])
+    'units', 'out', 'snapshot', 'on-missing-accepted', 'state', 'kind', 'set', 'ref', 'value', 'token-env',
+    'file-action', 'content-mode', 'adapter'])
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i]
     if (!token.startsWith('--')) { positional.push(token); continue }
@@ -44,11 +45,19 @@ function required(value, label) {
   if (!value) throw new KernelError('INVALID_ARGUMENT', `Missing ${label}`)
   return value
 }
+const segment = value => encodeURIComponent(value)
 function route(command, args, o) {
   const docId = args[0], unitId = args[0], taskId = args[0]
   const targetLang = o['target-lang']
   const paging = { cursor: o.cursor, limit: o.limit === undefined ? undefined : Number(o.limit) }
   switch (command) {
+    case 'call': {
+      const operation = required(args[0], 'operation ID')
+      const input = parseSettingsJson(o.set ?? '{}')
+      if (!input || typeof input !== 'object' || Array.isArray(input))
+        throw new KernelError('INVALID_ARGUMENT', '--set must contain a JSON object')
+      return [operation, input, 'POST', `/api/operations/${encodeURIComponent(operation)}`]
+    }
     case 'components': {
       switch (args[0] ?? 'status') {
         case 'status': return ['componentStatus', {}, 'GET', '/api/components']
@@ -59,30 +68,30 @@ function route(command, args, o) {
         case 'credential-clear': return ['componentCredentialClear', {}, 'DELETE', '/api/components/credential']
         case 'install': return ['componentInstall', { id: 'babeldoc' }, 'POST', '/api/components/install']
         case 'local': return ['componentLocal', { path: required(o.path, '--path manifest') }, 'POST', '/api/components/local']
-        case 'task': return ['componentTask', { taskId: required(args[1], 'component task ID') }, 'GET', `/api/components/tasks/${args[1]}`]
-        case 'cancel': return ['componentCancel', { taskId: required(args[1], 'component task ID') }, 'POST', `/api/components/tasks/${args[1]}/cancel`]
+        case 'task': return ['componentTask', { taskId: required(args[1], 'component task ID') }, 'GET', `/api/components/tasks/${segment(args[1])}`]
+        case 'cancel': return ['componentCancel', { taskId: required(args[1], 'component task ID') }, 'POST', `/api/components/tasks/${segment(args[1])}/cancel`]
         default: throw new KernelError('INVALID_ARGUMENT', 'Unknown components command')
       }
     }
     case 'import': return ['importDocument', { path: o.path ?? required(args[0], 'file path'),
       format: o.format, adapterId: o.adapter, sourceId: o['source-id'], externalRef: o['external-ref'],
       language: required(o['source-lang'], '--source-lang'), title: o.title, origin: 'cli' }, 'POST', '/api/documents/import']
-    case 'documents': return args[0] ? ['getDocument', { docId }, 'GET', `/api/documents/${docId}`] :
+    case 'documents': return args[0] ? ['getDocument', { docId }, 'GET', `/api/documents/${segment(docId)}`] :
       ['listDocuments', { ...paging, origin: o.origin, format: o.format }, 'GET', '/api/documents']
     case 'units': return ['listUnits', { docId: required(docId, 'document ID'), targetLang: required(targetLang, '--target-lang'),
-      filter: o.filter, ...paging }, 'GET', `/api/documents/${docId}/units`]
+      filter: o.filter, ...paging }, 'GET', `/api/documents/${segment(docId)}/units`]
     case 'unit': return ['getUnit', { unitId: required(unitId, 'unit ID'), targetLang: required(targetLang, '--target-lang') },
-      'GET', `/api/units/${unitId}`]
+      'GET', `/api/units/${segment(unitId)}`]
     case 'revisions': return ['listRevisions', { unitId: required(unitId, 'unit ID'), targetLang: required(targetLang, '--target-lang'), ...paging },
-      'GET', `/api/units/${unitId}/revisions`]
+      'GET', `/api/units/${segment(unitId)}/revisions`]
     case 'edit': return ['writeRevision', { unitId: required(unitId, 'unit ID'), targetLang: required(targetLang, '--target-lang'),
-      text: required(o.text, '--text'), baseRevisionId: o['base-revision'] ?? null }, 'PATCH', `/api/units/${unitId}`]
+      text: required(o.text, '--text'), baseRevisionId: o['base-revision'] ?? null }, 'PATCH', `/api/units/${segment(unitId)}`]
     case 'accept': return ['acceptRevision', { revisionId: required(args[0], 'revision ID'),
-      expectedAcceptedRevisionId: o['expected-accepted'] ?? null }, 'POST', `/api/revisions/${args[0]}/accept`]
+      expectedAcceptedRevisionId: o['expected-accepted'] ?? null }, 'POST', `/api/revisions/${segment(args[0])}/accept`]
     case 'unaccept': return ['unaccept', { unitId: required(unitId, 'unit ID'), targetLang: required(targetLang, '--target-lang'),
-      expectedAcceptedRevisionId: o['expected-accepted'] ?? null }, 'POST', `/api/units/${unitId}/unaccept`]
+      expectedAcceptedRevisionId: o['expected-accepted'] ?? null }, 'POST', `/api/units/${segment(unitId)}/unaccept`]
     case 'translate': return ['translate', { docId: required(docId, 'document ID'), targetLang: required(targetLang, '--target-lang'),
-      mode: o.mode, unitIds: o.units?.split(',') }, 'POST', `/api/documents/${docId}/translate`]
+      mode: o.mode, unitIds: o.units?.split(',') }, 'POST', `/api/documents/${segment(docId)}/translate`]
     case 'export': {
       const formats = required(o.format, '--format').split(',')
       if ((o.out || o.adapter) && formats.length !== 1)
@@ -92,23 +101,23 @@ function route(command, args, o) {
       targetLang: o['content-mode'] === 'source' ? targetLang : required(targetLang, '--target-lang'),
       outputs: formats.map(format => ({ format, ...(o.adapter ? { adapterId: o.adapter } : {}),
         ...(o.out ? { out: o.out } : {}) })),
-      snapshotId: o.snapshot, onMissingAccepted: o['on-missing-accepted'] }, 'POST', `/api/documents/${docId}/export`]
+      snapshotId: o.snapshot, onMissingAccepted: o['on-missing-accepted'] }, 'POST', `/api/documents/${segment(docId)}/export`]
     }
     case 'snapshots': return args[1] === 'delete' ? ['deleteSnapshot',
       { docId: required(docId, 'document ID'), snapshotId: required(args[2], 'snapshot ID') },
-      'DELETE', `/api/documents/${docId}/snapshots/${args[2]}`] : args[1] ? ['getSnapshot', { docId: required(docId, 'document ID'), snapshotId: args[1] },
-      'GET', `/api/documents/${docId}/snapshots/${args[1]}`] :
-      ['listSnapshots', { docId: required(docId, 'document ID'), targetLang, ...paging }, 'GET', `/api/documents/${docId}/snapshots`]
+      'DELETE', `/api/documents/${segment(docId)}/snapshots/${segment(args[2])}`] : args[1] ? ['getSnapshot', { docId: required(docId, 'document ID'), snapshotId: args[1] },
+      'GET', `/api/documents/${segment(docId)}/snapshots/${segment(args[1])}`] :
+      ['listSnapshots', { docId: required(docId, 'document ID'), targetLang, ...paging }, 'GET', `/api/documents/${segment(docId)}/snapshots`]
     case 'artifacts': return args[1] === 'delete' ? ['deleteArtifact',
       { docId: required(docId, 'document ID'), artifactId: required(args[2], 'artifact ID'), fileAction: o['file-action'] },
-      'DELETE', `/api/documents/${docId}/artifacts/${args[2]}`] : args[1] === 'cleanup' ?
+      'DELETE', `/api/documents/${segment(docId)}/artifacts/${segment(args[2])}`] : args[1] === 'cleanup' ?
       ['listArtifactCleanup', { docId: required(docId, 'document ID'), ...paging }, 'GET',
-        `/api/documents/${docId}/artifact-cleanup`] :
-      ['listArtifacts', { docId: required(docId, 'document ID'), ...paging }, 'GET', `/api/documents/${docId}/artifacts`]
+        `/api/documents/${segment(docId)}/artifact-cleanup`] :
+      ['listArtifacts', { docId: required(docId, 'document ID'), ...paging }, 'GET', `/api/documents/${segment(docId)}/artifacts`]
     case 'tasks': return ['listTasks', { ...paging, state: o.state, kind: o.kind }, 'GET', '/api/tasks']
-    case 'task': return ['getTask', { taskId: required(taskId, 'task ID') }, 'GET', `/api/tasks/${taskId}`]
+    case 'task': return ['getTask', { taskId: required(taskId, 'task ID') }, 'GET', `/api/tasks/${segment(taskId)}`]
     case 'pause': case 'resume': case 'cancel': case 'abandon': return [`${command}Task`, { taskId: required(taskId, 'task ID') },
-      'POST', `/api/tasks/${taskId}/${command}`]
+      'POST', `/api/tasks/${segment(taskId)}/${command}`]
     case 'settings': return args[0] === 'credential' ? ['setCredential',
       { ref: required(o.ref, '--ref'), value: required(o.value, '--value') }, 'PUT', '/api/settings/credentials'] :
       o.set ? ['updateSettings', parseSettingsJson(o.set), 'PATCH', '/api/settings/modelconfig'] :
@@ -155,13 +164,13 @@ async function webDirectory() {
   const path = resolve(import.meta.dirname, '../dist/web')
   try { return (await stat(join(path, 'index.html'))).isFile() ? path : undefined } catch { return undefined }
 }
-async function invokeRemote(base, method, path, params) {
+async function invokeRemote(base, method, path, params, signal) {
   const url = new URL(path, base)
   const queryMethod = method === 'GET' || method === 'DELETE'
   const keys = queryMethod ? Object.keys(params).filter(key => params[key] !== undefined &&
     !['docId', 'unitId', 'taskId', 'snapshotId', 'artifactId'].includes(key)) : []
   for (const key of keys) url.searchParams.set(key, String(params[key]))
-  const response = await fetch(url, { method, headers: queryMethod ? {} : { 'Content-Type': 'application/json' },
+  const response = await fetch(url, { method, signal, headers: queryMethod ? {} : { 'Content-Type': 'application/json' },
     body: queryMethod ? undefined : JSON.stringify(clean(params)) })
   const body = await response.json()
   if (!response.ok) {
@@ -173,7 +182,7 @@ async function invokeRemote(base, method, path, params) {
 }
 async function waitForTask(invoke, taskId) {
   while (true) {
-    const body = await invoke('getTask', { taskId }, 'GET', `/api/tasks/${taskId}`)
+    const body = await invoke('getTask', { taskId }, 'GET', `/api/tasks/${segment(taskId)}`)
     const task = body.task
     if (!task) return body
     if (['succeeded', 'failed', 'canceled', 'abandoned', 'paused'].includes(task.state)) return body
@@ -239,14 +248,24 @@ async function observeEvents(app, base, stdout, stderr) {
     waitForTerminal, close() { controller.abort(); reader.cancel().catch(() => {}) } }
 }
 
-export async function runCli(argv = process.argv.slice(2), { stdout = process.stdout, stderr = process.stderr } = {}) {
-  let app, server, observer, mcpStdio = false
+export async function runCli(argv = process.argv.slice(2), { stdout = process.stdout, stderr = process.stderr,
+  app: suppliedApp, signal } = {}) {
+  let app = suppliedApp, server, observer, mcpStdio = false, stop
+  const controller = new AbortController()
+  const onSignal = () => { controller.abort(); stop?.() }
+  const requestSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
   try {
     const { positional, options: o } = parse(argv)
     const command = positional.shift() ?? 'help'
     mcpStdio = command === 'mcp' && !!o.stdio
     if (o.stdio && command !== 'mcp') throw new KernelError('INVALID_ARGUMENT', '--stdio is only supported by mcp')
     if (command === 'help' || o.help) { stdout.write(usage); return 0 }
+    if (suppliedApp && (['serve', 'mcp'].includes(command) ||
+        ['url', 'store', 'settings-dir', 'export-dir', 'pdf-config'].some(key => o[key] !== undefined)))
+      throw new KernelError('INVALID_ARGUMENT', 'A supplied host owns its configuration; use business commands without host options')
+    if (command !== 'mcp') {
+      process.once('SIGINT', onSignal); process.once('SIGTERM', onSignal)
+    }
     if (command === 'mcp' && (!o.stdio || o.url))
       throw new KernelError('INVALID_ARGUMENT', 'Use mcp --stdio for a local kernel, or connect an HTTP MCP client to the running /mcp endpoint')
     if (command === 'serve' || command === 'mcp') {
@@ -264,7 +283,7 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
       server = await serve(app, { host: o.host ?? '127.0.0.1', port: o.port ? Number(o.port) : 8787,
         mcp: !o['no-mcp'], staticDir: o['static-dir'] ?? await webDirectory() })
       stdout.write(`${server.url}\n`)
-      await new Promise(resolveStop => { process.once('SIGINT', resolveStop); process.once('SIGTERM', resolveStop) })
+      await new Promise(resolveStop => { stop = resolveStop; if (requestSignal.aborted) resolveStop() })
       return 0
     }
     const [name, params, method, path] = route(command, positional, o)
@@ -277,23 +296,31 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
       throw new KernelError('INVALID_ARGUMENT', '--no-wait requires --url so the live server owns the task')
     if (o['json-events'] && o['no-wait'] && startsTask)
       throw new KernelError('INVALID_ARGUMENT', '--json-events cannot be combined with --no-wait')
-    if (!remote) {
+    if (!remote && !suppliedApp) {
       const store = storePath(o)
       await mkdir(dirname(store), { recursive: true })
       app = await createApp({ store, exportDir: o['export-dir'],
         components: { directory: join(dirname(resolve(store)), 'components') },
         settingsDir: o['settings-dir'] ?? join(dirname(store), 'settings'), pdf: await readPdfConfig(o['pdf-config']) })
     }
-    const invoke = remote ? (_name, p, m, url) => invokeRemote(o.url, m, url, p) :
-      (operation, p) => app.operations.invoke(operation, clean(p))
+    if (!remote && !app.cli) throw new KernelError('COMPONENT_MISSING', 'CLI entry is not enabled')
+    if (command === 'call' && !remote && !suppliedApp) {
+      const operation = app.operationCatalog.get(name)
+      if (operation.longRunning || operation.cancellable === 'task')
+        throw new KernelError('INVALID_ARGUMENT',
+          'Local call cannot own a background task; use its waiting CLI alias or --url with a persistent host')
+    }
+    const invoke = remote ? (_name, p, m, url) => invokeRemote(o.url, m, url, p, requestSignal) :
+      (operation, p) => app.cli.invoke(operation, clean(p), { signal: requestSignal })
     if (o['json-events'] && startsTask)
       observer = await observeEvents(app, o.url, stdout, stderr)
     const result = await invoke(name, params, method, path)
+    if (command === 'call') { stdout.write(`${serialize(result)}\n`); return 0 }
     if (startsComponent) {
       stdout.write(`${serialize(result)}\n`)
       if (o['no-wait']) return 0
       while (true) {
-        const state = await invoke('componentTask', { taskId: result.taskId }, 'GET', `/api/components/tasks/${result.taskId}`)
+        const state = await invoke('componentTask', { taskId: result.taskId }, 'GET', `/api/components/tasks/${segment(result.taskId)}`)
         if (!['queued', 'running', 'stopping'].includes(state.task.state)) {
           stdout.write(`${serialize(state)}\n`)
           return state.task.state === 'completed' ? 0 : state.task.state === 'killed' ? 5 : 4
@@ -324,15 +351,17 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
     }
     return 0
   } catch (error) {
+    if (error.name === 'AbortError') error = new KernelError('UPSTREAM_FAILURE', 'Request canceled', { canceled: true })
     const mapped = errorEnvelope(error)
     if (argv.includes('--json') && !mcpStdio) stdout.write(`${serialize(mapped.body)}\n`)
     stderr.write(`${mapped.body.error.message}\n`)
     return mapped.exitCode
   } finally {
+    process.off('SIGINT', onSignal); process.off('SIGTERM', onSignal)
     let failure
     try { observer?.close() } catch (error) { failure = error }
     try { await server?.close() } catch (error) { failure ??= error }
-    try { await app?.dispose() } catch (error) { failure ??= error }
+    try { if (!suppliedApp) await app?.dispose() } catch (error) { failure ??= error }
     if (failure) throw failure
   }
 }

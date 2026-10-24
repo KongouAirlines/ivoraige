@@ -173,17 +173,38 @@ export class Records {
       return next
     })
   }
-  locateUnit(unitId) {
-    const docId = typeof unitId === 'string' ? unitId.split('.')[0] : ''
-    const record = this.record(docId)
-    const unit = record.units.find(item => item.id === unitId) ?? missing('unitId', unitId)
+  locateOwned(collections, key, value, expectedDocId) {
+    this.requireReady()
+    let found
+    for (const [docId, record] of this.table.entries()) {
+      for (const collection of collections) {
+        const item = (record[collection] ?? []).find(row => row.id === value)
+        if (!item) continue
+        if (found) throw new KernelError('CONFLICT', 'Resource identity is ambiguous', { [key]: value })
+        found = { docId, record, item }
+      }
+    }
+    if (!found || (expectedDocId !== undefined && found.docId !== expectedDocId)) missing(key, value)
+    return found
+  }
+  locateUnit(unitId, { docId: expectedDocId } = {}) {
+    const { docId, record, item: unit } = this.locateOwned(['units'], 'unitId', unitId, expectedDocId)
     return { docId, record, unit }
   }
   locateRevision(revisionId) {
-    const docId = typeof revisionId === 'string' ? revisionId.split('.')[0] : ''
-    const record = this.record(docId)
-    const revision = record.revisions.find(item => item.id === revisionId) ?? missing('revisionId', revisionId)
+    const { docId, record, item: revision } = this.locateOwned(['revisions'], 'revisionId', revisionId)
     return { docId, record, revision }
+  }
+  locateTask(taskId) {
+    this.requireReady()
+    const imported = this.importTable.get(taskId)
+    if (imported) return { docId: imported.docId, task: imported, importTask: true }
+    const { docId, record, item: task } = this.locateOwned(['tasks', 'operationTasks'], 'taskId', taskId)
+    return { docId, record, task, importTask: false }
+  }
+  locateArtifact(artifactId, { docId: expectedDocId } = {}) {
+    const { docId, record, item: artifact } = this.locateOwned(['artifacts'], 'artifactId', artifactId, expectedDocId)
+    return { docId, record, artifact }
   }
   constraintsFor(record, unit, targetLang) {
     return record.constraints[keyFor(unit.id, targetLang)] ?? defaultConstraints(record.units, unit.order)
@@ -317,9 +338,9 @@ export class Records {
     const record = this.record(docId)
     return record.units.map(unit => this.viewUnit(record, unit, targetLang))
   }
-  getUnit(unitId, { targetLang } = {}) {
+  getUnit(unitId, { targetLang, docId } = {}) {
     required(language(targetLang), 'targetLang must be a real BCP-47 tag')
-    const { record, unit } = this.locateUnit(unitId)
+    const { record, unit } = this.locateUnit(unitId, { docId })
     const key = keyFor(unitId, targetLang)
     const accepted = record.revisions.find(r => r.id === record.accepted[key])
     const draft = record.revisions.find(r => r.id === record.latest[key] && r.id !== record.accepted[key])
@@ -387,12 +408,7 @@ export class Records {
     return clone(created)
   }
   getTask(taskId) {
-    if (typeof taskId === 'string' && taskId.startsWith('import.')) {
-      return clone(this.importTable.get(taskId) ?? missing('taskId', taskId))
-    }
-    const docId = typeof taskId === 'string' ? taskId.split('.')[0] : ''
-    const record = this.record(docId)
-    return clone([...(record.tasks ?? []), ...(record.operationTasks ?? [])].find(task => task.id === taskId) ?? missing('taskId', taskId))
+    return clone(this.locateTask(taskId).task)
   }
   listTasks({ docId } = {}) {
     this.requireReady()
@@ -469,7 +485,8 @@ export class Records {
     return true
   }
   async updateTask(taskId, transform) {
-    if (taskId.startsWith('import.')) {
+    await this.ready
+    if (this.locateTask(taskId).importTask) {
       this.getTask(taskId)
       const updated = await this.importTable.update(taskId, current => {
         if (![1, 3].includes(current.schemaVersion ?? 1)) throw new KernelError('PRECONDITION_FAILED',
@@ -486,7 +503,7 @@ export class Records {
     }
     await this.ready
     required(typeof transform === 'function', 'Task transform must be a function')
-    const docId = typeof taskId === 'string' ? taskId.split('.')[0] : ''
+    const { docId } = this.locateTask(taskId)
     let updated
     await this.update(docId, current => {
       const operation = (current.operationTasks ?? []).find(task => task.id === taskId)
@@ -551,7 +568,7 @@ export class Records {
         ['input', 'output'].every(key => result.tokens[key] === null ||
           (Number.isSafeInteger(result.tokens[key]) && result.tokens[key] >= 0)), 'Invalid token usage')
     }
-    const docId = typeof taskId === 'string' ? taskId.split('.')[0] : ''
+    const { docId } = this.locateTask(taskId)
     let committed, revision
     const next = await this.update(docId, current => {
       const tasks = current.tasks ?? []
@@ -576,8 +593,9 @@ export class Records {
       let textValue, origin = 'machine', modelId, promptVersion, reused = false, sameUnit = false
       if (result) ({ text: textValue, modelId, promptVersion } = result)
       else {
-        const sourceDocId = reusedRevisionId.split('.')[0]
-        const sourceRecord = sourceDocId === docId ? current : this.table.get(sourceDocId)
+        const source = [...this.table.entries()].find(([, row]) => row.revisions.some(item => item.id === reusedRevisionId))
+        const sourceDocId = source?.[0]
+        const sourceRecord = sourceDocId === docId ? current : source?.[1]
         const candidate = sourceRecord?.revisions.find(item => item.id === reusedRevisionId)
         if (!candidate || sourceRecord.accepted[keyFor(candidate.unitId, candidate.targetLang)] !== candidate.id ||
           !sameBasis(candidate.basis, basis) || !this.applicable(sourceRecord,

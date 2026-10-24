@@ -35,6 +35,7 @@ async function fixture(t) {
   return { app, document, item: exported.artifacts[0] }
 }
 
+// The caller-owned facade remains a compatibility path; ResourceAccess has its own acquisition gates.
 async function serverWithDisconnect(t, app) {
   const original = http.createServer
   const disconnected = deferred()
@@ -44,7 +45,7 @@ async function serverWithDisconnect(t, app) {
   })
   syncBuiltinESMExports()
   try {
-    const server = await serve(app, { port: 0, mcp: false })
+    const server = await serve({ ...app, resources: undefined }, { port: 0, mcp: false })
     t.after(async () => server.close())
     return { server, disconnected }
   } finally {
@@ -60,7 +61,7 @@ function request(url) {
   return client
 }
 
-test('HTTP disconnect during artifact acquisition or stat releases the late read lease once', async t => {
+test('caller-owned facade HTTP disconnect during artifact acquisition or stat releases the late read lease once', async t => {
   for (const stage of ['artifact', 'stat']) {
     await t.test(stage, async t => {
       const { app, document, item } = await fixture(t)
@@ -108,7 +109,7 @@ test('HTTP disconnect during artifact acquisition or stat releases the late read
   }
 })
 
-test('HTTP disconnect while stream opens releases lease; stat/open failure and normal response also release once', async t => {
+test('caller-owned facade HTTP disconnect while stream opens releases lease; stat/open failure and normal response also release once', async t => {
   for (const stage of ['disconnect', 'stat-failure', 'open-failure', 'normal']) {
     await t.test(stage, async t => {
       const { app, document, item } = await fixture(t)
@@ -132,7 +133,7 @@ test('HTTP disconnect while stream opens releases lease; stat/open failure and n
         syncBuiltinESMExports()
       }
       try {
-        const server = await serve(app, { port: 0, mcp: false })
+        const server = await serve({ ...app, resources: undefined }, { port: 0, mcp: false })
         t.after(async () => server.close())
         if (stage === 'normal' || stage === 'stat-failure') {
           const response = await fetch(`${server.url}/api/artifacts/${item.id}/download`)

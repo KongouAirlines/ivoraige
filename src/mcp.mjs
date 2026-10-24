@@ -4,6 +4,7 @@ import { serveStdio, StdioServerTransport } from '@modelcontextprotocol/server/s
 import { KernelError } from './errors.mjs'
 import { errorEnvelope } from './protocol.mjs'
 import packageInfo from '../package.json' with { type: 'json' }
+import { resourcePolicy } from './resource-policy.mjs'
 
 function result(body, isError = false) {
   return { content: [{ type: 'text', text: JSON.stringify(body) }], structuredContent: body, ...(isError ? { isError } : {}) }
@@ -44,26 +45,53 @@ export function createMcpServer(app, { signal, listChanged = true, watchRegistry
       }))
   }
   refresh()
-  if (watchRegistry) server.server.onclose = registry.subscribe(refresh)
+  // Keep SDK discovery/transport ownership, but dispatch operation arguments
+  // through the kernel's single validator. SDK's default tool validator would
+  // otherwise replace INVALID_ARGUMENT with an unstructured SDK error string.
+  server.server.setRequestHandler('tools/call', async (request, context) => {
+    try {
+      const definition = registry.tools.get(request.params.name)
+      if (!definition) throw new KernelError('NOT_FOUND', 'MCP tool not found')
+      const requestSignal = context.mcpReq?.signal
+      const invocationSignal = signal && requestSignal ? AbortSignal.any([signal, requestSignal]) : signal ?? requestSignal
+      return result(await definition.invoke(request.params.arguments ?? {}, { signal: invocationSignal }))
+    } catch (error) { return result(errorEnvelope(error).body, true) }
+  })
+  const unsubscribe = watchRegistry ? registry.subscribe(refresh) : () => {}
+  let release
+  server.server.onclose = () => { unsubscribe(); release?.() }
+  const entry = app.ctx?.get('ivoraige.mcpEntry')
+  if (app.ctx && !entry) { unsubscribe(); throw new KernelError('COMPONENT_MISSING', 'MCP entry is not enabled') }
+  release = entry?.own(() => server.close())
   return server
 }
 
 export function createMcpHttp(app) {
   if (!app.mcp) throw new KernelError('COMPONENT_MISSING', 'MCP entry is not enabled')
   const handler = createMcpHandler(({ requestInfo, era }) => createMcpServer(app,
-    { signal: requestInfo?.signal, listChanged: era !== 'legacy', watchRegistry: false }), { maxRequestBodySize: 10 * 1024 * 1024 })
+    { signal: requestInfo?.signal, listChanged: era !== 'legacy', watchRegistry: false }), { maxRequestBodySize: resourcePolicy.requestJsonBytes })
   // HTTP server instances last one request; discovery subscriptions outlive them.
   const unsubscribe = app.mcp.subscribe(kind => {
     if (kind === 'tools') handler.notify.toolsChanged()
     else if (kind === 'resources') handler.notify.resourcesChanged()
   })
-  return { handle: toNodeHandler(handler, { maxRequestBodySize: 10 * 1024 * 1024 }),
-    close: async () => {
+  let closePromise, release
+  const endpoint = { handle: toNodeHandler(handler, { maxRequestBodySize: resourcePolicy.requestJsonBytes }),
+    close: () => {
+      if (closePromise) return closePromise
+      closePromise = (async () => {
       let failure
       try { unsubscribe() } catch (error) { failure = error }
       try { await handler.close() } catch (error) { failure ??= error }
+      release?.()
       if (failure) throw failure
+      })()
+      return closePromise
     } }
+  const entry = app.ctx?.get('ivoraige.mcpEntry')
+  if (app.ctx && !entry) { unsubscribe(); void handler.close(); throw new KernelError('COMPONENT_MISSING', 'MCP entry is not enabled') }
+  release = entry?.own(endpoint.close)
+  return endpoint
 }
 
 export async function runMcpStdio(app, { stdin = process.stdin, stdout = process.stdout } = {}) {

@@ -4,6 +4,11 @@ import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { createHash } from 'node:crypto'
+import { Context, Storage, StorageSqlite, StorageDomain } from '../dist/dsh.mjs'
+import { Records } from '../src/records.mjs'
+import { OperationCatalog } from '../src/operation-catalog.mjs'
+import { Operations } from '../src/operations.mjs'
+import { CoreOperations } from '../src/core-operations.mjs'
 import { createApp } from '../src/app.mjs'
 import { serve } from '../src/http.mjs'
 import { runCli } from '../src/cli.mjs'
@@ -77,6 +82,58 @@ test('managed bytes require explicit deletion, pending cleanup is durable and re
   await assert.rejects(stat(item.path), { code: 'ENOENT' })
   assert.deepEqual(f.app.records.listArtifactCleanup(doc.id), [])
   await f.app.records.deleteSnapshot(doc.id, item.snapshotId)
+})
+
+test('missing managed-file services reject deletion before touching the record', async t => {
+  const f = await fixture(t)
+  const doc = await document(f.app)
+  const managed = await artifact(f.app, doc)
+  const external = await artifact(f.app, doc, join(f.dir, 'external.txt'))
+  const originalGet = f.app.ctx.get.bind(f.app.ctx)
+  f.app.ctx.get = name => name === 'ivoraige.resources' ? undefined : originalGet(name)
+  try {
+    await assert.rejects(f.app.operations.invoke('deleteArtifact', { docId: doc.id,
+      artifactId: managed.id, fileAction: 'delete-owned' }), { code: 'COMPONENT_MISSING' })
+    assert.ok(f.app.records.listArtifacts(doc.id).some(item => item.id === managed.id))
+    assert.deepEqual(f.app.records.listArtifactCleanup(doc.id), [])
+    assert.equal((await stat(managed.path)).isFile(), true)
+    const removed = await f.app.operations.invoke('deleteArtifact', { docId: doc.id, artifactId: external.id })
+    assert.equal(removed.recordDeleted, true)
+    assert.equal((await stat(external.path)).isFile(), true)
+  } finally { f.app.ctx.get = originalGet }
+})
+
+test('minimal Records composition rejects owned deletion before writes and permits record-only deletion', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'ivoraige-minimal-records-'))
+  const ctx = new Context()
+  t.after(async () => { await ctx.fiber.dispose(); await rm(dir, { recursive: true, force: true }) })
+  await ctx.plugin(Storage)
+  await ctx.plugin(StorageSqlite, { path: join(dir, 'store.sqlite') })
+  await ctx.plugin(StorageDomain, { backend: 'sqlite' })
+  await ctx.plugin(Records)
+  await ctx.get('ivoraige.records').ready
+  await ctx.plugin(OperationCatalog)
+  await ctx.plugin(Operations)
+  await ctx.plugin(CoreOperations)
+  const records = ctx.get('ivoraige.records'), ops = ctx.get('ivoraige.operations')
+  const doc = (await records.persistParsed({}, { language: 'en', origin: 'cli' }, {
+    format: 'txt', title: 'Minimal', availableOutputs: [], sourceBinding: { adapterId: 'txt' },
+    sourceAdapterId: 'txt', sourceAdapterVersion: 'unversioned', bindingSchemaVersion: 1,
+    units: [{ order: 0, kind: 'body', sourceText: 'minimal', locator: { paragraph: 1 }, translatable: true }],
+    chapters: [], resources: [],
+  })).document
+  const snapshot = await records.createSnapshot(doc.id, { contentMode: 'source' })
+  const path = join(dir, 'managed.txt')
+  await writeFile(path, 'managed bytes')
+  const item = await records.addArtifact(doc.id, { snapshotId: snapshot.id, format: 'md', path,
+    managedFile: true, fileDigest: createHash('sha256').update('managed bytes').digest('hex') })
+  await assert.rejects(ops.invoke('deleteArtifact', { docId: doc.id, artifactId: item.id,
+    fileAction: 'delete-owned' }), { code: 'COMPONENT_MISSING' })
+  assert.ok(records.listArtifacts(doc.id).some(value => value.id === item.id))
+  assert.deepEqual(records.listArtifactCleanup(doc.id), [])
+  assert.equal((await stat(path)).isFile(), true)
+  assert.equal((await ops.invoke('deleteArtifact', { docId: doc.id, artifactId: item.id })).recordDeleted, true)
+  assert.equal((await stat(path)).isFile(), true)
 })
 
 test('managed directory identity and shared references follow aliases without admitting outside paths', async t => {

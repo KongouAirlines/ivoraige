@@ -14,6 +14,7 @@ function fixture(hash = '#/settings/pdf', { localFailsOnce = false, catalogFails
   const calls = []
   let credentialConfigured = credentialInitiallyConfigured, installed = false, restartRequired = false
   let localRequests = 0, catalogRequests = 0
+  window.structuredClone = structuredClone
   window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} })
   window.HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
   window.HTMLDialogElement.prototype.close = function () { this.removeAttribute('open') }
