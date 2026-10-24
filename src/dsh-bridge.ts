@@ -2,6 +2,8 @@
 export { Context, Service } from '@deepseek-ai/cordis'
 export { default as LlmRuntime, createUserMessage, BlockAssembler } from '@deepseek-ai/dsh-llm'
 export * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
+export { resolveProfiles as resolvePiAiProfiles } from '@deepseek-ai/dsh-llm-pi-ai/src/config.ts'
+export { PiAiCatalogError } from '@deepseek-ai/dsh-llm-pi-ai/src/catalog.ts'
 export { default as LocalCredentialProvider } from '@deepseek-ai/dsh-credentials-local'
 export { default as JobsLocal } from '@deepseek-ai/dsh-jobs-local'
 export { default as ConfigEditor } from '@deepseek-ai/dsh-config-editor'

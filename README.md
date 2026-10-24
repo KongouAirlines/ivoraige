@@ -31,7 +31,7 @@ The goal is a shared foundation for people and AI: choose the capabilities you n
 - **Select an implementation when needed.** `--format` names the document or output format; `--adapter ID` selects a particular installed implementation when more than one supports it. A queued task keeps that implementation and version, and asks you to retry if it changes. Only adapters supporting the supplied input are considered; a text-only adapter does not replace the optional component for PDF files or binary uploads.
 - **Keep export history clear.** If another export blocks admission, the attempted export leaves no new snapshot; existing snapshots remain available.
 - **Choose how to work.** Use the browser workbench or CLI, or connect an AI client to the shared kernel through [MCP](docs/plan/0.1.0/mcp-guide.md).
-- **Correct settings errors before saving.** Invalid model compatibility and reasoning values are rejected as input errors; malformed CLI `settings --set` JSON exits with code 2.
+- **Correct settings errors before saving.** Invalid model compatibility values, including switches unsupported by every model API on a route, and invalid reasoning values are rejected as input errors; malformed CLI `settings --set` JSON exits with code 2.
 
 ## Get started
 
