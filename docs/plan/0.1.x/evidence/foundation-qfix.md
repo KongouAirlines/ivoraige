@@ -81,6 +81,40 @@ the second-write persisted route and partial-save details.
   This is focused evidence; stack-level full tests and PR CI are tracked
   separately.
 
+## #46 protocol-specific compat review correction
+
+The pinned DSH schema accepts a compat switch that is offered by another API,
+but its catalog resolver rejects it for the route's effective API. For example,
+`supportsStrictTools: true` is offered by `anthropic-messages`, not
+`openai-completions`. Before this correction that deterministic resolver error
+escaped as `INTERNAL` despite no settings write. The model settings boundary
+now runs the pinned schema and strict catalog resolver before the first write,
+mapping only typed `PiAiCatalogError` to `INVALID_ARGUMENT`. Its build bridge
+resolves the vendor junction to one source path so the exported error class and
+resolver share identity. Other resolver errors are not classified by message.
+
+The regression covers explicit OpenAI API, inherited route API, and API inferred
+from the installed DeepSeek catalog. Each rejected edit leaves routes and both
+revisions unchanged. Valid `supportsStrictMode` on OpenAI and
+`supportsStrictTools` on Anthropic save normally. HTTP, remote CLI, and MCP
+exercise those negative and valid cases, including HTTP 400 and CLI exit 2.
+An OpenRouter catalog route that contains both OpenAI completions and Anthropic
+models also accepts `supportsStrictTools` while selecting a completions model,
+because the pinned resolver permits a route compat switch when at least one
+model on that route can consume it.
+Existing native CAS, second-write partial-save, DSH validation, and ordinary
+first-write `EIO` guards remain in the focused suite.
+
+- `npm run build`: passed using pinned DSH commit
+  `639ed015397290b3745d163aafe02ffee4aa3f84`; the canonical-path bridge
+  bundled 1003 source inputs after removing duplicate module identities.
+- `node --test test/model-settings.test.mjs`: 15/15 passed, including the
+  mixed-API route and earlier partial-save/CAS regressions.
+- `node --test --test-name-pattern='settings errors map|native DSH settings CAS races|API-specific compat reaches' test/mcp.test.mjs`:
+  3/3 passed. HTTP, remote CLI and MCP ran over local loopback with a
+  worktree-local temporary directory. No paid model call or user library was
+  involved.
+
 ## Q03 review correction — nullable and withheld compat fields
 
 Review reproduced two synthetically configured inputs, `compat: { supportsStore: null }` and `compat: { openRouterRouting: {} }`, with an otherwise valid `openai-completions` route. At `91c9aa3`, each raised a plain DSH resolver `Error` and mapped to `INTERNAL`; neither changed routes or revisions. The pinned DSH schemastery config accepts nullable member values and undeclared keys before its resolver rejects them. Its compat gate offers `supportsStore` and withholds `openRouterRouting`.
