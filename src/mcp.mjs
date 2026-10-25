@@ -5,6 +5,7 @@ import { KernelError } from './errors.mjs'
 import { errorEnvelope } from './protocol.mjs'
 import packageInfo from '../package.json' with { type: 'json' }
 import { resourcePolicy } from './resource-policy.mjs'
+import { AsyncLocalStorage } from 'node:async_hooks'
 
 function result(body, isError = false) {
   return { content: [{ type: 'text', text: JSON.stringify(body) }], structuredContent: body, ...(isError ? { isError } : {}) }
@@ -68,19 +69,38 @@ export function createMcpServer(app, { signal, listChanged = true, watchRegistry
 
 export function createMcpHttp(app) {
   if (!app.mcp) throw new KernelError('COMPONENT_MISSING', 'MCP entry is not enabled')
+  const requestLifetime = new AsyncLocalStorage()
+  const requests = new Set()
   const handler = createMcpHandler(({ requestInfo, era }) => createMcpServer(app,
-    { signal: requestInfo?.signal, listChanged: era !== 'legacy', watchRegistry: false }), { maxRequestBodySize: resourcePolicy.requestJsonBytes })
+    { signal: requestLifetime.getStore() ?? requestInfo?.signal,
+      listChanged: era !== 'legacy', watchRegistry: false }), { maxRequestBodySize: resourcePolicy.requestJsonBytes })
   // HTTP server instances last one request; discovery subscriptions outlive them.
   const unsubscribe = app.mcp.subscribe(kind => {
     if (kind === 'tools') handler.notify.toolsChanged()
     else if (kind === 'resources') handler.notify.resourcesChanged()
   })
+  const handleNode = toNodeHandler(handler, { maxRequestBodySize: resourcePolicy.requestJsonBytes })
   let closePromise, release
-  const endpoint = { handle: toNodeHandler(handler, { maxRequestBodySize: resourcePolicy.requestJsonBytes }),
+  const endpoint = { handle: async (req, res, parsedBody) => {
+      // Keep the raw Node lifetime independent of Request.clone abort forwarding.
+      // The legacy SDK leg clones Requests, whose controller can be collected.
+      const controller = new AbortController()
+      const abort = () => controller.abort()
+      requests.add(controller)
+      req.once('aborted', abort)
+      res.once('close', abort)
+      if (req.aborted || res.destroyed || closePromise) abort()
+      try { return await requestLifetime.run(controller.signal, () => handleNode(req, res, parsedBody)) }
+      finally {
+        req.off('aborted', abort); res.off('close', abort)
+        requests.delete(controller)
+      }
+    },
     close: () => {
       if (closePromise) return closePromise
       closePromise = (async () => {
       let failure
+      for (const controller of requests) controller.abort()
       try { unsubscribe() } catch (error) { failure = error }
       try { await handler.close() } catch (error) { failure ??= error }
       release?.()

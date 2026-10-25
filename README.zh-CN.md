@@ -115,3 +115,7 @@ HTTP 和 MCP 有相同语义；参数、恢复步骤及备份边界见[开发指
 ### 组合宿主中的任务读取
 
 Operations 可以先于 Records/Tasks 挂载。所需服务完成挂载后，即时任务查询及等待会使用请求开始时的 Records，并在该次等待内保持同一存储实例。缺少所需服务仍返回 COMPONENT_MISSING，默认 createApp 挂载顺序继续支持。
+
+### MCP 请求取消
+
+MCP HTTP 任务轮询断连会释放该请求的订阅，不取消持久任务。MCP HTTP 边界独立持有原生 Node 请求生命周期，不依赖 SDK Request.clone 的信号转发；并行轮询互相隔离。正常请求体读完不代表响应断连。独立 createMcpHttp 处理器遵循同一归属规则，入口关闭会中止未完成的请求生命周期。

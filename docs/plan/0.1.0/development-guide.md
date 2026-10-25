@@ -111,3 +111,7 @@ Shared artifact references use the complete canonical target before deriving par
 ### Task reads after late Records mounting
 
 The Operations facade requires only the operation catalog at construction. It does not cache optional Records/Tasks services. waitTask resolves Records when invoked and keeps that instance for the initial state, post-subscription race check and terminal reread; subscription still uses the installed event/task service. Core operation requirements remain unchanged: Records-only hosts can list tasks, while getTask requires Records and Tasks. Hosts await each newly mounted service readiness before invoking its operations. This covers initial late mounting, not an added promise of arbitrary store replacement during an in-flight wait.
+
+### MCP raw HTTP request lifetime
+
+createMcpHttp scopes a raw Node request AbortController through AsyncLocalStorage into its shared SDK server factory. It listens to IncomingMessage aborted and ServerResponse close, checks already-aborted/destroyed state, removes listeners after handling, and aborts its owned lifetimes on endpoint shutdown. It deliberately does not treat ordinary IncomingMessage close after a complete POST as cancellation. This bypasses a supported Node26.12.1 Request.clone weak-controller failure in the SDK legacy leg without changing the runtime pin, SDK parsing/discovery or operation registry. The existing parsed-body adapter argument is preserved. Stdio cancellation still uses the SDK request context.

@@ -104,3 +104,7 @@ Physical managed-file deletion counts references through file symlinks by their 
 ### Task reads in composed hosts
 
 Operations may mount before Records and Tasks. After those services finish mounting, immediate task reads and waits use the Records service present when the request begins; each wait keeps that store through its final read. Missing required services still report COMPONENT_MISSING, and default createApp mounting remains supported.
+
+### MCP request cancellation
+
+Disconnecting an MCP HTTP task poll releases that request subscription and leaves its persistent task running. The MCP HTTP boundary owns each raw Node request lifetime, independent of SDK Request.clone signal forwarding; simultaneous polls remain isolated. Finishing a normal request body does not mean the response disconnected. The same ownership applies to standalone createMcpHttp handlers, and endpoint shutdown aborts outstanding request lifetimes.
