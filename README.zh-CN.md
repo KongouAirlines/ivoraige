@@ -86,3 +86,7 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 
 导出任务受理冲突时，本次尝试新建的快照会清理；已有快照仍可使用。
 模型兼容性和推理强度的无效配置会在保存前报参数错误；CLI settings --set 的 JSON 格式错误返回退出码 2。
+
+### 适配器可用性与可读输出
+
+缺件来源仅根据声明格式和兼容输入类型分类，不执行 matcher。JSON/Markdown 可读导出要求来源显式提供 `readableText` 投影；TXT 和 Markdown 声明原样投影，不请求来源视图的二进制输出仍独立可用。输出枚举与选择共用可用性规则，并可传入内容模式：disabled/failed 输出不可用，unavailable 输出仅可通过 `canRunUnavailable` 明确允许特定模式。显式输出版本必须是非空字符串，省略版本仍兼容为 `unversioned`。

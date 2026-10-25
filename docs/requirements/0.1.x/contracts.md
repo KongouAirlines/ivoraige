@@ -215,3 +215,7 @@ P03 将 `format` 与 `adapterId` 分开。来源描述符声明 `formats[]`、`i
 Importer 将统一选择结果交给 Tasks，固定来源描述符、版本、调度模式、适配后输入和执行函数；执行时只核验注册身份、版本及可用性，不再重新评分。传入 Buffer 在准入时复制，调用方后续改写不影响排队上传；路径只固定 locator，实际文件由来源适配器的导入流程管理。来源替换、版本变化或缺件明确失败，不切换到后来新增的更高分来源。
 
 TXT/Markdown 的严格 UTF-8 语义由各自来源适配器校验，不能据此限制其他二进制来源。原缺 PDF 组件的排队 wire 响应只作为 Importer 的单一版本兼容策略保留，不参与通用输入适配或评分；显式 adapter 仍保持明确的缺件/输入不兼容错误。
+
+#### P03 可用性与投影能力补充
+
+不可用来源不执行 matcher；缺件分类仅依据声明格式及兼容输入类型，没有格式提示时保守返回兼容来源的缺件信息。可用来源仍统一评分并固定选中输入，不受不可用来源干扰。输出声明需要 readable-text 时，来源必须显式实现 readableText；缺少实现返回 PRECONDITION_FAILED，返回值非字符串是 INTERNAL，不能退回内部 text。TXT/Markdown 显式采用原样投影，PDF 保留既有解码投影，零视图二进制输出保持独立。输出 availableFor/listAdapters/listFormats/get 使用同一可用性规则及可选 contentMode；disabled/failed 不允许执行，unavailable 仅能经 canRunUnavailable 明确允许某模式。输出注册显式 version 必须是非空字符串，省略保持 unversioned 兼容。
