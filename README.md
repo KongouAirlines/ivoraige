@@ -90,3 +90,7 @@ Built with Cordis and DSH, with optional BabelDOC support. See [third-party ackn
 ### Adapter availability and readable outputs
 
 Missing source components are classified from declared formats and compatible input kinds without executing their matchers. Readable JSON/Markdown exports require an explicit source `readableText` projection; TXT and Markdown declare identity projection, while binary outputs with no requested views remain independent of source projection. Output enumeration and selection share one availability rule and accept an optional content mode: disabled/failed outputs stay unavailable; an unavailable output may explicitly allow a mode through `canRunUnavailable`. Explicit output versions must be nonempty strings; omitted versions retain the `unversioned` compatibility value.
+
+### Shared artifact file identity
+
+Physical managed-file deletion counts references through file symlinks by their complete canonical target, including aliases in another directory or with a different filename. An unresolved dangling file symlink prevents physical deletion conservatively. Record-only deletion still retains bytes and does not require filesystem identity. Directory aliases and actual filesystem case sensitivity remain supported; external output files and symlink paths themselves are not authorized for managed deletion. The existing boundary against concurrent external replacement is unchanged.

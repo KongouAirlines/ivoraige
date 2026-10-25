@@ -120,6 +120,63 @@ test('managed directory identity and shared references follow aliases without ad
   assert.equal((await readFile(outside)).equals(bytes), true)
 })
 
+test('a file symlink in another directory shares its canonical target identity', async t => {
+  const f = await fixture(t)
+  const owner = await document(f.app, 'file-symlink-owner')
+  const item = await artifact(f.app, owner)
+  const aliasDir = join(f.dir, 'separate-alias-dir')
+  await mkdir(aliasDir)
+  const aliasPath = join(aliasDir, 'different-name.md')
+  try { await symlink(item.path, aliasPath, 'file') }
+  catch (error) {
+    if (process.platform === 'win32' && error.code === 'EPERM') {
+      t.skip('Windows sandbox denies file symlink creation (EPERM)')
+      return
+    }
+    throw error
+  }
+  assert.equal(managedPathKey(aliasPath), managedPathKey(item.path))
+  const sameDocument = await f.app.records.addArtifact(owner.id, { snapshotId: item.snapshotId,
+    format: 'md', path: aliasPath })
+  await assert.rejects(f.app.operations.invoke('deleteArtifact', { docId: owner.id,
+    artifactId: item.id, fileAction: 'delete-owned' }), { code: 'CONFLICT' })
+  assert.equal((await f.app.operations.invoke('deleteArtifact', { docId: owner.id,
+    artifactId: sameDocument.id })).fileDeleted, false)
+  const other = await document(f.app, 'file-symlink-reference')
+  const snapshot = await f.app.records.createSnapshot(other.id, { contentMode: 'source' })
+  const shared = await f.app.records.addArtifact(other.id, { snapshotId: snapshot.id,
+    format: 'md', path: aliasPath })
+  await assert.rejects(f.app.operations.invoke('deleteArtifact', { docId: owner.id,
+    artifactId: item.id, fileAction: 'delete-owned' }), { code: 'CONFLICT' })
+  assert.match(await readFile(aliasPath, 'utf8'), /Original text\./)
+  assert.equal((await f.app.operations.invoke('deleteArtifact', { docId: other.id,
+    artifactId: shared.id })).fileDeleted, false)
+  assert.match(await readFile(aliasPath, 'utf8'), /Original text\./)
+  assert.equal((await f.app.operations.invoke('deleteArtifact', { docId: owner.id,
+    artifactId: item.id, fileAction: 'delete-owned' })).fileDeleted, true)
+  assert.throws(() => managedPathKey(aliasPath), { code: 'PRECONDITION_FAILED' })
+})
+
+test('ordinary file identity preserves case-sensitive distinctions and insensitive aliases', async t => {
+  const f = await fixture(t)
+  const upper = join(f.dir, 'CaseSensitive')
+  const lower = join(f.dir, 'casesensitive')
+  await mkdir(upper)
+  try { await mkdir(lower) } catch (error) { if (error.code !== 'EEXIST') throw error }
+  const target = join(upper, 'Sample.md')
+  await writeFile(target, 'synthetic')
+  assert.equal(managedPathKey(target), managedPathKey(join(upper, '.', 'Sample.md')))
+  const alias = target.toUpperCase()
+  const aliasInfo = await stat(alias).catch(error => {
+    if (error.code !== 'ENOENT') throw error
+  })
+  const targetInfo = await stat(target)
+  if (aliasInfo && aliasInfo.ino === targetInfo.ino && aliasInfo.dev === targetInfo.dev)
+    assert.equal(managedPathKey(alias), managedPathKey(target))
+  if ((await stat(upper)).ino !== (await stat(lower)).ino)
+    assert.notEqual(managedPathKey(join(upper, 'Sample.md')), managedPathKey(join(lower, 'Sample.md')))
+})
+
 test('missing managed exporter rejects physical deletion before a tombstone but permits record deletion', async t => {
   const f = await fixture(t)
   const doc = await document(f.app)
@@ -151,6 +208,19 @@ test('record-only deletion needs no filesystem identity lookup', async t => {
     assert.equal(removed.retainedPath, item.path)
   } finally { f.app.records.pathKey = original }
   assert.match(await readFile(item.path, 'utf8'), /Original text\./)
+})
+
+test('record-only deletion retains metadata semantics when the file is missing', async t => {
+  const f = await fixture(t)
+  const doc = await document(f.app, 'missing-retain')
+  const out = join(f.dir, 'missing-external.md')
+  const item = await artifact(f.app, doc, out)
+  await rm(out)
+  const removed = await f.app.operations.invoke('deleteArtifact', { docId: doc.id, artifactId: item.id })
+  assert.equal(removed.recordDeleted, true)
+  assert.equal(removed.fileDeleted, false)
+  assert.equal(removed.retainedPath, out)
+  assert.deepEqual(f.app.records.listArtifacts(doc.id), [])
 })
 
 test('artifact read lease and shared path block owned-file deletion; external and legacy files stay protected', async t => {
