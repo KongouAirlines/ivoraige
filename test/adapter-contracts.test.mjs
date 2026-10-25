@@ -22,6 +22,7 @@ function source(id, { version = '1', importMode, validateTranslation } = {}) {
       version: '1', location: 'private://may-move' }],
     sourceBinding: { adapterId: id, address: 'private://may-move' } })
   return { id, version, bindingSchemaVersion: 1, formats: ['fixture'],
+    readableText: (_binding, _unit, text) => text,
     inputKinds: ['text', 'bytes'], cancellable: true, importMode,
     match: file => file.format === 'fixture' ? 1 : 0, parse, validateTranslation }
 }

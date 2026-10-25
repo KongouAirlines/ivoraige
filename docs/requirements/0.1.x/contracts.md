@@ -216,6 +216,10 @@ Importer 将统一选择结果交给 Tasks，固定来源描述符、版本、�
 
 TXT/Markdown 的严格 UTF-8 语义由各自来源适配器校验，不能据此限制其他二进制来源。原缺 PDF 组件的排队 wire 响应只作为 Importer 的单一版本兼容策略保留，不参与通用输入适配或评分；显式 adapter 仍保持明确的缺件/输入不兼容错误。
 
+#### P03 可用性与投影能力补充
+
+不可用来源不执行 matcher；缺件分类仅依据声明格式及兼容输入类型，没有格式提示时保守返回兼容来源的缺件信息。可用来源仍统一评分并固定选中输入，不受不可用来源干扰。输出声明需要 readable-text 时，来源必须显式实现 readableText；缺少实现返回 PRECONDITION_FAILED，返回值非字符串是 INTERNAL，不能退回内部 text。TXT/Markdown 显式采用原样投影，PDF 保留既有解码投影，零视图二进制输出保持独立。输出 availableFor/listAdapters/listFormats/get 使用同一可用性规则及可选 contentMode；disabled/failed 不允许执行，unavailable 仅能经 canRunUnavailable 明确允许某模式。输出注册显式 version 必须是非空字符串，省略保持 unversioned 兼容。
+
 ### Q02 active resource-retention contract
 
 Q02 adds explicit `failed -> abandoned`, record-only artifact deletion, opt-in managed-file deletion, durable cleanup retry, and snapshot/artifact read leases. The current 0.1.x implementation guards shared paths and active/failed task references. New SQLite stores use DSH `ivoraige_records` unit version 2. Existing unit-version-1 stores remain readable and permit ordinary writes; before the first Q02 semantic row write, the new binary synchronously stamps the DSH unit version 2. Only the affected document or import task becomes schema 3; existing v1/v2 records are not bulk rewritten. DSH's SQLite unit-version check makes older version-1 binaries refuse to open the store after activation, including if the Q02 row write fails after the stamp. Back up the complete store and files before upgrading; a full backup restore is required to roll back. See the v2.0 protocol Q02 section and the 0.1.0 development guide for operation names and recovery. This does not activate P04 registration/event lifecycle work.

@@ -102,9 +102,12 @@ export class Parse extends Service {
       throw new KernelError('PRECONDITION_FAILED', 'Source adapter version is incompatible with output projection',
         { adapterId: adapter.id })
     const needsReadable = views.includes('readable-text')
+    if (needsReadable && typeof adapter.readableText !== 'function')
+      throw new KernelError('PRECONDITION_FAILED', 'Source adapter does not provide readable-text projection',
+        { adapterId: adapter.id, requiredView: 'readable-text' })
     const units = frozen.units.map(item => {
       if (!needsReadable) return item
-      const readableText = adapter.readableText?.(binding, item.unit, item.text) ?? item.text
+      const readableText = adapter.readableText(binding, item.unit, item.text)
       if (typeof readableText !== 'string') throw new KernelError('INTERNAL', 'Source adapter returned invalid readable text')
       return { ...item, readableText }
     })
@@ -199,8 +202,9 @@ export class Parse extends Service {
     if (winners.length > 1) throw new KernelError('CONFLICT', 'Source adapter selection is ambiguous',
       { format: file.format ?? null, adapterIds: winners })
     if (!selected) {
-      const missing = unavailable.filter(({ adapter, views }) => bestView(adapter, views).score > 0)
-        .map(({ adapter }) => adapter.id)
+      // Availability classification uses only declarations already checked above.
+      // A missing component's matcher may itself require that component.
+      const missing = unavailable.map(({ adapter }) => adapter.id)
       if (missing.length) throw new KernelError('COMPONENT_MISSING', 'Source adapter is unavailable', { adapterIds: missing })
       throw new KernelError('INVALID_ARGUMENT', 'Unsupported source format', {
         reason: 'no-source',
