@@ -8,8 +8,6 @@ export class Operations extends Service {
   constructor(ctx, config = {}) {
     super(ctx, 'ivoraige.operations')
     this.catalog = ctx.get('ivoraige.operationCatalog')
-    this.records = ctx.get('ivoraige.records')
-    this.tasks = ctx.get('ivoraige.tasks')
     this.modelAdmission = Promise.resolve()
     this.dataDirectory = config.dataDirectory
   }
@@ -59,20 +57,24 @@ export class Operations extends Service {
     return resources.removeOwnedFile(path, fileDigest)
   }
   async waitTask(taskId, seconds, signal) {
-    const task = this.records.getTask(taskId)
+    // Records is optional at facade construction. Resolve it per request and
+    // keep this wait bound to the same store through its terminal reread.
+    const records = this.ctx.get('ivoraige.records')
+    if (!records) throw new KernelError('COMPONENT_MISSING', 'Task records are unavailable')
+    const task = records.getTask(taskId)
     if (signal?.aborted || !seconds || !['queued', 'running'].includes(task.state)) return task
     return new Promise(resolve => {
       let timer
       const done = () => {
         clearTimeout(timer); unsubscribe(); signal?.removeEventListener('abort', done)
-        resolve(this.records.getTask(taskId))
+        resolve(records.getTask(taskId))
       }
       const unsubscribe = this.subscribe(event => {
         if (event.data.taskId === taskId && ['task.succeeded', 'task.failed', 'task.paused', 'task.canceled', 'task.abandoned'].includes(event.type)) done()
       })
       timer = setTimeout(done, seconds * 1000)
       signal?.addEventListener('abort', done, { once: true })
-      if (signal?.aborted || !['queued', 'running'].includes(this.records.getTask(taskId).state)) done()
+      if (signal?.aborted || !['queued', 'running'].includes(records.getTask(taskId).state)) done()
     })
   }
   async invoke(name, input = {}, options = {}) {

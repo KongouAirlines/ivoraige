@@ -107,3 +107,7 @@ Source plugins that expose public text implement `readableText(binding, unit, te
 ### File-symlink reference protection
 
 Shared artifact references use the complete canonical target before deriving parent identity and filename. A same-document or cross-document reference through a file symlink blocks delete-owned on that target. Removing the alias record with default retain is allowed and does not unlink either file or alias; only after all records/leases permit deletion can the managed regular file be removed. A dangling symlink cannot establish a reliable identity and fails closed for physical deletion. Missing files still permit record-only deletion. This adds no authority to remove external files or symlinks and does not make check-plus-unlink atomic against a concurrent external writer.
+
+### Task reads after late Records mounting
+
+The Operations facade requires only the operation catalog at construction. It does not cache optional Records/Tasks services. waitTask resolves Records when invoked and keeps that instance for the initial state, post-subscription race check and terminal reread; subscription still uses the installed event/task service. Core operation requirements remain unchanged: Records-only hosts can list tasks, while getTask requires Records and Tasks. Hosts await each newly mounted service readiness before invoking its operations. This covers initial late mounting, not an added promise of arbitrary store replacement during an in-flight wait.

@@ -100,3 +100,7 @@ Missing source components are classified from declared formats and compatible in
 ### Shared artifact file identity
 
 Physical managed-file deletion counts references through file symlinks by their complete canonical target, including aliases in another directory or with a different filename. An unresolved dangling file symlink prevents physical deletion conservatively. Record-only deletion still retains bytes and does not require filesystem identity. Directory aliases and actual filesystem case sensitivity remain supported; external output files and symlink paths themselves are not authorized for managed deletion. The existing boundary against concurrent external replacement is unchanged.
+
+### Task reads in composed hosts
+
+Operations may mount before Records and Tasks. After those services finish mounting, immediate task reads and waits use the Records service present when the request begins; each wait keeps that store through its final read. Missing required services still report COMPONENT_MISSING, and default createApp mounting remains supported.
