@@ -105,6 +105,7 @@ export const markdownSource = {
   version: '0.1.0', bindingSchemaVersion: 1,
   formats: ['md', 'markdown'],
   inputKinds: ['text', 'bytes', 'managed-resource'], cancellable: true,
+  readableText: (_binding, _unit, text) => text,
   renderMarkdown,
   match(file) {
     if (file.format !== undefined) return ['md', 'markdown'].includes(file.format.toLowerCase()) ? 1 : 0

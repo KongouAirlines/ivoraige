@@ -1,6 +1,12 @@
 import { Service } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
 
+function available(adapter, contentMode) {
+  const state = adapter.status?.().state
+  if (state === 'disabled' || state === 'failed') return false
+  return state !== 'unavailable' || adapter.canRunUnavailable?.(contentMode) === true
+}
+
 export class Outputs extends Service {
   constructor(ctx) {
     super(ctx, 'ivoraige.outputs')
@@ -14,6 +20,8 @@ export class Outputs extends Service {
     if (this.adapters.has(adapter.id)) {
       throw new KernelError('INVALID_ARGUMENT', `Output adapter already registered: ${adapter.id}`)
     }
+    if (adapter.version !== undefined && (typeof adapter.version !== 'string' || !adapter.version.trim()))
+      throw new KernelError('INVALID_ARGUMENT', 'Output adapter version must be a nonempty string')
     if (adapter.formats !== undefined && (!Array.isArray(adapter.formats) || !adapter.formats.length ||
         adapter.formats.some(format => typeof format !== 'string' || !format)))
       throw new KernelError('INVALID_ARGUMENT', 'Output adapter formats must be nonempty')
@@ -30,14 +38,16 @@ export class Outputs extends Service {
     }
   }
 
-  availableFor(sourceBinding) {
-    return [...new Set([...this.adapters.values()].filter(adapter => adapter.supports(sourceBinding))
+  availableFor(sourceBinding, { contentMode } = {}) {
+    return [...new Set([...this.adapters.values()].filter(adapter => available(adapter, contentMode) &&
+      adapter.supports(sourceBinding, contentMode))
       .flatMap(adapter => adapter.formats ?? [adapter.id]))]
   }
 
-  listAdapters() { return [...this.adapters.values()].filter(adapter => adapter.status?.().state !== 'unavailable').map(adapter => adapter.id) }
-  listFormats() { return [...new Set([...this.adapters.values()]
-    .filter(adapter => !['unavailable', 'disabled', 'failed'].includes(adapter.status?.().state))
+  listAdapters({ contentMode } = {}) { return [...this.adapters.values()]
+    .filter(adapter => available(adapter, contentMode)).map(adapter => adapter.id) }
+  listFormats({ contentMode } = {}) { return [...new Set([...this.adapters.values()]
+    .filter(adapter => available(adapter, contentMode))
     .flatMap(adapter => adapter.formats ?? [adapter.id]))] }
 
   get(format, { adapterId, binding, contentMode } = {}) {
@@ -49,8 +59,7 @@ export class Outputs extends Service {
     if (!candidates.length) throw new KernelError(adapterId ? 'COMPONENT_MISSING' : 'INVALID_ARGUMENT',
       `Output adapter for ${format} is not installed`, { format, adapterId })
     const compatible = candidates.filter(adapter =>
-      (!['unavailable', 'disabled', 'failed'].includes(adapter.status?.().state) ||
-        adapter.canRunUnavailable?.(contentMode)) &&
+      available(adapter, contentMode) &&
       (binding === undefined || adapter.supports(binding, contentMode)))
     if (!compatible.length) throw new KernelError('PRECONDITION_FAILED',
       'Output adapter does not support the frozen source binding or mode', { format, adapterId })

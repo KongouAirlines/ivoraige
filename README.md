@@ -92,3 +92,11 @@ Operation and entry composition is available for in-process hosts: register one 
 For task-admitting or long-running operations, generic CLI `call` needs a persistent host (`--url` or a caller-supplied app); a self-owned local host rejects the call before creating work. Use the existing local CLI aliases to wait for task completion and receive its final exit code.
 
 `delete-owned` requires resource access and export services. If either is unavailable, it returns `COMPONENT_MISSING` before changing the artifact record or creating a cleanup marker; record-only deletion still works with Records alone. MCP lists registered tools while required services are absent, and invocation returns `COMPONENT_MISSING` until they become available. `events: false` disables state streams while retaining the legacy `/api/events` task stream and remote CLI `--json-events`. The `components`, `exportDir`, and `maxArtifactBytes` options require a store.
+
+### Adapter availability and readable outputs
+
+Missing source components are classified from declared formats and compatible input kinds without executing their matchers. Readable JSON/Markdown exports require an explicit source `readableText` projection; TXT and Markdown declare identity projection, while binary outputs with no requested views remain independent of source projection. Output enumeration and selection share one availability rule and accept an optional content mode: disabled/failed outputs stay unavailable; an unavailable output may explicitly allow a mode through `canRunUnavailable`. Explicit output versions must be nonempty strings; omitted versions retain the `unversioned` compatibility value.
+
+### Shared artifact file identity
+
+Physical managed-file deletion counts references through file symlinks by their complete canonical target, including aliases in another directory or with a different filename. An unresolved dangling file symlink prevents physical deletion conservatively. Record-only deletion still retains bytes and does not require filesystem identity. Directory aliases and actual filesystem case sensitivity remain supported; external output files and symlink paths themselves are not authorized for managed deletion. The existing boundary against concurrent external replacement is unchanged.
