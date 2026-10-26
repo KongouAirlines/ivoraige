@@ -119,8 +119,12 @@ function route(command, args, o) {
 }
 
 function parseSettingsJson(value) {
-  try { return JSON.parse(value) }
+  let parsed
+  try { parsed = JSON.parse(value) }
   catch { throw new KernelError('INVALID_ARGUMENT', '--set must contain valid JSON') }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
+    throw new KernelError('INVALID_ARGUMENT', '--set must contain a JSON object')
+  return parsed
 }
 function clean(value) { return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) }
 function storePath(options) {
