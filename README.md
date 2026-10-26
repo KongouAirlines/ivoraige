@@ -75,6 +75,8 @@ These are directions, not delivery dates. The [0.1.x plan](docs/plan/0.1.x/READM
 
 Tell us what you are trying to translate or process, where the workflow gets in your way, and which tools you would like to combine. Reproducible reports and original or shareable samples are especially useful.
 
+Sample-library development lives in [translate-source-lib](https://github.com/KongouAirlines/translate-source-lib). See [repository responsibilities and verification guidance (中文)](docs/plan/0.1.x/sample-library.md) for its draft status, authorized sample use, and the distinction between sample checks and actual ivoraige execution.
+
 See [contribution guidance](CONTRIBUTING.md) and [security reporting](SECURITY.md). The core uses **LGPL-3.0-or-later**; the business modules listed in [LICENSE](LICENSE) use **MIT**. The optional BabelDOC Python plugin uses **AGPL-3.0-only** and is packaged separately. Contributions require DCO sign-off.
 
 Built with Cordis and DSH, with optional BabelDOC support. See [third-party acknowledgements](THIRD_PARTY.md).
