@@ -4,7 +4,7 @@ import { KernelError } from './errors.mjs'
 function validateIr(parsed, adapterId) {
   const validUnit = (unit, index) => unit && typeof unit === 'object' &&
     unit.order === index && typeof unit.kind === 'string' &&
-    typeof unit.sourceText === 'string' && unit.sourceText.trim() &&
+    typeof unit.sourceText === 'string' && (unit.sourceText.trim() || unit.translatable === false) &&
     typeof unit.translatable === 'boolean' &&
     (unit.locator === undefined ||
       (unit.locator !== null && typeof unit.locator === 'object' && !Array.isArray(unit.locator)))

@@ -3,7 +3,12 @@
 
 import { KernelError } from '../errors.mjs'
 
-export const placeholderTokens = text => text.match(/<\/?(?:b|i|u|s|f)\d+>/g) ?? []
+export const placeholderTokens = text => {
+  if (typeof text !== 'string') {
+    throw new KernelError('PRECONDITION_FAILED', 'PDF source and translation text must be strings')
+  }
+  return text.match(/<\/?(?:b|i|u|s|f)\d+>/g) ?? []
+}
 
 export function validatePdfTranslation(binding, unit, text) {
   const record = binding.records?.[unit.order]
