@@ -16,4 +16,4 @@ PDF 组件安装管理或 PDF 能力已装配时显示“PDF”入口。启用�
 
 实现与验证边界见源码仓库中的 `docs/plan/0.1.0/settings-dsh.md` 和 `settings-goal.md`。PDF 的“页码保留”指现有工作台所选单位的来源页码，不代表新增了内嵌 PDF 阅读器。
 
-模型设置中的 compat 和 reasoningEfforts 无效值会在保存前报参数错误；compat 开关须适用于路由中至少一个模型实际使用的协议（包括继承或模型目录确定的协议）。设置组件缺失时返回明确的组件错误。CLI settings --set 的 JSON 格式错误返回退出码 2。
+模型设置中的 compat 和 reasoningEfforts 无效值会在保存前报参数错误；compat 开关须适用于路由中至少一个模型实际使用的协议（包括继承或模型目录确定的协议）。设置组件缺失时返回明确的组件错误。CLI settings --set 的 JSON 格式错误或非对象根值（如 `null`、数组）在本地和远程模式均返回 `INVALID_ARGUMENT`，退出码 2。
