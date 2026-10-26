@@ -19,6 +19,7 @@
 | <a id="w-v04"></a>W-V04 | [可组合工作流](validation/workflows.md#工作流与内容工作台) |
 | <a id="u-v01"></a>U-V01 | [普通翻译与管理 UI](validation/ui.md#u-v01-普通翻译) |
 | <a id="u-v02"></a>U-V02 | [普通翻译与管理 UI](validation/ui.md#u-v02-导航管理与设置) |
+| <a id="u-v02-preview-settings"></a>U-V02.preview-settings | [独立预览设置](validation/ui.md#u-v02-preview-settings)；U01 预览配置前置，子项通过不代表整个 U-V02 通过 |
 | <a id="u-v03"></a>U-V03 | [普通翻译与管理 UI](validation/ui.md#u-v03-资源数据与预检) |
 | <a id="f-v01"></a>F-V01 | [格式与软件协作](validation/formats-integrations.md#格式与软件协作) |
 | <a id="f-v02"></a>F-V02 | [格式与软件协作](validation/formats-integrations.md#格式与软件协作) |
