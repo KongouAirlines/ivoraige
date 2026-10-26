@@ -20,7 +20,7 @@ export class Importer extends Service {
       // Keep the existing 0.1.0 missing-PDF task response in one compatibility
       // boundary. Input adaptation and source scoring remain format-free.
       const legacyPdf = legacyWire && file.adapterId === undefined &&
-        (file.format === 'pdf' || /\.pdf$/i.test(file.path ?? '')) &&
+        (file.format?.toLowerCase() === 'pdf' || /\.pdf$/i.test(file.path ?? '')) &&
         error.code === 'INVALID_ARGUMENT' && error.details?.reason === 'no-source'
       if (!legacyPdf && !(deferSelection && ['INVALID_ARGUMENT', 'COMPONENT_MISSING'].includes(error.code))) throw error
       return Object.freeze({ file: input.file, error })

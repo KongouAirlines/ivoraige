@@ -11,8 +11,16 @@ const unitName = 'ivoraige_records'
 // This small adapter touches the private layout of exactly this DSH build.
 const supportedPin = '639ed015397290b3745d163aafe02ffee4aa3f84'
 
-function layoutError() {
-  return new KernelError('PRECONDITION_FAILED', 'Pinned DSH SQLite layout is incompatible or damaged')
+function layoutError(cause) {
+  return new KernelError('PRECONDITION_FAILED', 'Pinned DSH SQLite layout is incompatible or damaged', {}, { cause })
+}
+
+function inspectError(error) {
+  // SQLite primary codes: ERROR (schema/query), CORRUPT and NOTADB.
+  // Busy, I/O and permission failures do not establish an incompatible layout.
+  if (!(error instanceof KernelError) && error.code === 'ERR_SQLITE_ERROR' &&
+      [1, 11, 26].includes(error.errcode & 0xff)) return layoutError(error)
+  return error
 }
 
 function verifyPin() {
@@ -88,8 +96,9 @@ function hasRetentionRows(db) {
 // all record serialization; the store owner lock already excludes another app.
 function promote(storePath) {
   verifyPin()
-  const db = new DatabaseSync(storePath, { timeout: 1000 })
+  let db
   try {
+    db = new DatabaseSync(storePath, { timeout: 1000 })
     db.exec('BEGIN IMMEDIATE')
     try {
       const layoutVersion = verifyLayout(db)
@@ -102,20 +111,23 @@ function promote(storePath) {
       }
       db.exec('COMMIT')
     } catch (error) { db.exec('ROLLBACK'); throw error }
-  } finally { db.close() }
+  } catch (error) { throw inspectError(error) }
+  finally { db?.close() }
 }
 
 export function inspectRetentionDomain(storePath) {
   verifyPin()
   if (!existsSync(storePath)) return { version: 2, activateRetention() {} }
-  const db = new DatabaseSync(storePath, { readOnly: true })
+  let db
   let version, preexistingRetention
   try {
+    db = new DatabaseSync(storePath, { readOnly: true })
     version = verifyLayout(db)
     if (version === 'new' || version === 'new-unit') return { version: 2, activateRetention() {} }
     if (version !== 1 && version !== 2) throw versionError(version)
     preexistingRetention = version === 1 && hasRetentionRows(db)
-  } finally { db.close() }
+  } catch (error) { throw inspectError(error) }
+  finally { db?.close() }
   if (preexistingRetention) { promote(storePath); version = 2 }
   return {
     version,

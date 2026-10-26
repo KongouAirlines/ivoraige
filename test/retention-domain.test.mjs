@@ -8,6 +8,22 @@ import { DatabaseSync } from 'node:sqlite'
 import { Context, Storage, StorageDomain, StorageSqlite, z } from '../dist/dsh.mjs'
 import { createApp } from '../src/app.mjs'
 import { Records } from '../src/records.mjs'
+import { inspectRetentionDomain } from '../src/retention-domain.mjs'
+
+test('non-SQLite and damaged SQLite stores fail through the compatibility boundary without writes', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'ivoraige-damaged-store-'))
+  t.after(() => rm(dir, { recursive: true, force: true }))
+  for (const [name, bytes] of [
+    ['text', Buffer.from('This is not a SQLite database.')],
+    ['damaged', Buffer.concat([Buffer.from('SQLite format 3\0'), Buffer.alloc(4096, 0xff)])],
+  ]) {
+    const store = join(dir, `${name}.sqlite`)
+    await writeFile(store, bytes)
+    await assert.rejects(createApp({ store }), { code: 'PRECONDITION_FAILED',
+      message: 'Pinned DSH SQLite layout is incompatible or damaged' })
+    assert.deepEqual(await readFile(store), bytes)
+  }
+})
 
 async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), 'ivoraige-retention-domain-'))
@@ -62,6 +78,17 @@ async function assertOldReaderRejects(store) {
 test('embedding a version-1 Records service requires an activation callback', () => {
   assert.throws(() => new Records({}, { storageVersion: 1 }), { code: 'INVALID_ARGUMENT' })
   assert.throws(() => new Records({}, { storageVersion: 99 }), { code: 'INVALID_ARGUMENT' })
+})
+
+test('a busy SQLite store is not mislabeled as an incompatible layout', async t => {
+  const f = await fixture(t)
+  await f.close()
+  const db = new DatabaseSync(f.store)
+  try {
+    db.exec('PRAGMA journal_mode = DELETE; BEGIN EXCLUSIVE')
+    assert.throws(() => inspectRetentionDomain(f.store), error =>
+      error.code === 'ERR_SQLITE_ERROR' && (error.errcode & 0xff) === 5)
+  } finally { db.exec('ROLLBACK'); db.close() }
 })
 
 test('new store starts at domain 2; old domain 1 permits normal writes until first Q02 semantic write', async t => {

@@ -13,6 +13,27 @@ const deferred = () => {
   const promise = new Promise(done => { resolve = done })
   return { promise, resolve }
 }
+
+test('shutdown cleans the job when dispatch settlement waiting times out', { timeout: 10_000 }, async t => {
+  const root = await directory(t)
+  const app = await createApp({ store: join(root, 'records.sqlite') })
+  t.after(async () => { await app.dispose(); await rm(root, { recursive: true, force: true }) })
+  const { document } = await app.records.importDocument({ format: 'txt', content: 'Source.' },
+    { sourceId: 'shutdown-wait-timeout', language: 'en' })
+  const jobs = app.ctx.get('jobs')
+  const waiting = deferred()
+  jobs.wait = () => { waiting.resolve(); return new Promise(() => {}) }
+  app.tasks.jobWaitTimeoutMs = 30
+  app.tasks.run = async live => {
+    await app.records.updateTask(live.taskId, task => ({ ...task, state: 'succeeded' }))
+  }
+  const { taskId } = await app.tasks.submit(document.id, { targetLang: 'zh' })
+  await waiting.promise
+  await app.tasks.shutdown()
+  assert.equal((await app.tasks.get(taskId)).state, 'succeeded')
+  assert.deepEqual(jobs.list(), [])
+  assert.equal(jobs.hub.unscoped.size, 0)
+})
 async function directory(t) {
   const root = await mkdtemp(join(tmpdir(), 'ivoraige-foundation-0.1.x-'))
   return root

@@ -300,8 +300,7 @@ export class Tasks extends Service {
         live.markStarted()
         if (live.cancel) this.jobs.kill(live.jobId, undefined, 'canceled')
         await live.done
-        const job = await waitForJob(this.jobs, live.jobId, this.jobWaitTimeoutMs)
-        if (['completed', 'killed', 'failed'].includes(job.status)) this.jobs.remove(live.jobId)
+        await waitForJob(this.jobs, live.jobId, this.jobWaitTimeoutMs)
       } catch (error) {
         live.markStarted()
         // Both consumers use DSH's unowned bucket. Saturation is admission
@@ -333,16 +332,16 @@ export class Tasks extends Service {
             this.progress(deferred, true)
           }
         } else if (!this.tearingDown) {
-          try {
-            if (this.records.getTask(taskId).state === 'running') await this.fail(taskId, error)
-            else reportFailure(error, { taskId, jobId: live.jobId })
-          } finally {
-            if (live.jobId) this.cleanupJob(live.jobId)
-          }
+          if (this.records.getTask(taskId).state === 'running') await this.fail(taskId, error)
+          else reportFailure(error, { taskId, jobId: live.jobId })
         }
       } finally {
-        this.running = null
-        live.markFinished()
+        try {
+          if (live.jobId) this.cleanupJob(live.jobId)
+        } finally {
+          this.running = null
+          live.markFinished()
+        }
       }
       if (this.quotaBlocked) break
     }
@@ -350,7 +349,9 @@ export class Tasks extends Service {
 
   cleanupJob(jobId) {
     const jobs = this.jobs
-    const job = jobs.get(jobId)
+    // Root disposal may already have cleared the Jobs registry.
+    const job = jobs.list().find(job => job.id === jobId)
+    if (!job) return
     if (['completed', 'killed', 'failed'].includes(job.status)) {
       jobs.remove(jobId)
       return

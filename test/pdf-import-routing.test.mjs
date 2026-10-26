@@ -9,6 +9,17 @@ const bytes = Buffer.from([0x25, 0x50, 0x44, 0x46, 0xff, 0x00])
 const binaryInput = { format: 'pdf', contentBase64: bytes.toString('base64') }
 const textInput = { format: 'pdf', contentBase64: Buffer.from('Readable PDF text.').toString('base64') }
 
+test('absent PDF fallback normalizes explicit format for path and Base64 imports', async t => {
+  const { app, path } = await fixture(t)
+  const opaquePath = path.replace(/\.pdf$/, '.bin')
+  await writeFile(opaquePath, bytes)
+  for (const format of ['pdf', 'PDF', 'Pdf']) {
+    for (const input of [{ path: opaquePath }, { contentBase64: bytes.toString('base64') }]) {
+      await expectDeferredMissing(app, { ...input, format }, `${format}:${Boolean(input.path)}`)
+    }
+  }
+})
+
 async function fixture(t) {
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-pdf-route-'))
   const app = await createApp({ store: join(directory, 'records.sqlite') })
