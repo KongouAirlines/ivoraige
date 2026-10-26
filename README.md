@@ -69,7 +69,7 @@ Scanned PDF OCR, bilingual PDF output, EPUB, reusable term libraries, Zotero int
 
 These are directions, not delivery dates. The [0.1.x plan](docs/plan/0.1.x/README.md) proposes incremental contracts and work packages; it does not describe delivered features. The [0.1.0 roadmap](docs/plan/0.1.0/roadmap.md) preserves the earlier direction and context.
 
-The [offline sample catalog](docs/plan/0.1.x/sample-catalog.md) provides original synthetic fixtures, frozen-replay checks and comparison reports with human review fields. It makes no model calls and does not claim translation quality.
+The [offline sample catalog](docs/plan/0.1.x/sample-catalog.md) provides original synthetic fixtures, frozen-replay checks and comparison reports with human review fields. Comparisons fail when an added or changed-input sample fails structure checks; generated private catalogs preserve exact bytes across Git checkouts. It makes no model calls and does not claim translation quality.
 
 ## Explore and contribute
 

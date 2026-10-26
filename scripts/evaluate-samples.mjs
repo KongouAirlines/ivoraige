@@ -46,6 +46,7 @@ async function main() {
     if (inside(await realpath(repo), resolve(parent, requested.split(/[\\/]/).at(-1)))) throw new Error('PRIVATE_ROOT_MUST_BE_OUTSIDE_PROJECT')
     const root = await newDirectory(requested)
     await writeFile(resolve(root, 'manifest.json'), json({ schemaVersion: 1, catalogId: 'private-0.1.x-v1', visibility: 'private', samples: [] }))
+    await writeFile(resolve(root, '.gitattributes'), '# Manifest digests cover exact bytes; never rewrite them on checkout.\n* -text\n')
     await writeFile(resolve(root, '.gitignore'), 'runs/\n.env*\ncredentials*\n')
     await writeFile(resolve(root, 'README.md'), '# Private sample catalog\n\nLocal skeleton only; no remote repository or sharing is configured. Keep inputs and references separate. Add each sample using the main repository catalog.schema.json. Unconfirmed rights must use permission-pending and denied externalModel. Keep heldout references out of prompts, retrieval and translation memory. All run directories contain private derived data and must stay local.\n')
     console.log('Created local private skeleton; no remote configured.')
@@ -64,7 +65,8 @@ async function main() {
     if ((baseline.visibility === 'private' || candidate.visibility === 'private') && inside(await realpath(repo), targetParent)) throw new Error('PRIVATE_OUTPUT_MUST_BE_OUTSIDE_PROJECT')
     await writeFile(options['--out'], json(comparison), { flag: 'wx' })
     console.log(`Comparison written; ${comparison.rows.filter(row => row.change !== 'unchanged').length} changed rows. Human baseline approval pending.`)
-    if (comparison.rows.some(row => ['regression', 'removed'].includes(row.change))) process.exitCode = 1
+    if (comparison.rows.some(row => ['regression', 'removed'].includes(row.change) ||
+        (['added', 'input-changed'].includes(row.change) && row.after === 'fail'))) process.exitCode = 1
     return
   }
   const root = resolve(options['--catalog'] ?? resolve(repo, 'evaluation/catalog-0.1.x'))

@@ -32,7 +32,7 @@ npm run evaluate:samples -- run --split heldout --out evaluation/runs/heldout-0.
 
 每次 `report.json` 记录项目 commit、dirty 标志、Node/OS、锁文件摘要、依赖声明、DSH SHA、样本/参考摘要、文档与快照 ID、文件与语义摘要、具体检查、运行内输出路径；`report.md` 便于阅读，`regressions.tap` 保留 5 个 mock 回归结果。模型、提示词、参数为 null，文本回放调用数 0（模型服务缺席）；G01 坏占位符负例会调用本地无网络的无效输出 stub，stub 次数未汇总，真实提供商调用仍为 0，usage/费用为 null；它们不是零 token 的模型响应。只有全部要求的结构检查通过才返回 0；PDF/质量未测项保留为未测，不计入通过数。
 
-比较结果保留 added/removed/input-changed/output-changed/regression/status-changed/unchanged 行以及两个 manifest/commit。删除或结构回归返回非零；输入/参考变化需人工审查，不能据此直接认定代码提升。比较不覆盖旧记录、不自动接受新基线。人工先在运行/比较的 `humanReview` 填写位置、类型、严重程度、理由、修正与 reviewer，再在 `baselineApproval` 记录确认人和理由；保存原比较文件及确认副本，提交通常代码审查。无人确认时保留 pending-human。未来真实模型评测沿用[人工记录模板](../../../evaluation/review-template.md)记录提供商/精确模型、提示与参数、上下文/术语版本及实际 usage，并逐项评审；此 PR 不执行该路径。
+比较结果保留 added/removed/input-changed/output-changed/regression/status-changed/unchanged 行以及两个 manifest/commit。删除、结构回归，以及新增或输入/参考变化后结构失败的候选样本返回非零；仅输入/参考变化且结构通过仍需人工审查，不能据此直接认定代码提升。报告中重复的样本 ID 会被拒绝，`G01` 留给固定 PDF 回归行。比较不覆盖旧记录、不自动接受新基线。人工先在运行/比较的 `humanReview` 填写位置、类型、严重程度、理由、修正与 reviewer，再在 `baselineApproval` 记录确认人和理由；保存原比较文件及确认副本，提交通常代码审查。无人确认时保留 pending-human。未来真实模型评测沿用[人工记录模板](../../../evaluation/review-template.md)记录提供商/精确模型、提示与参数、上下文/术语版本及实际 usage，并逐项评审；此 PR 不执行该路径。
 
 ## 独立长期私有材料
 
@@ -43,7 +43,7 @@ npm run evaluate:samples -- init --root /absolute/outside-project/private-catalo
 npm run evaluate:samples -- run --catalog /absolute/outside-project/private-catalog-0.1.x --out /absolute/outside-project/private-run-0.1.x
 ```
 
-`init` 只创建新目录、空 private manifest、README 与运行输出/凭据忽略规则。按 schema 添加样本：稳定 ID、dev/heldout、独立格式与内容类别、双语方向、作者/原始链接/获取日期/版本、licenseEvidence 相对文件、allowedUses、externalModel、原件/参考 SHA-256、校验状态和 reviewer。pending 权利材料用 `kind=permission-pending`；没有 offline-regression 用途或 blocked 状态会在读任何样本内容前拒绝。人工签认必须对应实际人员，不能由工具推定。
+`init` 只创建新目录、空 private manifest、README、运行输出/凭据忽略规则及 `.gitattributes`；后者禁止 Git 改写行尾，以保持 manifest 中原件与参考的精确字节 SHA-256 在不同检出环境下稳定。按 schema 添加样本：稳定 ID（`G01` 已保留）、dev/heldout、独立格式与内容类别、双语方向、作者/原始链接/获取日期/版本、licenseEvidence 相对文件、allowedUses、externalModel、原件/参考 SHA-256、校验状态和 reviewer。pending 权利材料用 `kind=permission-pending`；没有 offline-regression 用途或 blocked 状态会在读任何样本内容前拒绝。人工签认必须对应实际人员，不能由工具推定。
 
 路径只能指向 catalog 根以内的实际文件，拒绝绝对路径、`..` 与越界符号链接；ID 不重复、同一源摘要不能跨 split；原件和参考读后验摘要。private 输出与比较文件禁止进入主仓库。原文、参考、SQLite 和导出文件都可能包含私有数据，整份运行目录仅供有权限的本地评审，不能上传 CI 日志或产物。异常控制台仅输出错误码，不输出原文。此入口不是针对恶意本机文件系统并发改写的安全沙箱。
 

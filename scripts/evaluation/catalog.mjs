@@ -24,6 +24,7 @@ export function validateManifest(manifest) {
   const ids = new Set()
   const hashes = new Map()
   for (const sample of manifest.samples) {
+    if (sample.id === 'G01') throw new Error('RESERVED_SAMPLE_ID')
     if (ids.has(sample.id)) throw new Error('DUPLICATE_SAMPLE_ID')
     ids.add(sample.id)
     if (hashes.has(sample.sha256) && hashes.get(sample.sha256) !== sample.split) throw new Error('SPLIT_LEAKAGE')
@@ -81,8 +82,18 @@ export function compareReports(baseline, candidate) {
   if (baseline.schemaVersion !== 1 || candidate.schemaVersion !== 1 ||
       baseline.catalogId !== candidate.catalogId || baseline.split !== candidate.split ||
       baseline.mode !== 'offline' || candidate.mode !== 'offline') throw new Error('INCOMPARABLE_REPORTS')
-  const before = new Map(baseline.results.map(row => [row.id, row]))
-  const after = new Map(candidate.results.map(row => [row.id, row]))
+  const uniqueRows = report => {
+    if (!Array.isArray(report.results)) throw new Error('INVALID_REPORT_RESULTS')
+    const rows = new Map()
+    for (const row of report.results) {
+      if (!row || typeof row.id !== 'string' || !row.id) throw new Error('INVALID_REPORT_RESULTS')
+      if (rows.has(row.id)) throw new Error('DUPLICATE_REPORT_ID')
+      rows.set(row.id, row)
+    }
+    return rows
+  }
+  const before = uniqueRows(baseline)
+  const after = uniqueRows(candidate)
   const rows = [...new Set([...before.keys(), ...after.keys()])].sort().map(id => {
     const a = before.get(id), b = after.get(id)
     let change = !a ? 'added' : !b ? 'removed' : 'unchanged'

@@ -48,6 +48,9 @@ test('manifest validation rejects schema errors, duplicate IDs and cross-split s
   const duplicate = copy(manifest)
   duplicate.samples[1].id = duplicate.samples[0].id
   assert.throws(() => validateManifest(duplicate), /DUPLICATE_SAMPLE_ID/)
+  const reserved = copy(manifest)
+  reserved.samples[0].id = 'G01'
+  assert.throws(() => validateManifest(reserved), /RESERVED_SAMPLE_ID/)
   const leaked = copy(manifest)
   leaked.samples.find(sample => sample.split === 'heldout').sha256 = leaked.samples[0].sha256
   assert.throws(() => validateManifest(leaked), /SPLIT_LEAKAGE/)
@@ -124,6 +127,59 @@ test('comparison ignores volatile evidence but flags regressions, changed inputs
   missing.results = []
   assert.equal(compareReports(baseline, missing).rows[0].change, 'removed')
   assert.equal(compareReports(missing, baseline).rows[0].change, 'added')
+  const duplicateBaseline = copy(baseline)
+  duplicateBaseline.results.push(copy(duplicateBaseline.results[0]))
+  assert.throws(() => compareReports(duplicateBaseline, equivalent), /DUPLICATE_REPORT_ID/)
+  const duplicateCandidate = copy(equivalent)
+  duplicateCandidate.results.push(copy(duplicateCandidate.results[0]))
+  assert.throws(() => compareReports(baseline, duplicateCandidate), /DUPLICATE_REPORT_ID/)
+})
+
+test('comparison retains change labels but exits nonzero for new or changed failing samples', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-compare-exit-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const baseline = join(directory, 'baseline.json')
+  const candidate = join(directory, 'candidate.json')
+  const original = report()
+  await writeFile(baseline, JSON.stringify(original))
+  const cases = [
+    { name: 'changed-failure', rows: [{ ...original.results[0], sourceSha256: 'changed', structure: 'fail' }],
+      change: 'input-changed', after: 'fail', exit: 1 },
+    { name: 'added-failure', rows: [...original.results, { ...original.results[0], id: 'T02', structure: 'fail' }],
+      change: 'added', after: 'fail', exit: 1 },
+    { name: 'changed-input-pass', rows: [{ ...original.results[0], sourceSha256: 'changed' }],
+      change: 'input-changed', after: 'pass', exit: 0 },
+    { name: 'added-pass', rows: [...original.results, { ...original.results[0], id: 'T02' }],
+      change: 'added', after: 'pass', exit: 0 },
+  ]
+  for (const item of cases) {
+    await writeFile(candidate, JSON.stringify({ ...original, results: item.rows }))
+    const out = join(directory, `${item.name}.json`)
+    const run = spawnSync(process.execPath, [cli, 'compare', '--baseline', baseline,
+      '--candidate', candidate, '--out', out], { encoding: 'utf8' })
+    assert.equal(run.status, item.exit, `${item.name}: ${run.stderr || run.stdout}`)
+    const comparison = JSON.parse(await readFile(out, 'utf8'))
+    assert.ok(comparison.rows.some(row => row.change === item.change && row.after === item.after), item.name)
+  }
+})
+
+test('CLI rejects duplicate result IDs in either report before writing a comparison', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-compare-duplicates-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const baseline = join(directory, 'baseline.json')
+  const candidate = join(directory, 'candidate.json')
+  const out = join(directory, 'comparison.json')
+  const original = report()
+  const duplicate = { ...original, results: [...original.results, copy(original.results[0])] }
+  for (const [left, right] of [[duplicate, original], [original, duplicate]]) {
+    await writeFile(baseline, JSON.stringify(left))
+    await writeFile(candidate, JSON.stringify(right))
+    const run = spawnSync(process.execPath, [cli, 'compare', '--baseline', baseline,
+      '--candidate', candidate, '--out', out], { encoding: 'utf8' })
+    assert.equal(run.status, 1)
+    assert.match(run.stderr, /DUPLICATE_REPORT_ID/)
+    await assert.rejects(readFile(out), { code: 'ENOENT' })
+  }
 })
 
 test('CLI denies external execution before catalog access', () => {
@@ -141,9 +197,46 @@ test('CLI init refuses to overwrite a local private skeleton', async t => {
   const first = spawnSync(process.execPath, args, { encoding: 'utf8' })
   assert.equal(first.status, 0, first.stderr)
   const manifest = await readFile(join(root, 'manifest.json'), 'utf8')
+  assert.match(await readFile(join(root, '.gitattributes'), 'utf8'), /^# .*\n\* -text\n$/)
   const second = spawnSync(process.execPath, args, { encoding: 'utf8' })
   assert.equal(second.status, 1)
   assert.equal(await readFile(join(root, 'manifest.json'), 'utf8'), manifest)
+})
+
+test('private scaffold keeps catalog hashes stable after an autocrlf Git checkout', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-private-checkout-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const root = join(directory, 'private-catalog')
+  const initialized = spawnSync(process.execPath, [cli, 'init', '--root', root], { encoding: 'utf8' })
+  assert.equal(initialized.status, 0, initialized.stderr)
+  await mkdir(join(root, 'inputs'))
+  await mkdir(join(root, 'references'))
+  const sample = copy(JSON.parse(await readFile(new URL('manifest.json', catalog), 'utf8')).samples[0])
+  await cp(new URL('inputs/T01.txt', catalog), join(root, sample.path))
+  await cp(new URL('references/T01.json', catalog), join(root, sample.referencePath))
+  await cp(new URL('LICENSE.txt', catalog), join(root, sample.source.licenseEvidence))
+  await writeFile(join(root, 'manifest.json'), JSON.stringify({ schemaVersion: 1,
+    catalogId: 'private-0.1.x-v1', visibility: 'private', samples: [sample] }))
+  assert.equal((await loadCatalog(root)).inputs.length, 1)
+  const git = (...args) => {
+    const run = spawnSync('git', args, { cwd: root, encoding: 'utf8' })
+    assert.equal(run.status, 0, run.stderr || run.stdout)
+    return run.stdout.trim()
+  }
+  git('init', '-q')
+  git('config', 'core.autocrlf', 'true')
+  const emptyHooks = join(directory, 'empty-hooks')
+  await mkdir(emptyHooks)
+  git('config', 'core.hooksPath', emptyHooks)
+  git('config', 'commit.gpgsign', 'false')
+  git('add', '.')
+  git('-c', 'user.name=Synthetic Fixture', '-c', 'user.email=fixture@example.invalid',
+    'commit', '-qm', 'catalog fixture')
+  assert.match(git('check-attr', 'text', '--', sample.path), /text: unset$/)
+  await rm(join(root, sample.path))
+  await rm(join(root, sample.referencePath))
+  git('restore', '--', sample.path, sample.referencePath)
+  assert.equal((await loadCatalog(root)).inputs.length, 1)
 })
 
 test('CLI keeps private comparison output outside the project', async t => {
