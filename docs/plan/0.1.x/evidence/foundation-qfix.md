@@ -126,3 +126,30 @@ The model settings boundary now rejects null compat members and keys outside the
 - `node --test --test-concurrency=4 test/*.test.mjs`: 264/264 passed.
 - A temporary, unchanged copy of `task-2/review46/probe-settings.mjs` run against this branch returned `INVALID_ARGUMENT` for both inputs, with `afterRoutes: {}` and `beforeRevisions` equal to `afterRevisions` (`routes: 0`, `selected: 0`). The copy was removed; the review probe was not edited.
 - `npm run smoke:package`: passed, including isolated tarball install, persisted settings, frozen snapshot/export, MCP, and UI smoke.
+
+## Q03 CLI JSON root validation
+
+On the PR #46 base `6186efa11db2f13dcf99b072ca86e09eabfe625c`,
+`settings --set null` parsed successfully and reached `Object.entries(null)`,
+producing `INTERNAL` / exit 4. The CLI now requires a non-null, non-array JSON
+object before local kernel initialization or remote dispatch. Syntax errors and
+non-object roots return `INVALID_ARGUMENT` / exit 2; valid settings objects still
+reach the existing settings validation. Operation payloads, API version, stored
+settings and HTTP/MCP error mappings are unchanged.
+
+2026-10-26 verification on Linux, Node 24.22.1, pinned DSH
+`639ed015397290b3745d163aafe02ffee4aa3f84`:
+
+- `npm run build`: passed.
+- `node --test test/entries.test.mjs test/model-settings.test.mjs test/mcp.test.mjs`:
+  51 passed. New regression coverage checks null, empty/non-empty arrays,
+  strings, numbers, booleans and malformed JSON in both CLI modes, no local
+  files or remote requests on rejection, and successful object submission.
+  Existing HTTP/MCP settings validation, CAS and partial-save tests also pass.
+- `node --test --test-concurrency=4 test/*.test.mjs`: 270 passed, 2 skipped,
+  0 failed (272 total). The skipped release ZIP and Windows descendant-process
+  checks require their platform/release conditions. No real model calls or user
+  libraries were used.
+
+This is branch verification for Q03, pending integration into main and the
+stacked branches that retain the settings command compatibility path.

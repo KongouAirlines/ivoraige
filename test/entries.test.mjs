@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { createServer, request } from 'node:http'
-import { mkdtemp, rm, symlink, unlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, readdir, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -364,6 +364,49 @@ test('CLI settings --set malformed JSON exits 2 with the public error envelope',
   assert.equal(code, 2)
   assert.equal(JSON.parse(out).error.code, 'INVALID_ARGUMENT')
   assert.match(err, /valid JSON/)
+})
+
+test('CLI rejects non-object settings JSON before local initialization or remote requests', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-settings-json-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const fetch = t.mock.method(globalThis, 'fetch', () => { throw new Error('Unexpected request') })
+  for (const options of [['--store', join(directory, 'store.sqlite')], ['--url', 'http://127.0.0.1:1']]) {
+    for (const input of ['null', '[]', '[1]', '"text"', '42', 'true', 'false', '{broken']) {
+      let out = '', err = ''
+      const code = await runCli([...options, '--json', 'settings', '--set', input], {
+        stdout: { write: chunk => { out += chunk } }, stderr: { write: chunk => { err += chunk } },
+      })
+      assert.equal(code, 2, input)
+      assert.equal(JSON.parse(out).apiVersion, '2.0')
+      assert.equal(JSON.parse(out).error.code, 'INVALID_ARGUMENT', input)
+      assert.match(err, input === '{broken' ? /valid JSON/ : /JSON object/)
+    }
+  }
+  assert.equal(fetch.mock.callCount(), 0)
+  assert.deepEqual(await readdir(directory), [])
+})
+
+test('CLI preserves valid settings object payloads locally and remotely', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-settings-object-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const f = fixture()
+  f.app.operations.invoke = async (name, params) => {
+    f.calls.push({ name, params })
+    return { apiVersion: '2.0', settings: {} }
+  }
+  const server = await serve(f.app, { port: 0 })
+  t.after(() => server.close())
+  const input = { provider: 'local', model: 'science', api: 'openai-completions',
+    baseURL: 'http://127.0.0.1:9999/v1', contextWindow: 8192, maxTokens: 512 }
+  for (const options of [['--store', join(directory, 'store.sqlite')], ['--url', server.url]]) {
+    let out = '', err = ''
+    const code = await runCli([...options, '--json', 'settings', '--set', JSON.stringify(input)], {
+      stdout: { write: chunk => { out += chunk } }, stderr: { write: chunk => { err += chunk } },
+    })
+    assert.equal(code, 0, err)
+    assert.equal(JSON.parse(out).error, undefined)
+  }
+  assert.deepEqual(f.calls, [{ name: 'updateSettings', params: input }])
 })
 
 test('CLI releases SSE, HTTP port and SQLite even when MCP endpoint close fails', async t => {

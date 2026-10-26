@@ -30,7 +30,7 @@ The goal is a shared foundation for people and AI: choose the capabilities you n
 - **Keep the original structure.** CLI export with `--content-mode source` can produce Markdown or JSON without a target language or accepted translation. For imported PDFs, it can also copy the verified managed original PDF. The default remains accepted-translation export with `--target-lang`.
 - **Keep export history clear.** If another export blocks admission, the attempted export leaves no new snapshot; existing snapshots remain available.
 - **Choose how to work.** Use the browser workbench or CLI, or connect an AI client to the shared kernel through [MCP](docs/plan/0.1.0/mcp-guide.md).
-- **Correct settings errors before saving.** Invalid model compatibility values, including switches unsupported by every model API on a route, and invalid reasoning values are rejected as input errors; malformed CLI `settings --set` JSON exits with code 2.
+- **Correct settings errors before saving.** Invalid model compatibility values, including switches unsupported by every model API on a route, and invalid reasoning values are rejected as input errors; CLI `settings --set` rejects malformed JSON and non-object roots (such as `null` or arrays) with `INVALID_ARGUMENT` and exit code 2 in both local and remote modes.
 
 ## Get started
 
