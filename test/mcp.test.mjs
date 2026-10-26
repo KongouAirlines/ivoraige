@@ -17,6 +17,47 @@ import { KernelError } from '../src/errors.mjs'
 import packageInfo from '../package.json' with { type: 'json' }
 
 const targetLang = 'zh'
+
+test('disconnecting an MCP artifact read releases its real Records lease', { timeout: 10_000 }, async t => {
+  const f = await fixture(t)
+  const { document } = await f.app.records.importDocument({ format: 'txt', content: 'Artifact source.' }, { language: 'en' })
+  const { artifacts: [artifact] } = await f.app.exporter.exportDocument(document.id,
+    { contentMode: 'source', outputs: [{ format: 'md' }] })
+  let entered, release
+  const started = new Promise(resolve => { entered = resolve })
+  const openArtifact = f.app.resources.openArtifact.bind(f.app.resources)
+  f.app.resources.openArtifact = async (...args) => {
+    const resource = await openArtifact(...args)
+    resource.file.readFile = ({ signal } = {}) => new Promise((resolve, reject) => {
+      const abort = () => reject(signal.reason)
+      release = () => { signal?.removeEventListener('abort', abort); resolve(Buffer.from('released')) }
+      if (signal?.aborted) abort()
+      else signal?.addEventListener('abort', abort, { once: true })
+      entered()
+    })
+    return resource
+  }
+  t.after(() => release?.())
+  const controller = new AbortController()
+  const waiting = fetch(`${f.server.url}/mcp`, {
+    method: 'POST', signal: controller.signal,
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 71, method: 'resources/read',
+      params: { uri: `ivoraige://artifacts/${artifact.id}` } }),
+  }).catch(() => undefined)
+  try {
+    await Promise.race([started, waiting.then(async response => { throw new Error(`Read ended before opening: ${response && await response.text()}`) })])
+    assert.equal(f.app.records.artifactLeases.get(artifact.id), 1)
+    await assert.rejects(f.app.records.deleteArtifact(document.id, artifact.id), { code: 'CONFLICT' })
+    controller.abort()
+    await waiting
+    for (let attempt = 0; f.app.records.artifactLeases.has(artifact.id) && attempt < 50; attempt++)
+      await new Promise(resolve => setTimeout(resolve, 10))
+    assert.equal(f.app.records.artifactLeases.has(artifact.id), false)
+    assert.equal(f.app.resources.opened.size, 0)
+    await f.app.records.deleteArtifact(document.id, artifact.id)
+  } finally { release?.() }
+})
 const upload = (content, format = 'txt') => ({
   contentBase64: Buffer.from(content).toString('base64'), format, language: 'en', origin: 'mcp',
 })

@@ -21,7 +21,7 @@ function capabilityHandlers(ctx, ops) {
       outputFormats: ctx.get('ivoraige.outputs').listFormats(), components,
       capabilities: ctx.get('ivoraige.capabilities')?.list() ?? [],
       operations: ctx.get('ivoraige.operationCatalog').list().map(({ id, requires, longRunning, cancellable }) =>
-        ({ id, requires, longRunning, cancellable, available: requires.every(service => Boolean(ctx.get(service))) })),
+        ({ id, requires, longRunning, cancellable, available: ctx.get('ivoraige.operationCatalog').available({ requires }) })),
       resourceLimits: { ...resourcePolicy, maxArtifactBytes: ctx.get('ivoraige.resources')?.maxArtifactBytes ?? null },
       ...(ops.dataDirectory ? { dataDirectory: ops.dataDirectory } : {}) }
     },
@@ -119,6 +119,8 @@ export function apply(ctx) {
         id.startsWith('component') ? ['ivoraige.components'] :
           ['getSettings', 'updateSettings', 'setCredential'].includes(id) ? ['ivoraige.modelSettings'] :
             id === 'importDocument' ? ['ivoraige.records', 'ivoraige.tasks', 'ivoraige.parse', 'ivoraige.import'] :
+            ['writeRevision', 'acceptRevision'].includes(id) ? ['ivoraige.records', 'ivoraige.parse'] :
+            id === 'exportDocument' ? ['ivoraige.records', 'ivoraige.tasks', 'ivoraige.export', 'ivoraige.outputs'] :
             taskOps.has(id) ? ['ivoraige.records', 'ivoraige.tasks'] :
               documentOps.has(id) ? ['ivoraige.records'] : []
       ctx.effect(() => catalog.register({ id, inputSchema: parameters[id], resultSchema: results[id],

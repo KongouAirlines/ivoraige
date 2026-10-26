@@ -64,7 +64,7 @@ export class ResourceAccess extends Service {
   }
   async readArtifact(artifactId, options) {
     const resource = await this.openArtifact(artifactId, options)
-    try { return { bytes: await resource.file.readFile(), contentType: resource.contentType, filename: resource.filename } }
+    try { return { bytes: await resource.file.readFile({ signal: options?.signal }), contentType: resource.contentType, filename: resource.filename } }
     finally { await resource.close() }
   }
   async removeOwnedFile(path, fileDigest) {

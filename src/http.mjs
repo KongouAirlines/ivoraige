@@ -199,7 +199,7 @@ async function listenHttp(app, { host = '127.0.0.1', port = 8787, staticDir, all
       if (req.method === 'GET' && pathname === '/api/operations') {
         if (!app.operationCatalog) throw new KernelError('COMPONENT_MISSING', 'Operation discovery is not enabled')
         send(res, 200, { apiVersion: '2.0', operations: app.operationCatalog.list().map(({ id, requires, longRunning, cancellable }) =>
-          ({ id, requires, longRunning, cancellable, available: requires.every(service => Boolean(app.ctx?.get(service))) })) }); return
+          ({ id, requires, longRunning, cancellable, available: app.operationCatalog.available({ requires }) })) }); return
       }
       const dynamicOperation = /^\/api\/operations\/([^/]+)$/.exec(pathname)
       if (req.method === 'POST' && dynamicOperation) {

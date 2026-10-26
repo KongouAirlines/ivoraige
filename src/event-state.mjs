@@ -43,7 +43,7 @@ export function installEventState(ctx) {
     inputFormats: ctx.get('ivoraige.parse')?.listFormats() ?? [],
     outputFormats: ctx.get('ivoraige.outputs')?.listFormats() ?? [],
     operations: ctx.get('ivoraige.operationCatalog')?.list().map(({ id, requires }) =>
-      ({ id, available: requires.every(service => Boolean(ctx.get(service))) })) ?? [],
+      ({ id, available: ctx.get('ivoraige.operationCatalog').available({ requires }) })) ?? [],
   }))
   read('settings', () => ctx.get('settings')?.describe({ redactSecrets: true })
     .map(row => ({ namespace: row.ns, revision: row.revision })) ?? [])
@@ -66,6 +66,14 @@ export function installEventState(ctx) {
   observe('ivoraige/capabilities-changed', () => bridge.publish('capabilities.changed'))
   const catalog = ctx.get('ivoraige.operationCatalog')
   if (catalog?.subscribeChanges) disposers.push(catalog.subscribeChanges(() => bridge.publish('capabilities.changed')))
+  observe('internal/service', name => {
+    const capabilities = ctx.get('ivoraige.capabilities')?.list() ?? []
+    const operations = ctx.get('ivoraige.operationCatalog')?.list() ?? []
+    if (['ivoraige.capabilities', 'ivoraige.operationCatalog', 'ivoraige.records', 'ivoraige.parse',
+      'ivoraige.outputs', 'ivoraige.settingsPages', 'settings', 'ivoraige.components'].includes(name) ||
+      [...capabilities, ...operations].some(item => item.requires.includes(name)))
+      bridge.publish('capabilities.changed')
+  })
   observe('ivoraige/settings-pages-changed', data => bridge.publish('settings.pages.changed', {
     data, legacyData: data,
   }))

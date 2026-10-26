@@ -40,8 +40,9 @@ export function createMcpServer(app, { signal, listChanged = true, watchRegistry
         catch (error) { return result(errorEnvelope(error).body, true) }
       }))
     sync(registry.resources, activeResources, (name, definition) => server.registerResource(name,
-      new ResourceTemplate(definition.template, { list: undefined }), definition.metadata ?? {}, async (uri, variables) => {
-        try { return await definition.read(uri, variables) }
+      new ResourceTemplate(definition.template, { list: undefined }), definition.metadata ?? {}, async (uri, variables, context) => {
+        try { return await definition.read(uri, variables,
+          { signal: signal ? AbortSignal.any([signal, context.mcpReq.signal]) : context.mcpReq.signal }) }
         catch (error) { throw resourceError(error) }
       }))
   }
