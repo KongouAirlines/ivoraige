@@ -33,7 +33,7 @@ The goal is a shared foundation for people and AI: choose the capabilities you n
 - **Release work deliberately.** `abandon TASK_ID` ends a failed task's retry claim without changing its error history. `artifacts DOC_ID delete ARTIFACT_ID` removes its record and keeps file bytes. Add `--file-action delete-owned` only when you want to remove a kernel-managed export file. External `--out` files are never eligible for that action. Inspect `artifacts DOC_ID cleanup` after a failed file cleanup and retry the same delete request. See the [development guide](docs/plan/0.1.0/development-guide.md) for backup and recovery boundaries.
 - **Back up before Q02 writes.** An existing store remains readable without a bulk conversion. Its first ownership, cleanup or abandon write raises the DSH records unit version before saving that row, so older binaries then refuse to open the store. Restore the complete SQLite and export-file backup to roll back.
 - **Choose how to work.** Use the browser workbench or CLI, or connect an AI client to the shared kernel through [MCP](docs/plan/0.1.0/mcp-guide.md).
-- **Correct settings errors before saving.** Invalid model compatibility values, including switches unsupported by every model API on a route, and invalid reasoning values are rejected as input errors; malformed CLI `settings --set` JSON exits with code 2.
+- **Correct settings errors before saving.** Invalid model compatibility values, including switches unsupported by every model API on a route, and invalid reasoning values are rejected as input errors; CLI `settings --set` rejects malformed JSON and non-object roots (such as `null` or arrays) with `INVALID_ARGUMENT` and exit code 2 in both local and remote modes.
 
 ## Get started
 
