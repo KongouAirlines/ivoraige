@@ -198,6 +198,8 @@ export class Tasks extends Service {
     const selectedOutputs = outputs.map(output => {
       const adapter = outputRegistry.get(output.format,
         { adapterId: output.adapterId, binding, contentMode })
+      if (adapter.requiredViews?.length && !this.ctx.get('ivoraige.parse'))
+        throw new KernelError('COMPONENT_MISSING', 'Source adapter registry is unavailable')
       return { ...output, adapterId: adapter.id, adapterVersion: adapter.version ?? 'unversioned' }
     })
     const paths = outputs.filter(item => item.out !== undefined).map(item => {

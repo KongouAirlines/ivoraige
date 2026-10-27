@@ -64,9 +64,16 @@ export function installEventState(ctx) {
   }))
   observe('ivoraige/settings-changed', () => bridge.publish('settings.changed'))
   observe('ivoraige/capabilities-changed', () => bridge.publish('capabilities.changed'))
-  const catalog = ctx.get('ivoraige.operationCatalog')
-  if (catalog?.subscribeChanges) disposers.push(catalog.subscribeChanges(() => bridge.publish('capabilities.changed')))
+  let detachCatalog
+  const observeCatalog = () => {
+    detachCatalog?.()
+    detachCatalog = ctx.get('ivoraige.operationCatalog')?.subscribeChanges(
+      () => bridge.publish('capabilities.changed'))
+  }
+  observeCatalog()
+  disposers.push(() => detachCatalog?.())
   observe('internal/service', name => {
+    if (name === 'ivoraige.operationCatalog') observeCatalog()
     const capabilities = ctx.get('ivoraige.capabilities')?.list() ?? []
     const operations = ctx.get('ivoraige.operationCatalog')?.list() ?? []
     if (['ivoraige.capabilities', 'ivoraige.operationCatalog', 'ivoraige.records', 'ivoraige.parse',

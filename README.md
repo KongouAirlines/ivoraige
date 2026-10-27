@@ -95,11 +95,13 @@ For task-admitting or long-running operations, generic CLI `call` needs a persis
 
 ### Adapter availability and readable outputs
 
-Missing source components are classified from declared formats and compatible input kinds without executing their matchers. Readable JSON/Markdown exports require an explicit source `readableText` projection; TXT and Markdown declare identity projection, while binary outputs with no requested views remain independent of source projection. Output enumeration and selection share one availability rule and accept an optional content mode: disabled/failed outputs stay unavailable; an unavailable output may explicitly allow a mode through `canRunUnavailable`. Explicit output versions must be nonempty strings; omitted versions retain the `unversioned` compatibility value.
+Missing source components are classified from declared formats and compatible input kinds without executing their matchers. Export admission checks the selected outputs: if any declares `requiredViews`, missing Parse returns `COMPONENT_MISSING` before creating a snapshot or task. Outputs with `requiredViews: []` remain usable without Parse. Readable JSON/Markdown exports require an explicit source `readableText` projection; TXT and Markdown declare identity projection, while binary outputs with no requested views remain independent of source projection. Output enumeration and selection share one availability rule and accept an optional content mode: disabled/failed outputs stay unavailable; an unavailable output may explicitly allow a mode through `canRunUnavailable`. Explicit output versions must be nonempty strings; omitted versions retain the `unversioned` compatibility value.
 
 ### Shared artifact file identity
 
 Physical managed-file deletion counts references through file symlinks by their complete canonical target, including aliases in another directory or with a different filename. An unresolved dangling file symlink prevents physical deletion conservatively. Record-only deletion still retains bytes and does not require filesystem identity. Directory aliases and actual filesystem case sensitivity remain supported; external output files and symlink paths themselves are not authorized for managed deletion. The existing boundary against concurrent external replacement is unchanged.
+
+Late operation-catalog mounting also connects registration/withdrawal notifications to the state bridge. Catalog withdrawal and bridge disposal release that listener.
 
 ### Task reads in composed hosts
 
