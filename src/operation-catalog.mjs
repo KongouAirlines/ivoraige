@@ -47,20 +47,21 @@ export class OperationCatalog extends Service {
   }
 
   register({ id, inputSchema, resultSchema, requires = [], handler,
-    description = '', longRunning = false, cancellable = 'none', preflight }) {
+    description = '', longRunning = false, cancellable = 'none', preflight, isAvailable }) {
     if (this.closing) throw new KernelError('PRECONDITION_FAILED', 'Operation catalog is closing')
     if (typeof id !== 'string' || !/^[A-Za-z][A-Za-z0-9]*$/.test(id) ||
         typeof inputSchema?.safeParse !== 'function' ||
         typeof resultSchema?.safeParse !== 'function' || typeof handler !== 'function' ||
         !Array.isArray(requires) || requires.some(name => typeof name !== 'string') ||
         (preflight !== undefined && typeof preflight !== 'function') ||
+        (isAvailable !== undefined && typeof isAvailable !== 'function') ||
         !['none', 'request', 'task'].includes(cancellable)) {
       throw new KernelError('INVALID_ARGUMENT', 'Invalid operation registration')
     }
     if (this.entries.has(id)) throw new KernelError('CONFLICT', 'Operation already registered', { operation: id })
     const metadata = Object.freeze({ id, inputSchema, resultSchema, requires: Object.freeze([...requires]),
       description, longRunning: Boolean(longRunning), cancellable })
-    const entry = { ...metadata, metadata, handler, preflight }
+    const entry = { ...metadata, metadata, handler, preflight, isAvailable }
     this.entries.set(id, entry)
     this.changed()
     let disposing
@@ -79,7 +80,11 @@ export class OperationCatalog extends Service {
     }
   }
 
-  available(entry) { return entry.requires.every(name => this.ctx.get(name) !== undefined) }
+  available(entry) {
+    const isAvailable = this.entries.get(entry.id)?.isAvailable
+    return entry.requires.every(name => this.ctx.get(name) !== undefined) &&
+      (!isAvailable || isAvailable() === true)
+  }
   get(id) {
     const entry = this.entries.get(id)
     if (!entry) throw missing(id)

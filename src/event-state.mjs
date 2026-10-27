@@ -43,7 +43,7 @@ export function installEventState(ctx) {
     inputFormats: ctx.get('ivoraige.parse')?.listFormats() ?? [],
     outputFormats: ctx.get('ivoraige.outputs')?.listFormats() ?? [],
     operations: ctx.get('ivoraige.operationCatalog')?.list().map(({ id, requires }) =>
-      ({ id, available: ctx.get('ivoraige.operationCatalog').available({ requires }) })) ?? [],
+      ({ id, available: ctx.get('ivoraige.operationCatalog').available({ id, requires }) })) ?? [],
   }))
   read('settings', () => ctx.get('settings')?.describe({ redactSecrets: true })
     .map(row => ({ namespace: row.ns, revision: row.revision })) ?? [])

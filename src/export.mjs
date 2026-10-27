@@ -47,8 +47,6 @@ export class Exporter extends Service {
     for (const output of outputs) {
       const adapter = this.outputs.get(output.format,
         { adapterId: output.adapterId, binding, contentMode })
-      if (adapter.requiredViews?.length && !this.ctx.get('ivoraige.parse'))
-        throw new KernelError('COMPONENT_MISSING', 'Source adapter registry is unavailable')
       if (output.adapterVersion !== undefined &&
           output.adapterVersion !== (adapter.version ?? 'unversioned'))
         throw new KernelError('PRECONDITION_FAILED', 'Pinned output adapter version is unavailable',

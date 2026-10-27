@@ -13,6 +13,8 @@ import { Exporter } from '../src/export.mjs'
 import { TxtSource } from '../src/adapters/txt-source.mjs'
 import { TextOutputs } from '../src/adapters/text-output.mjs'
 import { z } from 'zod'
+import { McpRegistry } from '../src/mcp-registry.mjs'
+import { OperationTools } from '../src/mcp-tools.mjs'
 import { OperationCatalog } from '../src/operation-catalog.mjs'
 import { Operations } from '../src/operations.mjs'
 import { CoreOperations } from '../src/core-operations.mjs'
@@ -22,8 +24,8 @@ import { installEventState } from '../src/event-state.mjs'
 import { createApp } from '../src/app.mjs'
 import { serve } from '../src/http.mjs'
 
-async function fixture(t) {
-  const dir = await mkdtemp(join(tmpdir(), 'ivoraige-review-composition-'))
+async function fixture(t, directory) {
+  const dir = directory ?? await mkdtemp(join(tmpdir(), 'ivoraige-review-composition-'))
   const ctx = new Context()
   t.after(async () => { await ctx.fiber.dispose(); await rm(dir, { recursive: true, force: true }) })
   await ctx.plugin(Storage)
@@ -59,6 +61,8 @@ test('revision and export requirements reject missing services before reading or
   for (const [id] of cases.slice(0, 2)) assert.ok(catalog.list({ availableOnly: true }).some(item => item.id === id))
   assert.equal(catalog.list({ availableOnly: true }).some(item => item.id === 'exportDocument'), false)
   await ctx.plugin(Exporter, { root: join(dir, 'exports') })
+  assert.equal(catalog.list({ availableOnly: true }).some(item => item.id === 'exportDocument'), false)
+  await ctx.plugin(TextOutputs)
   assert.ok(catalog.list({ availableOnly: true }).some(item => item.id === 'exportDocument'))
 })
 
@@ -76,6 +80,7 @@ test('HTTP and MCP capabilities share export availability and reject admission w
   const records = ctx.get('ivoraige.records')
   await records.ready
   await ctx.plugin(Importer)
+  await ctx.plugin(TextOutputs)
   const { document } = await records.importDocument({ format: 'txt', content: 'Synthetic source.' }, { language: 'en' })
   const server = await serve(app, { port: 0 })
   const exporter = () => ctx.plugin(Exporter, { root: join(dir, 'exports') })
@@ -160,7 +165,7 @@ test('export admission checks selected views before snapshots or tasks and prese
         const invoke = () => entry === 'operation'
           ? ctx.get('ivoraige.operations').invoke('exportDocument', { docId: document.id, ...options })
           : ctx.get('ivoraige.export').exportDocument(document.id, options)
-        // Static discovery describes the operation, not every document/output combination.
+        // A view-free binary adapter keeps the operation available while text outputs remain blocked.
         assert.ok(ctx.get('ivoraige.operationCatalog').list({ availableOnly: true })
           .some(item => item.id === 'exportDocument'))
         if (formats.includes('md') || formats.includes('json')) {
@@ -221,4 +226,101 @@ for (const late of [false, true]) test(`operation registration invalidates state
     handler: async () => ({}) })
   assert.equal(events.stateRevision, revision)
   await remove()
+})
+
+
+test('reopened documents, HTTP/MCP discovery and state share conditional output availability', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'ivoraige-output-discovery-'))
+  const seed = await createApp({ store: join(dir, 'store.sqlite') })
+  let document
+  try {
+    const imported = await seed.records.importDocument({ format: 'txt', content: 'Persisted source.' }, { language: 'en' })
+    document = imported.document
+  } finally { await seed.dispose() }
+  const { ctx } = await fixture(t, dir)
+  await ctx.plugin(Outputs)
+  await ctx.plugin(TextOutputs)
+  await ctx.plugin(Records, { storageVersion: 2 })
+  await ctx.plugin(JobsLocal)
+  await ctx.plugin(Tasks)
+  await ctx.plugin(Exporter, { root: join(dir, 'exports') })
+  await ctx.plugin(EntryEvents)
+  const dispose = installEventState(ctx)
+  t.after(dispose)
+  await ctx.plugin(McpRegistry)
+  await ctx.plugin(OperationTools)
+  const records = ctx.get('ivoraige.records'), outputs = ctx.get('ivoraige.outputs')
+  await records.ready
+  const catalog = ctx.get('ivoraige.operationCatalog'), operations = ctx.get('ivoraige.operations')
+  const events = ctx.get('ivoraige.events'), session = events.subscribe()
+  const server = await serve({ operations, operationCatalog: catalog, events }, { port: 0 })
+  t.after(() => server.close())
+  const post = (id, input = {}) => fetch(server.url + '/api/operations/' + id, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input),
+  })
+  const check = async (formats, available) => {
+    assert.deepEqual(outputs.listFormats().sort(), formats)
+    assert.deepEqual(outputs.listAdapters().sort(), formats)
+    assert.deepEqual(outputs.availableFor(records.record(document.id).sourceBinding).sort(), formats)
+    assert.deepEqual(records.getDocument(document.id).availableOutputs.sort(), formats)
+    const snapshot = session.snapshot()
+    assert.deepEqual(snapshot.state.documents[0].availableOutputs.sort(), formats)
+    assert.deepEqual(snapshot.state.capabilities.outputFormats.sort(), formats)
+    const http = await (await fetch(server.url + '/api/operations')).json()
+    const capabilityResponse = await post('capabilities')
+    assert.equal(capabilityResponse.status, 200)
+    const capabilities = await capabilityResponse.json()
+    const mcp = await ctx.get('ivoraige.mcp').tools.get('ivoraige_capabilities').invoke({}, {})
+    for (const view of [http, capabilities, mcp, snapshot.state.capabilities])
+      assert.equal(view.operations.find(item => item.id === 'exportDocument').available, available)
+    for (const view of [capabilities, mcp]) assert.deepEqual(view.outputFormats.sort(), formats)
+    assert.equal(catalog.available(catalog.get('exportDocument')), available)
+    assert.equal(catalog.list({ availableOnly: true }).some(item => item.id === 'exportDocument'), available)
+    return snapshot.stateRevision
+  }
+  assert.equal(ctx.get('ivoraige.parse'), undefined)
+  assert.equal(Object.hasOwn(catalog.get('exportDocument'), 'isAvailable'), false)
+  await check([], false)
+  for (const format of ['md', 'json']) {
+    const response = await post('exportDocument', { docId: document.id, contentMode: 'source', outputs: [{ format }] })
+    assert.equal(response.status, 503)
+    assert.equal((await response.json()).error.code, 'COMPONENT_MISSING')
+    assert.throws(() => outputs.get(format), { code: 'COMPONENT_MISSING' })
+  }
+  assert.deepEqual(records.listSnapshots(document.id), [])
+  assert.deepEqual(records.listTasks(), [])
+  const removeBinary = outputs.register({ id: 'binary', requiredViews: [], supports: () => true,
+    rebuild: () => Buffer.from([0, 255]) })
+  await check(['binary'], true)
+  const response = await post('exportDocument', { docId: document.id, contentMode: 'source', outputs: [{ format: 'binary' }] })
+  assert.equal(response.status, 200)
+  const done = await ctx.get('ivoraige.tasks').wait((await response.json()).taskId)
+  assert.equal(done.state, 'succeeded')
+  assert.deepEqual(await readFile(done.artifacts[0].path), Buffer.from([0, 255]))
+  removeBinary()
+  const before = await check([], false)
+  session.acknowledge(before)
+  const parser = ctx.plugin(Parse)
+  await parser
+  await ctx.plugin(TxtSource)
+  const mounted = await check(['json', 'md'], true)
+  assert.ok(mounted > before)
+  assert.ok(session.drain().some(notice => notice.event?.type === 'capabilities.changed'))
+  for (const format of ['md', 'json']) {
+    const result = await operations.invoke('exportDocument', { docId: document.id, contentMode: 'source', outputs: [{ format }] })
+    assert.equal((await ctx.get('ivoraige.tasks').wait(result.taskId)).state, 'succeeded')
+  }
+  session.acknowledge(events.stateRevision)
+  await parser.dispose()
+  assert.ok(await check([], false) > mounted)
+  assert.ok(session.drain().some(notice => notice.event?.type === 'capabilities.changed'))
+  const removeSourceOnly = outputs.register({ id: 'source-only', requiredViews: [], supports: () => true,
+    status: () => ({ state: 'unavailable' }), canRunUnavailable: mode => mode === 'source', rebuild: () => 'source' })
+  await check([], true)
+  assert.deepEqual(outputs.listFormats({ contentMode: 'source' }), ['source-only'])
+  const sourceOnly = await operations.invoke('exportDocument', { docId: document.id, contentMode: 'source',
+    outputs: [{ format: 'source-only' }] })
+  assert.equal((await ctx.get('ivoraige.tasks').wait(sourceOnly.taskId)).state, 'succeeded')
+  removeSourceOnly()
+  await check([], false)
 })

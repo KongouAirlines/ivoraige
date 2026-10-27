@@ -38,16 +38,21 @@ export class Outputs extends Service {
     }
   }
 
+  viewsAvailable(adapter) {
+    return !adapter.requiredViews?.length || Boolean(this.ctx.get('ivoraige.parse'))
+  }
+
   availableFor(sourceBinding, { contentMode } = {}) {
-    return [...new Set([...this.adapters.values()].filter(adapter => available(adapter, contentMode) &&
+    return [...new Set([...this.adapters.values()].filter(adapter =>
+      available(adapter, contentMode) && this.viewsAvailable(adapter) &&
       adapter.supports(sourceBinding, contentMode))
       .flatMap(adapter => adapter.formats ?? [adapter.id]))]
   }
 
   listAdapters({ contentMode } = {}) { return [...this.adapters.values()]
-    .filter(adapter => available(adapter, contentMode)).map(adapter => adapter.id) }
+    .filter(adapter => available(adapter, contentMode) && this.viewsAvailable(adapter)).map(adapter => adapter.id) }
   listFormats({ contentMode } = {}) { return [...new Set([...this.adapters.values()]
-    .filter(adapter => available(adapter, contentMode))
+    .filter(adapter => available(adapter, contentMode) && this.viewsAvailable(adapter))
     .flatMap(adapter => adapter.formats ?? [adapter.id]))] }
 
   get(format, { adapterId, binding, contentMode } = {}) {
@@ -63,8 +68,10 @@ export class Outputs extends Service {
       (binding === undefined || adapter.supports(binding, contentMode)))
     if (!compatible.length) throw new KernelError('PRECONDITION_FAILED',
       'Output adapter does not support the frozen source binding or mode', { format, adapterId })
-    if (compatible.length > 1) throw new KernelError('CONFLICT', 'Output adapter selection is ambiguous',
-      { format, adapterIds: compatible.map(adapter => adapter.id) })
-    return compatible[0]
+    const ready = compatible.filter(adapter => this.viewsAvailable(adapter))
+    if (!ready.length) throw new KernelError('COMPONENT_MISSING', 'Source adapter registry is unavailable')
+    if (ready.length > 1) throw new KernelError('CONFLICT', 'Output adapter selection is ambiguous',
+      { format, adapterIds: ready.map(adapter => adapter.id) })
+    return ready[0]
   }
 }

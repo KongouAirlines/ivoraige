@@ -9,19 +9,19 @@ function capabilityHandlers(ctx, ops) {
       const settingsPages = ctx.get('ivoraige.settingsPages')?.list() ?? []
       const hasRecords = Boolean(ctx.get('ivoraige.records'))
       const hasTasks = Boolean(ctx.get('ivoraige.tasks'))
-      const components = parser.componentStatus()
+      const components = parser?.componentStatus() ?? {}
       return { features: [
         ...(hasRecords ? ['documents', 'workbench'] : []),
         ...(hasTasks ? ['tasks'] : []),
         ...(ctx.get('ivoraige.components') ? ['component-installation'] : []),
         ...(settingsPages.length ? ['settings'] : []),
       ], settingsPages,
-      inputFormats: parser.listFormats().map(format => format === 'markdown' ? 'md' : format)
+      inputFormats: (parser?.listFormats() ?? []).map(format => format === 'markdown' ? 'md' : format)
         .filter((format, index, formats) => formats.indexOf(format) === index),
       outputFormats: ctx.get('ivoraige.outputs').listFormats(), components,
       capabilities: ctx.get('ivoraige.capabilities')?.list() ?? [],
       operations: ctx.get('ivoraige.operationCatalog').list().map(({ id, requires, longRunning, cancellable }) =>
-        ({ id, requires, longRunning, cancellable, available: ctx.get('ivoraige.operationCatalog').available({ requires }) })),
+        ({ id, requires, longRunning, cancellable, available: ctx.get('ivoraige.operationCatalog').available({ id, requires }) })),
       resourceLimits: { ...resourcePolicy, maxArtifactBytes: ctx.get('ivoraige.resources')?.maxArtifactBytes ?? null },
       ...(ops.dataDirectory ? { dataDirectory: ops.dataDirectory } : {}) }
     },
@@ -115,7 +115,7 @@ export function apply(ctx) {
     const handlers = { ...capabilityHandlers(ctx, ops), ...recordHandlers(ctx, ops),
       ...settingsHandlers(ops), ...componentHandlers(ops) }
     for (const [id, handler] of Object.entries(handlers)) {
-      const requires = id === 'capabilities' ? ['ivoraige.parse', 'ivoraige.outputs'] :
+      const requires = id === 'capabilities' ? ['ivoraige.outputs'] :
         id.startsWith('component') ? ['ivoraige.components'] :
           ['getSettings', 'updateSettings', 'setCredential'].includes(id) ? ['ivoraige.modelSettings'] :
             id === 'importDocument' ? ['ivoraige.records', 'ivoraige.tasks', 'ivoraige.parse', 'ivoraige.import'] :
@@ -125,6 +125,9 @@ export function apply(ctx) {
               documentOps.has(id) ? ['ivoraige.records'] : []
       ctx.effect(() => catalog.register({ id, inputSchema: parameters[id], resultSchema: results[id],
         requires, handler, longRunning: taskAdmissions.has(id),
+        ...(id === 'exportDocument' ? { isAvailable: () =>
+          ['source', 'accepted-translation'].some(contentMode =>
+            ctx.get('ivoraige.outputs').listFormats({ contentMode }).length > 0) } : {}),
         ...(['updateSettings', 'setCredential'].includes(id) ? { preflight: () => ops.assertNoActiveTranslations() } : {}),
         cancellable: requestWaits.has(id) ? 'request' : taskAdmissions.has(id) ? 'task' : 'none' }))
     }

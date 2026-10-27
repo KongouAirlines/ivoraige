@@ -113,7 +113,10 @@ test('known MCP operations stay discoverable across late required services and r
   assert.equal(registry.tools.has('ivoraige_capabilities'), true)
   await parseFiber.dispose()
   assert.equal(registry.tools.has('ivoraige_capabilities'), true)
+  assert.deepEqual((await registry.tools.get('ivoraige_capabilities').invoke({}, {})).inputFormats, [])
+  await outputsFiber.dispose()
   await assert.rejects(registry.tools.get('ivoraige_capabilities').invoke({}, {}), { code: 'COMPONENT_MISSING' })
+  await ctx.plugin(Outputs)
   const replacement = ctx.plugin(Parse)
   await replacement
   assert.equal((await registry.tools.get('ivoraige_capabilities').invoke({}, {})).apiVersion, '2.0')
