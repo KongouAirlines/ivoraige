@@ -1,0 +1,15 @@
+# 0.1.x 即时翻译预览方案
+
+本页定义 [U01](packages/ui.md#u01) 的近期即时预览方案，交互以 [UI 草案](../../requirements/0.1.x/ui.md#可选即时预览)为准，调用/授权与修订保护按 [U-V01](validation/ui.md#即时预览验收)验收；候选范围见 [releases](releases.md)。原本地专用方案按 [PR #37 审阅](https://github.com/KongouAirlines/ivoraige/pull/37#pullrequestreview-5613409911)调整为复用已配置模型，不能将近期方案描述为仅本地计算。文件路径保留以兼容既有引用。
+
+## 近期：复用已配置模型
+
+交付顺序为 P04 → U01 独立普通页；预览切片额外依赖 [U02](packages/ui.md#u02) 的模型/连接与预览设置（含普通页配置入口）通过 [U-V02.preview-settings](validation/ui.md#u-v02-preview-settings)，再执行 U-V01 预览验收。U02 预览设置子交付未就绪时预览不可启用且零预览调用，不以占位入口或临时配置宣称交付；普通页不等预览或 U02 无关管理页。
+
+预览默认模型独立配置，引用既有连接与模型，不自动继承正式翻译模型；未配置或不可用时暂停，不静默回退其他模型。自动预览默认关闭；任何连接均须展示发送范围、自动传输及可能计费，并由用户明确启用。发送集合按 [payload 与版本](../../requirements/0.1.x/ui.md#预览请求内容与版本)限定；外发判断以实际端点和代理/转发路径为准，启用选择绑定目的地、相关配置修订和发送范围，同 ID 改端点或重定向越界也须暂停并重新确认，localhost 不保证离线。保留防抖、组词暂停、取消/丢弃旧结果及人工修订保护；正式翻译/精译仍由明确点击触发。
+
+需要本地预览时，用户可自行启动 LM Studio 等服务并手动配置连接，调用复用既有 DSH 模型/任务服务。[Issue #39](https://github.com/KongouAirlines/ivoraige/issues/39) 独立跟踪原生 REST 模型发现/加载状态及经用户确认保存进既有配置，推理继续 OpenAI-compatible；该增强不阻塞手动配置和预览。本切片不实现该 Issue，也不接管模型下载、加载/卸载、GPU 参数或服务启停。
+
+## 远期：可选内置引擎与语言包
+
+[独立研究页](../../research/local-translation-preview-0.1.x.md)保留模型与运行路线候选，尚未选定、集成或运行，不是当前实现承诺或近期预览的前置；评估与交付证据待办见[跟踪项](../follow-ups/translation-preview.md)。
