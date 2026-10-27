@@ -670,6 +670,30 @@ def run_engine(
                 traceback.print_exc(file=sys.stderr)
 
 
+def normalize_paragraph_sources(calls, paragraphs):
+    """Keep textless, non-callback layout units without publishing null text."""
+    called = {call['key'] for call in calls}
+    for call in calls:
+        require(isinstance(call.get('requestText'), str) and call['requestText'].strip(),
+                f"BabelDOC callback request must be nonempty text: {call['key']}")
+    normalized = []
+    for paragraph in paragraphs:
+        source = paragraph.get('sourceUnicode')
+        if source is None:
+            require(paragraph['key'] not in called,
+                    f"BabelDOC callback paragraph has null source text: {paragraph['key']}")
+            raw = paragraph.get('rawExtractedText')
+            require(raw is None or isinstance(raw, str),
+                    f"BabelDOC paragraph has invalid extracted text: {paragraph['key']}")
+            # Retain any independently extracted text; never discard it as structure.
+            paragraph = {**paragraph, 'sourceUnicode': raw or '', 'rawSourceUnicode': None}
+        else:
+            require(isinstance(source, str),
+                    f"BabelDOC paragraph source must be text: {paragraph['key']}")
+        normalized.append(paragraph)
+    return normalized
+
+
 def parse(params):
     input_pdf = Path(params["path"]).resolve(strict=True)
     require(
@@ -692,6 +716,7 @@ def parse(params):
     )
     calls, paragraphs, _ = run_engine(input_pdf, config, "capture")
     require(calls, "BabelDOC produced no translation requests")
+    paragraphs = normalize_paragraph_sources(calls, paragraphs)
     extras = unbound_pdf_lines(input_pdf, paragraphs, pages)
     paragraphs = insert_unbound_lines(paragraphs, extras)
     keys = [call["key"] for call in calls]
@@ -708,6 +733,13 @@ def parse(params):
     units = []
     records = []
     mapping_warnings = []
+    normalized_empty = [item for item in paragraphs if 'rawSourceUnicode' in item]
+    for item in normalized_empty:
+        mapping_warnings.append(
+            f"Retained non-callback BabelDOC paragraph with null sourceUnicode "
+            f"at page {item['page'] + 1}, {item['key']} ({item['layoutLabel']}); "
+            f"raw source metadata preserved"
+        )
     called_by_key = {call["key"]: call for call in calls}
     for order, paragraph in enumerate(paragraphs):
         call = called_by_key.get(paragraph["key"])
@@ -764,6 +796,8 @@ def parse(params):
                 "key": paragraph["key"],
                 "requestText": source_text,
                 "sourceUnicode": paragraph["sourceUnicode"],
+                **({"rawSourceUnicode": paragraph["rawSourceUnicode"]}
+                   if "rawSourceUnicode" in paragraph else {}),
                 **(
                     {"rawExtractedText": paragraph["rawExtractedText"]}
                     if "rawExtractedText" in paragraph
@@ -784,6 +818,8 @@ def parse(params):
             "bbox": item["bbox"],
             "key": item["key"],
             "sourceUnicode": item["sourceUnicode"],
+            **({"rawSourceUnicode": item["rawSourceUnicode"]}
+               if "rawSourceUnicode" in item else {}),
             **(
                 {"rawExtractedText": item["rawExtractedText"]}
                 if "rawExtractedText" in item

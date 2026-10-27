@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Service } from '../dist/dsh.mjs'
 import { createApp } from '../src/app.mjs'
+import { placeholderTokens } from '../src/adapters/pdf-text.mjs'
 
 const engine = fileURLToPath(new URL('./fixtures/pdf-engine.mjs', import.meta.url))
 const originalBytes = '%PDF-FAKE-ORIGINAL\nA test source, not a real PDF.\n'
@@ -53,6 +54,33 @@ async function exported(app, docId, options) {
 }
 
 const outputs = [{ format: 'pdf' }, { format: 'md' }, { format: 'json' }]
+
+test('textless PDF structure survives import and all frozen exports without losing body text', async t => {
+  const f = await fixture(t, 'empty-structure')
+  const doc = await imported(f)
+  const units = f.app.records.listUnits(doc.id, { targetLang: 'zh-CN' })
+  assert.equal(units.length, 3)
+  assert.equal(units[2].sourceText, '')
+  assert.equal(units[2].translatable, false)
+  for (const unit of units.filter(unit => unit.translatable)) {
+    const revision = await f.app.records.writeRevision(unit.id,
+      { targetLang: 'zh-CN', text: '正文 <b1> 保留。', baseRevisionId: null })
+    await f.app.records.acceptRevision(revision.id, { expectedAcceptedRevisionId: null })
+  }
+  const result = await exported(f.app, doc.id, { targetLang: 'zh-CN', outputs })
+  const json = JSON.parse(await readFile(result.artifacts.json.path, 'utf8'))
+  assert.equal(json.units.length, 3)
+  assert.equal(json.units[0].text, '正文 E = mc² 保留。')
+  assert.equal(json.units[2].text, '')
+  const frozen = f.app.records.resolveSnapshot(doc.id, result.snapshotId)
+  assert.equal(frozen.sourceBinding.records[2].rawSourceUnicode, null)
+  assert.equal(frozen.units[2].unit.locator.key, 'empty-layout')
+})
+
+test('invalid PDF text produces a structured error rather than a null match crash', () => {
+  assert.throws(() => placeholderTokens(null), { code: 'PRECONDITION_FAILED' })
+  assert.deepEqual(placeholderTokens('Body <b1> text </b1>'), ['<b1>', '</b1>'])
+})
 
 test('unresolved PDF displays preserve tokens and allow import and all frozen outputs', async t => {
   const f = await fixture(t, 'unresolved-mapping')
