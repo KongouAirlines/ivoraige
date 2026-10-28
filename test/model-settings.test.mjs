@@ -5,8 +5,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer } from 'node:http'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
+import { PiAiCatalogError } from '../dist/dsh.mjs'
 import { bootModelSettings } from '../src/model-settings.mjs'
 import { createApp } from '../src/app.mjs'
+import { errorEnvelope } from '../src/protocol.mjs'
 
 test('unconfigured model fails before recording an LLM call', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-unconfigured-model-'))
@@ -298,4 +300,196 @@ test('saving the active model without selection preserves its new timeout for th
   assert.deepEqual(saved.savedModels, [{ provider: 'custom', model: 'one', timeoutMs: 5000 }])
   const selected = await app.settings.update({ provider: 'custom', model: 'one', selectOnly: true })
   assert.deepEqual(selected.selected, { provider: 'custom', model: 'one', timeoutMs: 5000 })
+})
+
+test('invalid DSH route values map to public argument errors without persisting settings', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-invalid-model-settings-'))
+  const app = await bootModelSettings({ directory })
+  t.after(async () => { await app.dispose(); await rm(directory, { recursive: true, force: true }) })
+  const before = await app.settings.get()
+  for (const changes of [
+    { compat: 'invalid' },
+    { compat: { supportsStore: 'yes' } },
+    { compat: { supportsStore: null } },
+    { compat: { openRouterRouting: {} } },
+    { reasoningEfforts: ['low'] },
+    { reasoningEfforts: {} },
+    { reasoningEfforts: { low: null } },
+  ]) {
+    await assert.rejects(app.settings.update({ provider: 'local', model: 'science',
+      api: 'openai-completions', baseURL: 'http://127.0.0.1:9999/v1',
+      contextWindow: 8192, maxTokens: 512, ...changes }), error => {
+      assert.equal(errorEnvelope(error).body.error.code, 'INVALID_ARGUMENT')
+      return true
+    })
+  }
+  const after = await app.settings.get()
+  assert.deepEqual(after.routes, before.routes)
+  assert.deepEqual(after.revisions, before.revisions)
+})
+
+test('pinned catalog rejects compat unsupported by explicit, inherited and catalog APIs before saving', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-compat-api-'))
+  const app = await bootModelSettings({ directory })
+  t.after(async () => { await app.dispose(); await rm(directory, { recursive: true, force: true }) })
+  const custom = { provider: 'local', model: 'science', api: 'openai-completions',
+    baseURL: 'http://127.0.0.1:9999/v1', contextWindow: 8192, maxTokens: 512 }
+  const invalid = { supportsStrictTools: true }
+  const before = await app.settings.get()
+  await assert.rejects(app.settings.update({ ...custom, compat: invalid }), error => {
+    assert.equal(errorEnvelope(error).body.error.code, 'INVALID_ARGUMENT')
+    assert.equal(errorEnvelope(error).status, 400)
+    assert.equal(errorEnvelope(error).exitCode, 2)
+    assert.ok(error.cause instanceof PiAiCatalogError)
+    return true
+  })
+  assert.deepEqual((await app.settings.get()).revisions, before.revisions)
+  assert.deepEqual((await app.settings.get()).routes, before.routes)
+
+  const saved = await app.settings.update(custom)
+  await assert.rejects(app.settings.update({ provider: 'local', model: 'science', compat: invalid }),
+    { code: 'INVALID_ARGUMENT' })
+  assert.deepEqual((await app.settings.get()).revisions, saved.revisions)
+  assert.deepEqual((await app.settings.get()).routes, saved.routes)
+
+  const catalogBefore = await app.settings.get()
+  await assert.rejects(app.settings.update({ provider: 'deepseek',
+    model: getBuiltinModels('deepseek')[0].id, compat: invalid }), { code: 'INVALID_ARGUMENT' })
+  assert.deepEqual((await app.settings.get()).revisions, catalogBefore.revisions)
+  assert.deepEqual((await app.settings.get()).routes, catalogBefore.routes)
+
+  const validOpenAI = await app.settings.update({ provider: 'local', model: 'science',
+    compat: { supportsStrictMode: true } })
+  assert.equal(validOpenAI.routes.local.compat.supportsStrictMode, true)
+  const validAnthropic = await app.settings.update({ provider: 'anthropic-custom', model: 'science',
+    api: 'anthropic-messages', baseURL: 'http://127.0.0.1:9999/v1',
+    contextWindow: 8192, maxTokens: 512, compat: invalid })
+  assert.equal(validAnthropic.routes['anthropic-custom'].compat.supportsStrictTools, true)
+  const mixedModel = getBuiltinModels('openrouter').find(entry => entry.api === 'openai-completions')
+  assert.ok(mixedModel)
+  assert.ok(getBuiltinModels('openrouter').some(entry => entry.api === 'anthropic-messages'))
+  const mixed = await app.settings.update({ provider: 'openrouter', model: mixedModel.id,
+    compat: invalid })
+  assert.equal(mixed.selected.model, mixedModel.id)
+  assert.equal(mixed.routes.openrouter.compat.supportsStrictTools, true)
+})
+
+test('missing DSH settings forms use a public component error', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-missing-settings-'))
+  const app = await bootModelSettings({ directory })
+  t.after(async () => { await app.dispose(); await rm(directory, { recursive: true, force: true }) })
+  t.mock.method(app.ctx.settings, 'describe', () => [])
+  await assert.rejects(app.settings.get(), { code: 'COMPONENT_MISSING' })
+  await assert.rejects(app.settings.update({ provider: 'local', model: 'science' }),
+    { code: 'COMPONENT_MISSING' })
+})
+
+test('DSH validation in the second settings write reports a durable partial save', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-partial-validation-'))
+  const app = await bootModelSettings({ directory })
+  t.after(async () => { await app.dispose(); await rm(directory, { recursive: true, force: true }) })
+  let validationError
+  try {
+    await app.ctx.settings.mutate('ivoraige-model', [
+      { op: 'set', path: ['timeoutMs'], value: -1 },
+    ])
+  } catch (error) { validationError = error }
+  assert.equal(validationError?.name, 'ValidationError')
+  const original = app.ctx.settings.mutate
+  const secondWrite = t.mock.method(app.ctx.settings, 'mutate', function (namespace, ...args) {
+    if (namespace === 'ivoraige-model') throw validationError
+    return original.call(this, namespace, ...args)
+  })
+  const before = await app.settings.get()
+  await assert.rejects(app.settings.update({
+    provider: 'local', model: 'science', api: 'openai-completions',
+    baseURL: 'http://127.0.0.1:9999/v1', contextWindow: 8192, maxTokens: 512,
+  }), error => {
+    assert.equal(error.code, 'UPSTREAM_FAILURE')
+    assert.equal(errorEnvelope(error).status, 502)
+    assert.equal(errorEnvelope(error).exitCode, 4)
+    assert.deepEqual(error.details.partialSave, {
+      persisted: 'routes', failed: 'selected', revisions: { routes: before.revisions.routes + 1 },
+    })
+    return true
+  })
+  const after = await app.settings.get()
+  assert.ok(after.routes.local)
+  assert.equal(after.revisions.routes, before.revisions.routes + 1)
+  assert.equal(after.revisions.selected, before.revisions.selected)
+  secondWrite.mock.restore()
+
+  const firstWrite = t.mock.method(app.ctx.settings, 'mutate', function (namespace, ...args) {
+    if (namespace === 'llm-pi-ai') throw validationError
+    return original.call(this, namespace, ...args)
+  })
+  await assert.rejects(app.settings.update({
+    provider: 'other', model: 'science', api: 'openai-completions',
+    baseURL: 'http://127.0.0.1:9999/v1', contextWindow: 8192, maxTokens: 512,
+  }), { code: 'INVALID_ARGUMENT' })
+  firstWrite.mock.restore()
+  assert.deepEqual((await app.settings.get()).revisions, after.revisions)
+
+  const ioError = Object.assign(new Error('Injected write failure'), { code: 'EIO' })
+  const ioWrite = t.mock.method(app.ctx.settings, 'mutate', function (namespace, ...args) {
+    if (namespace === 'llm-pi-ai') throw ioError
+    return original.call(this, namespace, ...args)
+  })
+  await assert.rejects(app.settings.update({
+    provider: 'other', model: 'science', api: 'openai-completions',
+    baseURL: 'http://127.0.0.1:9999/v1', contextWindow: 8192, maxTokens: 512,
+  }), error => error === ioError)
+  ioWrite.mock.restore()
+  assert.deepEqual((await app.settings.get()).revisions, after.revisions)
+})
+
+test('native DSH CAS races map to public conflicts at both settings writes', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-settings-cas-'))
+  const app = await bootModelSettings({ directory })
+  t.after(async () => { await app.dispose(); await rm(directory, { recursive: true, force: true }) })
+  const original = app.ctx.settings.mutate
+  await original.call(app.ctx.settings, 'ivoraige-model', [{ op: 'set', path: ['timeoutMs'], value: 120001 }], 0)
+  for (const phase of ['routes', 'selected']) {
+    const before = await app.settings.get()
+    let raced = false
+    const mutation = t.mock.method(app.ctx.settings, 'mutate', async function (namespace, ...args) {
+      if (namespace === (phase === 'routes' ? 'llm-pi-ai' : 'ivoraige-model') && !raced) {
+        raced = true
+        if (phase === 'routes') {
+          await original.call(this, namespace,
+            [{ op: 'set', path: ['providers', 'racer'], value: {
+              api: 'openai-completions', baseURL: 'http://127.0.0.1:9998/v1',
+              models: [{ id: 'science', contextWindow: 8192, maxTokens: 512 }],
+            } }], before.revisions.routes)
+        } else {
+          await original.call(this, namespace,
+            [{ op: 'set', path: ['timeoutMs'], value: 130001 + before.revisions.selected }], before.revisions.selected)
+        }
+      }
+      return original.call(this, namespace, ...args)
+    })
+    await assert.rejects(app.settings.update({
+      provider: 'local', model: 'science', api: 'openai-completions',
+      baseURL: 'http://127.0.0.1:9999/v1', contextWindow: 8192, maxTokens: 512,
+      routesRevision: before.revisions.routes, selectedRevision: before.revisions.selected,
+    }), error => {
+      assert.equal(error.code, 'CONFLICT')
+      assert.equal(errorEnvelope(error).status, 409)
+      assert.equal(errorEnvelope(error).exitCode, 3)
+      assert.equal(error.details.expected, before.revisions[phase])
+      assert.equal(error.details.actual, before.revisions[phase] + 1)
+      if (phase === 'selected') assert.deepEqual(error.details.partialSave, {
+        persisted: 'routes', failed: 'selected',
+        revisions: { routes: before.revisions.routes + 1 },
+      })
+      else assert.equal(error.details.partialSave, undefined)
+      return true
+    })
+    mutation.mock.restore()
+    const after = await app.settings.get()
+    assert.equal(after.revisions.routes, before.revisions.routes + 1)
+    assert.equal(after.revisions.selected, before.revisions.selected + (phase === 'selected' ? 1 : 0))
+    assert.equal(Boolean(after.routes.local), phase === 'selected')
+    assert.deepEqual(after.selected, before.selected)
+  }
 })
