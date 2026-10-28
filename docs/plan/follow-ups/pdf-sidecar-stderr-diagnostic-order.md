@@ -1,8 +1,8 @@
 # sidecar 错误响应与 stderr 诊断的关联顺序
 
 - ID: pdf-sidecar-stderr-diagnostic-order
-- 状态: 待评估
-- 实施分支／PR: 未安排；发现记录随 codex/0.1.x-operation-entries / PR #52
+- 状态: 处理中
+- 实施分支／PR: codex/0.1.x-operation-entries / [PR #52](https://github.com/KongouAirlines/ivoraige/pull/52)；本次诊断修复基于 77f8eb35bad076677c8b0838a6d254195bdb68ef
 - 类型: 缺陷
 - 发现依据: 2026-10-28，PR #52 review 5670662603；源码基线 510f6d703117228b74adc2a7b990e31f76ed87cb
 - 目标分支: main
@@ -41,3 +41,11 @@ PR #52 当前来源能力检查不改变 sidecar 协议或诊断收集。可靠�
 - 无诊断的旧 sidecar 仍及时返回；连续请求、取消、崩溃、关闭保持现有生命周期。
 - traceback/私有路径不进入公开 RPC、任务或 HTTP/MCP 错误详情。
 - 补确定性顺序回归，并验证 Python 实现及相容性；原诊断断言保留。
+
+## 2026-10-28 研判与实施
+
+值得修复：故障码和任务失败状态未错，但 cause 缺失或错配上一请求会直接误导排障。最小修复采用可选本地 `error.diagnostic`，与响应 id 一起传输；不改 data，不增加额外握手、等待或版本升级。旧 sidecar 错误保持及时响应，缺少关联诊断时不再猜测。成功路径无新增等待。异常退出／超时／协议故障只在原有 close/清理等待内收集会话 stderr；取消和主动关闭的错误形状不变。崩溃 stderr 从公开消息移至本地 cause。详见协议 §7。
+
+确定性回归通过显式测试通知控制 stdout/stderr 的前后顺序，晚到 stderr 必须在错误与下一成功请求均结束后才能释放；验证相邻请求不串诊断、旧响应不等待、有界尾部与公开错误封装隔离。崩溃回归暂停 stderr，直到 exit 才恢复，验证 close 后收集及一次重试。超时使用测试时钟触发，取消／关闭检查完整收尾。Python 主循环测试验证相同 id、边界长度、错误 data 和成功返回不变；原诊断断言保留。
+
+Linux / Node 24.22.1：定向 sidecar 套件 17 通过、1 Windows 条件跳过；完整 `npm test` 构建后 508 通过、2 条件跳过、0 失败；Python 3.12.14 协议／引擎边界 mock 测试 15 通过（非发行用 Python 3.13 环境）；真实隔离 tarball 安装／重装 smoke 83 文件通过。真实 BabelDOC 引擎、PDF 质量、Windows 桌面组件重新打包／安装不在这些 fixture 与协议测试的验收范围。待合入 main 后再关闭本跟进。

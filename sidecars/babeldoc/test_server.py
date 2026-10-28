@@ -4,6 +4,7 @@
 """Fast preflight tests; no BabelDOC import, model, or asset download."""
 
 import json
+from io import StringIO
 import tempfile
 import unittest
 from contextlib import nullcontext
@@ -354,6 +355,28 @@ class BindingTests(unittest.TestCase):
             self.assertTrue(first.is_closed)
             self.assertTrue(third.is_closed)
             self.assertFalse(second.is_closed)
+
+
+class ProtocolDiagnosticTests(unittest.TestCase):
+    def test_error_diagnostic_is_bounded_correlated_and_separate_from_public_data(self):
+        requests = [{"jsonrpc": "2.0", "id": i, "method": "parse"} for i in range(3)]
+        output, stderr = StringIO(), StringIO()
+        failures = [RuntimeError("private first"), RuntimeError("x" * 5000 + "private second"), {"ok": True}]
+        with patch.object(server.sys, "stdin", StringIO("\n".join(map(json.dumps, requests)))), \
+             patch.object(server.sys, "stderr", stderr), patch.object(server, "OUTPUT", output), \
+             patch.object(server, "dispatch", side_effect=failures), patch.dict(server.STATE, {}, clear=True):
+            server.main()
+        messages = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual([m["id"] for m in messages], [0, 1, 2])
+        for i, suffix in enumerate(["private first", "private second"]):
+            error = messages[i]["error"]
+            self.assertTrue(error["diagnostic"].endswith(suffix + "\n"))
+            self.assertLessEqual(len(error["diagnostic"]), 4096)
+            self.assertEqual(error["data"], {"code": "UPSTREAM_FAILURE"})
+        self.assertNotIn("private first", messages[1]["error"]["diagnostic"])
+        self.assertEqual(messages[2]["result"], {"ok": True})
+        self.assertNotIn("error", messages[2])
+        self.assertIn("Traceback", stderr.getvalue())
 
 
 if __name__ == "__main__":

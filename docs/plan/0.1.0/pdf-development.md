@@ -69,3 +69,7 @@ node scripts/pdf-formula-acceptance.mjs evaluation/runs/pdf-formula-0.1.0/origin
 ```
 
 工作目录须为空；成功后包含三格式产物、冻结重放、payload 与坐标核对报告。页面仍需渲染目检。已验证 Windows 开发环境；三平台原生组件分发、真实富文本排版和更广的源行覆盖仍有边界，见 [实施记录](pdf.md)及 [部分行覆盖事项](../follow-ups/pdf-partial-line-coverage.md)。
+
+### sidecar 失败诊断
+
+配套源码 sidecar 将本次异常 traceback 的末尾最多 4096 字符放入本地错误响应的私有 `diagnostic` 字段；内核仅保存为 `Error.cause`，用于本地排障，不附加到公开 RPC/任务/HTTP/MCP 的错误详情。原有上游错误 message/data 保持映射，并非新增全字段脱敏器。stderr 继续独立记录。旧 sidecar 不提供该字段时仍立即返回错误，但没有可靠逐请求 cause；升级内核不会自动更新已安装的 PDF 组件。正常成功和普通失败均不额外等待。崩溃／超时的会话 stderr 尾部在已有进程关闭等待后收集，取消／关闭语义不变；强杀前未刷出的日志无法保证恢复。协议边界见 §7，实施与验证见 [诊断顺序跟进](../follow-ups/pdf-sidecar-stderr-diagnostic-order.md)。

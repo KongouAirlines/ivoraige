@@ -51,6 +51,8 @@ For configuration, debugging, and contributing, see the [development guide](docs
 
 Component installation and document tasks share a bounded background-job quota. A queued document task waits for installation to finish; an installation requested during active document work reports a conflict so you can retry.
 
+PDF failures retain bounded local diagnostics when using the matching source sidecar; public errors omit the diagnostic traceback. See the [PDF development guide](docs/plan/0.1.0/pdf-development.md) for compatibility and limits.
+
 ## What works today
 
 **First formal source version: `0.1.0`.** Features and the interface are still evolving.
