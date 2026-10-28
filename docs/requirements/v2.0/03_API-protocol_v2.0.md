@@ -155,14 +155,14 @@ interface RagChunk {
 
 | 方法 | 路径 | 请求 | 响应 |
 |---|---|---|---|
-| POST | `/api/documents/import` | `{ path?: string, contentBase64?: string, format?: string, language: string, sourceId?: string, externalRef?: string, title?: string, origin?: string }`（path 与 contentBase64 二选一；当前 `language` 必填且不得为 `auto`） | TXT/MD：`{ document: Document, taskId: Id, deduplicated: boolean, warnings: string[] }`；PDF：立即返回 `{ taskId: Id }`，完成后从 Task.result 读取同一导入结果 |
+| POST | `/api/documents/import` | `{ path?: string, contentBase64?: string, format?: string, adapterId?: string, language: string, sourceId?: string, externalRef?: string, title?: string, origin?: string }`（path 与 contentBase64 二选一；当前 `language` 必填且不得为 `auto`） | 同步来源：`{ document: Document, taskId: Id, deduplicated: boolean, warnings: string[] }`；排队来源：立即返回 `{ taskId: Id }`，完成后从 Task.result 读取同一导入结果 |
 | GET | `/api/documents` | `?origin=&format=&cursor=&limit=` | 分页 Document[] |
 | GET | `/api/documents/{docId}` | — | `{ document: Document }` |
 | GET | `/api/documents/{docId}/units` | `?targetLang=<必填>&filter=all\|untranslated\|draft\|accepted&cursor=&limit=` | 分页 Unit[]（含该语言 accepted/draft 修订 id，不内嵌全文） |
 | GET | `/api/units/{unitId}` | `?targetLang=<必填>` | `{ unit: Unit, accepted?: Revision, draft?: Revision }` |
 | GET | `/api/units/{unitId}/revisions` | `?targetLang=<必填>` | 该语言 Revision[]（版本翻看数据源） |
 
-当前导入接受 UTF-8 TXT／Markdown，以及在装配 PDF 组件时接受二进制 PDF（`format: "txt" | "md" | "pdf"`，或由路径识别）。`contentBase64` 保留原始字节，PDF 不作 UTF-8 解码；HTTP 请求体最多 10 MiB。TXT/MD 有界解析在请求内完成，返回已持久化的完成态 import Task。PDF 解析异步执行，Task 在完成前无 docId，成功时 `result` 包含 document、deduplicated、warnings；可取消，失败后重新提交来源，不提供续跑。调用方须明确原文语言，当前没有自动检测。`path` 是服务端可访问的路径；浏览器上传使用 `contentBase64`。原始 PDF 的受管理副本随 store 保留，供冻结快照重放。
+当前内置来源接受 UTF-8 TXT／Markdown，以及在装配 PDF 组件时接受二进制 PDF；`format` 也接受已装配来源插件声明的格式标识符，可由路径识别。`adapterId` 可在同一格式有多个实现时显式指定来源适配器；省略时按匹配分数选择，并列最高分返回 `CONFLICT`。`contentBase64` 保留原始字节，PDF 不作 UTF-8 解码；HTTP 请求体最多 10 MiB。内置 TXT/MD 有界解析在请求内完成，返回已持久化的完成态 import Task。内置 PDF 解析异步执行，Task 在完成前无 docId，成功时 `result` 包含 document、deduplicated、warnings；可取消，失败后重新提交来源，不提供续跑。调用方须明确原文语言，当前没有自动检测。`path` 是服务端可访问的路径；浏览器上传使用 `contentBase64`。原始 PDF 的受管理副本随 store 保留，供冻结快照重放。
 
 ### 3.2 翻译与编辑
 
@@ -183,7 +183,7 @@ interface RagChunk {
 
 | 方法 | 路径 | 请求 | 响应 |
 |---|---|---|---|
-| POST | `/api/documents/{docId}/export` | `{ contentMode?: "source" \| "accepted-translation", targetLang?: string, outputs: { format: string, out?: string }[], snapshotId?: Id, onMissingAccepted?: "fail" \| "skip" }`; `targetLang` is required for accepted translation and omitted for source | `{ taskId: Id, snapshotId: Id }` |
+| POST | `/api/documents/{docId}/export` | `{ contentMode?: "source" \| "accepted-translation", targetLang?: string, outputs: { format: string, adapterId?: string, out?: string }[], snapshotId?: Id, onMissingAccepted?: "fail" \| "skip" }`; `targetLang` is required for accepted translation and omitted for source | `{ taskId: Id, snapshotId: Id }` |
 | GET | `/api/documents/{docId}/artifacts` | — | Artifact[] |
 | GET | `/api/documents/{docId}/snapshots` | `?targetLang=` | ExportSnapshot[]（发现可用快照；CLI `--snapshot` 的 id 来源） |
 | GET | `/api/documents/{docId}/snapshots/{snapshotId}` | — | `{ snapshot: ExportSnapshot }` |
@@ -191,7 +191,7 @@ interface RagChunk {
 | POST | `/api/documents/{docId}/rag/build` | `{ chunker?: string, embedModel?: string }` | `{ taskId: Id }` |
 | POST | `/api/documents/{docId}/rag/query` | `{ q: string, k?: number ≤ 50 }` | `{ chunks: RagChunk[], degraded: boolean }`（degraded=向量扩展不可用走退化路线） |
 
-首次导出在受理时生成冻结清单，outputs 内所有格式共用它；单格式也是长度为 1 的 outputs。传 snapshotId 时复用原清单，并检查它属于该 docId／targetLang；缺项策略沿用该清单，不允许覆盖。省略 snapshotId 则按当前适用版本创建新清单。清单保存来源绑定、原文与资源版本以及各 unit 的选定 revision／保留原文决定，之后编辑不会改变它。
+首次导出在受理时生成冻结清单，outputs 内所有格式共用它；单格式也是长度为 1 的 outputs。`outputs[].adapterId` 可显式选择该格式的输出实现；省略时若有多个兼容实现则返回 `CONFLICT`。传 snapshotId 时复用原清单，并检查它属于该 docId／targetLang；缺项策略沿用该清单，不允许覆盖。省略 snapshotId 则按当前适用版本创建新清单。清单保存来源绑定、原文与资源版本以及各 unit 的选定 revision／保留原文决定，之后编辑不会改变它。
 
 快照生命周期：只存引用与逐 unit 决定，默认永久保留，不自动过期。删除语义：`DELETE /api/documents/{docId}/snapshots/{snapshotId}` 在无 Artifact 引用时允许；有引用返回 `409 CONFLICT`，details 列出引用方 artifactId。来源资源由 import 记录钉住，快照删除不影响资源存续。
 

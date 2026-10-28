@@ -40,3 +40,7 @@ At 69ea840, opening a non-SQLite store escaped as ERR_SQLITE_ERROR instead of th
 ## Adapter dependency synchronization (2026-10-28)
 
 Ordinary-merged P03 `3cf87dfb4f644c9f80a4553af4c901688a188122`, including P02 `b28cc2055da3c378c1e90534246fedd35e717787` and runtime cleanup ancestry. Source and retention code merged automatically; three documentation-tail conflicts were combined without discarding either capability description. This adds the P03 output-pin/resume/source-state correction; it does not change Q02 deletion/lease/schema semantics or the DSH pin. Linux Node 24.22.1 default build/test passes 414 with 2 conditional skips; the isolated 73-file installation/reinstallation smoke passes. Exact remote-head CI is checked separately; earlier reviewer approval does not certify this updated head.
+
+## P03 review correction propagation (2026-10-28)
+
+Ordinary merges retain the existing retention head and propagate P03's unavailable-PDF assertion, contract/protocol documentation, descriptor annotation and redundant-scope cleanup. Retention behavior is unchanged. Linux Node 24.22.1 default `npm test` rebuilt runtime/web and passed 414 tests with 2 existing conditional skips; the actual isolated 73-file package installation/reinstallation smoke passed persistence, frozen/source output, MCP and UI probes. The runtime pin is unchanged; real PDF engines, private-library migration and desktop installation were not exercised.
