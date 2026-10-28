@@ -90,3 +90,5 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 ### 适配器可用性与可读输出
 
 缺件来源仅根据声明格式和兼容输入类型分类，不执行 matcher。JSON/Markdown 可读导出要求来源显式提供 `readableText` 投影；TXT 和 Markdown 声明原样投影，不请求来源视图的二进制输出仍独立可用。输出枚举与选择共用可用性规则，并可传入内容模式：disabled/failed 输出不可用，unavailable 输出仅可通过 `canRunUnavailable` 明确允许特定模式。显式输出版本必须是非空字符串，省略版本仍兼容为 `unversioned`。
+
+进程内调用的显式输出版本约束会在导出受理前及执行时校验。恢复任务时，先按冻结快照的来源绑定、内容模式及持久化适配器/版本检查尚未完成的输出，再将 paused/failed 改为 queued；已完成产物保留检查点，无需重新安装其原输出适配器。来源导入的发现、自动/显式选择和排队执行统一排除 unavailable、disabled、failed 状态。
