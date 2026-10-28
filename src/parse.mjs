@@ -61,6 +61,7 @@ export class Parse extends Service {
     if (adapter.inputKinds !== undefined && (!Array.isArray(adapter.inputKinds) || !adapter.inputKinds.length ||
         adapter.inputKinds.some(kind => !['text', 'bytes', 'managed-resource'].includes(kind))))
       throw new KernelError('INVALID_ARGUMENT', 'Source adapter inputKinds must list supported input kinds')
+    // Cancellation support is descriptor metadata; the kernel always passes the signal through.
     if (adapter.cancellable !== undefined && typeof adapter.cancellable !== 'boolean')
       throw new KernelError('INVALID_ARGUMENT', 'Source adapter cancellable must be boolean')
     this.adapters.set(adapter.id, adapter)

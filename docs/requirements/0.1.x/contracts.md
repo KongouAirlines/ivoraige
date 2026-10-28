@@ -206,7 +206,7 @@ P01 固定服务/错误/版本命名及兼容探针，P02 明确旧数据读取�
 
 P03 将 `format` 与 `adapterId` 分开。来源描述符声明 `formats[]`、`inputKinds[]`（`text`、`bytes`、`managed-resource`）、`version`、`bindingSchemaVersion`、可选排队与取消能力；旧描述符缺少这些字段时沿用既有 match 路径。显式指定的适配器必须支持输入种类和格式；并列最高 match 返回 `CONFLICT`。来源插件必须返回属于自身的 `sourceBinding.adapterId`，导入编排由 Importer 承担，Records 只持久化规范化结果。来源资源清单以 `id/mediaType/contentDigest/version` 计算语义身份，不把位置放进 source IR；冻结快照保留资源版本，变更同一 id 的内容会拒绝旧快照重放。来源 binding 仍参与修订适用性检查。
 
-输出描述符以 `formats[]` 声明所支持格式，可按 binding 和 contentMode 判定兼容，并以 `requiredViews[]` 按需索取来源插件的 `readable-text` 或 `native-markdown` 投影。`requiredViews: []` 的二进制输出只读取冻结快照，无须来源插件继续安装或保持原版本；需要来源投影的文本输出仍校验来源版本。受理时选中的输出 adapter id/version 冻结在任务中，执行和恢复必须再次匹配，产物记录实际 id/version；导入任务同样固定来源实现版本。旧记录无来源版本元数据时保留旧读取兼容路径；带版本元数据的记录在人工写入、模型 checkpoint、接受旧修订和需要来源投影的导出时，若插件缺席或同 id 不兼容替换则拒绝写入/导出，旧记录读取保持可用。直接 Exporter 调用的受理或执行失败会清除本调用新建且无引用的快照，已有快照不受影响。导入的同格式候选不让 `unavailable` 来源或不适合当前输入种类的来源改变文本/字节路线；同步或排队响应由实际选中的来源描述符决定，低分的排队候选不得改变高分同步来源的受理。显式指定不可用适配器仍返回缺件错误。`disabled`/`failed` 状态的实际执行拦截留待受控插件验收，本批不改变既有行为。
+输出描述符以 `formats[]` 声明所支持格式，可按 binding 和 contentMode 判定兼容，并以 `requiredViews[]` 按需索取来源插件的 `readable-text` 或 `native-markdown` 投影。`requiredViews: []` 的二进制输出只读取冻结快照，无须来源插件继续安装或保持原版本；需要来源投影的文本输出仍校验来源版本。受理时选中的输出 adapter id/version 冻结在任务中，执行和恢复必须再次匹配，产物记录实际 id/version；导入任务同样固定来源实现版本。旧记录无来源版本元数据时保留旧读取兼容路径；带版本元数据的记录在人工写入、模型 checkpoint、接受旧修订和需要来源投影的导出时，若插件缺席或同 id 不兼容替换则拒绝写入/导出，旧记录读取保持可用。直接 Exporter 调用的受理或执行失败会清除本调用新建且无引用的快照，已有快照不受影响。导入的同格式候选不让 `unavailable` 来源或不适合当前输入种类的来源改变文本/字节路线；同步或排队响应由实际选中的来源描述符决定，低分的排队候选不得改变高分同步来源的受理。来源处于 `unavailable`、`disabled` 或 `failed` 时，发现、自动／显式选择及排队执行复核均拒绝该来源；显式指定时返回缺件错误。
 
 #### P03 输入准备与统一选择补充
 

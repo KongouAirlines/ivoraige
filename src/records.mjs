@@ -215,50 +215,48 @@ export class Records {
   }
   async persistParsed(file, { sourceId, language: sourceLang, origin, externalRef }, parsed, { taskId } = {}) {
     await this.ready
-    {
-      required(typeof parsed.format === 'string' && parsed.format, 'Parsed format required')
-      assertJson(parsed)
-      const resources = parsed.resources ?? []
-      required(Array.isArray(resources) && resources.every(resource => resource &&
-        typeof resource.id === 'string' && resource.id &&
-        typeof resource.contentDigest === 'string' && /^[a-f0-9]{64}$/.test(resource.contentDigest) &&
-        typeof resource.version === 'string' && resource.version),
-      'Resources require id, contentDigest and version')
-      required(new Set(resources.map(resource => resource.id)).size === resources.length,
-        'Resource ids must be unique')
-      const businessSourceId = sourceId ?? (file.path ? `path:${file.path}` : `manual:${id()}`)
-      const fingerprint = digest({ format: parsed.format, language: sourceLang, units: parsed.units,
-        chapters: parsed.chapters, resources: parsed.resources, sourceBinding: parsed.sourceBinding })
-      const legacyDocId = digest({ sourceId: businessSourceId, fingerprint }).slice(0, 32)
-      // Keep the established content fingerprint unchanged. Versioned parses
-      // receive a separate document namespace so replacing an implementation
-      // cannot silently deduplicate against its older private binding contract.
-      const docId = parsed.sourceAdapterVersion && parsed.sourceAdapterVersion !== 'unversioned'
-        ? digest({ sourceId: businessSourceId, fingerprint, sourceAdapterId: parsed.sourceAdapterId,
-          sourceAdapterVersion: parsed.sourceAdapterVersion,
-          bindingSchemaVersion: parsed.bindingSchemaVersion }).slice(0, 32) : legacyDocId
-      // A pre-P03 record has no implementation provenance; preserve its old
-      // idempotent reimport identity rather than silently rewriting that record.
-      const legacy = this.table.get(legacyDocId)
-      const retainedLegacy = legacy && !legacy.document.sourceAdapterVersion
-      const destination = retainedLegacy ? legacyDocId : docId
-      // Persist the deterministic destination before inserting the document, so
-      // startup can reconcile a crash between document commit and task completion.
-      if (taskId) await this.updateTask(taskId, task => ({ ...task, preparedDocId: destination }))
-      file.signal?.throwIfAborted()
-      if (retainedLegacy) return { document: clone(legacy.document), deduplicated: true }
-      const existing = this.table.get(docId)
-      if (existing) return { document: clone(existing.document), deduplicated: true }
-      const pending = this.imports.get(docId)
-      if (pending) {
-        const document = await pending
-        return { document: clone(document), deduplicated: true }
-      }
-      const operation = this.insertDocument(docId, businessSourceId, sourceLang, origin, externalRef, fingerprint, parsed)
-      this.imports.set(docId, operation)
-      try { return { document: clone(await operation), deduplicated: false } }
-      finally { this.imports.delete(docId) }
+    required(typeof parsed.format === 'string' && parsed.format, 'Parsed format required')
+    assertJson(parsed)
+    const resources = parsed.resources ?? []
+    required(Array.isArray(resources) && resources.every(resource => resource &&
+      typeof resource.id === 'string' && resource.id &&
+      typeof resource.contentDigest === 'string' && /^[a-f0-9]{64}$/.test(resource.contentDigest) &&
+      typeof resource.version === 'string' && resource.version),
+    'Resources require id, contentDigest and version')
+    required(new Set(resources.map(resource => resource.id)).size === resources.length,
+      'Resource ids must be unique')
+    const businessSourceId = sourceId ?? (file.path ? `path:${file.path}` : `manual:${id()}`)
+    const fingerprint = digest({ format: parsed.format, language: sourceLang, units: parsed.units,
+      chapters: parsed.chapters, resources: parsed.resources, sourceBinding: parsed.sourceBinding })
+    const legacyDocId = digest({ sourceId: businessSourceId, fingerprint }).slice(0, 32)
+    // Keep the established content fingerprint unchanged. Versioned parses
+    // receive a separate document namespace so replacing an implementation
+    // cannot silently deduplicate against its older private binding contract.
+    const docId = parsed.sourceAdapterVersion && parsed.sourceAdapterVersion !== 'unversioned'
+      ? digest({ sourceId: businessSourceId, fingerprint, sourceAdapterId: parsed.sourceAdapterId,
+        sourceAdapterVersion: parsed.sourceAdapterVersion,
+        bindingSchemaVersion: parsed.bindingSchemaVersion }).slice(0, 32) : legacyDocId
+    // A pre-P03 record has no implementation provenance; preserve its old
+    // idempotent reimport identity rather than silently rewriting that record.
+    const legacy = this.table.get(legacyDocId)
+    const retainedLegacy = legacy && !legacy.document.sourceAdapterVersion
+    const destination = retainedLegacy ? legacyDocId : docId
+    // Persist the deterministic destination before inserting the document, so
+    // startup can reconcile a crash between document commit and task completion.
+    if (taskId) await this.updateTask(taskId, task => ({ ...task, preparedDocId: destination }))
+    file.signal?.throwIfAborted()
+    if (retainedLegacy) return { document: clone(legacy.document), deduplicated: true }
+    const existing = this.table.get(docId)
+    if (existing) return { document: clone(existing.document), deduplicated: true }
+    const pending = this.imports.get(docId)
+    if (pending) {
+      const document = await pending
+      return { document: clone(document), deduplicated: true }
     }
+    const operation = this.insertDocument(docId, businessSourceId, sourceLang, origin, externalRef, fingerprint, parsed)
+    this.imports.set(docId, operation)
+    try { return { document: clone(await operation), deduplicated: false } }
+    finally { this.imports.delete(docId) }
   }
   async insertDocument(docId, businessSourceId, sourceLang, origin, externalRef, fingerprint, parsed) {
     const units = parsed.units.map((unit, order) => ({ ...clone(unit), id: `${docId}.${order.toString(36)}`,
