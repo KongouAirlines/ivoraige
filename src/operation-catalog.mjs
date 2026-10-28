@@ -14,10 +14,13 @@ function assertData(value, seen = new Set()) {
   seen.add(value)
   const array = Array.isArray(value)
   const keys = Reflect.ownKeys(value)
-  if (array && (keys.length !== value.length + 1 ||
-      Array.from({ length: value.length }, (_, index) => index).some(index =>
-        !Object.hasOwn(value, index)))) {
-    throw new KernelError('INTERNAL', 'Operation returned non-JSON data')
+  if (array) {
+    if (keys.length !== value.length + 1)
+      throw new KernelError('INTERNAL', 'Operation returned non-JSON data')
+    for (let index = 0; index < value.length; index++) {
+      if (!Object.hasOwn(value, index))
+        throw new KernelError('INTERNAL', 'Operation returned non-JSON data')
+    }
   }
   for (const key of keys) {
     if (array && key === 'length') continue

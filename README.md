@@ -89,7 +89,7 @@ See [contribution guidance](CONTRIBUTING.md) and [security reporting](SECURITY.m
 
 Built with Cordis and DSH, with optional BabelDOC support. See [third-party acknowledgements](THIRD_PARTY.md).
 
-Operation and entry composition is available for in-process hosts: register one schema/handler in `operationCatalog`, keep the returned disposer, and use the existing CLI/REST/MCP aliases or the internal generic operation projection. HTTP/CLI/MCP can be omitted independently. The existing workbench uses a subscription-ready barrier and authoritative state refetch; saved artifact reads share ownership, size policy and read leases. See [composition usage](docs/plan/0.1.0/development-guide.md#p04-operation-and-entry-composition) and [P04 evidence](docs/plan/0.1.x/evidence/foundation-p04.md).
+Operation and entry composition is available for in-process hosts: register one schema/handler in `operationCatalog`, keep the returned disposer, and use the existing CLI/REST/MCP aliases or the internal generic operation projection. HTTP/CLI/MCP can be omitted independently. The existing workbench uses a subscription-ready barrier and authoritative state refetch; state SSE pauses on backpressure and resumes from its bounded session buffer; saved artifact reads share ownership, size policy and read leases. See [composition usage](docs/plan/0.1.0/development-guide.md#p04-operation-and-entry-composition) and [P04 evidence](docs/plan/0.1.x/evidence/foundation-p04.md).
 
 For task-admitting or long-running operations, generic CLI `call` needs a persistent host (`--url` or a caller-supplied app); a self-owned local host rejects the call before creating work. Use the existing local CLI aliases to wait for task completion and receive its final exit code.
 

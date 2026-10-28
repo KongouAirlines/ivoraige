@@ -27,7 +27,7 @@ ivoraige 的 MCP 入口把已装插件贡献的内核能力提供给本机 AI �
 
 ## 工具与工作流程
 
-先调用 `ivoraige_capabilities` 查看已装输入／输出格式、组件和数据目录。导入时，`ivoraige_import` 必须且只能提供服务器可读的 `path` 或 `contentBase64`。文本的 `contentBase64` 是 UTF-8 字节的标准 base64，PDF 则是原始 PDF 字节的 base64，并应指定 `format: "pdf"`。`language` 为源语言，例如 `en`。`path` 指 MCP **服务器**上的文件；导出 `outputs[].out` 也指服务器上的目标路径，不能当作客户端机器的本地路径。上传内容避免了客户端与服务器文件系统不相通的问题。PDF 格式取决于可选 BabelDOC 组件，先检查 capabilities。
+先调用 `ivoraige_capabilities` 查看已装输入／输出格式、组件和数据目录。导入时，`ivoraige_import` 必须且只能提供服务器可读的 `path` 或 `contentBase64`。文本的 `contentBase64` 是 UTF-8 字节的标准 base64，PDF 则是原始 PDF 字节的 base64，并应指定 `format: "pdf"`。`format` 也可填写已装配来源插件声明的格式；同一格式有多个实现时，可用 `adapterId` 指定来源适配器，导出的每个 `outputs[]` 也可用 `adapterId` 指定该格式的输出适配器。来源省略适配器时按匹配分数选择，并列最高分返回 `CONFLICT`；输出省略适配器时若有多个兼容实现也返回 `CONFLICT`。`language` 为源语言，例如 `en`。`path` 指 MCP **服务器**上的文件；导出 `outputs[].out` 也指服务器上的目标路径，不能当作客户端机器的本地路径。上传内容避免了客户端与服务器文件系统不相通的问题。PDF 格式取决于可选 BabelDOC 组件，先检查 capabilities。
 
 TXT／Markdown 导入可直接返回完成结果；PDF 导入返回持久任务。翻译 `ivoraige_translate` 和导出 `ivoraige_export` 也返回任务句柄。用 `ivoraige_task_status` 查询，或传 `waitSeconds` 在 0～60 秒内等待一次状态变化；仍未结束就继续查询。HTTP 连接实际断开只停止当次等待，不会取消持久任务。旧协议客户端仅发送取消通知而不断开请求时，无状态 HTTP 不关联跨请求取消；当次等待最多在 `waitSeconds` 到期后结束。明确取消须调用 `ivoraige_task_cancel`。暂停与恢复分别使用 `ivoraige_task_pause`、`ivoraige_task_resume`，以任务当前生命周期为准；翻译或恢复可能产生模型用量。
 

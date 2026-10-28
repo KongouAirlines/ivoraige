@@ -28,7 +28,7 @@ function parse(argv) {
     'path', 'format', 'adapter', 'source-id', 'external-ref', 'source-lang', 'title', 'target-lang', 'cursor',
     'limit', 'origin', 'filter', 'text', 'base-revision', 'expected-accepted', 'mode',
     'units', 'out', 'snapshot', 'on-missing-accepted', 'state', 'kind', 'set', 'ref', 'value', 'token-env',
-    'file-action', 'content-mode', 'adapter'])
+    'file-action', 'content-mode'])
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i]
     if (!token.startsWith('--')) { positional.push(token); continue }
@@ -287,7 +287,11 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
       server = await serve(app, { host: o.host ?? '127.0.0.1', port: o.port ? Number(o.port) : 8787,
         mcp: !o['no-mcp'], staticDir: o['static-dir'] ?? await webDirectory() })
       stdout.write(`${server.url}\n`)
-      await new Promise(resolveStop => { stop = resolveStop; if (requestSignal.aborted) resolveStop() })
+      await new Promise(resolveStop => {
+        stop = resolveStop
+        requestSignal.addEventListener('abort', stop, { once: true })
+        if (requestSignal.aborted) stop()
+      })
       return 0
     }
     const [name, params, method, path] = route(command, positional, o)
@@ -362,6 +366,7 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
     return mapped.exitCode
   } finally {
     process.off('SIGINT', onSignal); process.off('SIGTERM', onSignal)
+    if (stop) requestSignal.removeEventListener('abort', stop)
     let failure
     try { observer?.close() } catch (error) { failure = error }
     try { await server?.close() } catch (error) { failure ??= error }

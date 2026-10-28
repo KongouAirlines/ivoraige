@@ -123,3 +123,5 @@ The Operations facade requires only the operation catalog at construction. It do
 ### MCP raw HTTP request lifetime
 
 createMcpHttp scopes a raw Node request AbortController through AsyncLocalStorage into its shared SDK server factory. It listens to IncomingMessage aborted and ServerResponse close, checks already-aborted/destroyed state, removes listeners after handling, and aborts its owned lifetimes on endpoint shutdown. It deliberately does not treat ordinary IncomingMessage close after a complete POST as cancellation. This bypasses a supported Node26.12.1 Request.clone weak-controller failure in the SDK legacy leg without changing the runtime pin, SDK parsing/discovery or operation registry. The existing parsed-body adapter argument is preserved. Stdio cancellation still uses the SDK request context.
+
+Programmatic `runCli(['serve', ...], { signal, stdout, stderr })` observes aborts both before and after listening, then closes its owned HTTP host and store. State SSE waits for transport `drain` under backpressure and resumes retained notices from the existing bounded session; overflow continues to require a fresh subscription and snapshot.

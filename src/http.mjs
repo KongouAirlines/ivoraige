@@ -132,14 +132,34 @@ function stateEvents(req, res, app, scope, activeEvents) {
   const session = app.events.subscribe(scope)
   res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive' })
+  let blocked = false, closed = false, delivered = -1
   const sendEvent = (type, data) => {
-    try {
-      if (!res.write(`event: ${type}\ndata: ${serialize(data)}\n\n`)) res.destroy()
-    } catch { res.destroy() }
+    try { blocked = !res.write(`event: ${type}\ndata: ${serialize(data)}\n\n`) }
+    catch { res.destroy() }
   }
-  const unsubscribe = session.onNotice(notice => sendEvent(notice.type, notice))
+  const sendNotice = notice => {
+    if (closed || blocked || delivered === Infinity ||
+        (notice.type !== 'resync-required' && notice.stateRevision <= delivered)) return
+    delivered = notice.type === 'resync-required' ? Infinity : notice.stateRevision
+    sendEvent(notice.type, notice)
+  }
+  const onDrain = () => {
+    blocked = false
+    // The session already owns a bounded buffer and overflow/resync policy.
+    // A false write accepted that frame; resume only notices after its revision.
+    for (const notice of session.drain()) {
+      if (closed || blocked) break
+      sendNotice(notice)
+    }
+  }
+  const unsubscribe = session.onNotice(sendNotice)
+  res.on('drain', onDrain)
   activeEvents.add(res)
-  const cleanup = () => { unsubscribe(); session.close(); activeEvents.delete(res) }
+  const cleanup = () => {
+    closed = true
+    res.off('drain', onDrain)
+    unsubscribe(); session.close(); activeEvents.delete(res)
+  }
   req.once('close', cleanup)
   res.once('close', cleanup)
   sendEvent('state.ready', session.ready)
@@ -152,7 +172,7 @@ async function listenHttp(app, { host = '127.0.0.1', port = 8787, staticDir, all
     throw new KernelError('INVALID_ARGUMENT', 'port must be an integer from 0 to 65535')
   const mcpEndpoint = mcp && app.mcp ? (await import('./mcp.mjs')).createMcpHttp(app) : undefined
   const activeEvents = new Set()
-  const controllers = new Set(), requests = new Set()
+  const controllers = new Set()
   let closing = false
   const server = createServer((req, res) => {
     const controller = new AbortController()
@@ -161,10 +181,9 @@ async function listenHttp(app, { host = '127.0.0.1', port = 8787, staticDir, all
     req.once('aborted', abort)
     res.once('close', abort)
     const pending = handle(req, res, controller.signal).finally(() => {
-      controllers.delete(controller); requests.delete(pending)
+      controllers.delete(controller)
       req.off('aborted', abort); res.off('close', abort)
     })
-    requests.add(pending)
     pending.catch(() => res.destroy())
   })
   async function handle(req, res, signal) {
