@@ -38,24 +38,28 @@ export class Outputs extends Service {
     }
   }
 
-  viewsAvailable(adapter) {
-    return !adapter.requiredViews?.length || Boolean(this.ctx.get('ivoraige.parse'))
+  viewError(adapter, { binding, provenance } = {}) {
+    const views = adapter.requiredViews ?? []
+    if (!views.length) return null
+    const parser = this.ctx.get('ivoraige.parse')
+    if (!parser) return new KernelError('COMPONENT_MISSING', 'Source adapter registry is unavailable')
+    if (binding !== undefined) return parser.outputViewError(binding, { views, provenance })
+    return parser.hasOutputViews(views) ? null :
+      new KernelError('COMPONENT_MISSING', 'No source adapter provides the requested output views')
   }
 
-  availableFor(sourceBinding, { contentMode } = {}) {
-    return [...new Set([...this.adapters.values()].filter(adapter =>
-      available(adapter, contentMode) && this.viewsAvailable(adapter) &&
-      adapter.supports(sourceBinding, contentMode))
-      .flatMap(adapter => adapter.formats ?? [adapter.id]))]
+  availableAdapters(options = {}) {
+    const { binding, contentMode } = options
+    return [...this.adapters.values()].filter(adapter => available(adapter, contentMode) &&
+      (binding === undefined || adapter.supports(binding, contentMode)) && !this.viewError(adapter, options))
   }
 
-  listAdapters({ contentMode } = {}) { return [...this.adapters.values()]
-    .filter(adapter => available(adapter, contentMode) && this.viewsAvailable(adapter)).map(adapter => adapter.id) }
-  listFormats({ contentMode } = {}) { return [...new Set([...this.adapters.values()]
-    .filter(adapter => available(adapter, contentMode) && this.viewsAvailable(adapter))
+  availableFor(binding, options = {}) { return this.listFormats({ ...options, binding }) }
+  listAdapters(options = {}) { return this.availableAdapters(options).map(adapter => adapter.id) }
+  listFormats(options = {}) { return [...new Set(this.availableAdapters(options)
     .flatMap(adapter => adapter.formats ?? [adapter.id]))] }
 
-  get(format, { adapterId, binding, contentMode } = {}) {
+  get(format, { adapterId, binding, provenance, contentMode } = {}) {
     if (adapterId !== undefined && (typeof adapterId !== 'string' || !adapterId))
       throw new KernelError('INVALID_ARGUMENT', 'adapterId must be a nonempty string')
     const candidates = [...this.adapters.values()].filter(adapter =>
@@ -68,8 +72,9 @@ export class Outputs extends Service {
       (binding === undefined || adapter.supports(binding, contentMode)))
     if (!compatible.length) throw new KernelError('PRECONDITION_FAILED',
       'Output adapter does not support the frozen source binding or mode', { format, adapterId })
-    const ready = compatible.filter(adapter => this.viewsAvailable(adapter))
-    if (!ready.length) throw new KernelError('COMPONENT_MISSING', 'Source adapter registry is unavailable')
+    const checked = compatible.map(adapter => ({ adapter, error: this.viewError(adapter, { binding, provenance }) }))
+    const ready = checked.filter(item => !item.error).map(item => item.adapter)
+    if (!ready.length) throw checked[0].error
     if (ready.length > 1) throw new KernelError('CONFLICT', 'Output adapter selection is ambiguous',
       { format, adapterIds: ready.map(adapter => adapter.id) })
     return ready[0]

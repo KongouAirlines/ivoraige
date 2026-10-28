@@ -192,12 +192,13 @@ export class Tasks extends Service {
       throw new KernelError('INVALID_ARGUMENT', 'outputs must contain requested formats')
     }
     if (snapshotId !== undefined && onMissingAccepted !== undefined) throw new KernelError('INVALID_ARGUMENT', 'Snapshot decisions are already frozen')
-    const binding = this.records.record(docId).sourceBinding
+    const source = snapshotId === undefined ? this.records.record(docId) : this.records.resolveSnapshot(docId, snapshotId)
+    const binding = source.sourceBinding
     const outputRegistry = this.ctx.get('ivoraige.outputs')
     if (!outputRegistry) throw new KernelError('COMPONENT_MISSING', 'Output adapter registry is unavailable')
     const selectedOutputs = outputs.map(output => {
       const adapter = outputRegistry.get(output.format,
-        { adapterId: output.adapterId, binding, contentMode })
+        { adapterId: output.adapterId, binding, provenance: source.document, contentMode })
       return { ...output, adapterId: adapter.id, adapterVersion: adapter.version ?? 'unversioned' }
     })
     const paths = outputs.filter(item => item.out !== undefined).map(item => {

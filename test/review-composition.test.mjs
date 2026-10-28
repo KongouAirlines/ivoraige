@@ -63,6 +63,8 @@ test('revision and export requirements reject missing services before reading or
   await ctx.plugin(Exporter, { root: join(dir, 'exports') })
   assert.equal(catalog.list({ availableOnly: true }).some(item => item.id === 'exportDocument'), false)
   await ctx.plugin(TextOutputs)
+  assert.equal(catalog.list({ availableOnly: true }).some(item => item.id === 'exportDocument'), false, 'an empty Parse registry provides no text views')
+  await ctx.plugin(TxtSource)
   assert.ok(catalog.list({ availableOnly: true }).some(item => item.id === 'exportDocument'))
 })
 

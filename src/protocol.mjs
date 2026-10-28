@@ -3,6 +3,7 @@ import { z } from '../dist/dsh.mjs'
 import { ERROR_STATUSES, KernelError } from './errors.mjs'
 
 export const API_VERSION = '2.0'
+export const canonicalInputFormats = formats => [...new Set(formats.map(format => format === 'markdown' ? 'md' : format))]
 const id = z.string().min(1)
 const lang = z.string().regex(/^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/).refine(value => value !== 'auto')
 const document = { docId: id }

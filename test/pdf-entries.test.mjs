@@ -202,5 +202,10 @@ for await (const line of createInterface({ input: process.stdin })) {
   output = ''; error = ''
   code = await runCli(['--store', store, 'documents', document.id, '--json'], sink)
   assert.equal(code, 0, error)
-  assert.deepEqual(JSON.parse(output).document.availableOutputs.sort(), ['json', 'md'])
+  assert.deepEqual(JSON.parse(output).document.availableOutputs, [], 'reopening without the bound PDF source cannot project text')
+  output = ''; error = ''
+  code = await runCli(['--store', store, '--pdf-config', config, 'documents', document.id, '--json'], sink)
+  assert.equal(code, 0, error)
+  assert.ok(JSON.parse(output).document.availableOutputs.includes('json'))
+  assert.ok(JSON.parse(output).document.availableOutputs.includes('md'))
 })

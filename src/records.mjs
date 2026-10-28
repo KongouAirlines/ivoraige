@@ -330,7 +330,7 @@ export class Records {
   getDocument(docId) {
     const record = this.record(docId)
     return clone({ ...record.document,
-      availableOutputs: this.ctx.get('ivoraige.outputs')?.availableFor(record.sourceBinding) ?? [] })
+      availableOutputs: this.ctx.get('ivoraige.outputs')?.availableFor(record.sourceBinding, { provenance: record.document }) ?? [] })
   }
   listDocuments() { this.requireReady(); return [...this.table.keys()].map(docId => this.getDocument(docId)) }
   listUnits(docId, { targetLang } = {}) {

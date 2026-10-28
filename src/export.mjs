@@ -43,10 +43,11 @@ export class Exporter extends Service {
     }
     // Reject unavailable or changed implementations before creating a snapshot.
     // Frozen-stage selection below repeats this check against the pinned binding.
-    const binding = this.records.record(docId).sourceBinding
+    const source = snapshotId === undefined ? this.records.record(docId) : this.records.resolveSnapshot(docId, snapshotId)
+    const binding = source.sourceBinding
     for (const output of outputs) {
       const adapter = this.outputs.get(output.format,
-        { adapterId: output.adapterId, binding, contentMode })
+        { adapterId: output.adapterId, binding, provenance: source.document, contentMode })
       if (output.adapterVersion !== undefined &&
           output.adapterVersion !== (adapter.version ?? 'unversioned'))
         throw new KernelError('PRECONDITION_FAILED', 'Pinned output adapter version is unavailable',
@@ -64,7 +65,7 @@ export class Exporter extends Service {
       release = this.records.retainSnapshot(docId, snapshot.id)
       const frozen = freeze(this.records.resolveSnapshot(docId, snapshot.id))
       const adapters = outputs.map(output => this.outputs.get(output.format,
-        { adapterId: output.adapterId, binding: frozen.sourceBinding, contentMode }))
+        { adapterId: output.adapterId, binding: frozen.sourceBinding, provenance: frozen.document, contentMode }))
       for (const [index, adapter] of adapters.entries()) {
         if (outputs[index].adapterVersion !== undefined &&
             outputs[index].adapterVersion !== (adapter.version ?? 'unversioned'))

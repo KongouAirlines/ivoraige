@@ -1,3 +1,5 @@
+import { canonicalInputFormats } from './protocol.mjs'
+
 // The pinned DSH notification adapters live here, beside the composition root.
 // In particular domain/changed.value is private and must never be projected.
 const pick = (value, keys) => Object.fromEntries(keys.filter(key => value?.[key] !== undefined)
@@ -40,7 +42,7 @@ export function installEventState(ctx) {
   read('settingsPages', () => ctx.get('ivoraige.settingsPages')?.list() ?? [])
   read('capabilities', () => ({
     capabilities: ctx.get('ivoraige.capabilities')?.list() ?? [],
-    inputFormats: ctx.get('ivoraige.parse')?.listFormats() ?? [],
+    inputFormats: canonicalInputFormats(ctx.get('ivoraige.parse')?.listFormats() ?? []),
     outputFormats: ctx.get('ivoraige.outputs')?.listFormats() ?? [],
     operations: ctx.get('ivoraige.operationCatalog')?.list().map(({ id, requires }) =>
       ({ id, available: ctx.get('ivoraige.operationCatalog').available({ id, requires }) })) ?? [],

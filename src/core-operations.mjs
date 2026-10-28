@@ -1,5 +1,5 @@
 import { KernelError } from './errors.mjs'
-import { parameters, results, paginate, taskView } from './protocol.mjs'
+import { parameters, results, paginate, taskView, canonicalInputFormats } from './protocol.mjs'
 import { resourcePolicy } from './resource-policy.mjs'
 
 function capabilityHandlers(ctx, ops) {
@@ -16,8 +16,7 @@ function capabilityHandlers(ctx, ops) {
         ...(ctx.get('ivoraige.components') ? ['component-installation'] : []),
         ...(settingsPages.length ? ['settings'] : []),
       ], settingsPages,
-      inputFormats: (parser?.listFormats() ?? []).map(format => format === 'markdown' ? 'md' : format)
-        .filter((format, index, formats) => formats.indexOf(format) === index),
+      inputFormats: canonicalInputFormats(parser?.listFormats() ?? []),
       outputFormats: ctx.get('ivoraige.outputs').listFormats(), components,
       capabilities: ctx.get('ivoraige.capabilities')?.list() ?? [],
       operations: ctx.get('ivoraige.operationCatalog').list().map(({ id, requires, longRunning, cancellable }) =>
