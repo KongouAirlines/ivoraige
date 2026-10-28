@@ -196,7 +196,7 @@ export class Tasks extends Service {
     if (!outputRegistry) throw new KernelError('COMPONENT_MISSING', 'Output adapter registry is unavailable')
     const selectedOutputs = outputs.map(output => {
       const adapter = outputRegistry.get(output.format,
-        { adapterId: output.adapterId, binding, contentMode })
+        { adapterId: output.adapterId, adapterVersion: output.adapterVersion, binding, contentMode })
       return { ...output, adapterId: adapter.id, adapterVersion: adapter.version ?? 'unversioned' }
     })
     const paths = outputs.filter(item => item.out !== undefined).map(item => {
@@ -570,7 +570,17 @@ export class Tasks extends Service {
       const queued = await this.records.updateTask(taskId, current => {
         if (!['paused', 'failed'].includes(current.state)) throw new KernelError('CONFLICT', 'Task state changed')
         if (current.kind === 'translate') this.records.validateTaskCheckpoints(taskId)
-        else if (current.kind === 'export') this.records.getSnapshot(current.docId, current.snapshotId)
+        else if (current.kind === 'export') {
+          const frozen = this.records.resolveSnapshot(current.docId, current.snapshotId)
+          const pendingOutputs = current.outputs.slice(current.cursor)
+          if (pendingOutputs.length) {
+            const outputRegistry = this.ctx.get('ivoraige.outputs')
+            if (!outputRegistry) throw new KernelError('COMPONENT_MISSING', 'Output adapter registry is unavailable')
+            for (const output of pendingOutputs) outputRegistry.get(output.format,
+              { adapterId: output.adapterId, adapterVersion: output.adapterVersion, binding: frozen.sourceBinding,
+                contentMode: frozen.snapshot.contentMode ?? 'accepted-translation' })
+          }
+        }
         else throw new KernelError('PRECONDITION_FAILED', 'Import tasks cannot be resumed')
         const { error, ...rest } = current
         return { ...rest, state: 'queued' }
