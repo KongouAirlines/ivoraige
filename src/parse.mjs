@@ -1,6 +1,8 @@
 import { Service } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
 
+const unavailable = adapter => ['unavailable', 'disabled', 'failed'].includes(adapter.status?.().state)
+
 function validateIr(parsed, adapterId) {
   const validUnit = (unit, index) => unit && typeof unit === 'object' &&
     unit.order === index && typeof unit.kind === 'string' &&
@@ -71,9 +73,9 @@ export class Parse extends Service {
     }
   }
 
-  listAdapters() { return [...this.adapters.values()].filter(adapter => adapter.status?.().state !== 'unavailable').map(adapter => adapter.id) }
+  listAdapters() { return [...this.adapters.values()].filter(adapter => !unavailable(adapter)).map(adapter => adapter.id) }
   listFormats() { return [...new Set([...this.adapters.values()]
-    .filter(adapter => !['unavailable', 'disabled', 'failed'].includes(adapter.status?.().state))
+    .filter(adapter => !unavailable(adapter))
     .flatMap(adapter => adapter.formats ?? [adapter.id]))] }
 
   componentStatus() {
@@ -196,9 +198,9 @@ export class Parse extends Service {
     let selected
     let confidence = 0
     let winners = []
-    const unavailable = []
+    const missingCandidates = []
     for (const adapter of candidates) {
-      const absent = adapter.status?.().state === 'unavailable'
+      const absent = unavailable(adapter)
       if (absent && file.adapterId) throw new KernelError('COMPONENT_MISSING', 'Requested source adapter is unavailable',
         { adapterId: file.adapterId })
       if (file.format && adapter.formats && !adapter.formats.includes(file.format.toLowerCase())) {
@@ -213,7 +215,7 @@ export class Parse extends Service {
             typeof file.content === 'string' ? 'text' : 'bytes' })
         continue
       }
-      if (absent) { unavailable.push({ adapter, views }); continue }
+      if (absent) { missingCandidates.push({ adapter, views }); continue }
       const match = bestView(adapter, views)
       const score = match.score
       if (score > confidence) { selected = { adapter, file: match.file }; confidence = score; winners = [adapter.id] }
@@ -224,7 +226,7 @@ export class Parse extends Service {
     if (!selected) {
       // Availability classification uses only declarations already checked above.
       // A missing component's matcher may itself require that component.
-      const missing = unavailable.map(({ adapter }) => adapter.id)
+      const missing = missingCandidates.map(({ adapter }) => adapter.id)
       if (missing.length) throw new KernelError('COMPONENT_MISSING', 'Source adapter is unavailable', { adapterIds: missing })
       throw new KernelError('INVALID_ARGUMENT', 'Unsupported source format', {
         reason: 'no-source',
@@ -250,7 +252,7 @@ export class Parse extends Service {
         (selection.adapter.version ?? 'unversioned') !== selection.adapterVersion ||
         (selection.adapter.bindingSchemaVersion ?? 1) !== selection.descriptor.bindingSchemaVersion)
       throw new KernelError('PRECONDITION_FAILED', 'Prepared source adapter changed before import')
-    if (selection.adapter.status?.().state === 'unavailable')
+    if (unavailable(selection.adapter))
       throw new KernelError('COMPONENT_MISSING', 'Prepared source adapter is unavailable', { adapterId: selection.descriptor.id })
   }
 

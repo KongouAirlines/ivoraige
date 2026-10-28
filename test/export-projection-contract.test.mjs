@@ -170,3 +170,44 @@ test('discovery checks structural compatibility without executing source project
   assert.equal(calls, 1)
   assert.equal(f.app.records.listSnapshots(f.document.id).length, 2)
 })
+
+test('resume checks frozen source provenance before readmitting unfinished text outputs', async t => {
+  for (const scenario of ['missing-after-restart', 'withdrawn', 'version', 'binding-schema', 'projection']) {
+    for (const contentMode of ['source', 'accepted-translation']) {
+      await t.test(`${scenario}/${contentMode}`, async t => {
+        const f = await fixture(t)
+        const initialSchedule = t.mock.method(f.app.tasks, 'schedule', () => {})
+        const submitted = await f.app.tasks.exportDocument(f.document.id, {
+          contentMode, ...(contentMode === 'source' ? {} : { targetLang: 'zh' }),
+          snapshotId: f.snapshots[contentMode].id, outputs: [{ format: 'json' }],
+        })
+        await f.app.tasks.pause(submitted.taskId)
+        initialSchedule.mock.restore()
+        let removeReplacement
+        if (scenario === 'missing-after-restart') await f.restart()
+        else {
+          f.remove()
+          if (scenario === 'version') removeReplacement = f.app.parse.register(source({ version: '2' }))
+          if (scenario === 'binding-schema') removeReplacement = f.app.parse.register(source({ bindingSchemaVersion: 2 }))
+          if (scenario === 'projection') removeReplacement = f.app.parse.register(source({ readableText: undefined }))
+        }
+        const schedule = t.mock.method(f.app.tasks, 'schedule', () => {})
+        const before = f.app.records.getTask(submitted.taskId)
+        const expected = ['version', 'binding-schema', 'projection'].includes(scenario) ? 'PRECONDITION_FAILED' : 'COMPONENT_MISSING'
+        await assert.rejects(f.app.tasks.resume(submitted.taskId), { code: expected })
+        assert.deepEqual(f.app.records.getTask(submitted.taskId), before)
+        assert.equal(schedule.mock.callCount(), 0)
+        assert.deepEqual(f.app.records.listArtifacts(f.document.id), [])
+        removeReplacement?.()
+        f.app.parse.register(source())
+        schedule.mock.restore()
+        await f.app.tasks.resume(submitted.taskId)
+        const done = await f.app.tasks.wait(submitted.taskId)
+        assert.equal(done.state, 'succeeded')
+        assert.equal(done.snapshotId, submitted.snapshotId)
+        assert.equal(JSON.parse(await readFile(done.artifacts[0].path, 'utf8')).units[0].text,
+          contentMode === 'source' ? 'Source v1' : 'Accepted v1')
+      })
+    }
+  }
+})

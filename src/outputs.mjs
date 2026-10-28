@@ -59,9 +59,11 @@ export class Outputs extends Service {
   listFormats(options = {}) { return [...new Set(this.availableAdapters(options)
     .flatMap(adapter => adapter.formats ?? [adapter.id]))] }
 
-  get(format, { adapterId, binding, provenance, contentMode } = {}) {
+  get(format, { adapterId, adapterVersion, binding, provenance, contentMode } = {}) {
     if (adapterId !== undefined && (typeof adapterId !== 'string' || !adapterId))
       throw new KernelError('INVALID_ARGUMENT', 'adapterId must be a nonempty string')
+    if (adapterVersion !== undefined && (typeof adapterVersion !== 'string' || !adapterVersion.trim()))
+      throw new KernelError('INVALID_ARGUMENT', 'adapterVersion must be a nonempty string')
     const candidates = [...this.adapters.values()].filter(adapter =>
       (adapter.formats ?? [adapter.id]).includes(format) &&
       (adapterId === undefined || adapter.id === adapterId))
@@ -77,6 +79,10 @@ export class Outputs extends Service {
     if (!ready.length) throw checked[0].error
     if (ready.length > 1) throw new KernelError('CONFLICT', 'Output adapter selection is ambiguous',
       { format, adapterIds: ready.map(adapter => adapter.id) })
-    return ready[0]
+    const adapter = ready[0]
+    if (adapterVersion !== undefined && adapterVersion !== (adapter.version ?? 'unversioned'))
+      throw new KernelError('PRECONDITION_FAILED', 'Pinned output adapter version is unavailable',
+        { adapterId: adapter.id, adapterVersion })
+    return adapter
   }
 }
