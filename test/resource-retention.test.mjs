@@ -1,4 +1,6 @@
 import test from 'node:test'
+import fs from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -571,3 +573,60 @@ test('HTTP, CLI and MCP expose the same explicit retention and abandon operation
   assert.equal(mcpAbandon.isError, undefined)
   assert.equal(mcpAbandon.structuredContent.task.state, 'abandoned')
 })
+
+for (const step of ['stat', 'readFile', 'unlink']) for (const missing of ['file', 'directory']) {
+  test(`managed cleanup completes when ${missing} disappears at ${step}`, async t => {
+    const f = await fixture(t)
+    const doc = await document(f.app)
+    const item = await artifact(f.app, doc)
+    const original = fs[step]
+    let raced = false
+    fs[step] = async (path, ...args) => {
+      if (path === (step === 'stat' ? f.app.exporter.root : item.path) && !raced) {
+        raced = true
+        if (missing === 'file') await rm(item.path)
+        else {
+          await rm(f.app.exporter.root, { recursive: true })
+          await writeFile(f.app.exporter.root, 'directory replaced')
+        }
+      }
+      return original(path, ...args)
+    }
+    syncBuiltinESMExports()
+    let removed
+    try {
+      removed = await f.app.operations.invoke('deleteArtifact', {
+        docId: doc.id, artifactId: item.id, fileAction: 'delete-owned',
+      })
+    } finally { fs[step] = original; syncBuiltinESMExports() }
+    assert.equal(raced, true)
+    assert.equal(removed.fileDeleted, true)
+    assert.deepEqual(f.app.records.listArtifactCleanup(doc.id), [])
+    await f.app.records.deleteSnapshot(doc.id, item.snapshotId)
+  })
+}
+
+for (const step of ['readFile', 'unlink']) {
+  test(`managed cleanup retains pending marker on ${step} permission failure`, async t => {
+    const f = await fixture(t)
+    const doc = await document(f.app)
+    const item = await artifact(f.app, doc)
+    const original = fs[step]
+    fs[step] = async (path, ...args) => {
+      if (path === item.path) throw Object.assign(new Error('permission denied'), { code: 'EACCES' })
+      return original(path, ...args)
+    }
+    syncBuiltinESMExports()
+    let removed
+    try {
+      removed = await f.app.operations.invoke('deleteArtifact', {
+        docId: doc.id, artifactId: item.id, fileAction: 'delete-owned',
+      })
+    } finally { fs[step] = original; syncBuiltinESMExports() }
+    assert.equal(removed.cleanupPending, true)
+    assert.equal(removed.fileDeleted, false)
+    assert.equal(f.app.records.listArtifactCleanup(doc.id)[0].state, 'failed')
+    assert.match(await readFile(item.path, 'utf8'), /Original text/)
+    await assert.rejects(f.app.records.deleteSnapshot(doc.id, item.snapshotId), { code: 'CONFLICT' })
+  })
+}

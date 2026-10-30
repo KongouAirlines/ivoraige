@@ -114,3 +114,7 @@ Operations may mount before Records and Tasks. After those services finish mount
 ### MCP request cancellation
 
 Disconnecting an MCP HTTP task poll releases that request subscription and leaves its persistent task running. The MCP HTTP boundary owns each raw Node request lifetime, independent of SDK Request.clone signal forwarding; simultaneous polls remain isolated. Finishing a normal request body does not mean the response disconnected. The same ownership applies to standalone createMcpHttp handlers, and endpoint shutdown aborts outstanding request lifetimes.
+
+Managed cleanup also succeeds when the file disappears during ownership checks, digest reading or deletion; permission, ownership and changed-byte errors remain retryable failures.
+
+MCP factories reject missing or closing entries before allocating SDK resources. Entry shutdown waits for every owned handle to settle before reporting a close error and releasing dependencies.

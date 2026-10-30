@@ -19,6 +19,9 @@ function resourceError(error) {
 }
 
 export function createMcpServer(app, { signal, listChanged = true, watchRegistry = true } = {}) {
+  const entry = app.ctx?.get('ivoraige.mcpEntry')
+  if (app.ctx && (!entry || entry.closing))
+    throw new KernelError('COMPONENT_MISSING', 'MCP entry is not enabled or is closing')
   const registry = app.mcp
   if (!registry) throw new KernelError('COMPONENT_MISSING', 'MCP entry is not enabled')
   const server = new McpServer({ name: 'ivoraige', version: packageInfo.version },
@@ -62,13 +65,14 @@ export function createMcpServer(app, { signal, listChanged = true, watchRegistry
   const unsubscribe = watchRegistry ? registry.subscribe(refresh) : () => {}
   let release
   server.server.onclose = () => { unsubscribe(); release?.() }
-  const entry = app.ctx?.get('ivoraige.mcpEntry')
-  if (app.ctx && !entry) { unsubscribe(); throw new KernelError('COMPONENT_MISSING', 'MCP entry is not enabled') }
   release = entry?.own(() => server.close())
   return server
 }
 
 export function createMcpHttp(app) {
+  const entry = app.ctx?.get('ivoraige.mcpEntry')
+  if (app.ctx && (!entry || entry.closing))
+    throw new KernelError('COMPONENT_MISSING', 'MCP entry is not enabled or is closing')
   if (!app.mcp) throw new KernelError('COMPONENT_MISSING', 'MCP entry is not enabled')
   const requestLifetime = new AsyncLocalStorage()
   const requests = new Set()
@@ -109,8 +113,6 @@ export function createMcpHttp(app) {
       })()
       return closePromise
     } }
-  const entry = app.ctx?.get('ivoraige.mcpEntry')
-  if (app.ctx && !entry) { unsubscribe(); void handler.close(); throw new KernelError('COMPONENT_MISSING', 'MCP entry is not enabled') }
   release = entry?.own(endpoint.close)
   return endpoint
 }

@@ -17,6 +17,11 @@ export class McpEntry extends Service {
   }
   async close() {
     this.closing = true
-    await Promise.all([...this.handles].map(async handle => { await handle.close(); this.handles.delete(handle) }))
+    const results = await Promise.allSettled([...this.handles].map(async handle => {
+      try { await handle.close() }
+      finally { this.handles.delete(handle) }
+    }))
+    const failure = results.find(result => result.status === 'rejected')
+    if (failure) throw failure.reason
   }
 }

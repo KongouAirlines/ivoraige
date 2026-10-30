@@ -68,21 +68,26 @@ export class ResourceAccess extends Service {
     finally { await resource.close() }
   }
   async removeOwnedFile(path, fileDigest) {
-    let info
-    try { info = await lstat(path) } catch (error) {
-      // Complete a durable retry without touching bytes when the recorded file
-      // or its former directory no longer exists (Q02 recovery contract).
-      if (['ENOENT', 'ENOTDIR'].includes(error.code)) return
-      throw error
+    try {
+      const info = await lstat(path)
+      const root = this.ctx.get('ivoraige.export')?.root
+      // Compare directory identity, including case and junction aliases.
+      if (!await sameDirectory(dirname(resolve(path)), root)) {
+        // sameDirectory returns false if the parent disappeared. Confirm that
+        // the file still exists before reporting an ownership violation.
+        await lstat(path)
+        throw new KernelError('PRECONDITION_FAILED', 'Artifact path is outside the managed export directory', { path })
+      }
+      if (!info.isFile() || info.isSymbolicLink())
+        throw new KernelError('PRECONDITION_FAILED', 'Owned artifact path is not a regular file', { path })
+      if (!fileDigest || createHash('sha256').update(await readFile(path)).digest('hex') !== fileDigest)
+        throw new KernelError('PRECONDITION_FAILED', 'Owned artifact bytes changed; file retained', { path })
+      await unlink(path)
+    } catch (error) {
+      // Absence completes cleanup, including disappearance during validation
+      // or unlink. Ownership, digest and other filesystem errors still fail.
+      if (!['ENOENT', 'ENOTDIR'].includes(error.code)) throw error
     }
-    const root = this.ctx.get('ivoraige.export')?.root
-    if (!await sameDirectory(dirname(resolve(path)), root))
-      throw new KernelError('PRECONDITION_FAILED', 'Artifact path is outside the managed export directory', { path })
-    if (!info.isFile() || info.isSymbolicLink())
-      throw new KernelError('PRECONDITION_FAILED', 'Owned artifact path is not a regular file', { path })
-    if (!fileDigest || createHash('sha256').update(await readFile(path)).digest('hex') !== fileDigest)
-      throw new KernelError('PRECONDITION_FAILED', 'Owned artifact bytes changed; file retained', { path })
-    await unlink(path)
   }
   async close() {
     this.closing = true

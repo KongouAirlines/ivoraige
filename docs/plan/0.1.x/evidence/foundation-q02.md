@@ -44,3 +44,11 @@ Ordinary-merged P03 `3cf87dfb4f644c9f80a4553af4c901688a188122`, including P02 `b
 ## P03 review correction propagation (2026-10-28)
 
 Ordinary merges retain the existing retention head and propagate P03's unavailable-PDF assertion, contract/protocol documentation, descriptor annotation and redundant-scope cleanup. Retention behavior is unchanged. Linux Node 24.22.1 default `npm test` rebuilt runtime/web and passed 414 tests with 2 existing conditional skips; the actual isolated 73-file package installation/reinstallation smoke passed persistence, frozen/source output, MCP and UI probes. The runtime pin is unchanged; real PDF engines, private-library migration and desktop installation were not exercised.
+
+## Managed-file disappearance during cleanup (2026-10-30)
+
+The missing-file recovery rule now covers the entire owned-file validation/unlink sequence, including the parent-directory check. If directory identity cannot be established, lstat confirms whether the file has disappeared before reporting an ownership violation. Only ENOENT/ENOTDIR complete cleanup; permission errors, changed bytes and real ownership violations retain failed cleanup markers. This does not make check-plus-unlink atomic against external replacement.
+
+Six deterministic filesystem race cases remove the file or replace its parent with a file at directory stat, digest read and unlink. All complete the durable cleanup and release the snapshot claim. Two injected EACCES cases retain bytes, failed markers and snapshot claims. Before the fix, all four read/unlink disappearance cases failed. Existing alias, ownership and replacement-byte coverage remains green.
+
+On Linux Node 24.22.1 with the unchanged pinned DSH, build and the full test suite passed: 422 passed, 2 conditional skips (release archive validation and Windows descendant cancellation). The actual isolated 73-file npm package install/reinstall smoke passed. No real PDF engine, private-library migration or manual Windows/desktop acceptance was performed. The source-layer correction is carried into P04/#52 at its ResourceAccess owner.
