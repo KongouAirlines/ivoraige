@@ -99,3 +99,5 @@ Export resume resolves the existing frozen snapshot, validates every remaining o
 ### File-symlink reference protection
 
 Shared artifact references use the complete canonical target before deriving parent identity and filename. A same-document or cross-document reference through a file symlink blocks delete-owned on that target. Removing the alias record with default retain is allowed and does not unlink either file or alias; only after all records/leases permit deletion can the managed regular file be removed. A dangling symlink cannot establish a reliable identity and fails closed for physical deletion. Missing files still permit record-only deletion. This adds no authority to remove external files or symlinks and does not make check-plus-unlink atomic against a concurrent external writer.
+
+受管制品清理将检查与删除过程中的 ENOENT/ENOTDIR 视为文件已经消失，包括父目录检查窗口；权限错误、目录归属不符和摘要不符仍保留失败标记及快照约束。

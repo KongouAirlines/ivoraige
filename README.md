@@ -96,3 +96,5 @@ Explicit in-process output version pins are checked before export admission and 
 ### Shared artifact file identity
 
 Physical managed-file deletion counts references through file symlinks by their complete canonical target, including aliases in another directory or with a different filename. An unresolved dangling file symlink prevents physical deletion conservatively. Record-only deletion still retains bytes and does not require filesystem identity. Directory aliases and actual filesystem case sensitivity remain supported; external output files and symlink paths themselves are not authorized for managed deletion. The existing boundary against concurrent external replacement is unchanged.
+
+Managed cleanup also succeeds when the file disappears during ownership checks, digest reading or deletion; permission, ownership and changed-byte errors remain retryable failures.
