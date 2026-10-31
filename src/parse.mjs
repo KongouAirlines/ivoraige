@@ -65,8 +65,12 @@ export class Parse extends Service {
     if (adapter.cancellable !== undefined && typeof adapter.cancellable !== 'boolean')
       throw new KernelError('INVALID_ARGUMENT', 'Source adapter cancellable must be boolean')
     this.adapters.set(adapter.id, adapter)
+    this.ctx.emit('ivoraige/capabilities-changed', { kind: 'source', id: adapter.id })
     return () => {
-      if (this.adapters.get(adapter.id) === adapter) this.adapters.delete(adapter.id)
+      if (this.adapters.get(adapter.id) === adapter) {
+        this.adapters.delete(adapter.id)
+        this.ctx.emit('ivoraige/capabilities-changed', { kind: 'source', id: adapter.id })
+      }
     }
   }
 
@@ -93,21 +97,37 @@ export class Parse extends Service {
     adapter.validateTranslation?.(binding, unit, text)
   }
 
+  // Structural compatibility only: discovery must never execute projections.
+  outputViewError(binding, { views = [], provenance = {} } = {}) {
+    if (!views.length) return null
+    const adapter = this.adapters.get(binding?.adapterId)
+    if (!adapter) return new KernelError('COMPONENT_MISSING', 'Source adapter is unavailable for output projection',
+      { adapterId: binding?.adapterId })
+    if ((provenance.sourceAdapterId && provenance.sourceAdapterId !== adapter.id) ||
+        (provenance.sourceAdapterVersion && provenance.sourceAdapterVersion !== (adapter.version ?? 'unversioned')) ||
+        (provenance.bindingSchemaVersion !== undefined &&
+          provenance.bindingSchemaVersion !== (adapter.bindingSchemaVersion ?? 1)))
+      return new KernelError('PRECONDITION_FAILED', 'Source adapter version is incompatible with output projection',
+        { adapterId: adapter.id })
+    if (views.includes('readable-text') && typeof adapter.readableText !== 'function')
+      return new KernelError('PRECONDITION_FAILED', 'Source adapter does not provide readable-text projection',
+        { adapterId: adapter.id, requiredView: 'readable-text' })
+    // native-markdown is an optional specialization; Markdown can use readable text.
+    return null
+  }
+
+  hasOutputViews(views) {
+    return !views.length || [...this.adapters.keys()].some(adapterId =>
+      !this.outputViewError({ adapterId }, { views }))
+  }
+
   projectOutputView(frozen, { views = [] } = {}) {
     if (!views.length) return frozen
     const { sourceBinding: binding, document } = frozen
-    const adapter = this.adapters.get(binding?.adapterId)
-    if (!adapter) throw new KernelError('COMPONENT_MISSING', 'Source adapter is unavailable for output projection',
-      { adapterId: binding?.adapterId })
-    if ((document.sourceAdapterVersion && document.sourceAdapterVersion !== (adapter.version ?? 'unversioned')) ||
-        (document.bindingSchemaVersion !== undefined &&
-          document.bindingSchemaVersion !== (adapter.bindingSchemaVersion ?? 1)))
-      throw new KernelError('PRECONDITION_FAILED', 'Source adapter version is incompatible with output projection',
-        { adapterId: adapter.id })
+    const error = this.outputViewError(binding, { views, provenance: document })
+    if (error) throw error
+    const adapter = this.adapters.get(binding.adapterId)
     const needsReadable = views.includes('readable-text')
-    if (needsReadable && typeof adapter.readableText !== 'function')
-      throw new KernelError('PRECONDITION_FAILED', 'Source adapter does not provide readable-text projection',
-        { adapterId: adapter.id, requiredView: 'readable-text' })
     const units = frozen.units.map(item => {
       if (!needsReadable) return item
       const readableText = adapter.readableText(binding, item.unit, item.text)
@@ -250,9 +270,10 @@ export class Parse extends Service {
       'Source adapter returned an undeclared format', { adapterId, format: parsed.format })
     if (parsed.sourceBinding?.adapterId !== adapterId) throw new KernelError('INTERNAL',
       'Source adapter returned a foreign binding', { adapterId })
-    return { ...parsed, sourceAdapterId: adapterId, sourceAdapterVersion: adapter.version ?? 'unversioned',
-      bindingSchemaVersion: adapter.bindingSchemaVersion ?? 1,
-      availableOutputs: this.outputs.availableFor(parsed.sourceBinding) }
+    const provenance = { sourceAdapterId: adapterId, sourceAdapterVersion: adapter.version ?? 'unversioned',
+      bindingSchemaVersion: adapter.bindingSchemaVersion ?? 1 }
+    return { ...parsed, ...provenance,
+      availableOutputs: this.outputs.availableFor(parsed.sourceBinding, { provenance }) }
   }
 
   async parse(file) {

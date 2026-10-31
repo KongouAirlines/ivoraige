@@ -43,9 +43,10 @@ export class Exporter extends Service {
     }
     // Reject unavailable or changed implementations before creating a snapshot.
     // Frozen-stage selection below repeats this check against the pinned binding.
-    const binding = this.records.record(docId).sourceBinding
+    const source = snapshotId === undefined ? this.records.record(docId) : this.records.resolveSnapshot(docId, snapshotId)
+    const binding = source.sourceBinding
     for (const output of outputs) this.outputs.get(output.format,
-      { adapterId: output.adapterId, adapterVersion: output.adapterVersion, binding, contentMode })
+      { adapterId: output.adapterId, adapterVersion: output.adapterVersion, binding, provenance: source.document, contentMode })
     const snapshot = snapshotId === undefined
       ? await this.records.createSnapshot(docId, { contentMode, targetLang,
         onMissingAccepted: onMissingAccepted ?? 'fail' })
@@ -58,7 +59,8 @@ export class Exporter extends Service {
       release = this.records.retainSnapshot(docId, snapshot.id)
       const frozen = freeze(this.records.resolveSnapshot(docId, snapshot.id))
       const adapters = outputs.map(output => this.outputs.get(output.format,
-        { adapterId: output.adapterId, adapterVersion: output.adapterVersion, binding: frozen.sourceBinding, contentMode }))
+        { adapterId: output.adapterId, adapterVersion: output.adapterVersion, binding: frozen.sourceBinding,
+          provenance: frozen.document, contentMode }))
       const paths = outputs.map(output => resolve(output.out ?? join(this.root,
         `${snapshot.id}-${randomBytes(6).toString('hex')}.${output.format}`)))
       if (new Set(paths.map(path => process.platform === 'win32' ? path.toLowerCase() : path)).size !== paths.length) {

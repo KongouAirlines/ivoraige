@@ -47,7 +47,7 @@ export class Tasks extends Service {
   async recover() {
     await this.records.ready
     for (const task of this.records.listTasks()) {
-      if (active.has(task.state) && task.kind === 'import' && task.id.startsWith('import.')) {
+      if (active.has(task.state) && task.kind === 'import') {
         await this.records.recoverImportTask(task.id)
         continue
       }
@@ -66,6 +66,7 @@ export class Tasks extends Service {
   }
 
   emit(type, data) {
+    this.ctx.emit('ivoraige/task-event', { type, data })
     for (const listener of this.listeners) {
       try {
         const result = listener({ type, data: structuredClone(data) })
@@ -191,12 +192,13 @@ export class Tasks extends Service {
       throw new KernelError('INVALID_ARGUMENT', 'outputs must contain requested formats')
     }
     if (snapshotId !== undefined && onMissingAccepted !== undefined) throw new KernelError('INVALID_ARGUMENT', 'Snapshot decisions are already frozen')
-    const binding = this.records.record(docId).sourceBinding
+    const source = snapshotId === undefined ? this.records.record(docId) : this.records.resolveSnapshot(docId, snapshotId)
+    const binding = source.sourceBinding
     const outputRegistry = this.ctx.get('ivoraige.outputs')
     if (!outputRegistry) throw new KernelError('COMPONENT_MISSING', 'Output adapter registry is unavailable')
     const selectedOutputs = outputs.map(output => {
       const adapter = outputRegistry.get(output.format,
-        { adapterId: output.adapterId, adapterVersion: output.adapterVersion, binding, contentMode })
+        { adapterId: output.adapterId, adapterVersion: output.adapterVersion, binding, provenance: source.document, contentMode })
       return { ...output, adapterId: adapter.id, adapterVersion: adapter.version ?? 'unversioned' }
     })
     const paths = outputs.filter(item => item.out !== undefined).map(item => {
@@ -578,7 +580,7 @@ export class Tasks extends Service {
             if (!outputRegistry) throw new KernelError('COMPONENT_MISSING', 'Output adapter registry is unavailable')
             for (const output of pendingOutputs) outputRegistry.get(output.format,
               { adapterId: output.adapterId, adapterVersion: output.adapterVersion, binding: frozen.sourceBinding,
-                contentMode: frozen.snapshot.contentMode ?? 'accepted-translation' })
+                provenance: frozen.document, contentMode: frozen.snapshot.contentMode ?? 'accepted-translation' })
           }
         }
         else throw new KernelError('PRECONDITION_FAILED', 'Import tasks cannot be resumed')

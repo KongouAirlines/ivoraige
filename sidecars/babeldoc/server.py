@@ -1072,7 +1072,8 @@ def main():
             if request.get("method") == "shutdown":
                 break
         except Exception as error:  # noqa: BLE001 - keep the long-lived protocol alive after an upstream failure
-            traceback.print_exc(file=sys.stderr)
+            diagnostic = traceback.format_exc()
+            sys.stderr.write(diagnostic)
             if isinstance(error, SidecarError):
                 code, kind = error.code, error.kind
             else:
@@ -1087,6 +1088,7 @@ def main():
                         "code": code,
                         "message": str(error),
                         "data": {"code": kind},
+                        "diagnostic": diagnostic[-4096:],
                     },
                 }
             )

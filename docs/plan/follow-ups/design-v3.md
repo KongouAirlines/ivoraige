@@ -50,3 +50,5 @@ v2.0 的 Cordis 组合契约在实现中出现了可观察的漂移：
 - 2026-10-18：登记。同日热修只修正 v2.0 §3.3.4/§4.1 的导出隔离表述、AGENTS 的安全/机制表述和 `docs/plan/0.1.0/pdf.md` 的验证口径；重规划留待 v3。
 
 - 2026-10-23: Q02 resource-retention implementation is on `codex/0.1.x-resource-retention` for branch validation. It adds explicit failed-task abandonment, managed-file retention/cleanup and read/snapshot reference protection. The evidence is in [Q02](../0.1.x/evidence/foundation-q02.md); P04 entry registration and event acceptance remain unfinished. The follow-up stays in progress pending integration.
+
+- 2026-10-23: P04 operation/schema/handler registration, optional entry ownership and V03 subscription synchronization are implemented on `codex/0.1.x-operation-entries`, stacked after Q02. See [P04 evidence](../0.1.x/evidence/foundation-p04.md). This advances the operation/resource/event portion; independent package delivery, remaining UI/workflow integration and real external-engine acceptance stay outside this slice. This item remains in progress pending accepted integration and its remaining acceptance conditions.

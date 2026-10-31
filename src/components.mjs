@@ -37,6 +37,9 @@ export class Components extends Service {
     this.fetcher = config.fetcher ?? fetch
     this.jobs = ctx.jobs
     this.tasks = new Map()
+    ctx.effect(() => this.jobs.events.subscribe({ owner: undefined }, event => {
+      if (this.tasks.has(event.job?.id)) this.changed(event.job.id)
+    }))
     this.detachController = this.jobs.attachController('ivoraige component installs')
     ctx.effect(() => () => this.detachController(), 'component install controller')
   }
@@ -50,6 +53,7 @@ export class Components extends Service {
       throw new KernelError('INVALID_ARGUMENT', 'GitHub token must be a nonempty string')
     }
     await this.ctx.credentials.set(TOKEN_REF, value.trim())
+    this.changed()
     return this.ctx.credentials.describe(TOKEN_REF)
   }
 
@@ -60,6 +64,7 @@ export class Components extends Service {
         'A GitHub token is supplied by the launching environment; remove it there before anonymous access')
     }
     await this.ctx.credentials.unset(TOKEN_REF)
+    this.changed()
     const description = await this.ctx.credentials.describe(TOKEN_REF)
     if (description.configured) {
       throw new KernelError('PRECONDITION_FAILED',
@@ -153,7 +158,13 @@ export class Components extends Service {
       throw error
     }
     this.tasks.set(taskId, state)
+    this.changed(taskId)
     return { taskId }
+  }
+
+  changed(taskId) {
+    this.ctx.emit('ivoraige/component-event', { type: 'component.changed',
+      data: { componentId: 'babeldoc', ...(taskId ? { taskId } : {}) } })
   }
 
   async runInstall(input, job, signal, state) {

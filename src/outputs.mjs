@@ -29,24 +29,37 @@ export class Outputs extends Service {
         adapter.requiredViews.some(view => !['readable-text', 'native-markdown'].includes(view))))
       throw new KernelError('INVALID_ARGUMENT', 'Output adapter requiredViews is invalid')
     this.adapters.set(adapter.id, adapter)
+    this.ctx.emit('ivoraige/capabilities-changed', { kind: 'output', id: adapter.id })
     return () => {
-      if (this.adapters.get(adapter.id) === adapter) this.adapters.delete(adapter.id)
+      if (this.adapters.get(adapter.id) === adapter) {
+        this.adapters.delete(adapter.id)
+        this.ctx.emit('ivoraige/capabilities-changed', { kind: 'output', id: adapter.id })
+      }
     }
   }
 
-  availableFor(sourceBinding, { contentMode } = {}) {
-    return [...new Set([...this.adapters.values()].filter(adapter => available(adapter, contentMode) &&
-      adapter.supports(sourceBinding, contentMode))
-      .flatMap(adapter => adapter.formats ?? [adapter.id]))]
+  viewError(adapter, { binding, provenance } = {}) {
+    const views = adapter.requiredViews ?? []
+    if (!views.length) return null
+    const parser = this.ctx.get('ivoraige.parse')
+    if (!parser) return new KernelError('COMPONENT_MISSING', 'Source adapter registry is unavailable')
+    if (binding !== undefined) return parser.outputViewError(binding, { views, provenance })
+    return parser.hasOutputViews(views) ? null :
+      new KernelError('COMPONENT_MISSING', 'No source adapter provides the requested output views')
   }
 
-  listAdapters({ contentMode } = {}) { return [...this.adapters.values()]
-    .filter(adapter => available(adapter, contentMode)).map(adapter => adapter.id) }
-  listFormats({ contentMode } = {}) { return [...new Set([...this.adapters.values()]
-    .filter(adapter => available(adapter, contentMode))
+  availableAdapters(options = {}) {
+    const { binding, contentMode } = options
+    return [...this.adapters.values()].filter(adapter => available(adapter, contentMode) &&
+      (binding === undefined || adapter.supports(binding, contentMode)) && !this.viewError(adapter, options))
+  }
+
+  availableFor(binding, options = {}) { return this.listFormats({ ...options, binding }) }
+  listAdapters(options = {}) { return this.availableAdapters(options).map(adapter => adapter.id) }
+  listFormats(options = {}) { return [...new Set(this.availableAdapters(options)
     .flatMap(adapter => adapter.formats ?? [adapter.id]))] }
 
-  get(format, { adapterId, adapterVersion, binding, contentMode } = {}) {
+  get(format, { adapterId, adapterVersion, binding, provenance, contentMode } = {}) {
     if (adapterId !== undefined && (typeof adapterId !== 'string' || !adapterId))
       throw new KernelError('INVALID_ARGUMENT', 'adapterId must be a nonempty string')
     if (adapterVersion !== undefined && (typeof adapterVersion !== 'string' || !adapterVersion.trim()))
@@ -61,9 +74,12 @@ export class Outputs extends Service {
       (binding === undefined || adapter.supports(binding, contentMode)))
     if (!compatible.length) throw new KernelError('PRECONDITION_FAILED',
       'Output adapter does not support the frozen source binding or mode', { format, adapterId })
-    if (compatible.length > 1) throw new KernelError('CONFLICT', 'Output adapter selection is ambiguous',
-      { format, adapterIds: compatible.map(adapter => adapter.id) })
-    const adapter = compatible[0]
+    const checked = compatible.map(adapter => ({ adapter, error: this.viewError(adapter, { binding, provenance }) }))
+    const ready = checked.filter(item => !item.error).map(item => item.adapter)
+    if (!ready.length) throw checked[0].error
+    if (ready.length > 1) throw new KernelError('CONFLICT', 'Output adapter selection is ambiguous',
+      { format, adapterIds: ready.map(adapter => adapter.id) })
+    const adapter = ready[0]
     if (adapterVersion !== undefined && adapterVersion !== (adapter.version ?? 'unversioned'))
       throw new KernelError('PRECONDITION_FAILED', 'Pinned output adapter version is unavailable',
         { adapterId: adapter.id, adapterVersion })

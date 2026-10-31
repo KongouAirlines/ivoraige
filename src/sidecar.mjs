@@ -49,13 +49,15 @@ function terminateWindowsTree(pid) {
 
 function remoteError(value) {
   const code = value?.code
+  const cause = typeof value?.diagnostic === 'string' && value.diagnostic
+    ? new Error(value.diagnostic.slice(-MAX_STDERR)) : undefined
   const details = { sidecarCode: code }
   if (value?.data !== undefined) details.sidecarData = value.data
-  if (code === -32002) return failure('COMPONENT_MISSING', value.message || 'PDF sidecar model assets are missing', details)
+  if (code === -32002) return failure('COMPONENT_MISSING', value.message || 'PDF sidecar model assets are missing', details, cause)
   if ([-32001, -32003].includes(code) && value?.data?.code === 'PRECONDITION_FAILED') {
-    return failure('PRECONDITION_FAILED', value.message || 'PDF source binding is unavailable', details)
+    return failure('PRECONDITION_FAILED', value.message || 'PDF source binding is unavailable', details, cause)
   }
-  return failure('UPSTREAM_FAILURE', value?.message || 'PDF sidecar failed', details)
+  return failure('UPSTREAM_FAILURE', value?.message || 'PDF sidecar failed', details, cause)
 }
 
 export class SidecarClient {
@@ -199,6 +201,11 @@ export class SidecarClient {
     const session = { child, workDir, pending: null, buffer: '', stderr: '', dead: false }
     session.childClosed = new Promise(resolve => { session.resolveChildClosed = resolve })
     session.closed = session.childClosed.then(async () => {
+      // close follows stdio closure; exit alone can precede the final stderr data.
+      if (session.stopError && !session.stopError.cause && session.stderr &&
+          !Object.hasOwn(session.stopError.details, 'sidecarCode')) {
+        session.stopError.cause = new Error(session.stderr)
+      }
       const terminationError = await session.termination
       const cleanupError = await cleanupWorkDir(workDir)
       return terminationError ?? cleanupError
@@ -219,7 +226,7 @@ export class SidecarClient {
       this.#stopSession(session, error)
     })
     child.on('exit', (code, signal) => {
-      this.#stopSession(session, crashed(`PDF sidecar exited (${signal ?? code ?? 'unknown'})${session.stderr ? `: ${session.stderr}` : ''}`))
+      this.#stopSession(session, crashed(`PDF sidecar exited (${signal ?? code ?? 'unknown'})`))
     })
     try {
       const handshake = await this.#rpc(session, 'handshake', { protocolVersion: PROTOCOL_VERSION })
@@ -272,10 +279,8 @@ export class SidecarClient {
       session.pending = null
       clearTimeout(pending.timer)
       if (message.error) {
-        const error = remoteError(message.error)
-        // Keep Python diagnostics in the local cause chain, outside public RPC details.
-        if (session.stderr) error.cause = new Error(session.stderr)
-        pending.reject(error)
+        // Only the response can associate a diagnostic with this request.
+        pending.reject(remoteError(message.error))
       }
       else pending.resolve(message.result)
     }
@@ -307,6 +312,7 @@ export class SidecarClient {
     if (!session) return Promise.resolve()
     if (session.dead) return session.closed
     session.dead = true
+    session.stopError = error
     if (this.session === session) {
       this.session = null
       this.capabilities = null

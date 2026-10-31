@@ -229,3 +229,15 @@ Q02 adds explicit `failed -> abandoned`, record-only artifact deletion, opt-in m
 共享引用以现存文件的完整 realpath 目标生成父目录身份和规范文件名，跨目录或不同文件名的文件符号链接与目标属于同一受保护身份；不按平台强制小写，遵循实际文件系统语义。目标无法确定的悬空链接在物理删除身份检查时保守拒绝。metadata-only 删除不依赖该检查，文件缺失仍可删除记录并保留路径信息。原有受管根目录、regular-file、摘要、任务及 lease 校验均保留；不扩大为任意恶意本机并发替换防御。
 
 共享引用预检及事务内复检无法解析其他产物身份时，返回 `CONFLICT`，details 包含 `blockingDocId`、`blockingArtifactId` 和恢复指引；底层错误仅保存在私有 cause。拒绝时不删除记录、不生成清理标记、不删除文件。默认 retain 删除不依赖路径检查。
+
+### P04 activated operation and synchronization contract
+
+P04 uses one Cordis `ivoraige.operationCatalog` for operation ID, input/result schema, requirements, handler and long-running/cancel metadata. The existing Operations facade delegates to it. Registered contributions own their disposer; CLI/HTTP/MCP remain transport projections with owned controllers/transports/listeners. Optional entry switches do not mount a second runtime or configuration source. Bootstrap help remains independent of business activation. Shutdown stops entries and drains request handlers before Records/storage withdrawal; a missed drain deadline is an incomplete shutdown and retains the store owner for retry.
+
+The facade fixes transport-owned `apiVersion` after validating the business payload. A self-owned local generic CLI invocation rejects long-running/task-cancellable operations before admission; existing local aliases retain waiting/final-exit behavior, while generic task calls require a persistent host. Import declares Records/Tasks/Parse/Importer requirements; missing import capabilities produce `COMPONENT_MISSING` without disabling unrelated reads. Invalid HTTP path encoding is `INVALID_ARGUMENT` at the entry boundary.
+
+The event bridge adapts post-commit Cordis/DSH notifications. A session installs its subscription before advertising `{subscriptionId,generation,scope,barrierRevision}`. A stable synchronous state snapshot contains the same session identity and `stateRevision`; readers whose capture changes the revision are retried, and unstable/async readers require resynchronization. The client retains the subscription during refetch and snapshot application, discards revisions at or below the applied snapshot and refetches for newer notifications. Overflow, connection/generation/scope changes and notification integrity failure invalidate synchronization. Public snapshots contain metadata/status/revisions; they do not expose stored source bodies, credentials or framework objects. No durable event replay is enabled.
+
+Entries treat IDs as opaque and delegate exact ownership to Records/resource access. HTTP and MCP artifact reads use the same optional read-size limit and lease; the 7 MiB browser file limit leaves room for Base64 and JSON inside the 10 MiB HTTP body limit. Internal generic operation projections are not the full I01 external/authenticated API. Detailed measured scope and limits are in [P04 evidence](../../plan/0.1.x/evidence/foundation-p04.md).
+
+Records 的 opaque ID 归属索引在加载时构建，并随 DSH 成功落盘通知同步增量维护受影响文档；失败写入不改变索引。unit、revision、artifact 和统一 task 命名空间（含 import task）不再通过 ID 前缀或全库扫描定位。重复 ID 返回 `CONFLICT`，唯一 ID 的文档不匹配返回 `NOT_FOUND`。索引仅在内存中，不改变 SQLite 或 wire schema。

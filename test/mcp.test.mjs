@@ -17,6 +17,47 @@ import { KernelError } from '../src/errors.mjs'
 import packageInfo from '../package.json' with { type: 'json' }
 
 const targetLang = 'zh'
+
+test('disconnecting an MCP artifact read releases its real Records lease', { timeout: 10_000 }, async t => {
+  const f = await fixture(t)
+  const { document } = await f.app.records.importDocument({ format: 'txt', content: 'Artifact source.' }, { language: 'en' })
+  const { artifacts: [artifact] } = await f.app.exporter.exportDocument(document.id,
+    { contentMode: 'source', outputs: [{ format: 'md' }] })
+  let entered, release
+  const started = new Promise(resolve => { entered = resolve })
+  const openArtifact = f.app.resources.openArtifact.bind(f.app.resources)
+  f.app.resources.openArtifact = async (...args) => {
+    const resource = await openArtifact(...args)
+    resource.file.readFile = ({ signal } = {}) => new Promise((resolve, reject) => {
+      const abort = () => reject(signal.reason)
+      release = () => { signal?.removeEventListener('abort', abort); resolve(Buffer.from('released')) }
+      if (signal?.aborted) abort()
+      else signal?.addEventListener('abort', abort, { once: true })
+      entered()
+    })
+    return resource
+  }
+  t.after(() => release?.())
+  const controller = new AbortController()
+  const waiting = fetch(`${f.server.url}/mcp`, {
+    method: 'POST', signal: controller.signal,
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+    body: JSON.stringify({ jsonrpc: '2.0', id: 71, method: 'resources/read',
+      params: { uri: `ivoraige://artifacts/${artifact.id}` } }),
+  }).catch(() => undefined)
+  try {
+    await Promise.race([started, waiting.then(async response => { throw new Error(`Read ended before opening: ${response && await response.text()}`) })])
+    assert.equal(f.app.records.artifactLeases.get(artifact.id), 1)
+    await assert.rejects(f.app.records.deleteArtifact(document.id, artifact.id), { code: 'CONFLICT' })
+    controller.abort()
+    await waiting
+    for (let attempt = 0; f.app.records.artifactLeases.has(artifact.id) && attempt < 50; attempt++)
+      await new Promise(resolve => setTimeout(resolve, 10))
+    assert.equal(f.app.records.artifactLeases.has(artifact.id), false)
+    assert.equal(f.app.resources.opened.size, 0)
+    await f.app.records.deleteArtifact(document.id, artifact.id)
+  } finally { release?.() }
+})
 const upload = (content, format = 'txt') => ({
   contentBase64: Buffer.from(content).toString('base64'), format, language: 'en', origin: 'mcp',
 })
@@ -250,11 +291,20 @@ test('SDK HTTP clients share documents, frozen outputs, and durable tasks', asyn
   assert.match(unitTemplate.description, /targetLang.*required/)
   for (const name of ['capabilities', 'import', 'units_list', 'unit_update', 'revision_accept',
     'export', 'task_status', 'snapshots_list', 'artifacts_list']) assert.ok(names.includes(`ivoraige_${name}`), name)
-  assert.ok(!names.includes('ivoraige_settings_update'))
-  assert.ok(!names.includes('ivoraige_credential_set'))
-  assert.ok(!names.includes('ivoraige_component_install'))
+  // Known operations stay discoverable so later service mounts need no second
+  // tool registry. Absent dependencies must still reject before any mutation.
+  for (const [name, input] of [
+    ['settings_update', { provider: 'synthetic', model: 'synthetic' }],
+    ['credential_set', { ref: 'SYNTHETIC_KEY', value: 'synthetic-no-network' }],
+    ['component_install', { id: 'babeldoc' }],
+  ]) {
+    assert.ok(names.includes(`ivoraige_${name}`), name)
+    await failure(first, name, input, 'COMPONENT_MISSING')
+  }
 
   const capabilities = await call(first, 'capabilities')
+  for (const id of ['updateSettings', 'setCredential', 'componentInstall'])
+    assert.equal(capabilities.operations.find(operation => operation.id === id).available, false, id)
   assert.ok(capabilities.inputFormats.includes('txt'))
   assert.ok(capabilities.outputFormats.includes('md'))
   const imported = await call(first, 'import', upload('A measured result.\n\nA second result.'))

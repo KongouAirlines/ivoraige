@@ -4,8 +4,10 @@ import { realpath, stat } from 'node:fs/promises'
 import { extname, relative, resolve, sep } from 'node:path'
 import { KernelError } from './errors.mjs'
 import { serialize, errorEnvelope } from './protocol.mjs'
+import { Service } from '../dist/dsh.mjs'
+import { resourcePolicy } from './resource-policy.mjs'
 
-const id = '([A-Za-z0-9_.-]+)'
+const id = '([^/]+)'
 const routes = [
   ['GET', /^\/api\/components$/, 'componentStatus'],
   ['POST', /^\/api\/components\/catalog$/, 'componentCatalog'],
@@ -58,7 +60,7 @@ function send(res, status, body) {
   res.end(serialize(body))
 }
 async function readBody(req) {
-  const limit = 10 * 1024 * 1024
+  const limit = resourcePolicy.requestJsonBytes
   let size = 0
   const chunks = []
   for await (const chunk of req) {
@@ -86,10 +88,13 @@ function queryParams(searchParams) {
   return query
 }
 
+function decodePath(value) {
+  try { return decodeURIComponent(value) }
+  catch { throw new KernelError('INVALID_ARGUMENT', 'Invalid URL encoding') }
+}
 async function staticFile(res, staticDir, pathname) {
   if (!staticDir) throw new KernelError('NOT_FOUND', 'Route not found')
-  let decoded
-  try { decoded = decodeURIComponent(pathname) } catch { throw new KernelError('INVALID_ARGUMENT', 'Invalid URL encoding') }
+  const decoded = decodePath(pathname)
   if (decoded.includes('\0') || decoded.includes('\\') || decoded.split('/').includes('..'))
     throw new KernelError('NOT_FOUND', 'Route not found')
   const root = await realpath(staticDir)
@@ -108,29 +113,82 @@ async function staticFile(res, staticDir, pathname) {
 }
 
 function events(req, res, app, taskId, activeEvents) {
-  res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8',
-    'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Event-Id': String(Date.now()) })
-  res.write(': connected\n\n')
   const unsubscribe = app.operations.subscribe(event => {
     if (taskId && event?.data?.taskId !== taskId) return
     if (!/^[\w.]+$/.test(event?.type ?? '')) return
     res.write(`event: ${event.type}\ndata: ${serialize(event.data)}\n\n`)
   })
+  res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Event-Id': String(Date.now()) })
+  res.write(': connected\n\n')
   activeEvents.add(res)
   const cleanup = () => { unsubscribe?.(); activeEvents.delete(res) }
   req.once('close', cleanup)
   res.once('close', cleanup)
 }
 
-export async function serve(app, { host = '127.0.0.1', port = 8787, staticDir, allowedHosts = [], instance, mcp = true } = {}) {
+function stateEvents(req, res, app, scope, activeEvents) {
+  if (!app.events) throw new KernelError('COMPONENT_MISSING', 'State event entry is not enabled')
+  const session = app.events.subscribe(scope)
+  res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive' })
+  let blocked = false, closed = false, delivered = -1
+  const sendEvent = (type, data) => {
+    try { blocked = !res.write(`event: ${type}\ndata: ${serialize(data)}\n\n`) }
+    catch { res.destroy() }
+  }
+  const sendNotice = notice => {
+    if (closed || blocked || delivered === Infinity ||
+        (notice.type !== 'resync-required' && notice.stateRevision <= delivered)) return
+    delivered = notice.type === 'resync-required' ? Infinity : notice.stateRevision
+    sendEvent(notice.type, notice)
+  }
+  const onDrain = () => {
+    blocked = false
+    // The session already owns a bounded buffer and overflow/resync policy.
+    // A false write accepted that frame; resume only notices after its revision.
+    for (const notice of session.drain()) {
+      if (closed || blocked) break
+      sendNotice(notice)
+    }
+  }
+  const unsubscribe = session.onNotice(sendNotice)
+  res.on('drain', onDrain)
+  activeEvents.add(res)
+  const cleanup = () => {
+    closed = true
+    res.off('drain', onDrain)
+    unsubscribe(); session.close(); activeEvents.delete(res)
+  }
+  req.once('close', cleanup)
+  res.once('close', cleanup)
+  sendEvent('state.ready', session.ready)
+}
+
+async function listenHttp(app, { host = '127.0.0.1', port = 8787, staticDir, allowedHosts = [], instance, mcp = true } = {}) {
   if (!loopback(host)) throw new KernelError('INVALID_ARGUMENT',
     'Non-loopback listening requires DSH token authentication, which is not configured')
   if (!Number.isInteger(port) || port < 0 || port > 65535)
     throw new KernelError('INVALID_ARGUMENT', 'port must be an integer from 0 to 65535')
   const mcpEndpoint = mcp && app.mcp ? (await import('./mcp.mjs')).createMcpHttp(app) : undefined
   const activeEvents = new Set()
-  const server = createServer(async (req, res) => {
+  const controllers = new Set()
+  let closing = false
+  const server = createServer((req, res) => {
+    const controller = new AbortController()
+    const abort = () => controller.abort()
+    controllers.add(controller)
+    req.once('aborted', abort)
+    res.once('close', abort)
+    const pending = handle(req, res, controller.signal).finally(() => {
+      controllers.delete(controller)
+      req.off('aborted', abort); res.off('close', abort)
+    })
+    pending.catch(() => res.destroy())
+  })
+  async function handle(req, res, signal) {
     try {
+      if (closing) throw new KernelError('COMPONENT_MISSING', 'HTTP entry is closing')
       const incomingHost = hostname(req.headers.host)
       if (!loopback(incomingHost) && !allowedHosts.includes(incomingHost))
         throw new KernelError('FORBIDDEN_HOST', 'Host is not allowed')
@@ -147,12 +205,49 @@ export async function serve(app, { host = '127.0.0.1', port = 8787, staticDir, a
       if (req.method === 'GET' && pathname === '/api/instance' && instance) {
         send(res, 200, instance); return
       }
-      if (req.method === 'GET' && (pathname === '/api/events' || /^\/api\/tasks\/[A-Za-z0-9_.-]+\/events$/.test(pathname))) {
-        events(req, res, app, pathname === '/api/events' ? undefined : pathname.split('/')[3], activeEvents); return
+      if (req.method === 'GET' && pathname === '/api/events/state') {
+        stateEvents(req, res, app, Object.fromEntries(url.searchParams), activeEvents); return
       }
-      const download = req.method === 'GET' && /^\/api\/artifacts\/[A-Za-z0-9_.-]+\/download$/.exec(pathname)
+      if (req.method === 'GET' && pathname === '/api/state') {
+        if (!app.events) throw new KernelError('COMPONENT_MISSING', 'State event entry is not enabled')
+        const session = app.events.getSession(url.searchParams.get('subscriptionId'))
+        const snapshot = session.snapshot()
+        session.acknowledge(snapshot.stateRevision)
+        send(res, 200, { apiVersion: '2.0', ...snapshot }); return
+      }
+      if (req.method === 'GET' && pathname === '/api/operations') {
+        if (!app.operationCatalog) throw new KernelError('COMPONENT_MISSING', 'Operation discovery is not enabled')
+        send(res, 200, { apiVersion: '2.0', operations: app.operationCatalog.list().map(({ id, requires, longRunning, cancellable }) =>
+          ({ id, requires, longRunning, cancellable, available: app.operationCatalog.available({ id, requires }) })) }); return
+      }
+      const dynamicOperation = /^\/api\/operations\/([^/]+)$/.exec(pathname)
+      if (req.method === 'POST' && dynamicOperation) {
+        send(res, 200, await app.operations.invoke(decodePath(dynamicOperation[1]), await readBody(req), { signal })); return
+      }
+      if (req.method === 'GET' && (pathname === '/api/events' || /^\/api\/tasks\/[^/]+\/events$/.test(pathname))) {
+        events(req, res, app, pathname === '/api/events' ? undefined : decodePath(pathname.split('/')[3]), activeEvents); return
+      }
+      const download = req.method === 'GET' && /^\/api\/artifacts\/[^/]+\/download$/.exec(pathname)
       if (download) {
-        const artifactId = pathname.split('/')[3]
+        const artifactId = decodePath(pathname.split('/')[3])
+        if (app.resources) {
+          let resource, stream, disconnected = false
+          const finish = () => { if (resource) void resource.close().catch(error => res.destroy(error)) }
+          const disconnect = () => { disconnected = true; stream?.destroy(); finish() }
+          res.once('close', disconnect)
+          try {
+            resource = await app.resources.openArtifact(artifactId, { signal })
+            if (disconnected || res.destroyed || signal.aborted) { await resource.close(); return }
+            stream = resource.file.createReadStream({ autoClose: false })
+            stream.once('end', finish)
+            stream.once('error', error => { finish(); res.destroy(error) })
+            res.writeHead(200, { 'Content-Type': resource.contentType,
+              'Content-Length': resource.size, 'Content-Disposition': `attachment; filename="${String(resource.filename).replace(/["\r\n]/g, '_')}"`,
+              'X-Content-Type-Options': 'nosniff' })
+            stream.pipe(res)
+          } catch (error) { await resource?.close(); throw error }
+          return
+        }
         let artifact, stream, closed = false, released = false
         const release = () => {
           if (!artifact || released) return
@@ -198,9 +293,9 @@ export async function serve(app, { host = '127.0.0.1', port = 8787, staticDir, a
       for (const [method, pattern, operation, keys = []] of routes) {
         const match = method === req.method && pattern.exec(pathname)
         if (!match) continue
-        const ids = Object.fromEntries(keys.map((key, index) => [key, match[index + 1]]))
+        const ids = Object.fromEntries(keys.map((key, index) => [key, decodePath(match[index + 1])]))
         const body = ['POST', 'PATCH', 'PUT'].includes(method) ? await readBody(req) : {}
-        const result = await app.operations.invoke(operation, { ...queryParams(url.searchParams), ...body, ...ids })
+        const result = await app.operations.invoke(operation, { ...queryParams(url.searchParams), ...body, ...ids }, { signal })
         send(res, 200, result)
         return
       }
@@ -212,7 +307,7 @@ export async function serve(app, { host = '127.0.0.1', port = 8787, staticDir, a
       const result = errorEnvelope(error)
       send(res, result.status, result.body)
     }
-  })
+  }
   try {
     await new Promise((resolveListen, rejectListen) => {
       server.once('error', rejectListen)
@@ -223,15 +318,54 @@ export async function serve(app, { host = '127.0.0.1', port = 8787, staticDir, a
     throw error
   }
   const address = server.address()
-  return { url: `http://${host.includes(':') ? `[${host}]` : host}:${address.port}`,
-    close: async () => {
+  let closePromise
+  const entry = { url: `http://${host.includes(':') ? `[${host}]` : host}:${address.port}`,
+    close: () => {
+      if (closePromise) return closePromise
+      closing = true
+      closePromise = (async () => {
       let failure
+      const stopped = new Promise((resolveClose, rejectClose) => server.close(error => error ? rejectClose(error) : resolveClose()))
+      for (const controller of controllers) controller.abort()
       try { await mcpEndpoint?.close() } catch (error) { failure = error }
       for (const response of activeEvents) {
         try { response.end() } catch (error) { failure ??= error }
       }
-      try { await new Promise((resolveClose, rejectClose) => server.close(error => error ? rejectClose(error) : resolveClose())) }
+      server.closeAllConnections()
+      try { await stopped }
       catch (error) { failure ??= error }
+      // The operation catalog drains request handlers before storage withdrawal.
       if (failure) throw failure
+      })()
+      return closePromise
     } }
+  return entry
+}
+
+export class HttpEntry extends Service {
+  static inject = ['ivoraige.operations', 'ivoraige.capabilities']
+  constructor(ctx) {
+    super(ctx, 'ivoraige.httpEntry')
+    this.handles = new Set()
+    this.closing = false
+    ctx.effect(() => () => this.close())
+  }
+  async listen(app, options) {
+    if (this.closing) throw new KernelError('COMPONENT_MISSING', 'HTTP entry is closed')
+    const handle = await listenHttp(app, options)
+    if (this.closing) { await handle.close(); throw new KernelError('COMPONENT_MISSING', 'HTTP entry is closed') }
+    this.handles.add(handle)
+    return { url: handle.url, close: async () => { await handle.close(); this.handles.delete(handle) } }
+  }
+  async close() {
+    this.closing = true
+    await Promise.all([...this.handles].map(async handle => { await handle.close(); this.handles.delete(handle) }))
+  }
+}
+
+export async function serve(app, options) {
+  if (!app.ctx) return listenHttp(app, options) // Compatibility for a caller-owned facade.
+  const entry = app.ctx.get('ivoraige.httpEntry')
+  if (!entry) throw new KernelError('COMPONENT_MISSING', 'HTTP entry is not enabled')
+  return entry.listen(app, options)
 }

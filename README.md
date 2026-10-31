@@ -51,6 +51,8 @@ For configuration, debugging, and contributing, see the [development guide](docs
 
 Component installation and document tasks share a bounded background-job quota. A queued document task waits for installation to finish; an installation requested during active document work reports a conflict so you can retry.
 
+PDF failures retain bounded local diagnostics when using the matching source sidecar; public errors omit the diagnostic traceback. See the [PDF development guide](docs/plan/0.1.0/pdf-development.md) for compatibility and limits.
+
 ## What works today
 
 **First formal source version: `0.1.0`.** Features and the interface are still evolving.
@@ -87,11 +89,17 @@ See [contribution guidance](CONTRIBUTING.md) and [security reporting](SECURITY.m
 
 Built with Cordis and DSH, with optional BabelDOC support. See [third-party acknowledgements](THIRD_PARTY.md).
 
+In-process hosts can register operations once and expose them through optional CLI, REST and MCP entries. The workbench refreshes state as operations change, and artifact reads share ownership and size limits. See [composition usage](docs/plan/0.1.0/development-guide.md#p04-operation-and-entry-composition) and [P04 evidence](docs/plan/0.1.x/evidence/foundation-p04.md).
+
+For task-admitting or long-running operations, generic CLI `call` needs a persistent host (`--url` or a caller-supplied app); a self-owned local host rejects the call before creating work. Use the existing local CLI aliases to wait for task completion and receive its final exit code.
+
+`delete-owned` requires resource access and export services. If either is unavailable, it returns `COMPONENT_MISSING` before changing the artifact record or creating a cleanup marker; record-only deletion still works with Records alone. MCP lists registered tools while required services are absent, and invocation returns `COMPONENT_MISSING` until they become available. `events: false` disables state streams while retaining the legacy `/api/events` task stream and remote CLI `--json-events`. The `components`, `exportDir`, and `maxArtifactBytes` options require a store.
+
 ### Adapter availability and readable outputs
 
-Missing source components are classified from declared formats and compatible input kinds without executing their matchers. Readable JSON/Markdown exports require an explicit source `readableText` projection; TXT and Markdown declare identity projection, while binary outputs with no requested views remain independent of source projection. Output enumeration and selection share one availability rule and accept an optional content mode: disabled/failed outputs stay unavailable; an unavailable output may explicitly allow a mode through `canRunUnavailable`. Explicit output versions must be nonempty strings; omitted versions retain the `unversioned` compatibility value.
+Missing source components are classified from declared formats and compatible input kinds without executing their matchers. Export discovery and admission share the source-view compatibility check: outputs with `requiredViews` need the document’s bound source adapter, compatible implementation/schema versions and declared projection methods. Missing components return `COMPONENT_MISSING`; incompatible bindings/projections return `PRECONDITION_FAILED`, before creating a snapshot or task. Global output formats describe installed capabilities; document `availableOutputs` and state summaries describe that document’s pinned source. `exportDocument` is available when its services and at least one output in a supported content mode are available. Outputs with `requiredViews: []` remain usable without Parse. A component withdrawn after successful admission can still fail execution; the failed task keeps its snapshot for retry. Public input format lists canonicalize `markdown` to `md`. Readable JSON/Markdown exports require an explicit source `readableText` projection; TXT and Markdown declare identity projection, while binary outputs with no requested views remain independent of source projection. Output enumeration and selection share one availability rule and accept an optional content mode: disabled/failed outputs stay unavailable; an unavailable output may explicitly allow a mode through `canRunUnavailable`. Explicit output versions must be nonempty strings; omitted versions retain the `unversioned` compatibility value.
 
-Explicit in-process output version pins are checked before export admission and again at execution. Resume validates the remaining outputs against the frozen snapshot's binding, mode and saved adapter/version before changing a paused/failed task to queued; already completed artifacts keep their checkpoints without needing their former output adapter. Source imports consistently exclude unavailable, disabled and failed adapters from discovery, automatic/explicit selection and queued execution.
+Explicit in-process output version pins are checked before export admission and again at execution. Resume validates the remaining outputs against the frozen snapshot's binding, source provenance, mode and saved adapter/version before changing a paused/failed task to queued; already completed artifacts keep their checkpoints without needing their former output adapter. Source imports consistently exclude unavailable, disabled and failed adapters from discovery, automatic/explicit selection and queued execution.
 
 ### Shared artifact file identity
 
@@ -100,3 +108,11 @@ Physical managed-file deletion counts references through file symlinks by their 
 Managed cleanup also succeeds when the file disappears during ownership checks, digest reading or deletion; permission, ownership and changed-byte errors remain retryable failures.
 
 If another artifact path cannot be inspected (for example, revoked directory permissions or a dangling symlink), physical deletion returns `CONFLICT` with the blocking document/artifact IDs and recovery guidance. Restore access or repair the link and retry, or remove the blocking record with the default retain action. Both files remain untouched until the shared-reference check succeeds.
+
+### Task reads in composed hosts
+
+Operations may mount before Records and Tasks. After those services finish mounting, immediate task reads and waits use the Records service present when the request begins; each wait keeps that store through its final read. Missing required services still report COMPONENT_MISSING, and default createApp mounting remains supported.
+
+### MCP request cancellation
+
+Disconnecting an MCP HTTP task poll releases its subscription and leaves the persistent task running. Concurrent polls remain independent; closing the endpoint stops its outstanding requests.

@@ -349,6 +349,10 @@ BabelDOC `parse` 按来源位置关联回调与完成后的 tracker payload；tr
 
 错误：JSON-RPC error 对象的 `code` 自定义区间 `-32001` 解析失败、`-32002` 权重缺失、`-32003` 重建失败；内核映射为 `UPSTREAM_FAILURE`/`COMPONENT_MISSING`。`-32001` 或 `-32003` 携带 `data.code=PRECONDITION_FAILED` 时映射为同名内核错误。
 
+错误对象可附带可选 `diagnostic: string`，它是本地进程协议的私有诊断扩展，不放入 `data`。BabelDOC 将本次异常 traceback 的末尾最多 4096 字符与同一 `id` 的错误一起发送，并继续记录 stderr。内核再次限制长度，只写入本地 `Error.cause`，不转发到公开错误消息、details 或任务记录。原有 message/data 的映射不变；这不是对其内容新增通用脱敏保证。protocolVersion 仍为 1：旧内核忽略该附加字段；旧 sidecar 不提供时立即返回原有错误且没有逐请求 cause，不再从无请求关联的会话 stderr 猜测原因。
+
+stdout 与 stderr 独立，无法以写入顺序推断接收顺序。成功和常驻进程的错误响应均不等待 stderr 或进程退出。无响应的崩溃、超时、协议错误沿用已有终止／清理等待，在 `close`（stdio 已关闭）后把会话 stderr 尾部作为本地 cause；这是会话级尽力诊断，可能含先前日志，不表示逐请求关联，也不保证强杀前尚未刷出的数据。已有底层 cause 优先保留。取消和主动关闭保留原有干净错误。崩溃消息只含退出状态，不含 stderr 内容。
+
 当前 BabelDOC sidecar 在源码环境使用单独 Python 3.13 环境及 `--pdf-config`，Windows 独立发行使用 PyInstaller 目录组件，由组件设置记录装配；两者共用同一 stdio 协议。PDF 组件首次操作时验证，缺失不妨碍文本工作台启动。进程常驻复用，崩溃后单个请求最多重新启动一次，仍失败则任务 failed。MinerU 与 BabelDOC **分两个 sidecar 可执行文件**（解析与重建独立缺失、独立升级）是后续目标。当前只开放 BabelDOC 原生文本捕获与单语 PDF 回放；双语格式不是已公布能力。
 
 ### 7.2 与内核 IR 的对齐
@@ -393,3 +397,12 @@ Records mark a document with `schemaVersion: 3` on its first Q02 ownership, aban
 Q02 relocated-root recovery: a missing original artifact file or parent directory completes cleanup on explicit retry without unlink; a still-existing file under an old root remains protected when the configured managed root changes.
 
 Q02 event and entry detail: `task.abandoned` carries `{ taskId }` after a failed task is explicitly abandoned. It is a terminal event alongside `task.succeeded`, `task.failed`, `task.paused`, and `task.canceled`; clients should refresh task lists and snapshot references on receipt. `task_abandon`, `artifact_delete`, and `artifact_cleanup_list` map to `abandonTask`, `deleteArtifact`, and `listArtifactCleanup` on the shared operation facade. The matching HTTP endpoints and response semantics are specified above; these are available through the MCP tool registry as `ivoraige_task_abandon`, `ivoraige_artifact_delete`, and `ivoraige_artifact_cleanup_list`.
+
+
+### P04 current entry projection
+
+The existing API_VERSION `2.0`, CLI aliases, HTTP REST aliases and MCP tool names are preserved. A registered operation is validated once by the kernel catalog, including MCP argument errors; result payloads are checked as JSON data against the operation result schema. The internal generic invocation adapters are CLI `call OPERATION --set JSON`, HTTP `POST /api/operations/{operationId}` and MCP `ivoraige_op_{operationId}` for contributed operations without an existing alias. They do not establish the complete stable external client/authentication API.
+
+The facade owns the top-level `apiVersion` field and sets it to `2.0` after validating the business result; a contribution cannot replace it through its result schema or payload. A self-owned local generic CLI call refuses operations declared long-running or task-cancellable before admission (also with `--no-wait`); use a waiting CLI alias or a persistent host via `--url` / a caller-supplied app. HTTP path identifiers use one percent-decoding boundary; malformed encodings return `400 INVALID_ARGUMENT`.
+
+`GET /api/events/state` accepts optional `docId`, `taskId` or `componentId` scope and first emits `state.ready` with `{subscriptionId,generation,scope,barrierRevision}`. The live session is read through `GET /api/state?subscriptionId=...`, returning the v2 envelope plus the same identity and `{stateRevision,state}`. `state.invalidated` notices above the applied revision trigger refetch on the same session. `resync-required`, disconnect, changed generation/scope and bounded-buffer overflow require a new subscription and snapshot. Transport backpressure pauses writes until `drain`, then resumes from the bounded session buffer without repeating accepted frames; buffer overflow still requires resynchronization. State is a public summary, not replayable events or a complete atomic workbench text copy. The previous task SSE endpoints retain their existing `{type,data}` projection.
