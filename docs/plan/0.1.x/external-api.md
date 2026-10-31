@@ -1,0 +1,48 @@
+<a id="共用外部-api-与首个软件集成路线"></a>
+
+# 共用外部 API 与软件集成路线
+
+接口权威定义见[可调用翻译方案](../../requirements/0.1.x/external-api.md)及[协议附录](../../requirements/0.1.x/external-protocol.md)。本页负责来源证据、实施切片和待收口问题；[工作包索引](work-packages.md)维护状态，[releases](releases.md#新增支线的阶段安排)维护候选范围。沿用 I01/I02 和现有 W/P/U 包，不另建接口项目的平行进度表。
+
+## 依赖与可审阅切片
+
+KT 与 Zotero 同级高优先，可并行验证，I01/I02 编号不表示完成顺序。共享接口、OpenAI 包装及各客户端适配契约可并行设计和联调；端到端验收按[具名子交付](packages/formats-integrations.md#共享子交付)引用版本与证据：KT 接 I01.shared@1/I01.callable@1（含 W02、U03.terms@1），Zotero 的 I01.zotero@1 接 shared 与来源/产物能力，调用方案时再加 callable。无需等整个公共 API 完成才开始适配探针，也不以探针替代真实基础上的最终验收。KT 原生适配不等待 OpenAI 包装，Zotero 不等待 KT。P05 承接实际独立插件交付，W03.publish-ui@1 后接中央管理界面；此前 owner CLI 必须已能准备和发布；PDF 全链、D05 原生桌面和 W04 图编辑不是前置。W02 可先覆盖不依赖人工等待的文本组合，不用完整项目平台阻塞外部调用。
+
+| 所属 / 切片 | 本次交付与不做项 | 验收与回退 |
+| --- | --- | --- |
+| W02 + U03.terms@1 | 公开子集与内部操作分离，保存定义/发布引用/受理冻结/独立运行绑定；术语范围与版本接线。沿用已有 schema 和 tasks/jobs，不建第二执行器；不要求全部术语管理 UI | W-V01/W-V02、[U-V03.terms](validation/ui.md#u-v03-terms)与[方案/术语案例](validation/external-api.md#方案与原生调用)；关闭新发布入口，保留旧流程和已受理记录，新增持久字段按迁移备份/双读回退 |
+| I01.shared@1 / I01.callable@1 | 方案发现/描述、批次受理、状态/结果/取消、有限术语及授权边界；不把全部 operation 公开 | [I-V01.shared/callable](validation/formats-integrations.md#i01)与[方案与原生调用](validation/external-api.md#方案与原生调用)；禁用新 facade，历史仍可读，撤回发布不删运行，未知副作用不盲重试 |
+| W03.publish-ui@1（后接 callable） | 保存/复制/配置/测试/发布表单，复用模型/词库管理器和现有工作流编辑；不新增全局设置标签，不等高级图 | [W-V03.publish-ui](validation/workflows.md#w-v03-publish-ui)与[管理和跨入口一致性](validation/external-api.md#管理和跨入口一致性)；可回退到只读已发布配置，保留草稿和确切引用，不降级删边 |
+| I01 / [#41](https://github.com/KongouAirlines/ivoraige/issues/41) OpenAI | 已发布文本方案模型列表、明确 chat 输入/语言/覆盖和响应子集；先非流式，再验收最终稳定流；不宣称完整聊天、多模态或任意工具兼容 | I-V01 的[OpenAI 案例](validation/external-api.md#openai-兼容)；禁用该协议入口不影响原生方案，保留 runId 与失败记录 |
+| I02 / [#42](https://github.com/KongouAirlines/ivoraige/issues/42) KT | 固定真实插件版本，安装授权、原生请求映射、术语与 HTML/批次回填；不 fork 客户端、不建 KT 业务内核 | I-V01.shared/callable 已通过版本与 I-V02 的[KT 案例](validation/external-api.md#kt-实际集成)；撤销客户端调用权限/禁用桥接，保留中央方案和结果；卸载模板不等于停止旧实例 |
+
+Zotero 的选择附件导入和显式新产物写回是 I01.zotero@1 独立高优先切片，与 KT 并行；沿用[现有范围](formats-integrations.md#软件协作支线)和[I-V01 验收](validation/formats-integrations.md#i01)。本专项细化 KT 的协议映射，不据此降低 Zotero 优先级。Pot/OCR 与其他文件交换按 I02/I03 各自证据推进；单个客户端成功不能代表其他客户端都兼容。所有实现 PR 同时更新代码、测试、激活的契约及受影响指南，实际证据链接回原工作包行；规划 PR 不关闭功能 issue。
+
+## KT 证据与交付
+
+2026-10-22 核对 [dev 固定提交 b46b042](https://github.com/fishjar/kiss-translator/tree/b46b04213b849d3ac9874f520efc65ee12aeaeab) 的[官方插件指南](https://github.com/fishjar/kiss-translator/blob/b46b04213b849d3ac9874f520efc65ee12aeaeab/docs/plugins/plugin-development-guide.md)。它描述 SDK v1、声明式规则和脚本 provider，适用于提供接口插件页的开发版本；dev 支持不证明商店已发行。实施前须选择实际可安装构建、记录版本/SHA/浏览器和 SDK 兼容范围，重新核验契约变更。
+
+| 上游依据 | 对本项目的影响 |
+| --- | --- |
+| 指南 §6.2、§10：translate 的 items、语言、HTML、glossary/context/document 与最终结果；流式事件不能代替最终结果 | 按 ID 完整回填，聚合模式不靠项数猜；上下文只是调用方提供片段，首验记录实际范围；断流不能变成空成功 |
+| 指南 §1、§7：provider 是网络协议适配，不操作页面 DOM，也不安装本地引擎 | 页面层留 KT，原生 facade 承接业务；脚本只做协议映射，按 SDK 能力处理凭据、网络和取消 |
+| 指南 §12：目录/ZIP 根部 Manifest；公开 GitHub 来源要求仓库根部，不支持 tree/blob 子目录安装 | 可先在本仓库维护源码，产出独立根目录 ZIP 作安装验收；不能直接把源码子目录链接当已支持安装来源。暂不新建外部仓库；若以后需要根仓库自动更新，再独立决定分发位置 |
+| 指南 §12：本机授权独立于实例配置，更新模板不改旧实例，卸载模板保留实例 | 验收真实更新/旧实例行为，停止调用需撤权或禁用相应实例；不能把模板卸载宣称为已停止所有请求 |
+| [v2.1.0 发布记录](https://github.com/fishjar/kiss-translator/releases/tag/v2.1.0)已有本地术语替换与 Playground | 集成价值是跨软件共享/治理/抽取及版本一致性，不能以 KT 没有术语库作需求前提；对照其已有能力评估，而非只验 HTTP 可通 |
+
+插件包是 KT 侧分发单位，与 ivoraige 宿主插件的 P05 生命周期不同。Manifest、可执行入口、许可和说明组成最小包，不含模型密钥、个人配置、node_modules 或开发缓存；脚本源码检查不等于浏览器联调。固定 origin 授权、客户端令牌、服务 Host/Origin 校验都要通过，不为安装方便放宽服务边界。来源/许可闭包复用 [P05](packages/foundation.md#p05)、[npm 就绪](../0.1.0/npm-readiness.md)和相关独立包规则，不复制另一份许可矩阵。
+
+以上是文档和源码契约核对，没有安装 KT 插件、调用模型或完成浏览器端到端联调。
+
+## 实施前收口
+
+| 决策点 | 最小输入与收口时点 |
+| --- | --- |
+| 原生路径、版本协商和 MCP 工具名 | P04 真实注册/现行错误与授权行为；首个 facade PR 固定路径及兼容测试，不自动暴露内部列表 |
+| 授权落地与无项目记录迁移 | [单机授权](../../requirements/0.1.x/contracts.md#单机客户端授权)已固定 owner 签发、principal/grant、scope 和拒绝语义；I01.shared@1 探针确认 DSH 实际存储接点、旧路由门禁和 stdio 身份绑定。W02/I01.callable@1 固定所属引用、保留/迁移字段，不再把认证来源留作未定方案 |
+| 临时 glossary 冲突及抽候选政策 | 至少两来源/同形异义、锁定术语和请求冲突样本；术语切片固定默认及可配置范围，不能先忽略术语让演示通过 |
+| OpenAI 客户端与机器 schema | [协议附录](../../requirements/0.1.x/external-protocol.md#openai-文本子集)固定最小 wire/usage/错误；首个实现 PR 提交机器 schema、至少一个真实客户端的字段/流式矩阵和不兼容项，扩字段前证明映射 |
+| KT 版本、原生脚本/声明式选择与安装包 | 实际支持插件的构建、SDK、HTML/聚合/取消探针和打包根目录；联调前固定，商店发行可用性另核验 |
+| 全文与片段抽取 | KT 实际交付的页面批次、上下文完整性、用户授权与资源限额；未证明全文交接前仅承诺片段范围，不用 URL 抓取代替授权 |
+
+仅当实施出现真实不可兼容的架构取舍时增加 ADR；上表的候选字段、探针选择和客户端限额不需要各自新建 ADR。
