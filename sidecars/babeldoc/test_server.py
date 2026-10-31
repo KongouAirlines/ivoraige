@@ -16,6 +16,25 @@ import server
 
 
 class BindingTests(unittest.TestCase):
+    def test_null_noncallback_structure_keeps_location_and_body(self):
+        structure = {'key': 'layout', 'page': 0, 'bbox': [0, 0, 1, 1],
+                     'sourceUnicode': None, 'layoutLabel': 'unknown'}
+        body = {'key': 'body', 'sourceUnicode': 'Body text'}
+        normalized = server.normalize_paragraph_sources(
+            [{'key': 'body', 'requestText': 'Body text'}], [structure, body])
+        self.assertEqual(len(normalized), 2)
+        self.assertEqual(normalized[0]['sourceUnicode'], '')
+        self.assertIsNone(normalized[0]['rawSourceUnicode'])
+        self.assertEqual(normalized[0]['bbox'], structure['bbox'])
+        self.assertEqual(normalized[1], body)
+        raw = {**structure, 'rawExtractedText': 'Retain this text'}
+        self.assertEqual(server.normalize_paragraph_sources([], [raw])[0]['sourceUnicode'],
+                         'Retain this text')
+        with self.assertRaises(server.SidecarError):
+            server.normalize_paragraph_sources([{'key': 'body', 'requestText': None}], [body])
+        with self.assertRaises(server.SidecarError):
+            server.normalize_paragraph_sources([{'key': 'layout', 'requestText': 'Body'}], [structure])
+
     def test_overlapping_unmatched_line_is_retained(self):
         paragraph = {"page": 0, "bbox": [0, 0, 100, 100], "sourceUnicode": "Known text"}
         lines = [
