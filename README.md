@@ -28,6 +28,7 @@ The goal is a shared foundation for people and AI: choose the capabilities you n
 - **Keep a hand in the result.** Compare source and translation, save drafts, accept revisions, and return to earlier work.
 - **Reuse accepted translations.** Export supported formats from one frozen snapshot. Exporting does not ask a model to translate again.
 - **Keep the original structure.** CLI export with `--content-mode source` can produce Markdown or JSON without a target language or accepted translation. For imported PDFs, it can also copy the verified managed original PDF. The default remains accepted-translation export with `--target-lang`.
+- **Select an implementation when needed.** `--format` names the document or output format; `--adapter ID` explicitly selects an installed implementation. Otherwise the highest match across compatible input views wins; equal matches require an explicit choice. Queued work keeps the selected implementation and version, and asks you to retry if it changes. A text-only adapter does not replace the optional component for PDF files or binary uploads.
 - **Keep export history clear.** If another export blocks admission, the attempted export leaves no new snapshot; existing snapshots remain available.
 - **Choose how to work.** Use the browser workbench or CLI, or connect an AI client to the shared kernel through [MCP](docs/plan/0.1.0/mcp-guide.md).
 - **Correct settings errors before saving.** Invalid model compatibility values, including switches unsupported by every model API on a route, and invalid reasoning values are rejected as input errors; CLI `settings --set` rejects malformed JSON and non-object roots (such as `null` or arrays) with `INVALID_ARGUMENT` and exit code 2 in both local and remote modes.
@@ -83,3 +84,9 @@ Tell us what you are trying to translate or process, where the workflow gets in 
 See [contribution guidance](CONTRIBUTING.md) and [security reporting](SECURITY.md). The core uses **LGPL-3.0-or-later**; the business modules listed in [LICENSE](LICENSE) use **MIT**. The optional BabelDOC Python plugin uses **AGPL-3.0-only** and is packaged separately. Contributions require DCO sign-off.
 
 Built with Cordis and DSH, with optional BabelDOC support. See [third-party acknowledgements](THIRD_PARTY.md).
+
+### Adapter availability and readable outputs
+
+Missing source components are classified from declared formats and compatible input kinds without executing their matchers. Readable JSON/Markdown exports require an explicit source `readableText` projection; TXT and Markdown declare identity projection, while binary outputs with no requested views remain independent of source projection. Output enumeration and selection share one availability rule and accept an optional content mode: disabled/failed outputs stay unavailable; an unavailable output may explicitly allow a mode through `canRunUnavailable`. Explicit output versions must be nonempty strings; omitted versions retain the `unversioned` compatibility value.
+
+Explicit in-process output version pins are checked before export admission and again at execution. Resume validates the remaining outputs against the frozen snapshot's binding, mode and saved adapter/version before changing a paused/failed task to queued; already completed artifacts keep their checkpoints without needing their former output adapter. Source imports consistently exclude unavailable, disabled and failed adapters from discovery, automatic/explicit selection and queued execution.

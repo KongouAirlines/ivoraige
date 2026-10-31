@@ -2,28 +2,30 @@
 // Copyright (c) 2026 ivoraige contributors; see LICENSE for the full notice.
 
 // Renderers receive only resolved frozen data, never a Cordis context or service.
-import { renderMarkdown } from './markdown-output.mjs'
-import { readablePdfText } from './pdf-text.mjs'
-const supports = binding => ['txt', 'markdown', 'babeldoc'].includes(binding?.adapterId)
-const readable = (binding, item) => binding.adapterId === 'babeldoc'
-  ? readablePdfText(binding, item.unit, item.text) : item.text
+const supports = binding => typeof binding?.adapterId === 'string' && !!binding.adapterId
 
 export const markdown = {
   id: 'md',
+  version: '0.1.0',
+  formats: ['md'],
+  requiredViews: ['readable-text', 'native-markdown'],
   supports,
   rebuild(data) {
-    if (data.sourceBinding.adapterId === 'markdown') return renderMarkdown(data)
+    if (data.nativeMarkdown !== undefined) return data.nativeMarkdown
     const { snapshot, document, units } = data
     const title = document.title.replace(/[\r\n]+/g, ' ')
     return `<!-- ivoraige snapshot:${snapshot.id} revisions:${snapshot.revisionSetHash} -->\n\n` +
-      `# ${title}\n\n` + units.map(item => readable(data.sourceBinding, item)).join('\n\n') + '\n'
+      `# ${title}\n\n` + units.map(item => item.readableText ?? item.text).join('\n\n') + '\n'
   },
 }
 
 export const json = {
   id: 'json',
+  version: '0.1.0',
+  formats: ['json'],
+  requiredViews: ['readable-text'],
   supports,
-  rebuild({ snapshot, document, units, sourceBinding }) {
+  rebuild({ snapshot, document, units }) {
     return JSON.stringify({
       snapshotId: snapshot.id,
       contentMode: snapshot.contentMode ?? 'accepted-translation',
@@ -33,9 +35,9 @@ export const json = {
         sourceLang: document.language,
         ...(snapshot.targetLang ? { targetLang: snapshot.targetLang } : {}),
       },
-      units: units.map(({ unit, decision, text }) => ({
+      units: units.map(({ unit, decision, text, readableText }) => ({
         id: unit.id, order: unit.order, kind: unit.kind, locator: unit.locator,
-        sourceText: unit.sourceText, text: readable(sourceBinding, { unit, text }), decision,
+        sourceText: unit.sourceText, text: readableText ?? text, decision,
       })),
     }, null, 2) + '\n'
   },

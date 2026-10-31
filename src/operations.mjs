@@ -83,31 +83,16 @@ export class Operations extends Service {
         result = { features: ['documents', 'workbench', 'tasks',
           ...(this.ctx.get('ivoraige.components') ? ['component-installation'] : []),
           ...(settingsPages.length ? ['settings'] : [])], settingsPages,
-          inputFormats: parser.listAdapters().map(id =>
-            id === 'markdown' ? 'md' : id === 'babeldoc' ? 'pdf' : id),
-          outputFormats: this.ctx.get('ivoraige.outputs').listAdapters(),
+          inputFormats: parser.listFormats().map(format => format === 'markdown' ? 'md' : format)
+            .filter((format, index, formats) => formats.indexOf(format) === index),
+          outputFormats: this.ctx.get('ivoraige.outputs').listFormats(),
           components, dataDirectory: this.dataDirectory }
         break
       }
       case 'importDocument': {
-        if ((p.path === undefined) === (p.contentBase64 === undefined)) throw new KernelError('INVALID_ARGUMENT', 'Specify path or contentBase64, exclusively')
-        let content
-        if (p.contentBase64 !== undefined) {
-          if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(p.contentBase64)) {
-            throw new KernelError('INVALID_ARGUMENT', 'contentBase64 is not valid base64')
-          }
-          const bytes = Buffer.from(p.contentBase64, 'base64')
-          if (p.format === 'pdf') content = bytes
-          else {
-            try { content = new TextDecoder('utf-8', { fatal: true }).decode(bytes) }
-            catch { throw new KernelError('INVALID_ARGUMENT', 'Input must be UTF-8 text') }
-          }
-        }
-        result = await this.tasks.importDocument({ ...(p.path ? { path: p.path } : { content }),
-          ...(p.format ? { format: p.format } : {}), ...(p.title ? { title: p.title } : {}) },
-        { language: p.language, origin: p.origin, ...(p.sourceId ? { sourceId: p.sourceId } : {}),
-          ...(p.externalRef ? { externalRef: p.externalRef } : {}) },
-        { wait: !(p.format === 'pdf' || /\.pdf$/i.test(p.path ?? '')) })
+        const { language, origin, sourceId, externalRef, ...file } = p
+        result = await this.tasks.importDocument(file, { language, origin, sourceId, externalRef },
+          { waitForQueued: false, legacyWire: true })
         break
       }
       case 'listDocuments': result = paginate(r.listDocuments().filter(item =>

@@ -5,6 +5,7 @@ import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { isMap, parseDocument } from 'yaml'
 import { KernelError } from '../errors.mjs'
+import { renderMarkdown } from './markdown-output.mjs'
 
 const invalid = message => { throw new KernelError('INVALID_ARGUMENT', `Unsupported Markdown: ${message}`) }
 
@@ -101,6 +102,11 @@ function inline(raw, from, to, add, kind) {
 
 export const markdownSource = {
   id: 'markdown',
+  version: '0.1.0', bindingSchemaVersion: 1,
+  formats: ['md', 'markdown'],
+  inputKinds: ['text', 'bytes', 'managed-resource'], cancellable: true,
+  readableText: (_binding, _unit, text) => text,
+  renderMarkdown,
   match(file) {
     if (file.format !== undefined) return ['md', 'markdown'].includes(file.format.toLowerCase()) ? 1 : 0
     return /\.(?:md|markdown)$/i.test(file.path ?? file.name ?? '') ? 0.8 : 0
@@ -109,7 +115,12 @@ export const markdownSource = {
     if (file.content !== undefined && file.path !== undefined) throw new KernelError('INVALID_ARGUMENT', 'Provide either path or content')
     if (file.content !== undefined && typeof file.content !== 'string' && !Buffer.isBuffer(file.content)) throw new KernelError('INVALID_ARGUMENT', 'Markdown content must be a string or Buffer')
     if (file.path !== undefined && (typeof file.path !== 'string' || !file.path.trim())) throw new KernelError('INVALID_ARGUMENT', 'path must be a nonempty string')
-    const raw = file.content === undefined ? await readFile(file.path, 'utf8') : file.content.toString('utf8')
+    const data = file.content === undefined ? await readFile(file.path) : file.content
+    let raw = data
+    if (Buffer.isBuffer(data)) {
+      try { raw = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(data) }
+      catch (error) { throw new KernelError('INVALID_ARGUMENT', 'Markdown input must be UTF-8 text', {}, { cause: error }) }
+    }
     if (!raw.trim()) throw new KernelError('INVALID_ARGUMENT', 'Markdown source is empty')
     const lines = linesOf(raw)
     const units = []

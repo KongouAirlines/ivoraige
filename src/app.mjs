@@ -6,6 +6,7 @@ import { Parse } from './parse.mjs'
 import { Outputs } from './outputs.mjs'
 import { TxtSource } from './adapters/txt-source.mjs'
 import { Records } from './records.mjs'
+import { Importer } from './import.mjs'
 import { Exporter } from './export.mjs'
 import { TextOutputs } from './adapters/text-output.mjs'
 import { KernelError } from './errors.mjs'
@@ -80,6 +81,7 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
       await ctx.plugin(StorageDomain, { backend: 'sqlite' })
       await ctx.plugin(Records)
       await ctx.get('ivoraige.records').ready
+      await ctx.plugin(Importer)
       await ctx.plugin(TextOutputs)
       await ctx.plugin(Exporter, { root: exportDir ?? join(dirname(store), 'exports') })
       if (translation !== undefined) {

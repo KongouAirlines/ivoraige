@@ -96,16 +96,29 @@ export class Tasks extends Service {
 
   async get(taskId) { await this.ready; return this.records.getTask(taskId) }
   async list(filter = {}) { await this.ready; return this.records.listTasks(filter) }
+  importCoordinator() {
+    const importer = this.ctx.get('ivoraige.import')
+    if (!importer) throw new KernelError('COMPONENT_MISSING', 'Import coordinator is unavailable')
+    return importer
+  }
 
-  async importDocument(file, metadata, { wait = true } = {}) {
+  async importDocument(file, metadata, { wait, waitForQueued = true, deferSelection = false, legacyWire = false } = {}) {
     await this.ready
     if (this.closing) throw new KernelError('PRECONDITION_FAILED', 'Task service is closing')
-    if (!wait || file.format === 'pdf' || /\.pdf$/i.test(file.path ?? '')) {
+    metadata = metadata && typeof metadata === 'object' ? Object.freeze({ ...metadata }) : metadata
+    const selection = this.importCoordinator().prepare({ ...file,
+      ...(metadata?.language !== undefined ? { language: metadata.language } : {}) }, { legacyWire, deferSelection })
+    const adapter = selection.descriptor
+    const pinnedFile = selection.file
+    const adapterVersion = selection.adapterVersion
+    const queued = selection.importMode === 'queued' || !adapter
+    const shouldWait = wait ?? (!queued || waitForQueued)
+    if (queued || !shouldWait) {
       const admission = (async () => {
-        const task = await this.records.createImportTask(file.title ?? (file.path ? basename(file.path) : 'PDF import'))
+        const task = await this.records.createImportTask(file.title ?? (file.path ? basename(file.path) : 'Import'), adapter)
         if (this.closing) await this.records.updateTask(task.id, current => ({ ...current, state: 'canceled' }))
         else {
-          this.pendingImports.set(task.id, { file, metadata })
+          this.pendingImports.set(task.id, { file: pinnedFile, metadata, selection })
           this.queue.push(task.id)
           this.emit('task.queued', { taskId: task.id, kind: 'import' })
           this.schedule()
@@ -115,7 +128,7 @@ export class Tasks extends Service {
       this.admissions.add(admission)
       let task
       try { task = await admission } finally { this.admissions.delete(admission) }
-      if (!wait) return { taskId: task.id }
+      if (!shouldWait) return { taskId: task.id }
       const result = await this.wait(task.id)
       if (result.state !== 'succeeded') throw new KernelError('UPSTREAM_FAILURE', result.error?.message ?? 'Import canceled',
         { taskId: task.id, ...(result.state === 'canceled' ? { canceled: true } : {}) })
@@ -125,9 +138,10 @@ export class Tasks extends Service {
     this.importControllers.add(controller)
     const admission = (async () => {
       const start = Date.now()
-      const result = await this.records.importDocument({ ...file, signal: file.signal
-        ? AbortSignal.any([controller.signal, file.signal]) : controller.signal }, metadata)
-      const task = await this.records.createOperationTask(result.document.id, { kind: 'import', durationMs: Date.now() - start })
+      const result = await this.importCoordinator().importDocument({ ...pinnedFile, signal: file.signal
+        ? AbortSignal.any([controller.signal, file.signal]) : controller.signal }, metadata, { adapterVersion, selection })
+      const task = await this.records.createOperationTask(result.document.id,
+        { kind: 'import', durationMs: Date.now() - start, sourceAdapter: adapter })
       this.emit('task.succeeded', { taskId: task.id, artifacts: [], stats: task.stats })
       return { ...result, taskId: task.id, warnings: result.document.warnings ?? [] }
     })()
@@ -135,16 +149,16 @@ export class Tasks extends Service {
     try { return await admission } finally { this.admissions.delete(admission); this.importControllers.delete(controller) }
   }
 
-  async runImport(task, file, metadata, controller, job) {
+  async runImport(task, file, metadata, controller, job, selection) {
     const started = Date.now()
     try {
       controller.signal.throwIfAborted()
-      const result = await this.records.importDocument({ ...file, signal: file.signal
+      const result = await this.importCoordinator().importDocument({ ...file, signal: file.signal
         ? AbortSignal.any([controller.signal, file.signal]) : controller.signal,
         onProgress: progress => {
           job.updateProgress(progress.stage)
           this.emit('task.progress', { taskId: task.id, ...progress })
-        } }, metadata, { taskId: task.id })
+        } }, metadata, { taskId: task.id, adapterVersion: task.adapterVersion, selection })
       // Once the document has committed, report success even if cancellation
       // races that commit; otherwise a canceled task could hide an imported document.
       if (this.tearingDown) return { state: 'canceled' }
@@ -177,8 +191,14 @@ export class Tasks extends Service {
       throw new KernelError('INVALID_ARGUMENT', 'outputs must contain requested formats')
     }
     if (snapshotId !== undefined && onMissingAccepted !== undefined) throw new KernelError('INVALID_ARGUMENT', 'Snapshot decisions are already frozen')
-    const available = this.records.getDocument(docId).availableOutputs
-    if (outputs.some(item => !available.includes(item.format))) throw new KernelError('INVALID_ARGUMENT', 'Unsupported output format')
+    const binding = this.records.record(docId).sourceBinding
+    const outputRegistry = this.ctx.get('ivoraige.outputs')
+    if (!outputRegistry) throw new KernelError('COMPONENT_MISSING', 'Output adapter registry is unavailable')
+    const selectedOutputs = outputs.map(output => {
+      const adapter = outputRegistry.get(output.format,
+        { adapterId: output.adapterId, adapterVersion: output.adapterVersion, binding, contentMode })
+      return { ...output, adapterId: adapter.id, adapterVersion: adapter.version ?? 'unversioned' }
+    })
     const paths = outputs.filter(item => item.out !== undefined).map(item => {
       if (typeof item.out !== 'string' || !item.out.trim()) throw new KernelError('INVALID_ARGUMENT', 'Output path must be nonempty')
       const path = resolve(item.out)
@@ -198,7 +218,7 @@ export class Tasks extends Service {
       try {
         release = this.records.retainSnapshot(docId, snapshot.id)
         const task = await this.records.createOperationTask(docId,
-          { kind: 'export', targetLang, snapshotId: snapshot.id, outputs })
+          { kind: 'export', targetLang, snapshotId: snapshot.id, outputs: selectedOutputs })
         admitted = true
         if (this.closing) await this.records.updateTask(task.id, current => ({ ...current, state: 'paused' }))
         else { this.queue.push(task.id); this.emit('task.queued', { taskId: task.id, kind: 'export' }); this.schedule() }
@@ -379,7 +399,7 @@ export class Tasks extends Service {
       if (task.kind === 'import') {
         const input = this.pendingImports.get(taskId)
         if (!input) throw new KernelError('PRECONDITION_FAILED', 'Import source is unavailable; submit it again')
-        await this.runImport(task, input.file, input.metadata, controller, job)
+        await this.runImport(task, input.file, input.metadata, controller, job, input.selection)
         return
       }
       for (let index = task.cursor; index < task.progress.total; index++) {
@@ -540,7 +560,17 @@ export class Tasks extends Service {
       const queued = await this.records.updateTask(taskId, current => {
         if (!['paused', 'failed'].includes(current.state)) throw new KernelError('CONFLICT', 'Task state changed')
         if (current.kind === 'translate') this.records.validateTaskCheckpoints(taskId)
-        else if (current.kind === 'export') this.records.getSnapshot(current.docId, current.snapshotId)
+        else if (current.kind === 'export') {
+          const frozen = this.records.resolveSnapshot(current.docId, current.snapshotId)
+          const pendingOutputs = current.outputs.slice(current.cursor)
+          if (pendingOutputs.length) {
+            const outputRegistry = this.ctx.get('ivoraige.outputs')
+            if (!outputRegistry) throw new KernelError('COMPONENT_MISSING', 'Output adapter registry is unavailable')
+            for (const output of pendingOutputs) outputRegistry.get(output.format,
+              { adapterId: output.adapterId, adapterVersion: output.adapterVersion, binding: frozen.sourceBinding,
+                contentMode: frozen.snapshot.contentMode ?? 'accepted-translation' })
+          }
+        }
         else throw new KernelError('PRECONDITION_FAILED', 'Import tasks cannot be resumed')
         const { error, ...rest } = current
         return { ...rest, state: 'queued' }

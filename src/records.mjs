@@ -33,7 +33,10 @@ const taskSchema = z.object({
 })
 const operationTaskSchema = taskSchema.omit({ mode: true, unitIds: true, checkpoints: true, profileId: true })
   .extend({ kind: z.enum(['import', 'export']), targetLang: z.string().optional(),
-    snapshotId: z.string().optional(), outputs: z.array(z.object({ format: z.string(), out: z.string().optional() })).optional() })
+    adapterId: z.string().optional(), adapterVersion: z.string().optional(),
+    snapshotId: z.string().optional(), outputs: z.array(z.object({ format: z.string(), adapterId: z.string().optional(),
+      adapterVersion: z.string().optional(),
+      out: z.string().optional() })).optional() })
 const defaultConstraints = (units, index) => ({
   effectiveContext: { before: units[index - 1]?.sourceText ?? null, after: units[index + 1]?.sourceText ?? null },
   effectiveTarget: { purpose: 'scientific translation', style: 'faithful' },
@@ -56,9 +59,11 @@ function assertJson(value, path = '$', seen = new Set()) {
 }
 const generic = z.record(z.string(), z.unknown())
 const recordSchema = z.object({
-  document: z.object({ id: z.string(), sourceId: z.string(), format: z.enum(['txt', 'md', 'pdf']), language: z.string(),
+  document: z.object({ id: z.string(), sourceId: z.string(), format: z.string().min(1), language: z.string(),
     title: z.string(), origin: z.enum(['manual', 'zotero', 'cli', 'mcp']), externalRef: z.string().optional(), unitCount: z.number(),
     translatableCount: z.number(), availableOutputs: z.array(z.string()), importedAt: z.string(),
+    sourceAdapterId: z.string().optional(), sourceAdapterVersion: z.string().optional(),
+    bindingSchemaVersion: z.number().int().optional(),
     warnings: z.array(z.string()).optional(), sourceCoverage: generic.optional() }),
   schemaVersion: z.number().int().optional(), sourceIR: generic.optional(),
   fingerprint: z.string(), sourceBinding: generic, sourceBindingRef: z.string(),
@@ -79,7 +84,8 @@ const recordSchema = z.object({
       z.object({ type: z.literal('source') }),
     ]) })), revisionSetHash: z.string(), createdAt: z.string() })),
   artifacts: z.array(z.object({ id: z.string(), docId: z.string(), contentMode: z.enum(['source', 'accepted-translation']).optional(),
-    targetLang: z.string().optional(), format: z.string(),
+    targetLang: z.string().optional(), format: z.string(), adapterId: z.string().optional(),
+    adapterVersion: z.string().optional(),
     path: z.string(), snapshotId: z.string(), revisionSetHash: z.string(), createdAt: z.string(),
     warnings: z.array(z.string()).optional(),
     taskId: z.string().optional(), outputIndex: z.number().optional() })),
@@ -92,12 +98,10 @@ const spec = StorageDomain.defineDomain({ name: 'ivoraige_records', version: 1, 
   tables: { documents: StorageDomain.domainTable(recordSchema), imports: StorageDomain.domainTable(importTaskSchema) } })
 
 export class Records {
-  static inject = ['storageDomain', 'ivoraige.parse', 'ivoraige.outputs']
+  static inject = ['storageDomain']
 
   constructor(ctx) {
     this.ctx = ctx
-    this.parse = ctx.get('ivoraige.parse')
-    this.outputs = ctx.get('ivoraige.outputs')
     this.leases = new Map()
     this.reuse = new Map()
     this.imports = new Map()
@@ -120,6 +124,11 @@ export class Records {
   }
 
   requireReady() { if (!this.table) throw new KernelError('INTERNAL', 'Records service is not ready') }
+  validateTranslation(record, unit, text) {
+    const parse = this.ctx.get('ivoraige.parse')
+    if (!parse) throw new KernelError('COMPONENT_MISSING', 'Source validation adapter is unavailable')
+    parse.validateTranslation(record.sourceBinding, unit, text, record.document)
+  }
   record(docId) { this.requireReady(); return this.table.get(docId) ?? missing('docId', docId) }
   async update(docId, transform) {
     this.record(docId)
@@ -195,36 +204,59 @@ export class Records {
     }
   }
 
-  async importDocument(file, { sourceId, language: sourceLang, origin = 'manual', externalRef } = {}, { taskId } = {}) {
+  importDocument(file, metadata, options) {
+    const importer = this.ctx.get('ivoraige.import')
+    if (!importer) throw new KernelError('COMPONENT_MISSING', 'Import coordinator is unavailable')
+    return importer.importDocument(file, metadata, options)
+  }
+  referencesSourcePath(sourcePath) {
+    this.requireReady()
+    return [...this.table.keys()].some(docId => this.table.get(docId)?.sourceBinding?.sourcePath === sourcePath)
+  }
+  async persistParsed(file, { sourceId, language: sourceLang, origin, externalRef }, parsed, { taskId } = {}) {
     await this.ready
-    required(language(sourceLang), 'language must be a real BCP-47 tag')
-    required(['manual', 'zotero', 'cli', 'mcp'].includes(origin), 'Invalid origin')
-    required(sourceId === undefined || (typeof sourceId === 'string' && sourceId.trim()), 'sourceId must be nonempty')
-    required(externalRef === undefined || typeof externalRef === 'string', 'externalRef must be a string')
-    return this.parse.importDocument({ ...file, language: sourceLang }, async parsed => {
-      required(['txt', 'md', 'pdf'].includes(parsed.format) && (!parsed.resources || parsed.resources.length === 0),
-        'Persistent import supports TXT, Markdown and PDF without bundled external resources')
-      assertJson(parsed)
-      const businessSourceId = sourceId ?? (file.path ? `path:${file.path}` : `manual:${id()}`)
-      const fingerprint = digest({ format: parsed.format, language: sourceLang, units: parsed.units,
-        chapters: parsed.chapters, resources: parsed.resources, sourceBinding: parsed.sourceBinding })
-      const docId = digest({ sourceId: businessSourceId, fingerprint }).slice(0, 32)
-      // Persist the deterministic destination before inserting the document, so
-      // startup can reconcile a crash between document commit and task completion.
-      if (taskId) await this.updateTask(taskId, task => ({ ...task, preparedDocId: docId }))
-      file.signal?.throwIfAborted()
-      const existing = this.table.get(docId)
-      if (existing) return { document: clone(existing.document), deduplicated: true }
-      const pending = this.imports.get(docId)
-      if (pending) {
-        const document = await pending
-        return { document: clone(document), deduplicated: true }
-      }
-      const operation = this.insertDocument(docId, businessSourceId, sourceLang, origin, externalRef, fingerprint, parsed)
-      this.imports.set(docId, operation)
-      try { return { document: clone(await operation), deduplicated: false } }
-      finally { this.imports.delete(docId) }
-    }, sourcePath => [...this.table.keys()].some(docId => this.table.get(docId)?.sourceBinding?.sourcePath === sourcePath))
+    required(typeof parsed.format === 'string' && parsed.format, 'Parsed format required')
+    assertJson(parsed)
+    const resources = parsed.resources ?? []
+    required(Array.isArray(resources) && resources.every(resource => resource &&
+      typeof resource.id === 'string' && resource.id &&
+      typeof resource.contentDigest === 'string' && /^[a-f0-9]{64}$/.test(resource.contentDigest) &&
+      typeof resource.version === 'string' && resource.version),
+    'Resources require id, contentDigest and version')
+    required(new Set(resources.map(resource => resource.id)).size === resources.length,
+      'Resource ids must be unique')
+    const businessSourceId = sourceId ?? (file.path ? `path:${file.path}` : `manual:${id()}`)
+    const fingerprint = digest({ format: parsed.format, language: sourceLang, units: parsed.units,
+      chapters: parsed.chapters, resources: parsed.resources, sourceBinding: parsed.sourceBinding })
+    const legacyDocId = digest({ sourceId: businessSourceId, fingerprint }).slice(0, 32)
+    // Keep the established content fingerprint unchanged. Versioned parses
+    // receive a separate document namespace so replacing an implementation
+    // cannot silently deduplicate against its older private binding contract.
+    const docId = parsed.sourceAdapterVersion && parsed.sourceAdapterVersion !== 'unversioned'
+      ? digest({ sourceId: businessSourceId, fingerprint, sourceAdapterId: parsed.sourceAdapterId,
+        sourceAdapterVersion: parsed.sourceAdapterVersion,
+        bindingSchemaVersion: parsed.bindingSchemaVersion }).slice(0, 32) : legacyDocId
+    // A pre-P03 record has no implementation provenance; preserve its old
+    // idempotent reimport identity rather than silently rewriting that record.
+    const legacy = this.table.get(legacyDocId)
+    const retainedLegacy = legacy && !legacy.document.sourceAdapterVersion
+    const destination = retainedLegacy ? legacyDocId : docId
+    // Persist the deterministic destination before inserting the document, so
+    // startup can reconcile a crash between document commit and task completion.
+    if (taskId) await this.updateTask(taskId, task => ({ ...task, preparedDocId: destination }))
+    file.signal?.throwIfAborted()
+    if (retainedLegacy) return { document: clone(legacy.document), deduplicated: true }
+    const existing = this.table.get(docId)
+    if (existing) return { document: clone(existing.document), deduplicated: true }
+    const pending = this.imports.get(docId)
+    if (pending) {
+      const document = await pending
+      return { document: clone(document), deduplicated: true }
+    }
+    const operation = this.insertDocument(docId, businessSourceId, sourceLang, origin, externalRef, fingerprint, parsed)
+    this.imports.set(docId, operation)
+    try { return { document: clone(await operation), deduplicated: false } }
+    finally { this.imports.delete(docId) }
   }
   async insertDocument(docId, businessSourceId, sourceLang, origin, externalRef, fingerprint, parsed) {
     const units = parsed.units.map((unit, order) => ({ ...clone(unit), id: `${docId}.${order.toString(36)}`,
@@ -233,6 +265,8 @@ export class Records {
       title: parsed.title, origin, ...(externalRef === undefined ? {} : { externalRef }),
       unitCount: units.length, translatableCount: units.filter(unit => unit.translatable).length,
       availableOutputs: clone(parsed.availableOutputs), importedAt: now(),
+      sourceAdapterId: parsed.sourceAdapterId, sourceAdapterVersion: parsed.sourceAdapterVersion,
+      bindingSchemaVersion: parsed.bindingSchemaVersion,
       ...(parsed.warnings?.length ? { warnings: clone(parsed.warnings) } : {}),
       ...(parsed.sourceCoverage ? { sourceCoverage: clone(parsed.sourceCoverage) } : {}) }
     const resources = (parsed.resources ?? []).map(resource => Object.fromEntries(
@@ -243,7 +277,9 @@ export class Records {
         parsed.units, parsed.chapters ?? [], resources) }
     const record = { schemaVersion: 2, sourceIR, document, fingerprint, sourceBinding: clone(parsed.sourceBinding),
       sourceBindingRef: digest({ docId, fingerprint, binding: parsed.sourceBinding }),
-      sourceBindingDigest: digest(parsed.sourceBinding), resourceVersions: {}, units, revisions: [],
+      sourceBindingDigest: digest(parsed.sourceBinding),
+      resourceVersions: Object.fromEntries(resources.map(resource => [resource.id,
+        `${resource.version}:${resource.contentDigest}`])), units, revisions: [],
       latest: {}, accepted: {}, constraints: {}, snapshots: [], artifacts: [], tasks: [] }
     assertJson(record)
     recordSchema.parse(record)
@@ -253,7 +289,8 @@ export class Records {
 
   getDocument(docId) {
     const record = this.record(docId)
-    return clone({ ...record.document, availableOutputs: this.outputs.availableFor(record.sourceBinding) })
+    return clone({ ...record.document,
+      availableOutputs: this.ctx.get('ivoraige.outputs')?.availableFor(record.sourceBinding) ?? [] })
   }
   listDocuments() { this.requireReady(); return [...this.table.keys()].map(docId => this.getDocument(docId)) }
   listUnits(docId, { targetLang } = {}) {
@@ -344,9 +381,10 @@ export class Records {
     return clone([...records.flatMap(record => [...(record.tasks ?? []), ...(record.operationTasks ?? [])]),
       ...[...this.importTable.entries()].map(([, task]) => task).filter(task => docId === undefined || task.docId === docId)])
   }
-  async createImportTask(label) {
+  async createImportTask(label, adapter) {
     const stamp = now()
     const task = { id: `import.${id()}`, kind: 'import', label, state: 'queued',
+      ...(adapter ? { adapterId: adapter.id, adapterVersion: adapter.version ?? 'unversioned' } : {}),
       progress: { stage: 'import', done: 0, total: 1 }, cursor: 0,
       stats: { stageDurationsMs: {}, llmCalls: 0, reusedUnits: 0, reuseRatio: 0, tokens: {} },
       artifacts: [], createdAt: stamp, updatedAt: stamp }
@@ -365,7 +403,8 @@ export class Records {
         result: { document, deduplicated: true, recovered: true, warnings: document.warnings ?? [] } }
     })
   }
-  async createOperationTask(docId, { kind, targetLang, snapshotId, outputs, durationMs = 0 }) {
+  async createOperationTask(docId, { kind, targetLang, snapshotId, outputs, durationMs = 0,
+    sourceAdapter } = {}) {
     required(['import', 'export'].includes(kind), 'Unsupported operation task')
     let task
     await this.update(docId, current => {
@@ -380,6 +419,9 @@ export class Records {
       }
       const stamp = now()
       task = { id: `${docId}.${id()}`, kind, docId, state: kind === 'import' ? 'succeeded' : 'queued',
+        ...(kind === 'import' && (sourceAdapter?.id ?? current.document.sourceAdapterId) ?
+          { adapterId: sourceAdapter?.id ?? current.document.sourceAdapterId,
+            adapterVersion: sourceAdapter?.version ?? current.document.sourceAdapterVersion ?? 'unversioned' } : {}),
         ...(targetLang ? { targetLang } : {}), ...(snapshotId ? { snapshotId, outputs: clone(outputs) } : {}),
         progress: { stage: kind === 'import' ? 'complete' : 'export', done: kind === 'import' ? 1 : 0,
           total: kind === 'import' ? 1 : outputs.length }, cursor: kind === 'import' ? 1 : 0,
@@ -492,7 +534,7 @@ export class Records {
         { taskId, cursor: task.cursor })
       const unit = current.units.find(item => item.id === unitId) ?? missing('unitId', unitId)
       const basis = this.basis(current, unit, task.targetLang)
-      if (result) this.parse.validateTranslation(current.sourceBinding, unit, result.text)
+      if (result) this.validateTranslation(current, unit, result.text)
       if (!sameBasis(expectedBasis, basis)) throw new KernelError('PRECONDITION_FAILED',
         'Translation basis changed', { unitId })
       const key = keyFor(unitId, task.targetLang)
@@ -565,7 +607,7 @@ export class Records {
     const next = await this.update(docId, current => {
       const unit = current.units.find(u => u.id === unitId) ?? missing('unitId', unitId)
       required(unit.translatable, 'Unit is not translatable')
-      this.parse.validateTranslation(current.sourceBinding, unit, text)
+      this.validateTranslation(current, unit, text)
       const key = keyFor(unitId, targetLang)
       const latestId = current.latest[key] ?? null
       if (baseRevisionId !== latestId) throw new KernelError('CONFLICT', 'Latest revision changed',
@@ -594,7 +636,7 @@ export class Records {
         { acceptedRevision: current.revisions.find(r => r.id === actual) ?
           this.viewRevision(current, current.revisions.find(r => r.id === actual)) : null })
       const unit = current.units.find(u => u.id === revision.unitId)
-      this.parse.validateTranslation(current.sourceBinding, unit, revision.text)
+      this.validateTranslation(current, unit, revision.text)
       if (!this.applicable(current, unit, revision)) throw new KernelError('PRECONDITION_FAILED',
         'Revision is no longer applicable', { revisionId })
       acceptedRevision = revision
@@ -710,6 +752,8 @@ export class Records {
     const snapshot = record.snapshots.find(s => s.id === snapshotId) ?? missing('snapshotId', snapshotId)
     if (snapshot.sourceBindingRef !== record.sourceBindingRef) throw new KernelError('PRECONDITION_FAILED',
       'Pinned source binding unavailable', { snapshotId })
+    if (digest(snapshot.resourceVersions) !== digest(record.resourceVersions))
+      throw new KernelError('PRECONDITION_FAILED', 'Pinned resource versions unavailable', { snapshotId })
     const units = snapshot.items.map(item => {
       const unit = record.units.find(u => u.id === item.unitId)
       if (!unit) throw new KernelError('PRECONDITION_FAILED', 'Pinned source unit unavailable', { unitId: item.unitId })
@@ -725,7 +769,8 @@ export class Records {
     return clone({ snapshot, document: record.document, sourceBinding: record.sourceBinding,
       ...(record.sourceIR ? { sourceIR: record.sourceIR } : {}), units })
   }
-  async addArtifact(docId, { snapshotId, targetLang, format, path, warnings = [], taskId, outputIndex } = {}) {
+  async addArtifact(docId, { snapshotId, targetLang, format, adapterId, adapterVersion, path,
+    warnings = [], taskId, outputIndex } = {}) {
     await this.ready
     required((targetLang === undefined || language(targetLang)) && typeof format === 'string' && format &&
       typeof path === 'string' && path, 'Artifact requires targetLang, format and path')
@@ -736,7 +781,8 @@ export class Records {
       const snapshot = current.snapshots.find(s => s.id === snapshotId) ?? missing('snapshotId', snapshotId)
       required(snapshot.targetLang === targetLang, 'Snapshot targetLang mismatch')
       artifact = { id: `${docId}.${id()}`, docId, contentMode: snapshot.contentMode ?? 'accepted-translation',
-        ...(targetLang === undefined ? {} : { targetLang }), format, path, snapshotId,
+        ...(targetLang === undefined ? {} : { targetLang }), format,
+        ...(adapterId ? { adapterId } : {}), ...(adapterVersion ? { adapterVersion } : {}), path, snapshotId,
         revisionSetHash: snapshot.revisionSetHash, createdAt: now(),
         ...(warnings.length ? { warnings: clone(warnings) } : {}),
         ...(taskId ? { taskId, outputIndex } : {}) }
