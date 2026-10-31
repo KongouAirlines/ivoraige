@@ -129,3 +129,5 @@ Programmatic `runCli(['serve', ...], { signal, stdout, stderr })` observes abort
 受管制品清理将检查与删除过程中的 ENOENT/ENOTDIR 视为文件已经消失，包括父目录检查窗口；权限错误、目录归属不符和摘要不符仍保留失败标记及快照约束。
 
 MCP synchronous factories check entry availability before allocating SDK objects or registry subscriptions. Their construction does not yield before ownership registration. A closing entry therefore rejects without resources to unwind. McpEntry waits for all owned closes, removes each handle even on failure, then propagates the first rejection in registration order; app disposal retains dependencies until this drain finishes.
+
+Shared-reference preflight and its transaction recheck both return `CONFLICT` if another artifact identity cannot be resolved. Public details include `blockingDocId`, `blockingArtifactId`, and recovery instructions; the filesystem error is retained only as the private cause. Restore access or repair the link before retrying, or delete that blocking record with `fileAction=retain`. No record, cleanup marker, or file is changed by this rejection. Record-only deletion does not resolve filesystem identities.

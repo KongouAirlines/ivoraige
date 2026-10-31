@@ -630,3 +630,110 @@ for (const step of ['readFile', 'unlink']) {
     await assert.rejects(f.app.records.deleteSnapshot(doc.id, item.snapshotId), { code: 'CONFLICT' })
   })
 }
+
+for (const code of ['EACCES', 'EPERM']) for (const stage of ['preflight', 'transaction']) {
+  test(`shared identity ${code} at ${stage} reports blocking artifact without mutation`, async t => {
+    const f = await fixture(t)
+    const owner = await document(f.app, 'identity-owner')
+    const other = await document(f.app, 'identity-blocker')
+    const item = await artifact(f.app, owner)
+    const blocker = await artifact(f.app, other, join(f.dir, 'external.md'))
+    const original = f.app.records.pathKey.bind(f.app.records)
+    const cause = Object.assign(new Error('private filesystem diagnostic'), { code })
+    let visits = 0, unlinks = 0
+    f.app.records.pathKey = path => {
+      if (path === blocker.path && ++visits >= (stage === 'preflight' ? 1 : 2)) throw cause
+      return original(path)
+    }
+    await assert.rejects(f.app.records.deleteArtifact(owner.id, item.id, {
+      deleteOwned: true, unlinkFile: async () => { unlinks++ },
+    }), error => {
+      assert.equal(error.code, 'CONFLICT')
+      assert.equal(error.cause, cause)
+      assert.equal(error.details.blockingArtifactId, blocker.id)
+      assert.equal(error.details.blockingDocId, other.id)
+      assert.match(error.details.recovery, /fileAction=retain/)
+      return true
+    })
+    assert.equal(unlinks, 0)
+    assert.equal(f.app.records.listArtifacts(owner.id).length, 1)
+    assert.deepEqual(f.app.records.listArtifactCleanup(owner.id), [])
+    assert.equal(f.app.records.deletingPaths.size, 0)
+    assert.equal(f.app.records.deletingArtifacts.size, 0)
+    assert.match(await readFile(item.path, 'utf8'), /Original text/)
+    const removed = await f.app.records.deleteArtifact(other.id, blocker.id)
+    assert.equal(removed.fileDeleted, false)
+    f.app.records.pathKey = original
+    assert.equal((await f.app.operations.invoke('deleteArtifact', { docId: owner.id,
+      artifactId: item.id, fileAction: 'delete-owned' })).fileDeleted, true)
+    await f.restart()
+    assert.deepEqual(f.app.records.listArtifacts(owner.id), [])
+    assert.deepEqual(f.app.records.listArtifactCleanup(owner.id), [])
+    assert.match(await readFile(blocker.path, 'utf8'), /Original text/)
+  })
+}
+
+test('inaccessible unrelated output returns HTTP 409 and recovers after restoring permissions', async t => {
+  if (process.platform === 'win32' || process.getuid?.() === 0) {
+    t.skip('Requires effective POSIX directory permissions; does not verify Windows ACLs')
+    return
+  }
+  const f = await fixture(t)
+  const owner = await document(f.app, 'chmod-owner')
+  const other = await document(f.app, 'chmod-blocker')
+  const item = await artifact(f.app, owner)
+  const locked = join(f.dir, 'locked')
+  await mkdir(locked)
+  const blocker = await artifact(f.app, other, join(locked, 'external.md'))
+  const server = await serve(f.app, { port: 0 })
+  try {
+    await fs.chmod(locked, 0)
+    assert.throws(() => managedPathKey(blocker.path), { code: 'EACCES' })
+    const response = await fetch(`${server.url}/api/documents/${owner.id}/artifacts/${item.id}?fileAction=delete-owned`,
+      { method: 'DELETE' })
+    assert.equal(response.status, 409)
+    const body = await response.json()
+    assert.equal(body.error.code, 'CONFLICT')
+    assert.equal(body.error.details.blockingArtifactId, blocker.id)
+    assert.equal(body.error.details.blockingDocId, other.id)
+    assert.match(body.error.details.recovery, /Restore access/)
+    assert.equal(JSON.stringify(body).includes(blocker.path), false)
+    assert.equal(JSON.stringify(body).includes('EACCES'), false)
+    assert.equal(f.app.records.listArtifacts(owner.id).length, 1)
+    assert.deepEqual(f.app.records.listArtifactCleanup(owner.id), [])
+    assert.match(await readFile(item.path, 'utf8'), /Original text/)
+  } finally { await fs.chmod(locked, 0o700); await server.close() }
+  assert.equal((await f.app.operations.invoke('deleteArtifact', { docId: owner.id,
+    artifactId: item.id, fileAction: 'delete-owned' })).fileDeleted, true)
+  assert.match(await readFile(blocker.path, 'utf8'), /Original text/)
+})
+
+test('unrelated dangling symlink reports its record and retain removes only that record', async t => {
+  const f = await fixture(t)
+  const owner = await document(f.app, 'dangling-owner')
+  const other = await document(f.app, 'dangling-blocker')
+  const item = await artifact(f.app, owner)
+  const target = join(f.dir, 'link-target.md'), link = join(f.dir, 'link.md')
+  await writeFile(target, 'keep link')
+  try { await symlink(target, link, 'file') }
+  catch (error) {
+    if (process.platform !== 'win32' || error.code !== 'EPERM') throw error
+    t.skip('Windows sandbox denies file symlink creation (EPERM)'); return
+  }
+  const snapshot = await f.app.records.createSnapshot(other.id, { contentMode: 'source' })
+  const blocker = await f.app.records.addArtifact(other.id, { snapshotId: snapshot.id, format: 'md', path: link })
+  await fs.unlink(target)
+  await assert.rejects(f.app.operations.invoke('deleteArtifact', { docId: owner.id,
+    artifactId: item.id, fileAction: 'delete-owned' }), error => {
+    assert.equal(error.code, 'CONFLICT')
+    assert.equal(error.details.blockingArtifactId, blocker.id)
+    assert.equal(error.cause.code, 'PRECONDITION_FAILED')
+    return true
+  })
+  assert.equal(f.app.records.listArtifacts(owner.id).length, 1)
+  assert.deepEqual(f.app.records.listArtifactCleanup(owner.id), [])
+  await f.app.records.deleteArtifact(other.id, blocker.id)
+  assert.equal((await fs.lstat(link)).isSymbolicLink(), true)
+  assert.equal((await f.app.operations.invoke('deleteArtifact', { docId: owner.id,
+    artifactId: item.id, fileAction: 'delete-owned' })).fileDeleted, true)
+})

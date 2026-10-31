@@ -118,3 +118,5 @@ Disconnecting an MCP HTTP task poll releases that request subscription and leave
 Managed cleanup also succeeds when the file disappears during ownership checks, digest reading or deletion; permission, ownership and changed-byte errors remain retryable failures.
 
 MCP factories reject missing or closing entries before allocating SDK resources. Entry shutdown waits for every owned handle to settle before reporting a close error and releasing dependencies.
+
+If another artifact path cannot be inspected (for example, revoked directory permissions or a dangling symlink), physical deletion returns `CONFLICT` with the blocking document/artifact IDs and recovery guidance. Restore access or repair the link and retry, or remove the blocking record with the default retain action. Both files remain untouched until the shared-reference check succeeds.

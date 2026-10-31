@@ -205,7 +205,7 @@ async function observeEvents(app, base, stdout, stderr) {
     if (!taskId) { buffer.push(event); return }
     if (event?.data?.taskId === taskId) {
       stdout.write(`${serialize(event)}\n`)
-          if (['task.succeeded', 'task.failed', 'task.canceled', 'task.abandoned', 'task.paused'].includes(event.type)) {
+      if (['task.succeeded', 'task.failed', 'task.canceled', 'task.abandoned', 'task.paused'].includes(event.type)) {
         terminal = true; wakeTerminal?.()
       }
     }
