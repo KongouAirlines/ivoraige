@@ -49,6 +49,7 @@ npm run smoke:package
 - 数据库及 `.owner.sqlite` 所有权文件放在支持 SQLite 文件锁的本地文件系统，NFS/SMB 不在保证范围内。库调用方先创建父目录。
 - 原文内容变化产生新文档；不同目标语言隔离修订，`zh` 与 `zh-CN` 也不同。
 - 导出指定 `snapshotId` 可重放原接受版本；默认从当前接受内容冻结。缺失接受译文默认失败，显式 skip 保留原文，不补调模型。
+- 组件安装与业务任务共享 DSH 未指定 owner 的配额桶（当前上限 1）；安装先占用时业务保持 queued，收到 jobs settled 后重试。反向安装返回 CONFLICT。关停与任务收尾使用的 jobs wait 有 30 秒总截止期；超时报告 UPSTREAM_FAILURE，不伪造任务完成。生产者仍须响应取消并完成资源清理，DSH 原始 dispose 不保证强制终止不合作的生产者。
 - 真实模型试验须有单独授权及调用预算。不能把未知 token 用量记为零；API Key 不提交或写入示例。
 
 ## 贡献与文档

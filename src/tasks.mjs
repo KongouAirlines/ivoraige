@@ -4,6 +4,7 @@
 import { Service } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
 import { reportFailure } from './diagnostics.mjs'
+import { waitForJob } from './job-wait.mjs'
 import { basename, resolve } from 'node:path'
 
 const terminal = new Set(['succeeded', 'failed', 'canceled'])
@@ -32,6 +33,13 @@ export class Tasks extends Service {
     this.admissions = new Set()
     this.importControllers = new Set()
     this.pendingImports = new Map()
+    this.quotaBlocked = false
+    this.jobWaitTimeoutMs = 30_000
+    this.detachJobEvents = this.jobs.events.subscribe({ owner: undefined }, event => {
+      if (event.type !== 'settled' || !this.quotaBlocked) return
+      this.quotaBlocked = false
+      this.schedule()
+    })
     this.ready = this.recover()
     ctx.effect(() => () => this.shutdown(), 'ivoraige.tasks teardown')
   }
@@ -268,15 +276,80 @@ export class Tasks extends Service {
         live.markStarted()
         if (live.cancel) this.jobs.kill(live.jobId, undefined, 'canceled')
         await live.done
-        const job = await this.jobs.wait(live.jobId, 30000)
-        if (['completed', 'killed', 'failed'].includes(job.status)) this.jobs.remove(live.jobId)
+        await waitForJob(this.jobs, live.jobId, this.jobWaitTimeoutMs)
       } catch (error) {
         live.markStarted()
-        if (!this.tearingDown && this.records.getTask(taskId).state === 'running') await this.fail(taskId, error)
+        // Both consumers use DSH's unowned bucket. Saturation is admission
+        // backpressure, before a producer or model has run. Retry on settlement.
+        if (!live.jobId && /background job limit reached/.test(error.message) && !this.tearingDown) {
+          const desiredState = () => live.cancel || (this.closing && task.kind === 'import') ? 'canceled'
+            : live.pause || this.closing ? 'paused' : 'queued'
+          this.quotaBlocked = true
+          this.queue.unshift(taskId)
+          const defer = current => {
+            const state = desiredState()
+            return { ...current, state }
+          }
+          let deferred = await this.records.updateTask(taskId, current => current.state === 'running' ? defer(current) : current)
+          // Intent can arrive while the storage commit is in flight, after
+          // its transform already read the live flags. Reconcile before dropping live.
+          while (['queued', 'paused'].includes(deferred.state) && desiredState() !== 'queued' && deferred.state !== desiredState()) {
+            deferred = await this.records.updateTask(taskId, current =>
+              ['queued', 'paused'].includes(current.state) ? defer(current) : current)
+          }
+          if (deferred.state !== 'queued') {
+            this.quotaBlocked = false
+            this.queue = this.queue.filter(id => id !== taskId)
+            if (deferred.state === 'canceled') this.pendingImports.delete(taskId)
+            this.emit(`task.${deferred.state}`, { taskId })
+            this.settle(deferred)
+          } else {
+            this.emit('task.queued', { taskId, kind: task.kind })
+            this.progress(deferred, true)
+          }
+        } else if (!this.tearingDown) {
+          if (this.records.getTask(taskId).state === 'running') await this.fail(taskId, error)
+          else reportFailure(error, { taskId, jobId: live.jobId })
+        }
       } finally {
-        this.running = null
-        live.markFinished()
+        try {
+          if (live.jobId) this.cleanupJob(live.jobId)
+        } finally {
+          this.running = null
+          live.markFinished()
+        }
       }
+      if (this.quotaBlocked) break
+    }
+  }
+
+  cleanupJob(jobId) {
+    const jobs = this.jobs
+    // Root disposal may already have cleared the Jobs registry.
+    const job = jobs.list().find(job => job.id === jobId)
+    if (!job) return
+    if (['completed', 'killed', 'failed'].includes(job.status)) {
+      jobs.remove(jobId)
+      return
+    }
+    // This one-shot cleanup belongs to the job's lifetime. It can finish after
+    // the Tasks subscription is detached during close or plugin reload.
+    let removed = false
+    const removeIfSettled = () => {
+      if (removed || !['completed', 'killed', 'failed'].includes(jobs.get(jobId).status)) return
+      removed = true
+      jobs.remove(jobId)
+      detachCleanup()
+    }
+    const detachCleanup = jobs.events.subscribe({ owner: undefined }, event => {
+      if (event.type === 'settled' && event.job.id === jobId) removeIfSettled()
+    })
+    try {
+      jobs.kill(jobId, undefined, 'Business task job did not settle')
+      removeIfSettled()
+    } catch (error) {
+      detachCleanup()
+      throw error
     }
   }
 
@@ -506,6 +579,7 @@ export class Tasks extends Service {
       await live.finished
     }
     await Promise.allSettled([...this.admissions])
+    this.detachJobEvents()
     this.detachController()
   }
 
@@ -539,6 +613,7 @@ export class Tasks extends Service {
     } catch (error) {
       if (!this.tearingDown) throw error
     } finally {
+      this.detachJobEvents()
       this.detachController()
     }
   }
