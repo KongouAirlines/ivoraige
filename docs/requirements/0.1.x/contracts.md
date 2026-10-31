@@ -95,6 +95,7 @@ Records 去掉具体 parse 依赖不能丢掉现有 `validateTranslation` 保护
 显式 adapterId 优先且必须匹配格式/依赖；未指定时使用确定的 match/配置优先级，平分不靠注册先后暗选。实际解析/输出实现及版本进入任务和产物来源。输出先匹配 format，再校验 sourceBinding/模式兼容，最后选择实现；拒绝把同为 PDF 当成跨引擎兼容。资源内容/语义身份与存放地址分开，新身份算法需要版本；不能简单删除整个 binding 的适用性校验。
 
 纯解析产物拟使用 `contentMode: source`，保存原文结构与资源；翻译快照拟使用 `contentMode: accepted-translation` 并携带 targetLang。二者必须区分，旧快照按旧规则解读。原文导出不读取已有 accepted 译文，不创建假的修订。OCR/VLM、翻译和重建外部服务的用途/授权/usage 分开声明，禁用翻译不等于禁止已授权的识别模型。
+P02 首次启用该区分：省略 `contentMode` 的旧快照按 `accepted-translation` 读取，`source` 快照没有 `targetLang`，所有 unit 均固定为原文决策。记录载荷按需由 v1 升至 v2，旧数据在只读操作中不改写；未知的更高记录版本拒绝写入。此阶段保留存储 domain v1 与现有来源 binding/适用性语义，真实用户库迁移不在此合同启用范围。
 
 ## 术语服务与翻译复用
 

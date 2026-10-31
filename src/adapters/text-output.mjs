@@ -26,10 +26,12 @@ export const json = {
   rebuild({ snapshot, document, units, sourceBinding }) {
     return JSON.stringify({
       snapshotId: snapshot.id,
+      contentMode: snapshot.contentMode ?? 'accepted-translation',
       revisionSetHash: snapshot.revisionSetHash,
       document: {
         id: document.id, sourceId: document.sourceId, title: document.title,
-        sourceLang: document.language, targetLang: snapshot.targetLang,
+        sourceLang: document.language,
+        ...(snapshot.targetLang ? { targetLang: snapshot.targetLang } : {}),
       },
       units: units.map(({ unit, decision, text }) => ({
         id: unit.id, order: unit.order, kind: unit.kind, locator: unit.locator,

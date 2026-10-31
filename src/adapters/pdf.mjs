@@ -197,6 +197,14 @@ class PdfRuntime {
 
   async rebuild(frozen, { signal } = {}) {
     const { sourceBinding } = frozen
+    if (frozen.snapshot.contentMode === 'source') {
+      signal?.throwIfAborted()
+      const sourcePath = await this.exportSource(sourceBinding)
+      const content = await readFile(sourcePath)
+      if (hash(content) !== sourceBinding.sourceDigest) fail('Managed PDF source changed; import the original again')
+      signal?.throwIfAborted()
+      return { content }
+    }
     for (const item of frozen.units) validatePdfTranslation(sourceBinding, item.unit, item.text)
     const sourcePath = await this.exportSource(sourceBinding)
     const effectiveBinding = { ...sourceBinding, sourcePath }

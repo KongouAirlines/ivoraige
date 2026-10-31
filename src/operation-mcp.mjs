@@ -14,7 +14,7 @@ const tools = {
   revision_accept: ['acceptRevision', 'Accept a revision using the current expectedAcceptedRevisionId (nullable).'],
   unit_unaccept: ['unaccept', 'Remove acceptance using the current expectedAcceptedRevisionId.'],
   translate: ['translate', 'Start translation using configured DSH model settings; may incur model usage. Returns taskId.'],
-  export: ['exportDocument', 'Start export from accepted revisions or a saved snapshotId. Never invokes a translation model; outputs share a frozen snapshot.'],
+  export: ['exportDocument', 'Start export with contentMode source (no targetLang or accepted revisions needed) or accepted-translation (targetLang required), optionally from a matching saved snapshotId. Never invokes a translation model; outputs share a frozen snapshot.'],
   artifacts_list: ['listArtifacts', 'List saved artifacts; read bytes via ivoraige://artifacts/{artifactId}.'],
   snapshots_list: ['listSnapshots', 'List frozen export snapshots.'],
   snapshot_get: ['getSnapshot', 'Read one frozen snapshot.'],
