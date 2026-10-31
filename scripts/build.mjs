@@ -1,4 +1,4 @@
-import { readdir, readFile, mkdir, writeFile, copyFile } from 'node:fs/promises'
+import { readdir, readFile, mkdir, writeFile, copyFile, realpath } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { resolve, join, dirname } from 'node:path'
 import { createRequire } from 'node:module'
@@ -44,12 +44,15 @@ const result = await build({
       )
       return { contents, loader: 'ts', resolveDir: dirname(args.path) }
     })
-    builder.onResolve({ filter: /^@deepseek-ai\// }, args => {
+    builder.onResolve({ filter: /^@deepseek-ai\// }, async args => {
       const name = args.path.split('/').slice(0, 2).join('/')
       const main = aliases.get(name)
       if (!main) throw new Error(`Unknown DSH package ${name}`)
       const suffix = args.path.slice(name.length)
-      return { path: suffix ? resolve(dirname(main), suffix.replace(/^\/src\//, '')) : main }
+      // The local vendor junction and its resolved target must share module
+      // identity, including exported error classes used by the host boundary.
+      const path = suffix ? resolve(dirname(main), suffix.replace(/^\/src\//, '')) : main
+      return { path: await realpath(path) }
     })
   } }],
 })

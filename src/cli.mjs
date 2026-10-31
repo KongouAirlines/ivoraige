@@ -100,11 +100,20 @@ function route(command, args, o) {
       'POST', `/api/tasks/${taskId}/${command}`]
     case 'settings': return args[0] === 'credential' ? ['setCredential',
       { ref: required(o.ref, '--ref'), value: required(o.value, '--value') }, 'PUT', '/api/settings/credentials'] :
-      o.set ? ['updateSettings', JSON.parse(o.set), 'PATCH', '/api/settings/modelconfig'] :
+      o.set ? ['updateSettings', parseSettingsJson(o.set), 'PATCH', '/api/settings/modelconfig'] :
       ['getSettings', {}, 'GET', '/api/settings/modelconfig']
     case 'capabilities': return ['capabilities', {}, 'GET', '/api/capabilities']
     default: throw new KernelError('INVALID_ARGUMENT', `Unknown command: ${command}`)
   }
+}
+
+function parseSettingsJson(value) {
+  let parsed
+  try { parsed = JSON.parse(value) }
+  catch { throw new KernelError('INVALID_ARGUMENT', '--set must contain valid JSON') }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
+    throw new KernelError('INVALID_ARGUMENT', '--set must contain a JSON object')
+  return parsed
 }
 function clean(value) { return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined)) }
 function storePath(options) {

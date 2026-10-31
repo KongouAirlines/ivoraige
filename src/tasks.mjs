@@ -186,16 +186,35 @@ export class Tasks extends Service {
     })
     if (new Set(paths).size !== paths.length) throw new KernelError('INVALID_ARGUMENT', 'Output paths must be distinct')
     const admission = (async () => {
+      const created = !snapshotId
       const snapshot = snapshotId ? this.records.getSnapshot(docId, snapshotId) :
         await this.records.createSnapshot(docId, { targetLang, onMissingAccepted: onMissingAccepted ?? 'fail' })
-      const release = this.records.retainSnapshot(docId, snapshot.id)
+      let release
+      let admitted = false
+      let admissionError
       try {
+        release = this.records.retainSnapshot(docId, snapshot.id)
         const task = await this.records.createOperationTask(docId,
           { kind: 'export', targetLang, snapshotId: snapshot.id, outputs })
+        admitted = true
         if (this.closing) await this.records.updateTask(task.id, current => ({ ...current, state: 'paused' }))
         else { this.queue.push(task.id); this.emit('task.queued', { taskId: task.id, kind: 'export' }); this.schedule() }
         return { taskId: task.id, snapshotId: snapshot.id }
-      } finally { release() }
+      } catch (error) {
+        admissionError = error
+        throw error
+      } finally {
+        release?.()
+        // A failed admission must not leave the snapshot it just created behind.
+        // Once a task exists, its snapshot remains available for resume/recovery.
+        if (created && !admitted) {
+          try { await this.records.deleteSnapshot(docId, snapshot.id) }
+          catch (error) {
+            reportFailure(new Error(`Export snapshot cleanup failed: ${snapshot.id}`, { cause: error }))
+            if (!admissionError) throw error
+          }
+        }
+      }
     })()
     this.admissions.add(admission)
     try { return await admission } finally { this.admissions.delete(admission) }

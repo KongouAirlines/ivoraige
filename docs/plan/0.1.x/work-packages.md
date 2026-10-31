@@ -12,9 +12,9 @@
 
 | ID | 目标 | 前置 | 状态 / 实施与验收证据 | 详情 |
 | --- | --- | --- | --- | --- |
-| Q01 | 导出受理冲突的快照原子性/补偿 | 按现有契约先复现；可独立于 P01 | 草案 | [基础契约与正确性](packages/foundation.md#q01) |
+| Q01 | 导出受理冲突的快照原子性/补偿 | 按现有契约先复现；可独立于 P01 | 分支已实现／待集成；修复提交 `4e929478`，本地专项验证见 [Q01 证据](evidence/foundation-qfix.md#q01--export-admission)；[PR #46 旧 head CI](https://github.com/KongouAirlines/ivoraige/actions/runs/39927549289) 不覆盖本次修复 | [基础契约与正确性](packages/foundation.md#q01) |
 | Q02 | 产物、失败导出任务与快照释放 | P01 固定删除/保留政策 | 草案 | [基础契约与正确性](packages/foundation.md#q02) |
-| Q03 | 设置值/缺件错误与 CLI 非法 JSON | 当前协议；可独立于 P01 | 草案 | [基础契约与正确性](packages/foundation.md#q03) |
+| Q03 | 设置值/缺件错误与 CLI 非法 JSON/根值 | 当前协议；可独立于 P01 | 分支已实现／待集成；PR #46 的基础修复 `4e929478`、原生 DSH CAS 修复 `76758b9` 与 compat 完整修复 `a2d1fd1`；本地验证见 [Q03 基础证据](evidence/foundation-qfix.md#q03--settings-and-cli-errors)、[部分保存与 CAS 证据](evidence/foundation-qfix.md#46-cas-review-correction--native-dsh-settings-conflicts)、[compat 证据](evidence/foundation-qfix.md#46-protocol-specific-compat-review-correction)、[CLI 根值验证](evidence/foundation-qfix.md#q03-cli-json-root-validation)；[完整代码 head a2d1fd1 的 CI](https://github.com/KongouAirlines/ivoraige/actions/runs/40057038484) 已通过；待 main 集成 | [基础契约与正确性](packages/foundation.md#q03) |
 | Q04 | 需求/协议差异及源码交付元数据收口 | 相关需求/协议与当前交付元数据；按文档域并行 | 草案 | [基础契约与正确性](packages/foundation.md#q04) |
 | P01 | DSH/Cordis 契约、最小宿主边界与护栏 | 本规划评审 | 分支验证中：[固定 pin 护栏与范围](evidence/foundation-runtime.md)，候选另验 | [基础契约与正确性](packages/foundation.md#p01) |
 | P02 | 解析产物、原文快照及旧记录兼容 | P01、Q01 | 草案 | [基础契约与正确性](packages/foundation.md#p02) |
@@ -35,8 +35,8 @@
 | W02 | 可保存模板/实例版本、运行追溯与局部重跑 | W01；紧接基础，复用 P02/P04/P05 | 草案 | [可组合工作流](packages/workflows.md#w02) |
 | W03 | 内容优先工作台与卡片/参数编辑 | W01、W02、D03；发布管理 UI 子交付 W03.publish-ui@1 另接 I01.callable@1；自动销毁另依赖 D02 | 草案 | [可组合工作流](packages/workflows.md#w03) |
 | W04 | 高级节点图编辑与无损视图切换 | W02、W03；不作为真实组合保存的前置 | 草案 | [可组合工作流](packages/workflows.md#w04) |
-| U01 | 独立普通翻译、局部候选与修订交互 | P04；保留既有 Records/翻译服务；转项目另接 W02 | 草案 | [普通翻译与管理 UI](packages/ui.md#u01) |
-| U02 | 分组导航、五类设置、模型/连接管理与插件配置归属 | P04、P05；项目区接 W02，资源准备接 P08/对应插件 | 草案 | [普通翻译与管理 UI](packages/ui.md#u02) |
+| U01 | 独立普通翻译、可选即时预览、局部候选与修订交互 | P04；仅预览切片另需 U02 模型/连接与预览设置交付（[U-V02.preview-settings](validation/ui.md#u-v02-preview-settings)），普通页不等 U02；保留既有 Records/翻译服务；预览独立选用已有配置模型，内置引擎/语言包及 #39 非前置，转项目另接 W02 | 草案 | [普通翻译与管理 UI](packages/ui.md#u01) |
+| U02 | 分组导航、五类设置（含独立预览默认模型及普通页配置入口）、模型/连接管理与插件配置归属 | P04、P05；项目区接 W02，资源准备接 P08/对应插件 | 草案 | [普通翻译与管理 UI](packages/ui.md#u02) |
 | U03 | 术语后端、术语页、数据与存储设置子页及可解释预检切片 | U03.terms@1 仅需 P01/P02 及现有翻译接点，不等 U02/UI；术语页接 U02 与该后端，存储接 Q02/P02，项目挂载接 W02，预检接 P03 | 草案 | [普通翻译与管理 UI](packages/ui.md#u03) |
 | F01 | DOCX 窄范围提取、草稿与原生回写 | P02、P03；公共入口 P04，独立交付 P05 | 草案 | [格式与软件协作](packages/formats-integrations.md#f01) |
 | F02 | 可重排 EPUB 窄范围读取与原生回写 | P02、P03；公共入口 P04，独立交付 P05 | 草案 | [格式与软件协作](packages/formats-integrations.md#f02) |
@@ -54,7 +54,7 @@
 
 P01 固定当前基线契约与护栏；运行时升级/同 SHA 构建缩减依[专项评估](runtime-sequence.md)独立切片。Q01/Q03 可先行，Q04、P08 清单及 D04 现有 host/browser 基线可并行。P02/P03 顺序修改 Records，Q02 的释放政策接 P04；P05 兼容复评后推进 P06/P07。
 
-W01 的前置是 P02/P03/P04，P05 只承接独立插件证据；W02 紧接可保存组合，W03 衔接内容工作台，W04 图编辑后置。U01 在 P04 后可独立推进，不等待项目、画布或桌面，转项目接 W02；U02 按导航/设置、模型/连接、插件管理拆 PR，U03 按术语/存储/预检交付。F01/F02 按各自前置进入窄范围支线。KT 与 Zotero 同级高优先，可与共享接口/适配契约并行联调；端到端验收按上表引用确切子交付版本和验收 ID，不要求整个 I01 完成。I01.callable@1 通过本机受控 CLI 验收发布与运行，W03.publish-ui@1 后置接同一管理服务；U03.terms@1 是实际术语后端前置，不等待 U03 全部页面。KT 不等待 Zotero 或 OpenAI 包装，也不等全部 PDF、桌面或 W04 图编辑。
+W01 的前置是 P02/P03/P04，P05 只承接独立插件证据；W02 紧接可保存组合，W03 衔接内容工作台，W04 图编辑后置。U01 普通页在 P04 后可独立推进，不等待 U02、项目、画布或桌面，转项目接 W02；仅预览切片等待 U02 模型/连接与预览设置通过 [U-V02.preview-settings](validation/ui.md#u-v02-preview-settings) 后再按 U-V01 验收，不等待 U02 无关管理页；U02 按导航/设置、模型/连接、插件管理拆 PR，U03 按术语/存储/预检交付。F01/F02 按各自前置进入窄范围支线。KT 与 Zotero 同级高优先，可与共享接口/适配契约并行联调；端到端验收按上表引用确切子交付版本和验收 ID，不要求整个 I01 完成。I01.callable@1 通过本机受控 CLI 验收发布与运行，W03.publish-ui@1 后置接同一管理服务；U03.terms@1 是实际术语后端前置，不等待 U03 全部页面。KT 不等待 Zotero 或 OpenAI 包装，也不等全部 PDF、桌面或 W04 图编辑。
 
 ## 去重关联与远期边界
 
