@@ -89,7 +89,7 @@ See [contribution guidance](CONTRIBUTING.md) and [security reporting](SECURITY.m
 
 Built with Cordis and DSH, with optional BabelDOC support. See [third-party acknowledgements](THIRD_PARTY.md).
 
-Operation and entry composition is available for in-process hosts: register one schema/handler in `operationCatalog`, keep the returned disposer, and use the existing CLI/REST/MCP aliases or the internal generic operation projection. HTTP/CLI/MCP can be omitted independently. The existing workbench uses a subscription-ready barrier and authoritative state refetch; state SSE pauses on backpressure and resumes from its bounded session buffer; saved artifact reads share ownership, size policy and read leases. See [composition usage](docs/plan/0.1.0/development-guide.md#p04-operation-and-entry-composition) and [P04 evidence](docs/plan/0.1.x/evidence/foundation-p04.md).
+In-process hosts can register operations once and expose them through optional CLI, REST and MCP entries. The workbench refreshes state as operations change, and artifact reads share ownership and size limits. See [composition usage](docs/plan/0.1.0/development-guide.md#p04-operation-and-entry-composition) and [P04 evidence](docs/plan/0.1.x/evidence/foundation-p04.md).
 
 For task-admitting or long-running operations, generic CLI `call` needs a persistent host (`--url` or a caller-supplied app); a self-owned local host rejects the call before creating work. Use the existing local CLI aliases to wait for task completion and receive its final exit code.
 
@@ -105,7 +105,9 @@ Explicit in-process output version pins are checked before export admission and 
 
 Physical managed-file deletion counts references through file symlinks by their complete canonical target, including aliases in another directory or with a different filename. An unresolved dangling file symlink prevents physical deletion conservatively. Record-only deletion still retains bytes and does not require filesystem identity. Directory aliases and actual filesystem case sensitivity remain supported; external output files and symlink paths themselves are not authorized for managed deletion. The existing boundary against concurrent external replacement is unchanged.
 
-Late operation-catalog mounting also connects registration/withdrawal notifications to the state bridge. Catalog withdrawal and bridge disposal release that listener.
+Managed cleanup also succeeds when the file disappears during ownership checks, digest reading or deletion; permission, ownership and changed-byte errors remain retryable failures.
+
+If another artifact path cannot be inspected (for example, revoked directory permissions or a dangling symlink), physical deletion returns `CONFLICT` with the blocking document/artifact IDs and recovery guidance. Restore access or repair the link and retry, or remove the blocking record with the default retain action. Both files remain untouched until the shared-reference check succeeds.
 
 ### Task reads in composed hosts
 
@@ -113,10 +115,4 @@ Operations may mount before Records and Tasks. After those services finish mount
 
 ### MCP request cancellation
 
-Disconnecting an MCP HTTP task poll releases that request subscription and leaves its persistent task running. The MCP HTTP boundary owns each raw Node request lifetime, independent of SDK Request.clone signal forwarding; simultaneous polls remain isolated. Finishing a normal request body does not mean the response disconnected. The same ownership applies to standalone createMcpHttp handlers, and endpoint shutdown aborts outstanding request lifetimes.
-
-Managed cleanup also succeeds when the file disappears during ownership checks, digest reading or deletion; permission, ownership and changed-byte errors remain retryable failures.
-
-MCP factories reject missing or closing entries before allocating SDK resources. Entry shutdown waits for every owned handle to settle before reporting a close error and releasing dependencies.
-
-If another artifact path cannot be inspected (for example, revoked directory permissions or a dangling symlink), physical deletion returns `CONFLICT` with the blocking document/artifact IDs and recovery guidance. Restore access or repair the link and retry, or remove the blocking record with the default retain action. Both files remain untouched until the shared-reference check succeeds.
+Disconnecting an MCP HTTP task poll releases its subscription and leaves the persistent task running. Concurrent polls remain independent; closing the endpoint stops its outstanding requests.

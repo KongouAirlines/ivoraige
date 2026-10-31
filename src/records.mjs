@@ -120,12 +120,26 @@ export class Records {
     this.deletingPaths = new Set()
     this.pendingArtifactPaths = new Map()
     this.reuse = new Map()
+    this.reuseByDocument = new Map()
+    this.ownership = Object.fromEntries(['units', 'revisions', 'tasks', 'artifacts'].map(key => [key, new Map()]))
+    this.indexedDocuments = new Map()
+    this.indexedImports = new Map()
     this.imports = new Map()
     this.ready = ctx.get('storageDomain').open(spec(storageVersion)).then(domain => {
       this.domain = domain
       this.table = domain.table('documents')
       this.importTable = domain.table('imports')
-      for (const [docId, record] of this.table.entries()) this.indexAccepted(docId, record)
+      for (const [docId, record] of this.table.entries()) this.indexDocument(docId, record)
+      for (const [taskId, task] of this.importTable.entries()) this.indexImport(taskId, task)
+      // DSH emits synchronously after durable storage and its in-memory table
+      // have both committed. Prepend so state observers see matching indexes,
+      // including when Records is mounted after the event bridge.
+      ctx.on('domain/changed', change => {
+        if (change.domain !== 'ivoraige_records') return
+        const value = change.operation === 'deleted' ? undefined : change.value
+        if (change.table === 'documents') this.indexDocument(change.key, value)
+        else if (change.table === 'imports') this.indexImport(change.key, value)
+      }, { prepend: true })
     })
   }
 
@@ -173,37 +187,69 @@ export class Records {
       return next
     })
   }
-  locateOwned(collections, key, value, expectedDocId) {
-    this.requireReady()
-    let found
-    for (const [docId, record] of this.table.entries()) {
-      for (const collection of collections) {
-        const item = (record[collection] ?? []).find(row => row.id === value)
-        if (!item) continue
-        if (found) throw new KernelError('CONFLICT', 'Resource identity is ambiguous', { [key]: value })
-        found = { docId, record, item }
-      }
+  replaceOwnership(collection, previous, docId, items = []) {
+    const index = this.ownership[collection === 'operationTasks' || collection === 'imports' ? 'tasks' : collection]
+    for (const entry of previous ?? []) {
+      const matches = index.get(entry.id)
+      matches.delete(entry)
+      if (!matches.size) index.delete(entry.id)
     }
-    if (!found || (expectedDocId !== undefined && found.docId !== expectedDocId)) missing(key, value)
-    return found
+    return items.map((item, position) => {
+      const entry = { id: item.id, docId, collection, position }
+      if (!index.has(item.id)) index.set(item.id, new Set())
+      index.get(item.id).add(entry)
+      return entry
+    })
+  }
+  indexDocument(docId, record) {
+    const previous = this.indexedDocuments.get(docId)
+    const entries = { ...previous?.entries }
+    for (const collection of ['units', 'revisions', 'tasks', 'operationTasks', 'artifacts']) {
+      if (previous && previous.record[collection] === record?.[collection]) continue
+      entries[collection] = this.replaceOwnership(collection, entries[collection], docId, record?.[collection])
+    }
+    if (!previous || previous.record.accepted !== record?.accepted || previous.record.revisions !== record?.revisions)
+      this.indexAccepted(docId, record)
+    if (record) this.indexedDocuments.set(docId, { record, entries })
+    else this.indexedDocuments.delete(docId)
+  }
+  indexImport(taskId, task) {
+    const entries = this.replaceOwnership('imports', this.indexedImports.get(taskId), task?.docId, task ? [task] : [])
+    if (task) this.indexedImports.set(taskId, entries)
+    else this.indexedImports.delete(taskId)
+  }
+  ownedEntry(collection, key, value, expectedDocId) {
+    this.requireReady()
+    const matches = this.ownership[collection].get(value)
+    if (matches?.size > 1) throw new KernelError('CONFLICT', 'Resource identity is ambiguous', { [key]: value })
+    const entry = matches?.values().next().value
+    if (!entry || (expectedDocId !== undefined && entry.docId !== expectedDocId)) missing(key, value)
+    return entry
+  }
+  locateOwned(collection, key, value, expectedDocId) {
+    const entry = this.ownedEntry(collection, key, value, expectedDocId)
+    const record = this.record(entry.docId)
+    return { docId: entry.docId, record, item: record[entry.collection][entry.position] }
   }
   locateUnit(unitId, { docId: expectedDocId } = {}) {
-    const { docId, record, item: unit } = this.locateOwned(['units'], 'unitId', unitId, expectedDocId)
+    const { docId, record, item: unit } = this.locateOwned('units', 'unitId', unitId, expectedDocId)
     return { docId, record, unit }
   }
   locateRevision(revisionId) {
-    const { docId, record, item: revision } = this.locateOwned(['revisions'], 'revisionId', revisionId)
+    const { docId, record, item: revision } = this.locateOwned('revisions', 'revisionId', revisionId)
     return { docId, record, revision }
   }
   locateTask(taskId) {
-    this.requireReady()
-    const imported = this.importTable.get(taskId)
-    if (imported) return { docId: imported.docId, task: imported, importTask: true }
-    const { docId, record, item: task } = this.locateOwned(['tasks', 'operationTasks'], 'taskId', taskId)
-    return { docId, record, task, importTask: false }
+    const entry = this.ownedEntry('tasks', 'taskId', taskId)
+    if (entry.collection === 'imports') {
+      const task = this.importTable.get(taskId)
+      return { docId: task.docId, task, importTask: true }
+    }
+    const record = this.record(entry.docId)
+    return { docId: entry.docId, record, task: record[entry.collection][entry.position], importTask: false }
   }
   locateArtifact(artifactId, { docId: expectedDocId } = {}) {
-    const { docId, record, item: artifact } = this.locateOwned(['artifacts'], 'artifactId', artifactId, expectedDocId)
+    const { docId, record, item: artifact } = this.locateOwned('artifacts', 'artifactId', artifactId, expectedDocId)
     return { docId, record, artifact }
   }
   constraintsFor(record, unit, targetLang) {
@@ -230,16 +276,24 @@ export class Records {
       ...(record.latest[key] && record.latest[key] !== record.accepted[key] ? { draftRevisionId: record.latest[key] } : {}) })
   }
   indexAccepted(docId, record) {
-    for (const candidates of this.reuse.values()) for (const candidate of [...candidates]) {
-      if (candidate.docId === docId) candidates.delete(candidate)
+    for (const candidate of this.reuseByDocument.get(docId) ?? []) {
+      const candidates = this.reuse.get(candidate.reuseKey)
+      candidates.delete(candidate)
+      if (!candidates.size) this.reuse.delete(candidate.reuseKey)
     }
+    this.reuseByDocument.delete(docId)
+    if (!record) return
+    const revisions = new Map(record.revisions.map(revision => [revision.id, revision]))
+    const entries = []
     for (const revisionId of Object.values(record.accepted)) {
-      const revision = record.revisions.find(item => item.id === revisionId)
+      const revision = revisions.get(revisionId)
       if (!revision) continue
-      const candidate = { docId, revisionId }
+      const candidate = { docId, revisionId, reuseKey: revision.reuseKey }
       if (!this.reuse.has(revision.reuseKey)) this.reuse.set(revision.reuseKey, new Set())
       this.reuse.get(revision.reuseKey).add(candidate)
+      entries.push(candidate)
     }
+    this.reuseByDocument.set(docId, entries)
   }
 
   importDocument(file, metadata, options) {
@@ -591,10 +645,12 @@ export class Records {
       let textValue, origin = 'machine', modelId, promptVersion, reused = false, sameUnit = false
       if (result) ({ text: textValue, modelId, promptVersion } = result)
       else {
-        const source = [...this.table.entries()].find(([, row]) => row.revisions.some(item => item.id === reusedRevisionId))
-        const sourceDocId = source?.[0]
-        const sourceRecord = sourceDocId === docId ? current : source?.[1]
-        const candidate = sourceRecord?.revisions.find(item => item.id === reusedRevisionId)
+        // An absent source keeps the existing applicability error; ambiguous
+        // identities still fail closed instead of selecting an arbitrary owner.
+        const source = this.ownership.revisions.has(reusedRevisionId) ? this.locateRevision(reusedRevisionId) : undefined
+        const sourceDocId = source?.docId
+        const sourceRecord = sourceDocId === docId ? current : source?.record
+        const candidate = source?.revision
         if (!candidate || sourceRecord.accepted[keyFor(candidate.unitId, candidate.targetLang)] !== candidate.id ||
           !sameBasis(candidate.basis, basis) || !this.applicable(sourceRecord,
             sourceRecord.units.find(item => item.id === candidate.unitId), candidate)) {
@@ -634,7 +690,6 @@ export class Records {
           { ...current.accepted, [key]: revision.id },
         tasks: tasks.map((item, index) => index === taskIndex ? committed : item) }
     })
-    if (committed.mode === 'fast') this.indexAccepted(docId, next)
     return { task: clone(committed), revision: this.viewRevision(next, revision), reused: committed.checkpoints.at(-1).reused }
   }
 
@@ -687,7 +742,6 @@ export class Records {
       acceptedRevision = revision
       return { ...current, accepted: { ...current.accepted, [key]: revisionId } }
     })
-    this.indexAccepted(docId, this.table.get(docId))
     return this.viewRevision(next, acceptedRevision)
   }
   async unaccept(unitId, { targetLang, expectedAcceptedRevisionId } = {}) {
@@ -705,7 +759,6 @@ export class Records {
       const accepted = { ...current.accepted }; delete accepted[key]
       return { ...current, accepted }
     })
-    this.indexAccepted(docId, this.table.get(docId))
     return { accepted: null }
   }
   async setConstraints(unitId, { targetLang, effectiveContext, effectiveTarget, termConstraintSetId } = {}) {
