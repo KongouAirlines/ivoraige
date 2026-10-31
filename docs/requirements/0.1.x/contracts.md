@@ -219,3 +219,13 @@ TXT/Markdown 的严格 UTF-8 语义由各自来源适配器校验，不能据此
 #### P03 可用性与投影能力补充
 
 不可用来源不执行 matcher；缺件分类仅依据声明格式及兼容输入类型，没有格式提示时保守返回兼容来源的缺件信息。可用来源仍统一评分并固定选中输入，不受不可用来源干扰。输出声明需要 readable-text 时，来源必须显式实现 readableText；缺少实现返回 PRECONDITION_FAILED，返回值非字符串是 INTERNAL，不能退回内部 text。TXT/Markdown 显式采用原样投影，PDF 保留既有解码投影，零视图二进制输出保持独立。输出 availableFor/listAdapters/listFormats/get 使用同一可用性规则及可选 contentMode；disabled/failed 不允许执行，unavailable 仅能经 canRunUnavailable 明确允许某模式。输出注册显式 version 必须是非空字符串，省略保持 unversioned 兼容。
+
+### Q02 active resource-retention contract
+
+Q02 adds explicit `failed -> abandoned`, record-only artifact deletion, opt-in managed-file deletion, durable cleanup retry, and snapshot/artifact read leases. The current 0.1.x implementation guards shared paths and active/failed task references. New SQLite stores use DSH `ivoraige_records` unit version 2. Existing unit-version-1 stores remain readable and permit ordinary writes; before the first Q02 semantic row write, the new binary synchronously stamps the DSH unit version 2. Only the affected document or import task becomes schema 3; existing v1/v2 records are not bulk rewritten. DSH's SQLite unit-version check makes older version-1 binaries refuse to open the store after activation, including if the Q02 row write fails after the stamp. Back up the complete store and files before upgrading; a full backup restore is required to roll back. See the v2.0 protocol Q02 section and the 0.1.0 development guide for operation names and recovery. This does not activate P04 registration/event lifecycle work.
+
+#### Q02 文件链接身份补充
+
+共享引用以现存文件的完整 realpath 目标生成父目录身份和规范文件名，跨目录或不同文件名的文件符号链接与目标属于同一受保护身份；不按平台强制小写，遵循实际文件系统语义。目标无法确定的悬空链接在物理删除身份检查时保守拒绝。metadata-only 删除不依赖该检查，文件缺失仍可删除记录并保留路径信息。原有受管根目录、regular-file、摘要、任务及 lease 校验均保留；不扩大为任意恶意本机并发替换防御。
+
+共享引用预检及事务内复检无法解析其他产物身份时，返回 `CONFLICT`，details 包含 `blockingDocId`、`blockingArtifactId` 和恢复指引；底层错误仅保存在私有 cause。拒绝时不删除记录、不生成清理标记、不删除文件。默认 retain 删除不依赖路径检查。

@@ -71,3 +71,10 @@ CLI/HTTP/MCP 同输入结果/错误/取消一致；注册清理无泄漏；setti
 ### P05
 
 干净宿主安装/缺依赖/不兼容/中断/回滚/重启；单一配套运行时及完整发行闭包；无 UI 仍可诊断禁用；卸载不删数据。
+
+### Q02 branch validation checklist
+
+- Failed task: `cancel` remains invalid; explicit `abandon` preserves history, prevents resume, and releases only its resumable snapshot reference.
+- Artifact: default deletion retains external and managed bytes; explicit owned-file removal requires a proven managed path/digest, blocks active/shared/read-lease references, and is reported separately from record deletion.
+- Recovery: durable cleanup tombstone remains visible and retryable after unlink failure/restart; a pending tombstone blocks same-path adoption and snapshot release. Verify synthetic v1 first-write schema 3 and unknown-version refusal.
+- Three entries: CLI, HTTP and MCP use the same operation contract. No real user library, simulated power-cut or native PDF acceptance is claimed.

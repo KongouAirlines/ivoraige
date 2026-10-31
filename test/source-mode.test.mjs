@@ -104,7 +104,7 @@ test('version-one record remains readable and restores from a consistent backup'
     { sourceId: 'legacy:fresh', language: 'en' })
   assert.equal(upgradedIdentity, app.records.record(fresh.document.id).sourceIR.identity)
   assert.equal(app.records.record(document.id).fingerprint, legacy.fingerprint)
-  for (const schemaVersion of [3, 0, -1]) {
+  for (const schemaVersion of [4, 0, -1]) {
     await app.records.table.update(document.id, record => ({ ...record, schemaVersion }))
     await assert.rejects(app.records.createSnapshot(document.id, { contentMode: 'source' }),
       { code: 'PRECONDITION_FAILED' })

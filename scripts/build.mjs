@@ -32,7 +32,7 @@ const result = await build({
   entryPoints: ['src/dsh-bridge.ts'], outfile: 'dist/dsh.mjs', bundle: true,
   platform: 'node', format: 'esm', target: 'node24', metafile: true,
   nodePaths: [dependencies],
-  banner: { js: 'import { createRequire as __ivoraigeCreateRequire } from "node:module"; const require = __ivoraigeCreateRequire(import.meta.url);' },
+  banner: { js: `import { createRequire as __ivoraigeCreateRequire } from "node:module"; const require = __ivoraigeCreateRequire(import.meta.url); export const IVORAIGE_DSH_COMMIT = ${JSON.stringify(DSH_COMMIT)};` },
   plugins: [{ name: 'pinned-dsh-source', setup(builder) {
     builder.onLoad({ filter: /[\\/]llm[\\/]src[\\/]attribution\.ts$/ }, async args => {
       // Embed its package version so the generated bundle does not depend on

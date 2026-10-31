@@ -96,7 +96,7 @@ interface Revision {
 }
 
 type TaskKind = "import" | "parse" | "translate" | "export" | "rag";
-type TaskState = "queued" | "running" | "paused" | "succeeded" | "failed" | "canceled";
+type TaskState = "queued" | "running" | "paused" | "succeeded" | "failed" | "canceled" | "abandoned";
 
 interface Task {
   id: Id; kind: TaskKind; docId?: Id; targetLang?: string; state: TaskState;
@@ -378,3 +378,18 @@ BabelDOC `parse` 按来源位置关联回调与完成后的 tracker payload；tr
 
 For source exports, omit targetLang; the frozen snapshot records contentMode: source and source decisions. Existing snapshots without contentMode mean accepted translation and retain their stored target language. A source snapshot cannot be replayed as accepted translation, or vice versa.
 Version-one records from the known built-in TXT/Markdown source bindings upgraded on first write retain their persisted fingerprint and derive source IR identity from recoverable units plus their contractually empty chapters/resources. Unknown or custom bindings, including those declaring TXT/Markdown format, and version-one PDF records retain an approximate legacy identity because their chapter and resource inventory cannot be proven or recovered. Approximate identity must not be compared as a full source IR identity.
+
+
+### Q02 retained artifacts and failed-task abandonment (0.1.x additive operations)
+
+`POST /api/tasks/{taskId}/abandon` accepts only `failed` (idempotently also `abandoned`) and returns the task in `abandoned` state with its original error and history. It is not cancellation and cannot resume. An export snapshot remains pinned by queued/running/paused/failed tasks, artifact records, active snapshot leases, and pending file cleanup; an abandoned task alone no longer pins it.
+
+`DELETE /api/documents/{docId}/artifacts/{artifactId}` accepts optional `fileAction=retain|delete-owned` (default `retain`). It removes the artifact record and the terminal task's embedded artifact checkpoint together. `retain` leaves bytes at the returned `retainedPath`, including for an external `out` file. `delete-owned` requires an artifact marked as created at the kernel-managed default path and a matching file digest. It rejects active/failed task references, snapshot or artifact read leases, shared paths and paths outside the managed export root. Old records without the ownership marker and explicit `out` are ineligible. `GET /api/documents/{docId}/artifact-cleanup` lists durable cleanup tombstones. If unlink fails, the delete response reports `recordDeleted: true`, `fileDeleted: false`, `cleanupPending: true`, `retainedPath` and `cleanupError`; retry the same DELETE with `fileAction=delete-owned` after addressing the cause. A pending cleanup continues to pin the snapshot and block same-path artifacts until resolved. An absent file on retry counts as completed cleanup.
+
+The matching CLI forms are `abandon TASK_ID`, `artifacts DOC_ID delete ARTIFACT_ID [--file-action delete-owned]`, and `artifacts DOC_ID cleanup`. MCP tools are `task_abandon`, `artifact_delete`, and `artifact_cleanup_list` with the same parameters and responses. Artifact downloads and MCP resource reads hold a read lease until the read ends. No operation translates or rebuilds an artifact.
+
+Records mark a document with `schemaVersion: 3` on its first Q02 ownership, abandonment or deletion write; untouched v1/v2 records remain as stored. A v1 first write still synthesizes the established source IR. The payload schema is separate from the DSH storage unit version: before the first retention write, the pinned-layout adapter fences the store by promoting its existing unit from 1 to 2; a fresh store starts at unit 2. Older 0.1.0 binaries reject that unit version before writing. Ordinary legacy unit-1 reads and non-retention writes remain at unit 1; rolling back code alone is unsupported after retention activation. Restore the complete pre-upgrade SQLite backup and retained export files to roll back. No real user-library migration is performed in this stage.
+
+Q02 relocated-root recovery: a missing original artifact file or parent directory completes cleanup on explicit retry without unlink; a still-existing file under an old root remains protected when the configured managed root changes.
+
+Q02 event and entry detail: `task.abandoned` carries `{ taskId }` after a failed task is explicitly abandoned. It is a terminal event alongside `task.succeeded`, `task.failed`, `task.paused`, and `task.canceled`; clients should refresh task lists and snapshot references on receipt. `task_abandon`, `artifact_delete`, and `artifact_cleanup_list` map to `abandonTask`, `deleteArtifact`, and `listArtifactCleanup` on the shared operation facade. The matching HTTP endpoints and response semantics are specified above; these are available through the MCP tool registry as `ivoraige_task_abandon`, `ivoraige_artifact_delete`, and `ivoraige_artifact_cleanup_list`.

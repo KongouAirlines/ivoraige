@@ -11,7 +11,7 @@ import { KernelError } from './errors.mjs'
 
 const usage = `ivoraige [--url URL | --store FILE] [--pdf-config FILE] [--json] COMMAND [arguments] [options]
 Commands: import, documents, units, unit, revisions, edit, accept, unaccept,
-  translate, export, snapshots, artifacts, tasks, task, pause, resume, cancel,
+  translate, export, snapshots, artifacts, tasks, task, pause, resume, cancel, abandon,
   settings, capabilities, components, serve, mcp, help
 MCP: mcp --stdio [--store FILE]; serve exposes /mcp unless --no-mcp
 Components: status, catalog, credential --token-env NAME, install, local --path MANIFEST, task ID, cancel ID
@@ -26,7 +26,8 @@ function parse(argv) {
   const known = new Set([...boolean, 'url', 'store', 'export-dir', 'settings-dir', 'pdf-config', 'host', 'port', 'static-dir',
     'path', 'format', 'adapter', 'source-id', 'external-ref', 'source-lang', 'title', 'target-lang', 'cursor',
     'limit', 'origin', 'filter', 'text', 'base-revision', 'expected-accepted', 'mode',
-    'units', 'out', 'snapshot', 'content-mode', 'on-missing-accepted', 'state', 'kind', 'set', 'ref', 'value', 'token-env'])
+    'units', 'out', 'snapshot', 'content-mode', 'on-missing-accepted', 'state', 'kind', 'set', 'ref', 'value', 'token-env',
+    'file-action'])
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i]
     if (!token.startsWith('--')) { positional.push(token); continue }
@@ -98,10 +99,15 @@ function route(command, args, o) {
       'DELETE', `/api/documents/${docId}/snapshots/${args[2]}`] : args[1] ? ['getSnapshot', { docId: required(docId, 'document ID'), snapshotId: args[1] },
       'GET', `/api/documents/${docId}/snapshots/${args[1]}`] :
       ['listSnapshots', { docId: required(docId, 'document ID'), targetLang, ...paging }, 'GET', `/api/documents/${docId}/snapshots`]
-    case 'artifacts': return ['listArtifacts', { docId: required(docId, 'document ID'), ...paging }, 'GET', `/api/documents/${docId}/artifacts`]
+    case 'artifacts': return args[1] === 'delete' ? ['deleteArtifact',
+      { docId: required(docId, 'document ID'), artifactId: required(args[2], 'artifact ID'), fileAction: o['file-action'] },
+      'DELETE', `/api/documents/${docId}/artifacts/${args[2]}`] : args[1] === 'cleanup' ?
+      ['listArtifactCleanup', { docId: required(docId, 'document ID'), ...paging }, 'GET',
+        `/api/documents/${docId}/artifact-cleanup`] :
+      ['listArtifacts', { docId: required(docId, 'document ID'), ...paging }, 'GET', `/api/documents/${docId}/artifacts`]
     case 'tasks': return ['listTasks', { ...paging, state: o.state, kind: o.kind }, 'GET', '/api/tasks']
     case 'task': return ['getTask', { taskId: required(taskId, 'task ID') }, 'GET', `/api/tasks/${taskId}`]
-    case 'pause': case 'resume': case 'cancel': return [`${command}Task`, { taskId: required(taskId, 'task ID') },
+    case 'pause': case 'resume': case 'cancel': case 'abandon': return [`${command}Task`, { taskId: required(taskId, 'task ID') },
       'POST', `/api/tasks/${taskId}/${command}`]
     case 'settings': return args[0] === 'credential' ? ['setCredential',
       { ref: required(o.ref, '--ref'), value: required(o.value, '--value') }, 'PUT', '/api/settings/credentials'] :
@@ -155,11 +161,12 @@ async function webDirectory() {
 }
 async function invokeRemote(base, method, path, params) {
   const url = new URL(path, base)
-  const keys = method === 'GET' ? Object.keys(params).filter(key => params[key] !== undefined &&
-    !['docId', 'unitId', 'taskId', 'snapshotId'].includes(key)) : []
+  const queryMethod = method === 'GET' || method === 'DELETE'
+  const keys = queryMethod ? Object.keys(params).filter(key => params[key] !== undefined &&
+    !['docId', 'unitId', 'taskId', 'snapshotId', 'artifactId'].includes(key)) : []
   for (const key of keys) url.searchParams.set(key, String(params[key]))
-  const response = await fetch(url, { method, headers: method === 'GET' ? {} : { 'Content-Type': 'application/json' },
-    body: method === 'GET' ? undefined : JSON.stringify(clean(params)) })
+  const response = await fetch(url, { method, headers: queryMethod ? {} : { 'Content-Type': 'application/json' },
+    body: queryMethod ? undefined : JSON.stringify(clean(params)) })
   const body = await response.json()
   if (!response.ok) {
     const error = new KernelError(body.error?.code ?? 'INTERNAL', body.error?.message ?? response.statusText,
@@ -173,7 +180,7 @@ async function waitForTask(invoke, taskId) {
     const body = await invoke('getTask', { taskId }, 'GET', `/api/tasks/${taskId}`)
     const task = body.task
     if (!task) return body
-    if (['succeeded', 'failed', 'canceled', 'paused'].includes(task.state)) return body
+    if (['succeeded', 'failed', 'canceled', 'abandoned', 'paused'].includes(task.state)) return body
     await new Promise(resolveWait => setTimeout(resolveWait, 200))
   }
 }
@@ -189,7 +196,7 @@ async function observeEvents(app, base, stdout, stderr) {
     if (!taskId) { buffer.push(event); return }
     if (event?.data?.taskId === taskId) {
       stdout.write(`${serialize(event)}\n`)
-      if (['task.succeeded', 'task.failed', 'task.canceled', 'task.paused'].includes(event.type)) {
+      if (['task.succeeded', 'task.failed', 'task.canceled', 'task.abandoned', 'task.paused'].includes(event.type)) {
         terminal = true; wakeTerminal?.()
       }
     }

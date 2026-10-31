@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 ivoraige contributors; see LICENSE for the full notice.
 
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { mkdir, writeFile, unlink } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { Service } from '../dist/dsh.mjs'
@@ -101,6 +101,8 @@ export class Exporter extends Service {
             snapshotId: snapshot.id, targetLang, format: outputs[index].format, path: paths[index],
             adapterId: adapters[index].id,
             adapterVersion: adapters[index].version ?? 'unversioned',
+            managedFile: outputs[index].out === undefined,
+            ...(outputs[index].out === undefined ? { fileDigest: createHash('sha256').update(content).digest('hex') } : {}),
             ...(warnings.length ? { warnings } : {}),
             ...(taskId ? { taskId, outputIndex: outputIndex + index } : {}),
           }))

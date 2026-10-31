@@ -1,7 +1,10 @@
-import { basename } from 'node:path'
+import { basename, dirname, resolve } from 'node:path'
+import { lstat, readFile, unlink } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
 import { Service } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
 import { API_VERSION, validate, paginate, taskView } from './protocol.mjs'
+import { sameDirectory } from './managed-path.mjs'
 
 // The entry layers share this business facade and its parameter/response contract.
 export class Operations extends Service {
@@ -37,14 +40,37 @@ export class Operations extends Service {
     if (!service) throw new KernelError('COMPONENT_MISSING', 'Component installation is not enabled for this kernel')
     return service
   }
-  artifact(artifactId) {
+  artifact(artifactId, { retain = false } = {}) {
     const docId = typeof artifactId === 'string' ? artifactId.split('.')[0] : ''
     const artifact = this.records.listArtifacts(docId).find(item => item.id === artifactId)
     if (!artifact) throw new KernelError('NOT_FOUND', 'Artifact not found', { artifactId })
-    return { path: artifact.path, filename: basename(artifact.path),
+    const release = retain ? this.records.retainArtifact(docId, artifactId) : undefined
+    return { path: artifact.path, filename: basename(artifact.path), ...(release ? { release } : {}),
       contentType: artifact.format === 'json' ? 'application/json; charset=utf-8' :
         artifact.format === 'md' ? 'text/markdown; charset=utf-8' :
           artifact.format === 'pdf' ? 'application/pdf' : 'application/octet-stream' }
+  }
+  async removeOwnedFile(path, fileDigest) {
+    try {
+      const info = await lstat(path)
+      const root = this.ctx.get('ivoraige.export')?.root
+      // Compare directory identity, including case and junction aliases.
+      if (!await sameDirectory(dirname(resolve(path)), root)) {
+        // sameDirectory returns false if the parent disappeared. Confirm that
+        // the file still exists before reporting an ownership violation.
+        await lstat(path)
+        throw new KernelError('PRECONDITION_FAILED', 'Artifact path is outside the managed export directory', { path })
+      }
+      if (!info.isFile() || info.isSymbolicLink())
+        throw new KernelError('PRECONDITION_FAILED', 'Owned artifact path is not a regular file', { path })
+      if (!fileDigest || createHash('sha256').update(await readFile(path)).digest('hex') !== fileDigest)
+        throw new KernelError('PRECONDITION_FAILED', 'Owned artifact bytes changed; file retained', { path })
+      await unlink(path)
+    } catch (error) {
+      // Absence completes cleanup, including disappearance during validation
+      // or unlink. Ownership, digest and other filesystem errors still fail.
+      if (!['ENOENT', 'ENOTDIR'].includes(error.code)) throw error
+    }
   }
   async waitTask(taskId, seconds, signal) {
     const task = this.records.getTask(taskId)
@@ -56,7 +82,7 @@ export class Operations extends Service {
         resolve(this.records.getTask(taskId))
       }
       const unsubscribe = this.subscribe(event => {
-        if (event.data.taskId === taskId && ['task.succeeded', 'task.failed', 'task.paused', 'task.canceled'].includes(event.type)) done()
+        if (event.data.taskId === taskId && ['task.succeeded', 'task.failed', 'task.paused', 'task.canceled', 'task.abandoned'].includes(event.type)) done()
       })
       timer = setTimeout(done, seconds * 1000)
       signal?.addEventListener('abort', done, { once: true })
@@ -109,6 +135,17 @@ export class Operations extends Service {
       case 'translate': result = await this.withModelAdmission(() => this.tasks.submit(p.docId, p)); break
       case 'exportDocument': result = await this.tasks.exportDocument(p.docId, p); break
       case 'listArtifacts': result = paginate(r.listArtifacts(p.docId), p); break
+      case 'listArtifactCleanup': result = paginate(r.listArtifactCleanup(p.docId), p); break
+      case 'deleteArtifact': {
+        const candidate = r.artifactCandidate(p.docId, p.artifactId)
+        if (p.fileAction === 'delete-owned' && candidate.managedFile !== true)
+          throw new KernelError('PRECONDITION_FAILED', 'Artifact file is not managed')
+        if (p.fileAction === 'delete-owned' && !this.ctx.get('ivoraige.export'))
+          throw new KernelError('COMPONENT_MISSING', 'Managed export directory is unavailable')
+        result = await r.deleteArtifact(p.docId, p.artifactId, { deleteOwned: p.fileAction === 'delete-owned',
+          ...(p.fileAction === 'delete-owned' ? { unlinkFile: (path, digest) => this.removeOwnedFile(path, digest) } : {}) })
+        break
+      }
       case 'listSnapshots': result = paginate(r.listSnapshots(p.docId, p), p); break
       case 'getSnapshot': result = { snapshot: r.getSnapshot(p.docId, p.snapshotId) }; break
       case 'deleteSnapshot': await r.deleteSnapshot(p.docId, p.snapshotId); result = { deleted: true }; break
@@ -119,6 +156,7 @@ export class Operations extends Service {
       case 'pauseTask': result = { task: taskView(await this.tasks.pause(p.taskId)) }; break
       case 'resumeTask': result = { task: taskView(await this.withModelAdmission(() => this.tasks.resume(p.taskId))) }; break
       case 'cancelTask': result = { task: taskView(await this.tasks.cancel(p.taskId)) }; break
+      case 'abandonTask': result = { task: taskView(await this.tasks.abandon(p.taskId)) }; break
       case 'getSettings': result = { settings: await this.settings().get() }; break
       case 'updateSettings': result = { settings: await this.changeModel(() => this.settings().update(p)) }; break
       case 'setCredential': result = await this.changeModel(() => this.settings().setCredential(p)); break

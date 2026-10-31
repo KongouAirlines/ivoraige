@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto'
 import { Service, StorageDomain, z } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
 import { basisFor, digest, sameBasis } from './basis.mjs'
+import { documentRequiresRetention, importRequiresRetention } from './retention-payload.mjs'
+import { managedPathKey } from './managed-path.mjs'
 
 const clone = value => structuredClone(value)
 const now = () => new Date().toISOString()
@@ -20,7 +22,7 @@ const activeTask = state => ['queued', 'running', 'paused'].includes(state)
 const taskSchema = z.object({
   id: z.string(), kind: z.literal('translate'), docId: z.string(), targetLang: z.string(),
   mode: z.enum(['fast', 'careful']), unitIds: z.array(z.string()),
-  state: z.enum(['queued', 'running', 'paused', 'succeeded', 'failed', 'canceled']),
+  state: z.enum(['queued', 'running', 'paused', 'succeeded', 'failed', 'canceled', 'abandoned']),
   progress: z.object({ stage: z.string(), done: z.number(), total: z.number() }),
   cursor: z.number(), checkpoints: z.array(z.object({ unitId: z.string(), revisionId: z.string(), reused: z.boolean(),
     tokens: z.object({ input: z.number().nullable(), output: z.number().nullable() }).optional() })),
@@ -88,24 +90,38 @@ const recordSchema = z.object({
     adapterVersion: z.string().optional(),
     path: z.string(), snapshotId: z.string(), revisionSetHash: z.string(), createdAt: z.string(),
     warnings: z.array(z.string()).optional(),
-    taskId: z.string().optional(), outputIndex: z.number().optional() })),
+    taskId: z.string().optional(), outputIndex: z.number().optional(), managedFile: z.boolean().optional(),
+    fileDigest: z.string().optional() })),
+  artifactCleanup: z.array(z.object({ artifactId: z.string(), snapshotId: z.string(), path: z.string(), managedFile: z.literal(true),
+    fileDigest: z.string(), state: z.enum(['pending', 'failed']), createdAt: z.string(), error: z.string().optional() })).optional(),
   tasks: z.array(taskSchema).optional(),
   operationTasks: z.array(operationTaskSchema).optional(),
 })
 const importTaskSchema = operationTaskSchema.omit({ docId: true }).extend({ kind: z.literal('import'),
-  docId: z.string().optional(), preparedDocId: z.string().optional(), label: z.string(), result: generic.optional() })
-const spec = StorageDomain.defineDomain({ name: 'ivoraige_records', version: 1, layout: 'per-record',
+  docId: z.string().optional(), preparedDocId: z.string().optional(), label: z.string(), result: generic.optional(),
+  schemaVersion: z.number().int().optional() })
+const spec = version => StorageDomain.defineDomain({ name: 'ivoraige_records', version, layout: 'per-record',
   tables: { documents: StorageDomain.domainTable(recordSchema), imports: StorageDomain.domainTable(importTaskSchema) } })
 
 export class Records {
   static inject = ['storageDomain']
 
-  constructor(ctx) {
+  constructor(ctx, { storageVersion = 2, activateRetention } = {}) {
+    if (![1, 2].includes(storageVersion) ||
+        (storageVersion === 1 && typeof activateRetention !== 'function') ||
+        (activateRetention !== undefined && typeof activateRetention !== 'function')) {
+      throw new KernelError('INVALID_ARGUMENT', 'Records storage version and retention activation are invalid')
+    }
     this.ctx = ctx
+    this.activateRetention = activateRetention ?? (() => {})
     this.leases = new Map()
+    this.artifactLeases = new Map()
+    this.deletingArtifacts = new Set()
+    this.deletingPaths = new Set()
+    this.pendingArtifactPaths = new Map()
     this.reuse = new Map()
     this.imports = new Map()
-    this.ready = ctx.get('storageDomain').open(spec).then(domain => {
+    this.ready = ctx.get('storageDomain').open(spec(storageVersion)).then(domain => {
       this.domain = domain
       this.table = domain.table('documents')
       this.importTable = domain.table('imports')
@@ -133,7 +149,7 @@ export class Records {
   async update(docId, transform) {
     this.record(docId)
     return this.table.update(docId, current => {
-      if (![1, 2].includes(current.schemaVersion ?? 1) ||
+      if (![1, 2, 3].includes(current.schemaVersion ?? 1) ||
           (current.sourceIR && current.sourceIR.version !== 1)) throw new KernelError('PRECONDITION_FAILED',
         'Record schema or source IR version is unsupported',
         { schemaVersion: current.schemaVersion, sourceIRVersion: current.sourceIR?.version })
@@ -145,7 +161,7 @@ export class Records {
           Object.keys(binding).length === 1) ||
           (current.document.format === 'md' && binding?.adapterId === 'markdown' &&
             typeof binding.raw === 'string' && Array.isArray(binding.spans))
-        next = { ...next, schemaVersion: 2, sourceIR: next.sourceIR ?? { version: 1, legacy: true,
+        next = { ...next, schemaVersion: next.schemaVersion === 3 ? 3 : 2, sourceIR: next.sourceIR ?? { version: 1, legacy: true,
           identityScope: reconstructable ? 'reconstructed-text' : 'approximate-legacy',
           identity: reconstructable
             ? sourceIdentity(current.document.format, current.document.language, units, [], [])
@@ -153,6 +169,7 @@ export class Records {
       }
       assertJson(next)
       recordSchema.parse(next)
+      if (documentRequiresRetention(next)) this.activateRetention()
       return next
     })
   }
@@ -416,6 +433,10 @@ export class Records {
           'Export parameters required')
         const snapshot = current.snapshots.find(item => item.id === snapshotId)
         required(snapshot && snapshot.targetLang === targetLang, 'Matching export snapshot required')
+        if (this.leases.get(`${docId}\u0000${snapshotId}`) === -1 ||
+            this.deletingArtifacts.has(`${docId}\u0000${snapshotId}`) ||
+            (current.artifactCleanup ?? []).some(item => item.snapshotId === snapshotId))
+          throw new KernelError('CONFLICT', 'Export snapshot is being deleted or cleaned up', { snapshotId })
       }
       const stamp = now()
       task = { id: `${docId}.${id()}`, kind, docId, state: kind === 'import' ? 'succeeded' : 'queued',
@@ -449,10 +470,14 @@ export class Records {
     if (taskId.startsWith('import.')) {
       this.getTask(taskId)
       const updated = await this.importTable.update(taskId, current => {
+        if (![1, 3].includes(current.schemaVersion ?? 1)) throw new KernelError('PRECONDITION_FAILED',
+          'Import task schema version is unsupported', { schemaVersion: current.schemaVersion })
         const next = { ...transform(clone(current)), updatedAt: now() }
+        if (next.state === 'abandoned') next.schemaVersion = 3
         required(next.id === current.id && next.kind === 'import', 'Import task identity is immutable')
         assertJson(next)
         importTaskSchema.parse(next)
+        if (importRequiresRetention(next)) this.activateRetention()
         return next
       })
       return clone(updated)
@@ -472,7 +497,8 @@ export class Records {
         const conflict = (current.operationTasks ?? []).find(task => task.id !== taskId &&
           task.kind === operation.kind && activeTask(task.state))
         if (activeTask(updated.state) && conflict) throw new KernelError('CONFLICT', 'Operation already active', { taskId: conflict.id })
-        return { ...current, operationTasks: current.operationTasks.map(task => task.id === taskId ? updated : task) }
+        return { ...current, ...(updated.state === 'abandoned' ? { schemaVersion: 3 } : {}),
+          operationTasks: current.operationTasks.map(task => task.id === taskId ? updated : task) }
       }
       const tasks = current.tasks ?? []
       const index = tasks.findIndex(task => task.id === taskId)
@@ -492,7 +518,8 @@ export class Records {
           { taskId: tasks.find((task, i) => i !== index && activeTask(task.state)).id })
       }
       updated.updatedAt = now()
-      return { ...current, tasks: tasks.map((task, i) => i === index ? updated : task) }
+      return { ...current, ...(updated.state === 'abandoned' ? { schemaVersion: 3 } : {}),
+        tasks: tasks.map((task, i) => i === index ? updated : task) }
     })
     return clone(updated)
   }
@@ -716,7 +743,8 @@ export class Records {
   retainSnapshot(docId, snapshotId) {
     this.getSnapshot(docId, snapshotId)
     const key = `${docId}\u0000${snapshotId}`
-    if (this.leases.get(key) === -1) {
+    if (this.leases.get(key) === -1 || this.deletingArtifacts.has(key) ||
+        this.record(docId).artifactCleanup?.some(item => item.snapshotId === snapshotId)) {
       throw new KernelError('CONFLICT', 'Snapshot deletion is in progress', { snapshotId })
     }
     this.leases.set(key, (this.leases.get(key) ?? 0) + 1)
@@ -739,11 +767,14 @@ export class Records {
     try { await this.update(docId, current => {
       if (!current.snapshots.some(s => s.id === snapshotId)) missing('snapshotId', snapshotId)
       const artifactIds = current.artifacts.filter(a => a.snapshotId === snapshotId).map(a => a.id)
+      const cleanupIds = (current.artifactCleanup ?? []).filter(a => a.snapshotId === snapshotId).map(a => a.artifactId)
       const taskIds = (current.operationTasks ?? []).filter(task => task.snapshotId === snapshotId &&
         ['queued', 'running', 'paused', 'failed'].includes(task.state)).map(task => task.id)
       if (taskIds.length) throw new KernelError('CONFLICT', 'Snapshot is retained by a resumable task', { snapshotId, taskIds })
       if (artifactIds.length) throw new KernelError('CONFLICT', 'Snapshot is in use',
         { snapshotId, artifactIds, inUse: false })
+      if (cleanupIds.length) throw new KernelError('CONFLICT', 'Artifact file cleanup is pending',
+        { snapshotId, artifactIds: cleanupIds })
       return { ...current, snapshots: current.snapshots.filter(s => s.id !== snapshotId) }
     }) } finally { this.leases.delete(key) }
   }
@@ -770,14 +801,24 @@ export class Records {
       ...(record.sourceIR ? { sourceIR: record.sourceIR } : {}), units })
   }
   async addArtifact(docId, { snapshotId, targetLang, format, adapterId, adapterVersion, path,
-    warnings = [], taskId, outputIndex } = {}) {
+    warnings = [], taskId, outputIndex, managedFile = false, fileDigest } = {}) {
     await this.ready
     required((targetLang === undefined || language(targetLang)) && typeof format === 'string' && format &&
       typeof path === 'string' && path, 'Artifact requires targetLang, format and path')
     required(Array.isArray(warnings) && warnings.every(value => typeof value === 'string'),
       'Artifact warnings must be a string array')
+    required(!managedFile || (typeof fileDigest === 'string' && /^[a-f0-9]{64}$/.test(fileDigest)),
+      'Managed artifact requires a SHA-256 file digest')
+    const pathKey = this.pathKey(path)
+    if (this.deletingPaths.has(pathKey) || this.cleanupForPath(pathKey))
+      throw new KernelError('CONFLICT', 'Artifact file cleanup is in progress', { path })
+    this.pendingArtifactPaths.set(pathKey, (this.pendingArtifactPaths.get(pathKey) ?? 0) + 1)
     let artifact
-    await this.update(docId, current => {
+    try { await this.update(docId, current => {
+      if (this.deletingPaths.has(pathKey) || this.cleanupForPath(pathKey) ||
+          this.deletingArtifacts.has(`${docId}\u0000${snapshotId}`) ||
+          (current.artifactCleanup ?? []).some(item => item.snapshotId === snapshotId))
+        throw new KernelError('CONFLICT', 'Artifact file cleanup is in progress', { path })
       const snapshot = current.snapshots.find(s => s.id === snapshotId) ?? missing('snapshotId', snapshotId)
       required(snapshot.targetLang === targetLang, 'Snapshot targetLang mismatch')
       artifact = { id: `${docId}.${id()}`, docId, contentMode: snapshot.contentMode ?? 'accepted-translation',
@@ -785,7 +826,8 @@ export class Records {
         ...(adapterId ? { adapterId } : {}), ...(adapterVersion ? { adapterVersion } : {}), path, snapshotId,
         revisionSetHash: snapshot.revisionSetHash, createdAt: now(),
         ...(warnings.length ? { warnings: clone(warnings) } : {}),
-        ...(taskId ? { taskId, outputIndex } : {}) }
+        ...(taskId ? { taskId, outputIndex } : {}),
+        ...(managedFile ? { managedFile: true, fileDigest } : {}) }
       let operationTasks = current.operationTasks
       if (taskId) {
         const task = operationTasks?.find(item => item.id === taskId)
@@ -798,16 +840,116 @@ export class Records {
           ...(warnings.length ? { warnings: [...(item.warnings ?? []), ...warnings] } : {}),
           updatedAt: now() } : item)
       }
-      return { ...current, artifacts: [...current.artifacts, artifact], ...(operationTasks ? { operationTasks } : {}) }
-    })
+      return { ...current, ...(managedFile ? { schemaVersion: 3 } : {}),
+        artifacts: [...current.artifacts, artifact], ...(operationTasks ? { operationTasks } : {}) }
+    }) } finally {
+      const count = this.pendingArtifactPaths.get(pathKey) ?? 0
+      if (count <= 1) this.pendingArtifactPaths.delete(pathKey)
+      else this.pendingArtifactPaths.set(pathKey, count - 1)
+    }
     return clone(artifact)
   }
   listArtifacts(docId) { return clone(this.record(docId).artifacts) }
-  async deleteArtifact(docId, artifactId) {
-    await this.ready
-    await this.update(docId, current => {
-      if (!current.artifacts.some(a => a.id === artifactId)) missing('artifactId', artifactId)
-      return { ...current, artifacts: current.artifacts.filter(a => a.id !== artifactId) }
+  pathKey(path) { return managedPathKey(path) }
+  assertUnsharedArtifact(artifactId, key) {
+    for (const [, record] of this.table.entries()) for (const item of record.artifacts) {
+      if (item.id === artifactId) continue
+      let otherKey
+      try { otherKey = this.pathKey(item.path) }
+      catch (cause) {
+        throw new KernelError('CONFLICT', 'Cannot verify another artifact file identity', {
+          artifactId, blockingArtifactId: item.id, blockingDocId: record.document.id,
+          recovery: 'Restore access or repair the blocking symlink, then retry; alternatively remove its record with fileAction=retain.',
+        }, { cause })
+      }
+      if (otherKey === key) throw new KernelError('CONFLICT', 'File is shared by another artifact', { artifactId })
+    }
+  }
+  cleanupForPath(key) {
+    return [...this.table.entries()].some(([, record]) => (record.artifactCleanup ?? [])
+      .some(item => this.pathKey(item.path) === key))
+  }
+  artifactCandidate(docId, artifactId) {
+    const record = this.record(docId)
+    const artifact = record.artifacts.find(item => item.id === artifactId)
+    const cleanup = (record.artifactCleanup ?? []).find(item => item.artifactId === artifactId)
+    if (!artifact && !cleanup) missing('artifactId', artifactId)
+    return clone(artifact ?? cleanup)
+  }
+  listArtifactCleanup(docId) { return clone(this.record(docId).artifactCleanup ?? []) }
+  retainArtifact(docId, artifactId) {
+    this.artifactCandidate(docId, artifactId)
+    if (!this.record(docId).artifacts.some(item => item.id === artifactId) || this.deletingArtifacts.has(artifactId))
+      throw new KernelError('CONFLICT', 'Artifact deletion is in progress', { artifactId })
+    this.artifactLeases.set(artifactId, (this.artifactLeases.get(artifactId) ?? 0) + 1)
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      const count = this.artifactLeases.get(artifactId) ?? 0
+      if (count <= 1) this.artifactLeases.delete(artifactId)
+      else this.artifactLeases.set(artifactId, count - 1)
+    }
+  }
+  async abandonTask(taskId) {
+    return this.updateTask(taskId, task => {
+      if (task.state !== 'failed' && task.state !== 'abandoned')
+        throw new KernelError('PRECONDITION_FAILED', 'Only a failed task can be abandoned', { taskId })
+      return { ...task, state: 'abandoned' }
     })
+  }
+  async deleteArtifact(docId, artifactId, { deleteOwned = false, unlinkFile } = {}) {
+    await this.ready
+    const candidate = this.artifactCandidate(docId, artifactId)
+    // Record-only deletion leaves bytes untouched and must remain usable even
+    // when the external path cannot be inspected. Physical deletion requires
+    // the identity key for shared-reference and in-flight write protection.
+    const key = deleteOwned ? this.pathKey(candidate.path) : undefined
+    const snapshotKey = `${docId}\u0000${candidate.snapshotId}`
+    if (this.deletingArtifacts.has(artifactId) || this.deletingArtifacts.has(snapshotKey) ||
+        (deleteOwned && (this.deletingPaths.has(key) || this.pendingArtifactPaths.has(key))))
+      throw new KernelError('CONFLICT', 'Artifact deletion is in progress', { artifactId })
+    if (this.artifactLeases.has(artifactId) || this.leases.has(snapshotKey))
+      throw new KernelError('CONFLICT', 'Artifact or snapshot is in use', { artifactId })
+    if (deleteOwned && !unlinkFile) throw new KernelError('INVALID_ARGUMENT', 'Owned-file deletion requires a file remover')
+    if (deleteOwned) this.assertUnsharedArtifact(artifactId, key)
+    this.deletingArtifacts.add(artifactId)
+    this.deletingArtifacts.add(snapshotKey)
+    if (deleteOwned) this.deletingPaths.add(key)
+    try {
+      if (candidate.state !== 'pending' && candidate.state !== 'failed') {
+        await this.update(docId, current => {
+          const artifact = current.artifacts.find(item => item.id === artifactId) ?? missing('artifactId', artifactId)
+          if (deleteOwned) this.assertUnsharedArtifact(artifactId, key)
+          const linked = (current.operationTasks ?? []).filter(task => task.snapshotId === artifact.snapshotId &&
+            ['queued', 'running', 'paused', 'failed'].includes(task.state))
+          if (linked.length) throw new KernelError('CONFLICT', 'Artifact is retained by an active or failed task',
+            { artifactId, taskIds: linked.map(item => item.id) })
+          const cleanup = deleteOwned ? [{ artifactId, snapshotId: artifact.snapshotId,
+            path: artifact.path, managedFile: true, fileDigest: artifact.fileDigest,
+            state: 'pending', createdAt: now() }] : []
+          return { ...current, schemaVersion: 3, artifacts: current.artifacts.filter(item => item.id !== artifactId),
+            artifactCleanup: [...(current.artifactCleanup ?? []), ...cleanup],
+            operationTasks: (current.operationTasks ?? []).map(task => ({ ...task,
+              artifacts: task.artifacts.filter(item => item.id !== artifactId) })) }
+        })
+      } else if (!deleteOwned) throw new KernelError('PRECONDITION_FAILED', 'File cleanup requires explicit retry', { artifactId })
+      if (!deleteOwned) return { recordDeleted: true, fileDeleted: false, retainedPath: candidate.path }
+      try {
+        await unlinkFile(candidate.path, candidate.fileDigest)
+        await this.update(docId, current => ({ ...current,
+          artifactCleanup: (current.artifactCleanup ?? []).filter(item => item.artifactId !== artifactId) }))
+        return { recordDeleted: true, fileDeleted: true }
+      } catch (error) {
+        await this.update(docId, current => ({ ...current, artifactCleanup: (current.artifactCleanup ?? [])
+          .map(item => item.artifactId === artifactId ? { ...item, state: 'failed', error: error.message } : item) }))
+        return { recordDeleted: true, fileDeleted: false, cleanupPending: true, retainedPath: candidate.path,
+          cleanupError: error.message }
+      }
+    } finally {
+      this.deletingArtifacts.delete(artifactId)
+      this.deletingArtifacts.delete(snapshotKey)
+      if (deleteOwned) this.deletingPaths.delete(key)
+    }
   }
 }
