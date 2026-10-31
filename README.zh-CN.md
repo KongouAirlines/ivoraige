@@ -95,6 +95,8 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 
 进程内调用的显式输出版本约束会在导出受理前及执行时校验。恢复任务时，先按冻结快照的来源绑定、来源版本信息、内容模式及持久化适配器/版本检查尚未完成的输出，再将 paused/failed 改为 queued；已完成产物保留检查点，无需重新安装其原输出适配器。来源导入的发现、自动/显式选择和排队执行统一排除 unavailable、disabled、failed 状态。
 
+导出发现与受理共用来源视图相容性检查：所选输出的 `requiredViews` 需要文档绑定的来源适配器、兼容的实现/schema 版本及声明的投影方法。缺件返回 `COMPONENT_MISSING`，版本或投影不相容返回 `PRECONDITION_FAILED`，均在创建快照或任务之前拒绝。全局格式描述已安装能力，文档 `availableOutputs` 和状态摘要按该文档冻结来源筛选；当服务齐备且至少一种输出在支持的内容模式下可用时，`exportDocument` 才报告可用。`requiredViews: []` 的输出仍可在无 Parse 时使用。受理成功后才撤销组件仍可能导致执行失败，失败任务保留冻结快照供恢复后重试。公开输入格式列表统一将 `markdown` 规范化为 `md`。
+
 ## Q02 任务与导出文件保留
 
 失败任务仍可重试，也会保留它引用的导出快照。需要放弃重试时，明确执行 `abandon TASK_ID`：状态变为 `abandoned`，原错误与任务历史仍可查询；`cancel` 不能代替该操作。排队、运行或暂停中的任务不能放弃。
@@ -111,10 +113,6 @@ HTTP 和 MCP 有相同语义；参数、恢复步骤及备份边界见[开发指
 **0.1.x 入口与资源可用性。**
 
 `delete-owned` 需要资源访问和导出服务。缺少任一服务时，调用会在修改制品记录或建立清理标记之前返回 `COMPONENT_MISSING`；仅删除记录仍可由 Records 服务执行。MCP 会列出已经注册的工具；所需服务尚未挂载时，调用返回 `COMPONENT_MISSING`，服务就绪后同一工具可调用。`events: false` 仅关闭新的状态流，旧版 `/api/events` 任务流和远程 CLI `--json-events` 仍可使用。`components`、`exportDir` 和 `maxArtifactBytes` 配置需要 `store`。
-
-### 适配器可用性与可读输出
-
-导出发现与受理共用来源视图相容性检查：所选输出的 `requiredViews` 需要文档绑定的来源适配器、兼容的实现/schema 版本及声明的投影方法。缺件返回 `COMPONENT_MISSING`，版本或投影不相容返回 `PRECONDITION_FAILED`，均在创建快照或任务之前拒绝。全局格式描述已安装能力，文档 `availableOutputs` 和状态摘要按该文档冻结来源筛选；当服务齐备且至少一种输出在支持的内容模式下可用时，`exportDocument` 才报告可用。`requiredViews: []` 的输出仍可在无 Parse 时使用。受理成功后才撤销组件仍可能导致执行失败，失败任务保留冻结快照供恢复后重试。公开输入格式列表统一将 `markdown` 规范化为 `md`。
 
 ### 共享产物文件身份
 
