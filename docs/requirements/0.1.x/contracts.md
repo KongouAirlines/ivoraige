@@ -227,3 +227,5 @@ Q02 adds explicit `failed -> abandoned`, record-only artifact deletion, opt-in m
 #### Q02 文件链接身份补充
 
 共享引用以现存文件的完整 realpath 目标生成父目录身份和规范文件名，跨目录或不同文件名的文件符号链接与目标属于同一受保护身份；不按平台强制小写，遵循实际文件系统语义。目标无法确定的悬空链接在物理删除身份检查时保守拒绝。metadata-only 删除不依赖该检查，文件缺失仍可删除记录并保留路径信息。原有受管根目录、regular-file、摘要、任务及 lease 校验均保留；不扩大为任意恶意本机并发替换防御。
+
+共享引用预检及事务内复检无法解析其他产物身份时，返回 `CONFLICT`，details 包含 `blockingDocId`、`blockingArtifactId` 和恢复指引；底层错误仅保存在私有 cause。拒绝时不删除记录、不生成清理标记、不删除文件。默认 retain 删除不依赖路径检查。

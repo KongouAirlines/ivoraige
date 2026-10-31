@@ -851,6 +851,20 @@ export class Records {
   }
   listArtifacts(docId) { return clone(this.record(docId).artifacts) }
   pathKey(path) { return managedPathKey(path) }
+  assertUnsharedArtifact(artifactId, key) {
+    for (const [, record] of this.table.entries()) for (const item of record.artifacts) {
+      if (item.id === artifactId) continue
+      let otherKey
+      try { otherKey = this.pathKey(item.path) }
+      catch (cause) {
+        throw new KernelError('CONFLICT', 'Cannot verify another artifact file identity', {
+          artifactId, blockingArtifactId: item.id, blockingDocId: record.document.id,
+          recovery: 'Restore access or repair the blocking symlink, then retry; alternatively remove its record with fileAction=retain.',
+        }, { cause })
+      }
+      if (otherKey === key) throw new KernelError('CONFLICT', 'File is shared by another artifact', { artifactId })
+    }
+  }
   cleanupForPath(key) {
     return [...this.table.entries()].some(([, record]) => (record.artifactCleanup ?? [])
       .some(item => this.pathKey(item.path) === key))
@@ -898,9 +912,7 @@ export class Records {
     if (this.artifactLeases.has(artifactId) || this.leases.has(snapshotKey))
       throw new KernelError('CONFLICT', 'Artifact or snapshot is in use', { artifactId })
     if (deleteOwned && !unlinkFile) throw new KernelError('INVALID_ARGUMENT', 'Owned-file deletion requires a file remover')
-    if (deleteOwned && [...this.table.entries()].some(([, record]) => record.artifacts.some(item =>
-      item.id !== artifactId && this.pathKey(item.path) === key)))
-      throw new KernelError('CONFLICT', 'File is shared by another artifact', { artifactId })
+    if (deleteOwned) this.assertUnsharedArtifact(artifactId, key)
     this.deletingArtifacts.add(artifactId)
     this.deletingArtifacts.add(snapshotKey)
     if (deleteOwned) this.deletingPaths.add(key)
@@ -908,9 +920,7 @@ export class Records {
       if (candidate.state !== 'pending' && candidate.state !== 'failed') {
         await this.update(docId, current => {
           const artifact = current.artifacts.find(item => item.id === artifactId) ?? missing('artifactId', artifactId)
-          if (deleteOwned && [...this.table.entries()].some(([, record]) => record.artifacts.some(item =>
-            item.id !== artifactId && this.pathKey(item.path) === key)))
-            throw new KernelError('CONFLICT', 'File is shared by another artifact', { artifactId })
+          if (deleteOwned) this.assertUnsharedArtifact(artifactId, key)
           const linked = (current.operationTasks ?? []).filter(task => task.snapshotId === artifact.snapshotId &&
             ['queued', 'running', 'paused', 'failed'].includes(task.state))
           if (linked.length) throw new KernelError('CONFLICT', 'Artifact is retained by an active or failed task',
