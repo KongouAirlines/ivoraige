@@ -14,6 +14,12 @@ const records = units.map(unit => ({
   placeholders: [{ token: '<b1>', text: 'E = mc²' }],
 }))
 if (mode === 'unresolved-mapping') records[0].placeholders[0].text = null
+if (mode === 'empty-structure') {
+  units.push({ order: 2, kind: 'body', sourceText: '', translatable: false,
+    locator: { page: 2, bbox: [110, 20, 130, 40], key: 'empty-layout' } })
+  records.push({ order: 2, requestText: '', sourceUnicode: '', rawSourceUnicode: null,
+    page: 2, callback: false, placeholders: [] })
+}
 
 for await (const line of createInterface({ input: process.stdin })) {
   const { id, method, params } = JSON.parse(line)
