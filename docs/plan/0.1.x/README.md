@@ -70,6 +70,7 @@ flowchart TD
 
 ## 专项与历史参考
 
+- [独立样本库与验证分工](sample-library.md)：#13 的跨仓库协作、候选命令和证据边界。
 - P01/P05：[运行时顺序评估](runtime-sequence.md)；P02/P03/P05/P08：[迁移与分发](migration-distribution.md)。
 - D01–D05：[桌面方案与测量协议](desktop.md)；F/I：[格式与软件协作](formats-integrations.md)；I01/I02：[共用外部 API 与软件集成](external-api.md)。
 - [基础优先的缘由](../0.1.0/foundation-plan.md)、[npm 就绪准备](../0.1.0/npm-readiness.md)。

@@ -82,6 +82,8 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 
 欢迎告诉我们你想翻译或处理什么、在哪一步遇到困难，以及希望组合哪些工具。可以复现的反馈与原创或可分享的样本尤其有帮助。
 
+样本库开发在独立的 [translate-source-lib](https://github.com/KongouAirlines/translate-source-lib) 仓库进行。参见[仓库分工与验证说明](docs/plan/0.1.x/sample-library.md)，了解当前草案状态、样本使用权限，以及样本检查和实际 ivoraige 运行的区别。
+
 参与前请阅读[贡献指南](CONTRIBUTING.md)及[安全报告说明](SECURITY.md)。核心采用 **LGPL-3.0-or-later**，[LICENSE](LICENSE) 列出的自有业务模块采用 **MIT**。可选 BabelDOC Python 插件采用 **AGPL-3.0-only**，单独打包分发。贡献提交需附 DCO 签署。
 
 基于 Cordis 与 DSH 构建，可选接入 BabelDOC。参见[第三方致谢](THIRD_PARTY.md)。
