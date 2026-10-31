@@ -19,6 +19,7 @@
 | <a id="w-v04"></a>W-V04 | [可组合工作流](validation/workflows.md#工作流与内容工作台) |
 | <a id="u-v01"></a>U-V01 | [普通翻译与管理 UI](validation/ui.md#u-v01-普通翻译) |
 | <a id="u-v02"></a>U-V02 | [普通翻译与管理 UI](validation/ui.md#u-v02-导航管理与设置) |
+| <a id="u-v02-preview-settings"></a>U-V02.preview-settings | [独立预览设置](validation/ui.md#u-v02-preview-settings)；U01 预览配置前置，子项通过不代表整个 U-V02 通过 |
 | <a id="u-v03"></a>U-V03 | [普通翻译与管理 UI](validation/ui.md#u-v03-资源数据与预检) |
 | <a id="f-v01"></a>F-V01 | [格式与软件协作](validation/formats-integrations.md#格式与软件协作) |
 | <a id="f-v02"></a>F-V02 | [格式与软件协作](validation/formats-integrations.md#格式与软件协作) |
@@ -27,6 +28,8 @@
 | <a id="i-v01"></a>I-V01 | [格式与软件协作](validation/formats-integrations.md#格式与软件协作) |
 | <a id="i-v02"></a>I-V02 | [格式与软件协作](validation/formats-integrations.md#格式与软件协作) |
 | <a id="i-v03"></a>I-V03 | [格式与软件协作](validation/formats-integrations.md#格式与软件协作) |
+
+I-V01/I-V02 的[外部方案、OpenAI 与 KT 矩阵](validation/external-api.md)细化跨入口一致性、术语和真实客户端验收，不新增顶层验证编号。
 
 Q01–Q04、P08–P10 与 D01–D05 的专项条件由[工作包详情](work-packages.md#每包验收与回退)直达；桌面场景 B0/B1 等原 ID 仍见[测量方案](desktop.md#可执行的低成本性能验证方案)。
 

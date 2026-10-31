@@ -10,6 +10,7 @@
 | [术语适用范围补充 0001](amendments/0001-term-applicability.md) | 对需求及设计的范围约束；术语库结构与装配仍需实际实现和验证 |
 | [0.1.x 导航与独立普通翻译](0.1.x/ui.md) | 全局/项目导航、双栏替换与重写、插件/术语/数据管理及预检草案；增量替代 v2 对应 UI 目标 |
 | [0.1.x 工作流与内容工作台](0.1.x/workflows.md) | 可保存组合、运行追溯与内容优先交互草案；格式和协作见[路线](../plan/0.1.x/formats-integrations.md)，不冒充已实现 |
+| [0.1.x 可调用方案与外部 API](0.1.x/external-api.md) | 保存工作流的发布投影、原生 API、OpenAI 子集及 KT 薄桥接；交付与上游证据见[专项路线](../plan/0.1.x/external-api.md) |
 | [0.1.x 契约草案](0.1.x/contracts.md) | 提议增量替代模块、适配器、入口、事件及生命周期边界；只有对应实现与兼容路径验收后才启用 |
 
 [ADR-0002](../decisions/0002-plugin-composition-0.1.0.md)保留已采纳的组合原则；[ADR-0001](../decisions/0001-runtime-selection.md)保存早期运行时决策与实验依据。新活跃计划和设计统一按目标软件 `0.1.x` 组织，原 [design-v3](../plan/follow-ups/design-v3.md) 作为稳定事项 ID 保留，不新建并行的 v3 文档编号体系。
