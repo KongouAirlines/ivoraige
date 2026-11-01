@@ -15,20 +15,20 @@ ivoraige 使用样本库中的指定版本和文件，不复制整套语料、�
 
 ## 当前文档与命令属于哪个版本
 
-截至 2026-10-26，样本库 [PR #1](https://github.com/KongouAirlines/translate-source-lib/pull/1)、[PR #2](https://github.com/KongouAirlines/translate-source-lib/pull/2)、[PR #3](https://github.com/KongouAirlines/translate-source-lib/pull/3)、[PR #4](https://github.com/KongouAirlines/translate-source-lib/pull/4)、[PR #5](https://github.com/KongouAirlines/translate-source-lib/pull/5) 均为未合并草案。以下链接和命令对应候选提交 `7c36ade8e5534ec9d6f8d2b76f76de4b86d89cca`，不代表该仓库 main 已提供这些功能：
+截至 2026-11-01，样本库 PR #1–#5 及 [PR #12](https://github.com/KongouAirlines/translate-source-lib/pull/12) 已合入 main。以下文档与命令固定到已合并基线 `d2eae6fb0f120124f04139248a8095beb4261c1c`；固定链接便于复现，不表示今后的 main 始终与其相同：
 
-- [安装与结构检查](https://github.com/KongouAirlines/translate-source-lib/blob/7c36ade8e5534ec9d6f8d2b76f76de4b86d89cca/README.md)
-- [样本与观察报告格式](https://github.com/KongouAirlines/translate-source-lib/blob/7c36ade8e5534ec9d6f8d2b76f76de4b86d89cca/docs/formats.md)
-- [真实 PDF 的交接说明](https://github.com/KongouAirlines/translate-source-lib/blob/7c36ade8e5534ec9d6f8d2b76f76de4b86d89cca/docs/integration-real-pdfs.md)
-- [私有故障收集与缩减](https://github.com/KongouAirlines/translate-source-lib/blob/7c36ade8e5534ec9d6f8d2b76f76de4b86d89cca/docs/intake.md)
-- [候选版本验收记录与已知视觉缺陷](https://github.com/KongouAirlines/translate-source-lib/blob/7c36ade8e5534ec9d6f8d2b76f76de4b86d89cca/docs/final-acceptance.md)
+- [安装与结构检查](https://github.com/KongouAirlines/translate-source-lib/blob/d2eae6fb0f120124f04139248a8095beb4261c1c/README.md)
+- [样本与观察报告格式](https://github.com/KongouAirlines/translate-source-lib/blob/d2eae6fb0f120124f04139248a8095beb4261c1c/docs/formats.md)
+- [真实 PDF 的交接说明](https://github.com/KongouAirlines/translate-source-lib/blob/d2eae6fb0f120124f04139248a8095beb4261c1c/docs/integration-real-pdfs.md)
+- [私有故障收集与缩减](https://github.com/KongouAirlines/translate-source-lib/blob/d2eae6fb0f120124f04139248a8095beb4261c1c/docs/intake.md)
+- [阶段验收记录与已知视觉问题](https://github.com/KongouAirlines/translate-source-lib/blob/d2eae6fb0f120124f04139248a8095beb4261c1c/docs/final-acceptance.md)
 
 有仓库访问权限的开发者，可在独立检出的上述提交根目录，按其 README 准备 Python 3.11+ 虚拟环境与依赖后运行：
 
 ```sh
 PYTHONPATH=src .venv/bin/python -m samplelib.cli validate
 PYTHONPATH=src .venv/bin/python -m samplelib.cli run --output reports/current.json
-PYTHONPATH=src .venv/bin/python -m samplelib.cli compare baselines/structure.json reports/current.json
+PYTHONPATH=src .venv/bin/python -m samplelib.cli compare baselines/structure.json reports/current.json --output reports/comparison.json
 ```
 
 这些是样本库的命令，不在 ivoraige 目录执行。`run` 只运行本地结构检查，不调用 ivoraige、BabelDOC 或翻译模型。退出码 `0` 为检查通过，`1` 为检查未通过，`2` 为输入无效或操作失败。应同时检查退出码和本次报告，不能把旧报告仍然存在当作本次成功。
@@ -40,14 +40,14 @@ PYTHONPATH=src .venv/bin/python -m samplelib.cli compare baselines/structure.jso
 3. 记录系统、引擎及适配器版本、配置标识、复现命令和各阶段结果。分别报告解析、导入、重启后的记录读取、翻译及导出；没有运行的阶段写明未运行。异常或崩溃属于失败，不应改写成正常拒绝。
 4. 需要使用样本库的 `assess` 时，按上述格式文档整理**实际流程产生**的观察文件。当前 ivoraige 没有内置的 samplelib 观察报告导出器；不能直接把 ivoraige 的普通 JSON 导出或样本库参考解析报告当作该接口的结果。
 
-候选版本要求所选目录中的每个样本恰好出现一次，观察记录须带匹配的来源哈希、实际适配器提交和配置标识。准备好完整且有效的观察文件后，在样本库根目录运行：
+`assess` 要求 `--manifest` 指定的清单（默认 `catalog.json`）中每个样本 ID 恰好出现一次，不是扫描文件系统目录。观察记录须带匹配的来源哈希；实际适配器提交与配置标识一起写入 `adapter.version` 字符串，例如 `ivoraige:<完整提交>;config:<配置标识>`。顶层仅允许 `schema_version`、`adapter`、`results`，`adapter` 仅允许 `name`、`version`，不要另加配置字段。准备好完整且有效的观察文件后，在样本库根目录运行：
 
 ```sh
 PYTHONPATH=src .venv/bin/python -m samplelib.cli assess \
   --observations .private/observations.json --output reports/translation.json
 ```
 
-`assess` 检查已有观察，不执行翻译。它检查状态、语言标签、非空结果、数字和占位符等约束，不能证明语义、阅读顺序或排版正确。只测了部分输入时，先保留逐文件验证记录；不要补造未测样本的结果来凑齐报告。
+`assess` 检查已有观察，不执行翻译。它检查状态、语言标签、非空结果、数字和占位符等约束，不能证明语义、阅读顺序或排版正确。仅测试清单的部分样本时，不要直接运行 `assess`，应保留独立的逐文件验证日志。它不接受相对所选清单的子集，缺少 ID 会以退出码 2 拒绝；填入 `not_run` 也不能算翻译通过。待取得全清单的真实观察后再评估，不要补造未测结果。
 
 ## 怎样表述验证结论
 
@@ -61,7 +61,7 @@ PYTHONPATH=src .venv/bin/python -m samplelib.cli assess \
 
 内容来源与生成软件分别记录：用真正的 Word 导出人为编写的测试文字，内容仍是合成样本；公开 PDF 自报的 Producer 不能独立证明使用了哪个软件版本。真实文档转换出的 PDF 要保留父原件和转换记录，结构通过后仍须查看页面是否裁字、错列或丢内容。
 
-候选版本的验收记录仍保留 D02 表格裁字这一已知视觉缺陷；结构通过不会覆盖质量失败。样本库没有声称完成生产翻译、验证 ivoraige #56 或复现已丢失原件的故障。对下载受阻、资产缺失或未执行的测试，保留原因，不计入通过数量。
+D02 的历史裁字观察与后续渲染存在差异；样本库 #12 已补充指定页渲染证据绑定与调查回归，仍需按其 [严格审查记录](https://github.com/KongouAirlines/translate-source-lib/blob/d2eae6fb0f120124f04139248a8095beb4261c1c/docs/strict-review.md) 完成人工复核，不能据此宣布排版已修复。结构通过不会覆盖质量失败。样本库没有声称完成生产翻译、验证 ivoraige #56 或复现已丢失原件的故障。对下载受阻、资产缺失或未执行的测试，保留原因，不计入通过数量。
 
 ## 来源、隐私和外发
 
