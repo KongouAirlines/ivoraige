@@ -8,6 +8,8 @@ import { Service } from '../dist/dsh.mjs'
 import { createApp } from '../src/app.mjs'
 import { serve } from '../src/http.mjs'
 import { placeholderTokens } from '../src/adapters/pdf-text.mjs'
+import { marked } from 'marked'
+import { JSDOM } from 'jsdom'
 
 const engine = fileURLToPath(new URL('./fixtures/pdf-engine.mjs', import.meta.url))
 const originalBytes = '%PDF-FAKE-ORIGINAL\nA test source, not a real PDF.\n'
@@ -38,6 +40,7 @@ async function accept(app, docId, texts) {
   const units = app.records.listUnits(docId, { targetLang: 'zh-CN' })
   const revisions = []
   for (const [index, unit] of units.entries()) {
+    if (index >= texts.length) break
     const revision = await app.records.writeRevision(unit.id, {
       targetLang: 'zh-CN', text: texts[index], baseRevisionId: unit.draftRevisionId ?? unit.acceptedRevisionId ?? null,
     })
@@ -55,6 +58,40 @@ async function exported(app, docId, options) {
 }
 
 const outputs = [{ format: 'pdf' }, { format: 'md' }, { format: 'json' }]
+
+test('PDF Markdown expresses captured headings and keeps literal formula and identifier text visible', async t => {
+  const f = await fixture(t, 'markdown-structure')
+  const doc = await imported(f)
+  const units = f.app.records.listUnits(doc.id, { targetLang: 'zh-CN' })
+  assert.deepEqual(units.map(unit => unit.kind), ['heading', 'body', 'caption', 'formula'])
+  const source = await exported(f.app, doc.id, { contentMode: 'source', outputs: [{ format: 'md' }] })
+  const sourceBody = new JSDOM(marked.parse(await readFile(source.artifacts.md.path, 'utf8'))).window.document.body
+  assert.equal(sourceBody.querySelector('h2')?.textContent, 'Results_2026 a<b')
+  assert.equal(sourceBody.querySelector('p')?.textContent, '1. Metric_Total = x\\alpha & 5 < 7; <b2> &lt; 1.')
+  await accept(f.app, doc.id, ['Summary_2026 <b1>', '1. Metric_Total = x\\alpha & 5 < 7; <b2> &lt; 1.'])
+  const result = await exported(f.app, doc.id, { targetLang: 'zh-CN', outputs })
+  const md = await readFile(result.artifacts.md.path, 'utf8')
+  const json = JSON.parse(await readFile(result.artifacts.json.path, 'utf8'))
+  const body = new JSDOM(marked.parse(md)).window.document.body
+  assert.equal(body.querySelector('h2')?.textContent, 'Summary_2026 a<b')
+  assert.equal(body.querySelector('ol'), null)
+  assert.deepEqual([...body.querySelectorAll('p')].map(node => node.textContent),
+    ['1. Metric_Total = x\\alpha & 5 < 7; <b2> &lt; 1.', 'Figure_1: *literal* caption.', 'α_x_1 < y end'])
+  assert.deepEqual(json.units.map(unit => unit.text),
+    ['Summary_2026 a<b', '1. Metric_Total = x\\alpha & 5 < 7; <b2> &lt; 1.',
+      'Figure_1: *literal* caption.', 'α_x_1 < y end'])
+  assert.ok(result.task.artifacts.every(item => item.snapshotId === result.snapshotId))
+  assert.equal(result.task.stats.llmCalls, 0)
+  const revision = await f.app.records.writeRevision(units[0].id, { targetLang: 'zh-CN',
+    text: 'Later <b1>', baseRevisionId: f.app.records.getUnit(units[0].id,
+      { targetLang: 'zh-CN' }).accepted.id })
+  await f.app.records.acceptRevision(revision.id, { expectedAcceptedRevisionId:
+    f.app.records.getUnit(units[0].id, { targetLang: 'zh-CN' }).accepted.id })
+  const replay = await exported(f.app, doc.id, { targetLang: 'zh-CN', snapshotId: result.snapshotId, outputs })
+  for (const format of ['md', 'json', 'pdf']) {
+    assert.deepEqual(await readFile(replay.artifacts[format].path), await readFile(result.artifacts[format].path))
+  }
+})
 
 test('PDF coverage summary persists in Cordis records and frozen JSON after restart', async t => {
   const f = await fixture(t, 'coverage-summary')
@@ -251,7 +288,8 @@ test('unresolved PDF displays preserve tokens and allow import and all frozen ou
   await accept(f.app, doc.id, ['结果 <b1> 一。', '结果 <b1> 二。'])
   const result = await exported(f.app, doc.id, { targetLang: 'zh-CN', outputs })
   assert.equal(result.task.stats.llmCalls, 0)
-  assert.match(await readFile(result.artifacts.md.path, 'utf8'), /结果 <b1> 一。/)
+  assert.match(new JSDOM(marked.parse(await readFile(result.artifacts.md.path, 'utf8')))
+    .window.document.body.textContent, /结果 <b1> 一。/)
   const json = JSON.parse(await readFile(result.artifacts.json.path, 'utf8'))
   assert.equal(json.units[0].text, '结果 <b1> 一。')
 })
@@ -307,7 +345,8 @@ test('a legacy unresolved mapping does not prevent translation and frozen export
   const result = await exported(f.app, doc.id, { targetLang: 'zh-CN', outputs })
   assert.equal(result.task.stats.llmCalls, 0)
   assert.equal(calls, 2)
-  assert.match(await readFile(result.artifacts.md.path, 'utf8'), /兼容 <b1> 译文。/)
+  assert.match(new JSDOM(marked.parse(await readFile(result.artifacts.md.path, 'utf8')))
+    .window.document.body.textContent, /兼容 <b1> 译文。/)
 })
 
 test('PDF bindings persist; PDF, Markdown and JSON share frozen revisions', async t => {

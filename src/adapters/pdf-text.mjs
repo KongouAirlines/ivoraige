@@ -36,3 +36,27 @@ export function readablePdfText(binding, unit, text) {
     return typeof payload?.formula_chars === 'string' ? payload.formula_chars : token
   })
 }
+
+// PDF capture records a heading kind, but does not record a reliable depth.
+// Escape extracted text as literal prose so Markdown and HTML syntax cannot
+// hide identifiers, formulas, or older bindings' unresolved placeholders.
+const escapePdfMarkdown = value => value.replace(/\r\n?/g, '\n')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/[\\`*_{}\[\]()#+!|~-]/g, '\\$&')
+  .replace(/^=+(?=\s*$)/gm, value => `\\${value}`)
+  .replace(/^(\s{0,3}\d+)\./gm, '$1\\.')
+  .replace(/^( {4,}|\t+)/gm, spaces => [...spaces].map(char => char === '\t' ? '&#9;' : '&#32;').join(''))
+
+export function renderPdfMarkdown({ sourceBinding, snapshot, document, units }) {
+  if (sourceBinding?.adapterId !== 'babeldoc' || !Array.isArray(units)) {
+    throw new KernelError('PRECONDITION_FAILED', 'Frozen PDF source binding is unavailable')
+  }
+  const title = escapePdfMarkdown(document.title.replace(/[\r\n]+/g, ' '))
+  const paragraphs = units.map(({ unit, text }) => {
+    const readable = readablePdfText(sourceBinding, unit, text)
+    const prose = escapePdfMarkdown(unit.kind === 'heading' ? readable.replace(/[\r\n]+/g, ' ') : readable)
+    return unit.kind === 'heading' && prose ? `## ${prose}` : prose
+  })
+  return `<!-- ivoraige snapshot:${snapshot.id} revisions:${snapshot.revisionSetHash} -->\n\n` +
+    `# ${title}\n\n${paragraphs.join('\n\n')}\n`
+}
