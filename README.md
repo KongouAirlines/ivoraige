@@ -51,6 +51,8 @@ New PDF imports show captured units, translation callback requests, retained uni
 
 PDF Markdown export shows captured headings at one unranked section level and keeps extracted symbols, identifiers, and unresolved placeholder tokens visible as literal text. Other captured units remain paragraphs; the export cannot recover missing text, table cells, figures, or accurate heading levels.
 
+When a new PDF import reaches the placeholder alignment search limit, it keeps available formula payloads or visible placeholder tokens and records a warning. Existing bindings are unchanged; this does not verify page layout.
+
 The source sidecar in this branch routes declared `en` PDF sources to `zh`/`zh-CN`/`zh-Hans`, and declared `zh`/`zh-CN`/`zh-Hans` sources to `en`. Select the real source language; the app does not detect it. Chinese-to-English PDF rendering is an implemented candidate pending real BabelDOC and Mac visual verification. It requires the matching source sidecar; existing installed components may still accept English only. Source-mode PDF export copies the verified original without a target language.
 
 For configuration, debugging, and contributing, see the [development guide](docs/plan/0.1.0/development-guide.md). Detailed guides are currently mostly in Chinese.
