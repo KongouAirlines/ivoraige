@@ -879,9 +879,7 @@ def parse(params):
                     "uncalledCount": sum(not item["called"] for item in coverage),
                     "emptyUnitCount": sum(not item["sourceUnicode"].strip() for item in coverage),
                     # Audit lines are also uncalled units, not another disjoint category.
-                    "auditOnlyLineCount": sum(
-                        item["layoutLabel"] == "unmapped_pdf_text" for item in coverage
-                    ),
+                    "auditOnlyLineCount": len(extras),
                 },
             },
             "sourceBinding": {

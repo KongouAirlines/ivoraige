@@ -23,7 +23,8 @@ class BindingTests(unittest.TestCase):
             def item(key, text, label="plain text"):
                 return {"page": 0, "bbox": [0, 0, 1, 1], "key": key,
                         "sourceUnicode": text, "layoutLabel": label}
-            called = item("called", "Invented body")
+            # An upstream label alone does not establish audit provenance.
+            called = item("called", "Invented body", "unmapped_pdf_text")
             paragraphs = [called, item("retained", "Figure marker"),
                           item("empty", None, "unknown")]
             audit = {**item("audit", "Separate extracted line", "unmapped_pdf_text"),
