@@ -70,6 +70,7 @@ flowchart TD
 
 ## 专项与历史参考
 
+- [四接口 RFC](../../requirements/0.1.x/control-admission-rfc.md)：宿主、入口、插件交付与运行受理的待讨论建议，包含现状差距、并行接线与验收。
 - P01/P05：[运行时顺序评估](runtime-sequence.md)；P02/P03/P05/P08：[迁移与分发](migration-distribution.md)。
 - D01–D05：[桌面方案与测量协议](desktop.md)；F/I：[格式与软件协作](formats-integrations.md)；I01/I02：[共用外部 API 与软件集成](external-api.md)。
 - [基础优先的缘由](../0.1.0/foundation-plan.md)、[npm 就绪准备](../0.1.0/npm-readiness.md)。
