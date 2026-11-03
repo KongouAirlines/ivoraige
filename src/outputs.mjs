@@ -86,6 +86,7 @@ export class Outputs extends Service {
       throw new KernelError('PRECONDITION_FAILED', 'Pinned output adapter version is unavailable',
         { adapterId: adapter.id, adapterVersion })
     if (binding !== undefined && contentMode !== undefined) adapter.validateExport?.(Object.freeze({ contentMode, targetLang,
+      binding: Object.freeze(structuredClone(binding)),
       provenance: provenance === undefined ? undefined : Object.freeze(structuredClone(provenance)) }))
     return adapter
   }
