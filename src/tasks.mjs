@@ -198,7 +198,7 @@ export class Tasks extends Service {
     if (!outputRegistry) throw new KernelError('COMPONENT_MISSING', 'Output adapter registry is unavailable')
     const selectedOutputs = outputs.map(output => {
       const adapter = outputRegistry.get(output.format,
-        { adapterId: output.adapterId, adapterVersion: output.adapterVersion, binding, provenance: source.document, contentMode })
+        { adapterId: output.adapterId, adapterVersion: output.adapterVersion, binding, provenance: source.document, contentMode, targetLang })
       return { ...output, adapterId: adapter.id, adapterVersion: adapter.version ?? 'unversioned' }
     })
     const paths = outputs.filter(item => item.out !== undefined).map(item => {
@@ -580,7 +580,8 @@ export class Tasks extends Service {
             if (!outputRegistry) throw new KernelError('COMPONENT_MISSING', 'Output adapter registry is unavailable')
             for (const output of pendingOutputs) outputRegistry.get(output.format,
               { adapterId: output.adapterId, adapterVersion: output.adapterVersion, binding: frozen.sourceBinding,
-                provenance: frozen.document, contentMode: frozen.snapshot.contentMode ?? 'accepted-translation' })
+                provenance: frozen.document, contentMode: frozen.snapshot.contentMode ?? 'accepted-translation',
+                targetLang: frozen.snapshot.targetLang })
           }
         }
         else throw new KernelError('PRECONDITION_FAILED', 'Import tasks cannot be resumed')

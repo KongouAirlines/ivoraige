@@ -47,6 +47,8 @@ Use Node.js `>=24.22.1 <25 || >=26.12.1 <27` with npm. Later stable patches with
 
 For PDF, prepare the optional Windows development environment using the [PDF development guide (中文)](docs/plan/0.1.0/pdf-development.md), then follow the [PDF guide (中文)](docs/plan/0.1.0/pdf-guide.md). The default online component source currently has no downloadable Release.
 
+PDF capture supports English-source documents only; the selected language is not detected from the document. Do not relabel another language as English to bypass this limit. Translated PDF replay accepts only `zh`, `zh-CN`, or `zh-Hans` targets. Source-mode PDF export copies the verified original without a target language.
+
 For configuration, debugging, and contributing, see the [development guide](docs/plan/0.1.0/development-guide.md). Detailed guides are currently mostly in Chinese.
 
 Component installation and document tasks share a bounded background-job quota. A queued document task waits for installation to finish; an installation requested during active document work reports a conflict so you can retry.

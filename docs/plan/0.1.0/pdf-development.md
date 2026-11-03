@@ -4,6 +4,8 @@
 
 当前 PDF 路线处理**原生文本英文 PDF → 中文单语 PDF**。导入后可在同一工作台翻译、人工修改和接受译文，再从冻结快照生成 PDF、Markdown、JSON。PDF 来源绑定由 BabelDOC 自身捕获；导出回放只读取已接受译文，不请求翻译模型。扫描件 OCR、双语 PDF、MinerU 跨引擎映射及三系统独立打包仍待验证。
 
+来源适配器可选的同步 `validateSourceLanguage(language)` 在选中后、排队导入前校验声明的源语言；PDF 直接解析也在启动 sidecar 前校验。输出适配器可选的同步 `validateExport({ contentMode, targetLang, provenance })` 在具体输出选中时校验冻结文档来源与目标语言；它必须仅检查数据、不得访问 Cordis context、模型或产生副作用。`Tasks` 导出准入、`Exporter` 直接导出及任务恢复都复用输出注册表检查。无导出模式的裸适配器查询和格式发现不执行此校验；来源模式的 PDF 原件导出仍独立于目标语言。0.1.0 既有 API 请求形状及存储 schema 不变，超出能力的已选 PDF 请求在创建导出快照与任务前返回 `PRECONDITION_FAILED`。
+
 ## 准备组件
 
 本节适用于 **Windows x64 开发环境**。当前仓库未提供并验证 Linux/macOS 对应的 PDF 准备脚本或发行流程；三平台 Node 内核支持不等于三平台 PDF 组件均已验证。

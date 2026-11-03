@@ -64,6 +64,7 @@ function Upload({ onDone, compact = false, inputFormats = [], pdfStatus }) {
     const format = file.name.toLowerCase().endsWith('.md') ? 'md' : file.name.toLowerCase().endsWith('.txt') ? 'txt' :
       pdfEnabled && file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : null
     if (!format) { setError(`目前支持 ${supported} 文件。`); return }
+    if (format === 'pdf' && language !== 'en') { setError('PDF 来源捕获目前仅支持英文原文；其他源语言尚不支持。'); return }
     if (file.size > resourcePolicy.uploadFileBytes) { setError('文件超过当前接口的 7 MB 上传限额。'); return }
     setBusy(true); setUploadingFormat(format); setError('')
     try {
@@ -73,7 +74,7 @@ function Upload({ onDone, compact = false, inputFormats = [], pdfStatus }) {
     } catch(e) { setError(e.message) } finally { setBusy(false); setUploadingFormat(null); if(input.current) input.current.value='' }
   }
   return <><div className={`upload ${drag?'drag':''} ${compact?'upload-compact':''}`} onDragEnter={e=>{e.preventDefault();setDrag(true)}} onDragOver={e=>e.preventDefault()} onDragLeave={e=>{e.preventDefault();setDrag(false)}} onDrop={e=>{e.preventDefault();setDrag(false);upload(e.dataTransfer.files[0])}}>
-    <div className="upload-icon">↥</div><div><strong>将文档拖到这里</strong><p>{busy?(uploadingFormat==='pdf'?'正在导入并解析 PDF…':'正在导入文档…'):`${supported} · 最大 7 MB${pdfEnabled ? '' : ' · 文本须为 UTF-8'}`}</p></div><label className="upload-language">原文 <select value={language} onChange={e=>setLanguage(e.target.value)}><option value="en">English</option><option value="zh">中文</option></select></label><Button className="secondary" busy={busy} onClick={()=>input.current?.click()}>选择文件</Button><input ref={input} type="file" accept={pdfEnabled?'.txt,.md,.pdf,text/plain,text/markdown,application/pdf':'.txt,.md,text/plain,text/markdown'} hidden onChange={e=>upload(e.target.files[0])}/></div>{pdfStatus&&<p className={`pdf-component-status ${pdfStatus.state}`} role="status">{pdfStatus.state==='ready'?'PDF 组件已验证':pdfStatus.state==='unavailable'?'PDF 组件不可用':'PDF 组件已配置，首次处理时验证'}{pdfStatus.state==='unavailable'&&pdfStatus.message?`：${pdfStatus.message}`:''}</p>}<ErrorBox message={error}/></>
+    <div className="upload-icon">↥</div><div><strong>将文档拖到这里</strong><p>{busy?(uploadingFormat==='pdf'?'正在导入并解析 PDF…':'正在导入文档…'):`${supported} · 最大 7 MB${pdfEnabled ? '' : ' · 文本须为 UTF-8'}`}</p>{pdfEnabled&&<p className="hint">PDF 仅支持英文原文；上传前请选择 English，系统不自动识别语言。</p>}</div><label className="upload-language">原文 <select value={language} onChange={e=>setLanguage(e.target.value)}><option value="en">English</option><option value="zh">中文</option></select></label><Button className="secondary" busy={busy} onClick={()=>input.current?.click()}>选择文件</Button><input ref={input} type="file" accept={pdfEnabled?'.txt,.md,.pdf,text/plain,text/markdown,application/pdf':'.txt,.md,text/plain,text/markdown'} hidden onChange={e=>upload(e.target.files[0])}/></div>{pdfStatus&&<p className={`pdf-component-status ${pdfStatus.state}`} role="status">{pdfStatus.state==='ready'?'PDF 组件已验证':pdfStatus.state==='unavailable'?'PDF 组件不可用':'PDF 组件已配置，首次处理时验证'}{pdfStatus.state==='unavailable'&&pdfStatus.message?`：${pdfStatus.message}`:''}</p>}<ErrorBox message={error}/></>
 }
 function TaskCard({ task, refresh }) {
   const [busy,setBusy]=useState(false), [error,setError]=useState('')

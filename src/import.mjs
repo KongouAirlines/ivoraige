@@ -15,7 +15,11 @@ export class Importer extends Service {
 
   prepare(file, { legacyWire = false, deferSelection = false } = {}) {
     const input = this.parse.prepareInput(file)
-    try { return this.parse.selectPrepared(input) }
+    try {
+      const selection = this.parse.selectPrepared(input)
+      selection.adapter.validateSourceLanguage?.(input.file.language)
+      return selection
+    }
     catch (error) {
       // Keep the existing 0.1.0 missing-PDF task response in one compatibility
       // boundary. Input adaptation and source scoring remain format-free.

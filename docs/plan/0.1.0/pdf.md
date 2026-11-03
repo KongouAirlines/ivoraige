@@ -133,3 +133,7 @@ PR #12 的导出提示此前只存在于 Python 响应中，Node 丢弃了它。
 验收脚本支持 PATH 中的 Python 裸命令，指南补充仅样本生成需要的 `python -m pip install reportlab`。Windows 完整 `npm test` **192/192** 通过（包含构建）；本轮未修改 Python 解析逻辑。来源打开竞态仅登记 [pdf-source-open-race](../follow-ups/pdf-source-open-race.md)，未增加复制或哈希开销。
 
 真实 BabelDOC 使用 PATH 裸命令 `python.exe` 完成两页／14 单位的捕获、skip、人工接受和重启后旧快照重放。三个导出任务均保留第 1 页标点单位的目检提示，全部成功，新增模型请求 **0**；MD／JSON 重放字节一致、PDF 提取文本一致、四处重复句坐标核对通过。本轮未重复页面渲染目检；证据为 `evaluation/runs/pdf-formula-0.1.0/run-8/report.json` 和 `text-layout-checks.json`。真实引擎未再次出现警告丢失。
+
+### PDF 语言准入修正（2026-11-03，本地分支）
+
+当前 BabelDOC 组件的英文来源、中文 PDF 回放限制在已选适配器处显式校验：不支持的来源语言在解析与排队前拒绝，不支持的译文 PDF 目标在创建导出快照和任务前拒绝；来源模式仍复制经校验的原始 PDF，其他文本输出保持独立。CLI／HTTP 既有请求形状与记录 schema 未变。Node 24.22.1、锁定 npm 依赖和 DSH `639ed015` 下，`npm test` 为 **540 通过、2 跳过、0 失败**；随后增补零快照创建调用断言与直接解析拒绝断言，`node --test test/pdf.test.mjs` 为 **16/16** 通过。测试使用仓库模拟 sidecar 与临时 SQLite，不包含真实 BabelDOC、真实 PDF 视觉检查、私有样本或模型调用；macOS 实机验收与其他来源语言／目标语言的真实实现仍待单独验证。此项不关闭后续 PDF 功能范围。
