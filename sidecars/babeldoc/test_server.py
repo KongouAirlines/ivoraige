@@ -16,6 +16,33 @@ import server
 
 
 class BindingTests(unittest.TestCase):
+    def test_capture_summary_counts_overlapping_audit_and_empty_units(self):
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
+            path = Path(directory) / "invented.pdf"
+            path.write_bytes(b"%PDF-1.7\n")
+            def item(key, text, label="plain text"):
+                return {"page": 0, "bbox": [0, 0, 1, 1], "key": key,
+                        "sourceUnicode": text, "layoutLabel": label}
+            called = item("called", "Invented body")
+            paragraphs = [called, item("retained", "Figure marker"),
+                          item("empty", None, "unknown")]
+            audit = {**item("audit", "Separate extracted line", "unmapped_pdf_text"),
+                     "rawExtractedText": "Separate extracted line",
+                     "coverageOrigin": "pymupdf_line_audit"}
+            with patch.object(server, "run_engine", return_value=(
+                    [{**called, "requestText": "Invented body", "placeholderPayloads": []}],
+                    paragraphs, [])), \
+                 patch.object(server, "unbound_pdf_lines", return_value=[audit]):
+                parsed = server.parse({"path": str(path), "options": {"language": "en"}})["doc"]
+            coverage = parsed["sourceCoverage"]
+            self.assertEqual(coverage["summary"], {
+                "unitCount": 4, "callbackCount": 1, "uncalledCount": 3,
+                "emptyUnitCount": 1, "auditOnlyLineCount": 1,
+            })
+            self.assertEqual(len(parsed["units"]), 4)
+            self.assertEqual(len(coverage["uncalled"]), 3)
+            self.assertIn("Separate extracted line", [unit["sourceText"] for unit in parsed["units"]])
+
     def test_language_route_keeps_legacy_config_and_exact_chinese_source(self):
         legacy = server.capture_config(None, 5)
         self.assertNotIn("sourceLanguage", legacy)

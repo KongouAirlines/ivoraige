@@ -73,7 +73,7 @@ interface Document {
   externalRef?: string;                 // Zotero item key 等
   unitCount: number; translatableCount: number;
   availableOutputs: string[];           // 已装输出实现与来源绑定共同决定
-  warnings?: string[]; sourceCoverage?: Record<string, unknown>; // PDF 捕获覆盖与人工核对提示
+  warnings?: string[]; sourceCoverage?: Record<string, unknown>; // PDF 捕获覆盖与人工核对提示；新记录的 summary 含 unitCount、callbackCount、uncalledCount、auditOnlyLineCount、emptyUnitCount，旧记录可无 summary；后两项可与 uncalledCount 重叠
   importedAt: ISODate;
 }
 
