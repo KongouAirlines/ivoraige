@@ -47,6 +47,8 @@ Use Node.js `>=24.22.1 <25 || >=26.12.1 <27` with npm. Later stable patches with
 
 For PDF, prepare the optional Windows development environment using the [PDF development guide (中文)](docs/plan/0.1.0/pdf-development.md), then follow the [PDF guide (中文)](docs/plan/0.1.0/pdf-guide.md). The default online component source currently has no downloadable Release.
 
+New PDF imports show captured units, translation callback requests, retained units without callbacks, audited lines and empty units in the workbench and frozen JSON summary. These are source inventory counts, not proof that all original text was captured or translated; audited lines and empty units can overlap with retained units.
+
 The source sidecar in this branch routes declared `en` PDF sources to `zh`/`zh-CN`/`zh-Hans`, and declared `zh`/`zh-CN`/`zh-Hans` sources to `en`. Select the real source language; the app does not detect it. Chinese-to-English PDF rendering is an implemented candidate pending real BabelDOC and Mac visual verification. It requires the matching source sidecar; existing installed components may still accept English only. Source-mode PDF export copies the verified original without a target language.
 
 For configuration, debugging, and contributing, see the [development guide](docs/plan/0.1.0/development-guide.md). Detailed guides are currently mostly in Chinese.

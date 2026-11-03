@@ -56,6 +56,24 @@ async function exported(app, docId, options) {
 
 const outputs = [{ format: 'pdf' }, { format: 'md' }, { format: 'json' }]
 
+test('PDF coverage summary persists in Cordis records and frozen JSON after restart', async t => {
+  const f = await fixture(t, 'coverage-summary')
+  const doc = await imported(f)
+  const summary = { unitCount: 3, callbackCount: 2, uncalledCount: 1,
+    auditOnlyLineCount: 1, emptyUnitCount: 0 }
+  assert.deepEqual(doc.sourceCoverage.summary, summary)
+  assert.equal(doc.sourceCoverage.uncalled[0].sourceUnicode, 'Invented audit line')
+  await f.restart()
+  assert.deepEqual(f.app.records.getDocument(doc.id).sourceCoverage.summary, summary)
+  const result = await exported(f.app, doc.id,
+    { contentMode: 'source', outputs: [{ format: 'json' }] })
+  const frozen = f.app.records.resolveSnapshot(doc.id, result.snapshotId)
+  assert.deepEqual(frozen.document.sourceCoverage.summary, summary)
+  const json = JSON.parse(await readFile(result.artifacts.json.path, 'utf8'))
+  assert.deepEqual(json.document.sourceCoverage, { summary })
+  assert.equal(json.units[2].sourceText, 'Invented audit line')
+})
+
 test('textless PDF structure survives import and all frozen exports without losing body text', async t => {
   const f = await fixture(t, 'empty-structure')
   const doc = await imported(f)
