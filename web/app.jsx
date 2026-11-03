@@ -60,6 +60,8 @@ function Upload({ onDone, compact = false, inputFormats = [], pdfStatus }) {
   const pdfEnabled = inputFormats.includes('pdf')
   const supported = pdfEnabled ? 'TXT、Markdown 或 PDF' : 'TXT 或 Markdown'
   async function upload(file) {
+    // Release the native picker even when validation returns before network work.
+    if (input.current) input.current.value = ''
     if (!file || busy) return
     const format = file.name.toLowerCase().endsWith('.md') ? 'md' : file.name.toLowerCase().endsWith('.txt') ? 'txt' :
       pdfEnabled && file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : null
