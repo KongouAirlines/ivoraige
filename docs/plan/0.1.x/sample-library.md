@@ -15,7 +15,7 @@ ivoraige 使用样本库中的指定版本和文件，不复制整套语料、�
 
 ## 样本库 d2eae6f 基线的文档与命令
 
-截至 2026-11-01，以下文档与命令以样本库 main 的固定提交 `d2eae6fb0f120124f04139248a8095beb4261c1c`；固定链接便于复现，不表示今后的 main 始终与其相同：
+截至 2026-11-01，以下文档与命令以样本库 main 的固定提交 `d2eae6fb0f120124f04139248a8095beb4261c1c` 为准；固定链接便于复现，不表示今后的 main 始终与其相同：
 
 - [安装与结构检查](https://github.com/KongouAirlines/translate-source-lib/blob/d2eae6fb0f120124f04139248a8095beb4261c1c/README.md)
 - [样本与观察报告格式](https://github.com/KongouAirlines/translate-source-lib/blob/d2eae6fb0f120124f04139248a8095beb4261c1c/docs/formats.md)
@@ -67,7 +67,7 @@ PYTHONPATH=src .venv/bin/python -m samplelib.cli assess \
 
 内容来源与生成软件分别记录：用真正的 Word 导出人为编写的测试文字，内容仍是合成样本；公开 PDF 自报的 Producer 不能独立证明使用了哪个软件版本。真实文档转换出的 PDF 要保留父原件和转换记录，结构通过后仍须查看页面是否裁字、错列或丢内容。
 
-D02 的历史裁字观察与后续渲染存在差异；样本库 #12 已补充指定页渲染证据绑定与调查回归，仍需按其 [视觉证据调查](https://github.com/KongouAirlines/translate-source-lib/blob/d2eae6fb0f120124f04139248a8095beb4261c1c/docs/visual-evidence.md) 完成维护者对已绑定图片的复核，不能据此宣布排版已修复。用户已确认第 29 页 Central-Northern 和 Contrast 两处首字完整；这次观察未提供图片哈希，不能视为已完成绑定图片复核，更不代表全部版面通过。结构通过不会覆盖质量失败。样本库没有声称完成生产翻译、验证 ivoraige #56 或复现已丢失原件的故障。对下载受阻、资产缺失或未执行的测试，保留原因，不计入通过数量。
+D02 的历史裁字观察与后续渲染存在差异；样本库 #12 已补充指定页渲染证据绑定与调查回归，仍需按其 [视觉证据调查](https://github.com/KongouAirlines/translate-source-lib/blob/d2eae6fb0f120124f04139248a8095beb4261c1c/docs/visual-evidence.md) 完成维护者对已绑定图片的复核，不能据此宣布排版已修复。绑定图片复核也不代表全部版面或完整流程验收通过。结构通过不会覆盖质量失败。样本库没有声称完成生产翻译、验证 ivoraige #56 或复现已丢失原件的故障。对下载受阻、资产缺失或未执行的测试，保留原因，不计入通过数量。
 
 ## 来源、隐私和外发
 
