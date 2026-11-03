@@ -347,8 +347,18 @@ def assets():
     return root, model
 
 
-def capture_config(pages, min_text_length):
-    return {
+CHINESE_SOURCES = ("zh", "zh-CN", "zh-Hans")
+
+
+def engine_pair(source):
+    require(source == "en" or source in CHINESE_SOURCES,
+            "PDF source language unsupported")
+    return ("en", "zh") if source == "en" else ("zh", "en")
+
+
+def capture_config(pages, min_text_length, source="en"):
+    engine_pair(source)
+    config = {
         "babeldoc": ENGINE_VERSION,
         "pymupdf": PYMUPDF_VERSION,
         "layoutModel": LAYOUT_MODEL,
@@ -360,6 +370,10 @@ def capture_config(pages, min_text_length):
         "skipScannedDetection": True,
         "poolMaxWorkers": 1,
     }
+    # English bindings written before language routing have no sourceLanguage.
+    if source != "en":
+        config["sourceLanguage"] = source
+    return config
 
 
 def validate_options(options):
@@ -464,6 +478,7 @@ def _run_engine(
     original_translate = ILTranslator.translate
     original_document = high_level.Document
     source_documents = []
+    lang_in, lang_out = engine_pair(config_id.get("sourceLanguage", "en"))
 
     def inventory(self, docs):
         for page in docs.page:
@@ -513,7 +528,7 @@ def _run_engine(
         model = "accepted-snapshot"
 
         def __init__(self):
-            super().__init__("en", "zh", True)
+            super().__init__(lang_in, lang_out, True)
             self.calls = []
             self.errors = []
             self.used = set()
@@ -568,8 +583,8 @@ def _run_engine(
             config = TranslationConfig(
                 translator=engine,
                 input_file=input_pdf,
-                lang_in="en",
-                lang_out="zh",
+                lang_in=lang_in,
+                lang_out=lang_out,
                 doc_layout_model=OnnxModel(str(model_path)),
                 output_dir=task_work / "out",
                 working_dir=task_work / "work",
@@ -702,11 +717,11 @@ def parse(params):
     )
     options = params.get("options") or {}
     require(
-        options.get("language") == "en",
-        "PDF capture currently requires source language en",
+        options.get("language") == "en" or options.get("language") in CHINESE_SOURCES,
+        "PDF capture supports only en, zh, zh-CN or zh-Hans",
     )
     pages, min_length = validate_options(options)
-    config = capture_config(pages, min_length)
+    config = capture_config(pages, min_length, options["language"])
     send(
         {
             "jsonrpc": "2.0",
@@ -882,8 +897,8 @@ def rebuild(params):
     revision_ref = json.loads(Path(params["revisionsRef"]).read_text(encoding="utf-8"))
     document = doc_ref.get("document", doc_ref)
     require(
-        document.get("language") == "en",
-        "PDF replay currently requires English source language",
+        document.get("language") == "en" or document.get("language") in CHINESE_SOURCES,
+        "PDF replay source language unsupported",
     )
     binding = doc_ref.get("sourceBinding") or document.get("sourceBinding")
     require(
@@ -900,7 +915,7 @@ def rebuild(params):
     config = binding.get("captureConfig")
     require(
         isinstance(config, dict)
-        and config == capture_config(config.get("pages"), config.get("minTextLength")),
+        and config == capture_config(config.get("pages"), config.get("minTextLength"), document["language"]),
         "Capture configuration changed",
     )
     raw_records = binding.get("records")
@@ -914,7 +929,7 @@ def rebuild(params):
     require(len(by_order) == len(frozen), "Duplicate frozen unit order")
     target = revision_ref.get("snapshot", {}).get("targetLang", "")
     require(
-        target in ("zh", "zh-CN", "zh-Hans"),
+        (target in CHINESE_SOURCES if document["language"] == "en" else target == "en"),
         f"PDF replay target language unsupported: {target}",
     )
     records = []
