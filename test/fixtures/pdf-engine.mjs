@@ -52,6 +52,44 @@ if (mode === 'markdown-setext') {
     order: unit.order, requestText: unit.sourceText, placeholders: [],
   })))
 }
+if (mode === 'markdown-indent') {
+  const prefixes = [' ', '  ', '   ', '    ', '\t', ' \t', '  \t', '   \t',
+    '\t ', ' \t ', '    \t', '     ', '\t\t', '  \t  ']
+  units.splice(0, units.length, ...prefixes.map((prefix, order) => ({
+    order, kind: 'body', sourceText: `${prefix}Metric_Total <note> &lt;`,
+    locator: { page: 1 }, translatable: false,
+  })))
+  records.splice(0, records.length, ...units.map(unit => ({
+    order: unit.order, requestText: unit.sourceText, placeholders: [],
+  })))
+}
+if (mode === 'markdown-url') {
+  const sources = [
+    'Source https://example.com/a-b_c?key_name=1&x=2',
+    'Entity https://example.com/a?x=&copy;',
+    'Enclosed (https://example.com/a_(b)).',
+    'Angle <https://example.com/a-b>',
+    'Email user-name_test@example.com',
+    'Web www.example.com/a-b_c',
+    'FTP ftp://example.com/a-b_c',
+    'Quote "https://example.com/a-b"',
+    'Bracket https://example.com/a[b](test)',
+    'Backslash https://example.com/a\\b',
+    'Suffix https://example.com/a_',
+    'Invalid https://[bad',
+    'Spacing\n \thttps://example.com/a-b',
+    'Invalid nested https://[bad:https://example.com',
+    'Invalid nested www https://[badwww.example.com',
+    'Invalid mail https://[bad/user-name@example.com',
+    'Punctuation https://example.com/a-b;',
+  ]
+  units.splice(0, units.length, ...sources.map((sourceText, order) => ({
+    order, kind: 'body', sourceText, locator: { page: 1 }, translatable: false,
+  })))
+  records.splice(0, records.length, ...units.map(unit => ({
+    order: unit.order, requestText: unit.sourceText, placeholders: [],
+  })))
+}
 
 for await (const line of createInterface({ input: process.stdin })) {
   const { id, method, params } = JSON.parse(line)

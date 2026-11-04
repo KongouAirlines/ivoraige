@@ -111,6 +111,54 @@ test('PDF Markdown keeps indented setext equals literal in body units', async t 
   assert.equal(result.task.stats.llmCalls, 0)
 })
 
+test('PDF Markdown keeps mixed leading whitespace as visible prose', async t => {
+  const f = await fixture(t, 'markdown-indent')
+  const doc = await imported(f)
+  const result = await exported(f.app, doc.id,
+    { contentMode: 'source', outputs: [{ format: 'md' }, { format: 'json' }] })
+  const md = await readFile(result.artifacts.md.path, 'utf8')
+  const body = new JSDOM(marked.parse(md)).window.document.body
+  assert.equal(body.querySelector('pre,code'), null)
+  const json = JSON.parse(await readFile(result.artifacts.json.path, 'utf8'))
+  assert.deepEqual([...body.querySelectorAll('p')].map(node => node.textContent),
+    json.units.map(unit => unit.text))
+  assert.equal(result.task.stats.llmCalls, 0)
+})
+
+test('PDF Markdown bare URLs retain visible text and navigation target', async t => {
+  const f = await fixture(t, 'markdown-url')
+  const doc = await imported(f)
+  const result = await exported(f.app, doc.id,
+    { contentMode: 'source', outputs: [{ format: 'md' }, { format: 'json' }] })
+  const md = await readFile(result.artifacts.md.path, 'utf8')
+  const body = new JSDOM(marked.parse(md)).window.document.body
+  const json = JSON.parse(await readFile(result.artifacts.json.path, 'utf8'))
+  const paragraphs = [...body.querySelectorAll('p')]
+  assert.deepEqual(paragraphs.map(node => node.textContent), json.units.map(unit => unit.text))
+  assert.deepEqual(paragraphs.map(node => node.querySelector('a')?.getAttribute('href') ?? null), [
+    'https://example.com/a-b_c?key_name=1&x=2',
+    'https://example.com/a?x=&copy;',
+    'https://example.com/a_(b)',
+    'https://example.com/a-b',
+    'mailto:user-name_test@example.com',
+    'http://www.example.com/a-b_c',
+    'ftp://example.com/a-b_c',
+    'https://example.com/a-b',
+    'https://example.com/a%5Bb%5D(test)',
+    'https://example.com/a%5Cb',
+    'https://example.com/a_',
+    null,
+    'https://example.com/a-b',
+    null,
+    null,
+    null,
+    'https://example.com/a-b',
+  ])
+  assert.equal(body.querySelector('pre,code'), null)
+  assert.ok(result.task.artifacts.every(item => item.snapshotId === result.snapshotId))
+  assert.equal(result.task.stats.llmCalls, 0)
+})
+
 test('PDF coverage summary persists in Cordis records and frozen JSON after restart', async t => {
   const f = await fixture(t, 'coverage-summary')
   const doc = await imported(f)
