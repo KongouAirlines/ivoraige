@@ -4,6 +4,8 @@
 """Fast preflight tests; no BabelDOC import, model, or asset download."""
 
 import json
+import subprocess
+import sys
 from io import StringIO
 import tempfile
 import unittest
@@ -13,6 +15,85 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import server
+from layout_fit import LAYOUT_FIT_POLICY, fitted_layout_scope
+
+
+class LayoutFitTests(unittest.TestCase):
+    def engine(self):
+        box = lambda y=0: SimpleNamespace(x=0, y=y, x2=100, y2=20)
+
+        class Engine:
+            bottom = -22
+            calls = 0
+
+            def _layout_typesetting_units(self, units, bounds, scale, line_skip, paragraph):
+                return [], bounds.y < 0 and scale <= .7
+
+            def _get_optimal_scale(self, paragraph, page, units):
+                self._layout_typesetting_units(units, box(-20), .7, 1.3, paragraph)
+                return .7
+
+            def get_max_bottom_space(self, bounds, page):
+                return self.bottom
+
+            def retypeset_with_precomputed_scale(self, paragraph, page, units, scale):
+                self.calls += 1
+                return self._layout_typesetting_units(units, paragraph.box, scale, 1.3, paragraph)[1]
+
+        return Engine, SimpleNamespace(box=box())
+
+    def test_reuses_fit_box_only_after_rechecking_space_and_still_runs_fit(self):
+        Engine, paragraph = self.engine()
+        engine = Engine()
+        with fitted_layout_scope(Engine):
+            scale = engine._get_optimal_scale(paragraph, None, [])
+            self.assertEqual(paragraph.box.y, 0, "dry run must not mutate source geometry")
+            self.assertTrue(engine.retypeset_with_precomputed_scale(paragraph, None, [], scale))
+            self.assertEqual(paragraph.box.y, -20)
+            self.assertEqual(engine.calls, 1)
+
+    def test_new_obstacle_or_changed_paragraph_or_global_scale_uses_original_path(self):
+        for change in ("obstacle", "geometry", "scale"):
+            with self.subTest(change=change):
+                Engine, paragraph = self.engine()
+                engine = Engine()
+                with fitted_layout_scope(Engine):
+                    scale = engine._get_optimal_scale(paragraph, None, [])
+                    if change == "obstacle": engine.bottom = -5
+                    if change == "geometry": paragraph.box.x2 = 80
+                    if change == "scale": scale = .65
+                    self.assertFalse(engine.retypeset_with_precomputed_scale(paragraph, None, [], scale))
+                    self.assertEqual(paragraph.box.y, 0)
+                    self.assertEqual(engine.calls, 1)
+
+    def test_disabled_policy_and_lifecycle_restore_original_methods(self):
+        Engine, paragraph = self.engine()
+        original = (Engine._get_optimal_scale, Engine._layout_typesetting_units,
+                    Engine.retypeset_with_precomputed_scale)
+        engine = Engine()
+        with fitted_layout_scope(Engine, False):
+            scale = engine._get_optimal_scale(paragraph, None, [])
+            self.assertFalse(engine.retypeset_with_precomputed_scale(paragraph, None, [], scale))
+        with self.assertRaisesRegex(RuntimeError, "invented"):
+            with fitted_layout_scope(Engine):
+                raise RuntimeError("invented")
+        self.assertEqual(original, (Engine._get_optimal_scale, Engine._layout_typesetting_units,
+                                  Engine.retypeset_with_precomputed_scale))
+
+    def test_policy_identity_keeps_legacy_configs_and_rejects_unknown_policy(self):
+        legacy = server.capture_config(None, 5)
+        self.assertNotIn("layoutFitPolicy", legacy)
+        self.assertEqual(server.capture_config(None, 5, layout_fit_policy=LAYOUT_FIT_POLICY),
+                         {**legacy, "layoutFitPolicy": LAYOUT_FIT_POLICY})
+        with self.assertRaisesRegex(server.SidecarError, "policy unsupported"):
+            server.capture_config(None, 5, layout_fit_policy="invented")
+
+    def test_component_build_refuses_unverified_old_executable_reuse(self):
+        build = Path(__file__).resolve().parents[2] / "scripts/build-pdf-component.py"
+        result = subprocess.run([sys.executable, str(build), "--python", sys.executable,
+                                 "--reuse-pyinstaller-build"], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("build a fresh matching sidecar", result.stderr)
 
 
 class BindingTests(unittest.TestCase):
@@ -66,6 +147,7 @@ class BindingTests(unittest.TestCase):
             def capture(_source, config, mode):
                 self.assertEqual(mode, "capture")
                 self.assertEqual(config["sourceLanguage"], "zh-CN")
+                self.assertEqual(config["layoutFitPolicy"], LAYOUT_FIT_POLICY)
                 self.assertEqual(server.engine_pair(config["sourceLanguage"]), ("zh", "en"))
                 return [call], [paragraph], []
 
@@ -120,6 +202,20 @@ class BindingTests(unittest.TestCase):
             with patch.object(server, "run_engine", side_effect=replay):
                 result = server.rebuild(params)
             self.assertEqual(result["evidence"]["modelRequests"], 0)
+            # Old bindings keep their original policy; new captures pin the fix.
+            Path(params["out"]).unlink()
+            binding["captureConfig"] = server.capture_config(None, 5, "zh-Hans", LAYOUT_FIT_POLICY)
+            write("zh-Hans", "en")
+            with patch.object(server, "run_engine", side_effect=replay) as engine:
+                result = server.rebuild(params)
+            self.assertEqual(engine.call_args.args[1]["layoutFitPolicy"], LAYOUT_FIT_POLICY)
+            self.assertEqual(result["evidence"]["modelRequests"], 0)
+            binding["captureConfig"]["layoutFitPolicy"] = "unknown"
+            write("zh-Hans", "en")
+            with patch.object(server, "run_engine") as engine:
+                with self.assertRaisesRegex(server.SidecarError, "policy unsupported"):
+                    server.rebuild(params)
+                engine.assert_not_called()
 
     def test_null_noncallback_structure_keeps_location_and_body(self):
         structure = {'key': 'layout', 'page': 0, 'bbox': [0, 0, 1, 1],

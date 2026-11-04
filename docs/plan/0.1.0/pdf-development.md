@@ -2,6 +2,8 @@
 
 本页面向源码开发与回归验收；准备完成后的日常操作请看 [PDF 使用指南](pdf-guide.md)。
 
+布局预检策略需要配套源码 sidecar。新捕获固定 `captureConfig.layoutFitPolicy: fit-box-v1`，旧绑定缺少标记时保留原路径。Windows 组件必须重新构建；`--reuse-pyinstaller-build` 暂拒绝旧可执行文件复用，避免源文件已更新而打包程序仍未包含策略。新组件尚未在本阶段构建验收。行为与测试见[布局预检记录](../0.1.x/evidence/pdf-layout-fit-0.1.0.md)。
+
 当前 PDF 路线处理**原生文本英文 PDF → 中文单语 PDF**。导入后可在同一工作台翻译、人工修改和接受译文，再从冻结快照生成 PDF、Markdown、JSON。PDF 来源绑定由 BabelDOC 自身捕获；导出回放只读取已接受译文，不请求翻译模型。扫描件 OCR、双语 PDF、MinerU 跨引擎映射及三系统独立打包仍待验证。
 
 来源适配器可选的同步 `validateSourceLanguage(language)` 在选中后、排队导入前校验声明的源语言；PDF 直接解析也在启动 sidecar 前校验。输出适配器可选的同步 `validateExport({ contentMode, targetLang, provenance })` 在具体输出选中时校验冻结文档来源与目标语言；它必须仅检查数据、不得访问 Cordis context、模型或产生副作用。`Tasks` 导出准入、`Exporter` 直接导出及任务恢复都复用输出注册表检查。无导出模式的裸适配器查询和格式发现不执行此校验；来源模式的 PDF 原件导出仍独立于目标语言。0.1.0 既有 API 请求形状及存储 schema 不变，超出能力的已选 PDF 请求在创建导出快照与任务前返回 `PRECONDITION_FAILED`。
