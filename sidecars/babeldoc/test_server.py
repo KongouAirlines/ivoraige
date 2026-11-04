@@ -15,6 +15,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import server
+from underscore_line import (UNDERSCORE_LINE_POLICY, UNDERSCORE_LINE_POLICY_V2,
+                             _candidate_bounds,
+                             split_paragraph_with_underscore_bounds, underscore_line_scope)
 from layout_fit import LAYOUT_FIT_POLICY, fitted_layout_scope
 
 
@@ -87,6 +90,11 @@ class LayoutFitTests(unittest.TestCase):
                          {**legacy, "layoutFitPolicy": LAYOUT_FIT_POLICY})
         with self.assertRaisesRegex(server.SidecarError, "policy unsupported"):
             server.capture_config(None, 5, layout_fit_policy="invented")
+        self.assertNotIn("underscoreLinePolicy", legacy)
+        self.assertEqual(server.capture_config(None, 5, underscore_line_policy=UNDERSCORE_LINE_POLICY),
+                         {**legacy, "underscoreLinePolicy": UNDERSCORE_LINE_POLICY})
+        with self.assertRaisesRegex(server.SidecarError, "policy unsupported"):
+            server.capture_config(None, 5, underscore_line_policy="invented")
 
     def test_component_build_refuses_unverified_old_executable_reuse(self):
         build = Path(__file__).resolve().parents[2] / "scripts/build-pdf-component.py"
@@ -97,6 +105,91 @@ class LayoutFitTests(unittest.TestCase):
 
 
 class BindingTests(unittest.TestCase):
+    def test_v2_nominal_baseline_distinguishes_ink_shape_and_rejects_bad_boxes(self):
+        def glyph(symbol, x, visual_y, nominal_y):
+            visual = SimpleNamespace(x=x, x2=x + .8, y=visual_y, y2=visual_y + 1)
+            nominal = SimpleNamespace(x=x, x2=x + .8, y=nominal_y, y2=nominal_y + 1)
+            return SimpleNamespace(char_unicode=symbol, vertical=False, xobj_id=1,
+                pdf_style=SimpleNamespace(font_id="F", font_size=12),
+                visual_bbox=SimpleNamespace(box=visual), box=nominal)
+        chars = [glyph("X", 0, 8, 8), glyph("_", 1, 0, 8),
+                 glyph("Y", 2, 8, 8)]
+        chars[0].visual_bbox.box.y2 = 11
+        chars[2].visual_bbox.box.y2 = 14
+        bounds = lambda char: (char.visual_bbox.box.y, char.visual_bbox.box.y2)
+        self.assertEqual(_candidate_bounds(chars, bounds), {})
+        self.assertEqual(_candidate_bounds(chars, bounds, UNDERSCORE_LINE_POLICY_V2),
+                         {id(chars[1]): (8, 14)})
+        chars[1].box.y = 6
+        self.assertEqual(_candidate_bounds(chars, bounds, UNDERSCORE_LINE_POLICY_V2), {})
+        chars[1].box.y = 8
+        for bad in (float("nan"), float("inf"), -1):
+            chars[1].box.y2 = bad
+            self.assertEqual(_candidate_bounds(chars, bounds, UNDERSCORE_LINE_POLICY_V2), {})
+        with self.assertRaisesRegex(ValueError, "Unsupported underscore line policy"):
+            _candidate_bounds(chars, bounds, "unrecognized")
+
+    def test_underscore_bound_guard_is_local_and_requires_ascii_letter_neighbors(self):
+        def glyph(symbol, x, y, *, font="F"):
+            box = SimpleNamespace(x=x, x2=x + 0.8, y=y, y2=y + 1)
+            return SimpleNamespace(
+                char_unicode=symbol, vertical=False, xobj_id=1,
+                pdf_style=SimpleNamespace(font_id=font, font_size=10),
+                visual_bbox=SimpleNamespace(box=box),
+            )
+        bounds = lambda char: (char.visual_bbox.box.y, char.visual_bbox.box.y2)
+        chars = [glyph("X", 0, 8), glyph("_", 1, 0), glyph("Y", 2, 8)]
+        self.assertEqual(UNDERSCORE_LINE_POLICY, "ascii-base-v1")
+        self.assertEqual(_candidate_bounds(chars, bounds), {id(chars[1]): (8, 9)})
+        self.assertEqual(chars[1].visual_bbox.box.y, 0)
+        self.assertEqual(_candidate_bounds([chars[0], None, chars[1], chars[2]], bounds), {})
+        for right in (glyph("2", 2, 8), glyph("+", 2, 8), glyph("ב", 2, 8),
+                      glyph("Y", 2, 8, font="G")):
+            self.assertEqual(_candidate_bounds([chars[0], chars[1], right], bounds), {})
+        for invalid in (float("nan"), float("inf"), -1):
+            damaged = glyph("_", 1, 0)
+            damaged.visual_bbox.box.x2 = invalid
+            self.assertEqual(_candidate_bounds([chars[0], damaged, chars[2]], bounds), {})
+        self.assertEqual(_candidate_bounds(chars, lambda char: (float("nan"), 9)), {})
+
+    def test_underscore_scope_restores_class_method(self):
+        class Finder:
+            def _split_paragraph_into_lines(self, paragraph, formula_font_ids):
+                return "original"
+
+        original = Finder._split_paragraph_into_lines
+        with underscore_line_scope(Finder, enabled=False):
+            self.assertIs(Finder._split_paragraph_into_lines, original)
+        with self.assertRaisesRegex(ValueError, "synthetic"):
+            with underscore_line_scope(Finder):
+                self.assertIsNot(Finder._split_paragraph_into_lines, original)
+                raise ValueError("synthetic")
+        self.assertIs(Finder._split_paragraph_into_lines, original)
+
+    def test_underscore_instance_bounds_restore_when_upstream_split_raises(self):
+        def glyph(value, x, y):
+            return SimpleNamespace(char_unicode=value, vertical=False, xobj_id=1,
+                pdf_style=SimpleNamespace(font_id="F", font_size=10),
+                visual_bbox=SimpleNamespace(box=SimpleNamespace(x=x, x2=x+.8, y=y, y2=y+1)))
+        chars = [glyph("X", 0, 8), glyph("_", 1, 0), glyph("Y", 2, 8)]
+        paragraph = SimpleNamespace(pdf_paragraph_composition=[
+            SimpleNamespace(pdf_character=char) for char in chars])
+        class Finder:
+            def _get_effective_y_bounds(self, char):
+                return char.visual_bbox.box.y, char.visual_bbox.box.y2
+        for own_override in (False, True):
+            finder = Finder()
+            if own_override:
+                finder._get_effective_y_bounds = lambda char: (char.visual_bbox.box.y, char.visual_bbox.box.y2)
+            original = finder._get_effective_y_bounds
+            def fail(finder, paragraph, fonts):
+                self.assertEqual(finder._get_effective_y_bounds(chars[1]), (8, 9))
+                raise ValueError("invented split failure")
+            with self.assertRaisesRegex(ValueError, "invented"):
+                split_paragraph_with_underscore_bounds(finder, paragraph, set(), fail)
+            self.assertEqual(finder._get_effective_y_bounds, original)
+            self.assertEqual("_get_effective_y_bounds" in vars(finder), own_override)
+
     def test_capture_summary_counts_overlapping_audit_and_empty_units(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
             path = Path(directory) / "invented.pdf"
@@ -148,6 +241,7 @@ class BindingTests(unittest.TestCase):
                 self.assertEqual(mode, "capture")
                 self.assertEqual(config["sourceLanguage"], "zh-CN")
                 self.assertEqual(config["layoutFitPolicy"], LAYOUT_FIT_POLICY)
+                self.assertEqual(config["underscoreLinePolicy"], UNDERSCORE_LINE_POLICY_V2)
                 self.assertEqual(server.engine_pair(config["sourceLanguage"]), ("zh", "en"))
                 return [call], [paragraph], []
 
@@ -210,7 +304,23 @@ class BindingTests(unittest.TestCase):
                 result = server.rebuild(params)
             self.assertEqual(engine.call_args.args[1]["layoutFitPolicy"], LAYOUT_FIT_POLICY)
             self.assertEqual(result["evidence"]["modelRequests"], 0)
+            for underscore_policy in (UNDERSCORE_LINE_POLICY, UNDERSCORE_LINE_POLICY_V2):
+                for layout_policy in (None, LAYOUT_FIT_POLICY):
+                    Path(params["out"]).unlink()
+                    binding["captureConfig"] = server.capture_config(
+                        None, 5, "zh-Hans", layout_policy, underscore_policy)
+                    write("zh-Hans", "en")
+                    with patch.object(server, "run_engine", side_effect=replay) as engine:
+                        server.rebuild(params)
+                    self.assertEqual(engine.call_args.args[1]["underscoreLinePolicy"], underscore_policy)
             binding["captureConfig"]["layoutFitPolicy"] = "unknown"
+            write("zh-Hans", "en")
+            with patch.object(server, "run_engine") as engine:
+                with self.assertRaisesRegex(server.SidecarError, "policy unsupported"):
+                    server.rebuild(params)
+                engine.assert_not_called()
+            binding["captureConfig"]["layoutFitPolicy"] = LAYOUT_FIT_POLICY
+            binding["captureConfig"]["underscoreLinePolicy"] = "unknown"
             write("zh-Hans", "en")
             with patch.object(server, "run_engine") as engine:
                 with self.assertRaisesRegex(server.SidecarError, "policy unsupported"):
