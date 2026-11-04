@@ -19,6 +19,7 @@ import sys
 import tempfile
 import threading
 import traceback
+from collections import Counter
 from contextlib import redirect_stdout
 from dataclasses import asdict
 from pathlib import Path
@@ -28,6 +29,9 @@ ENGINE_VERSION = "0.6.4"
 PYMUPDF_VERSION = "1.26.7"
 LAYOUT_MODEL = "doclayout_yolo_docstructbench_imgsz1024.onnx"
 TOKEN_RE = re.compile(r"</?(?:b|i|u|s|f)\d+>")
+# Bound work on repeated anchors even when no complete alignment exists.
+DISPLAY_MAPPING_MAX_CANDIDATES = 50_000
+DISPLAY_MAPPING_MAX_SEARCH_CHARS = 64_000_000
 OUTPUT = sys.stdout
 STATE: dict = {"model_dirs": {}, "options": {}}
 SUPERSCRIPT = str.maketrans("0123456789+-=()in", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ⁱⁿ")
@@ -100,6 +104,7 @@ def complete_callbacks(calls: list, positions: list) -> None:
 def payload_displays(tokens: list, payloads: list):
     displays = {}
     ambiguous = set()
+    counts = Counter(tokens)
     for payload in payloads:
         kind = payload.get("type")
         if kind == "formula":
@@ -115,7 +120,7 @@ def payload_displays(tokens: list, payloads: list):
         for token, value in entries:
             if not isinstance(token, str) or not isinstance(value, str):
                 continue
-            if tokens.count(token) != 1 or token in ambiguous:
+            if counts[token] != 1 or token in ambiguous:
                 continue
             if token in displays:
                 displays.pop(token)
@@ -133,32 +138,63 @@ def display_mapping(
     if not tokens:
         return []
     pieces = TOKEN_RE.split(request)
-    solutions = []
-
-    def walk(index, cursor, values):
-        if len(solutions) > 1:
-            return
-        if index == len(tokens):
-            if cursor == len(source):
-                solutions.append(values)
-            return
-        anchor = pieces[index + 1]
-        if not anchor:
-            if index == len(tokens) - 1:
-                walk(index + 1, len(source), values + [source[cursor:]])
-            return
-        found = source.find(anchor, cursor)
-        while found >= 0:
-            walk(index + 1, found + len(anchor), values + [source[cursor:found]])
-            found = source.find(anchor, found + 1)
-
+    solution = None
+    exhausted = False
+    candidates = search_chars = 0
     if source.startswith(pieces[0]):
-        walk(0, len(pieces[0]), [])
-    if len(solutions) == 1:
+        final_anchor = pieces[-1]
+        final_position = (
+            len(source) - len(final_anchor)
+            if source.endswith(final_anchor) else -1
+        )
+        # A frame is (token index, source cursor, next anchor search position).
+        # `values` follows the active path, so backtracking does not copy it.
+        cursor = len(pieces[0])
+        frames = [(0, cursor, cursor)]
+        values = []
+        while frames:
+            index, cursor, search = frames[-1]
+            anchor = pieces[index + 1]
+            if not anchor or index == len(tokens) - 1:
+                # Only an end-aligned final anchor can complete the request.
+                if index == len(tokens) - 1 and (
+                    not anchor or final_position >= cursor
+                ):
+                    end = len(source) - len(anchor)
+                    candidate = values + [source[cursor:end]]
+                    if solution is not None:
+                        solution = None
+                        break
+                    solution = candidate
+                frames.pop()
+                if frames:
+                    values.pop()
+                continue
+            search_chars += len(source) - search
+            if search_chars > DISPLAY_MAPPING_MAX_SEARCH_CHARS:
+                exhausted = True
+                break
+            found = source.find(anchor, search)
+            if found < 0:
+                frames.pop()
+                if frames:
+                    values.pop()
+                continue
+            candidates += 1
+            if candidates > DISPLAY_MAPPING_MAX_CANDIDATES:
+                exhausted = True
+                break
+            frames[-1] = (index, cursor, found + 1)
+            values.append(source[cursor:found])
+            next_cursor = found + len(anchor)
+            frames.append((index + 1, next_cursor, next_cursor))
+    if solution is not None and not exhausted:
         return [
             {"token": token, "text": value}
-            for token, value in zip(tokens, solutions[0])
+            for token, value in zip(tokens, solution)
         ]
+    if exhausted and uncertain is not None:
+        uncertain.append("literal alignment search limit reached")
     known = payload_displays(tokens, payloads or [])
     mapped = []
     for token in tokens:
