@@ -93,6 +93,24 @@ test('PDF Markdown expresses captured headings and keeps literal formula and ide
   }
 })
 
+test('PDF Markdown keeps indented setext equals literal in body units', async t => {
+  const f = await fixture(t, 'markdown-setext')
+  const doc = await imported(f)
+  const result = await exported(f.app, doc.id,
+    { contentMode: 'source', outputs: [{ format: 'md' }, { format: 'json' }] })
+  const md = await readFile(result.artifacts.md.path, 'utf8')
+  const body = new JSDOM(marked.parse(md)).window.document.body
+  assert.deepEqual([...body.querySelectorAll('h1,h2,h3,h4,h5,h6')].map(node => node.textContent),
+    ['original.pdf'])
+  assert.deepEqual([...body.querySelectorAll('p')].map(node => node.textContent),
+    [0, 1, 2, 3, 4].map(n => `Line ${n}\n${' '.repeat(n)}===`))
+  const json = JSON.parse(await readFile(result.artifacts.json.path, 'utf8'))
+  assert.deepEqual(json.units.map(unit => unit.text),
+    [0, 1, 2, 3, 4].map(n => `Line ${n}\n${' '.repeat(n)}===`))
+  assert.ok(result.task.artifacts.every(item => item.snapshotId === result.snapshotId))
+  assert.equal(result.task.stats.llmCalls, 0)
+})
+
 test('PDF coverage summary persists in Cordis records and frozen JSON after restart', async t => {
   const f = await fixture(t, 'coverage-summary')
   const doc = await imported(f)

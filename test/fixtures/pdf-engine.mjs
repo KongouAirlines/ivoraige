@@ -43,6 +43,15 @@ if (mode === 'markdown-structure') {
     { order: 3, requestText: units[3].sourceText, placeholderPayloads: [
       { type: 'formula', placeholder: '<f1>', formula_chars: 'x_1 < y' } ] })
 }
+if (mode === 'markdown-setext') {
+  units.splice(0, units.length, ...[0, 1, 2, 3, 4].map(order => ({
+    order, kind: 'body', sourceText: `Line ${order}\n${' '.repeat(order)}===`,
+    locator: { page: 1 }, translatable: false,
+  })))
+  records.splice(0, records.length, ...units.map(unit => ({
+    order: unit.order, requestText: unit.sourceText, placeholders: [],
+  })))
+}
 
 for await (const line of createInterface({ input: process.stdin })) {
   const { id, method, params } = JSON.parse(line)
