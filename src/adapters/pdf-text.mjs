@@ -43,7 +43,7 @@ export function readablePdfText(binding, unit, text) {
 const escapePdfMarkdown = value => value.replace(/\r\n?/g, '\n')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/[\\`*_{}\[\]()#+!|~-]/g, '\\$&')
-  .replace(/^=+(?=\s*$)/gm, value => `\\${value}`)
+  .replace(/^( {0,4})(=+)(?=[ \t]*$)/gm, (_, indent, equals) => `${indent}\\${equals}`)
   .replace(/^(\s{0,3}\d+)\./gm, '$1\\.')
   .replace(/^( {4,}|\t+)/gm, spaces => [...spaces].map(char => char === '\t' ? '&#9;' : '&#32;').join(''))
 
