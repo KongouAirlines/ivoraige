@@ -25,7 +25,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from layout_fit import LAYOUT_FIT_POLICY, fitted_layout_scope
-from underscore_line import UNDERSCORE_LINE_POLICY, underscore_line_scope
+from underscore_line import UNDERSCORE_LINE_POLICY, UNDERSCORE_LINE_POLICY_V2, underscore_line_scope
 
 PROTOCOL_VERSION = 1
 ENGINE_VERSION = "0.6.4"
@@ -416,7 +416,7 @@ def capture_config(pages, min_text_length, source="en", layout_fit_policy=None, 
         require(layout_fit_policy == LAYOUT_FIT_POLICY, "PDF layout fit policy unsupported")
         config["layoutFitPolicy"] = layout_fit_policy
     if underscore_line_policy is not None:
-        require(underscore_line_policy == UNDERSCORE_LINE_POLICY, "PDF underscore line policy unsupported")
+        require(underscore_line_policy in (UNDERSCORE_LINE_POLICY, UNDERSCORE_LINE_POLICY_V2), "PDF underscore line policy unsupported")
         config["underscoreLinePolicy"] = underscore_line_policy
     return config
 
@@ -663,7 +663,8 @@ def _run_engine(
                 with fitted_layout_scope(
                     Typesetting, config_id.get("layoutFitPolicy") == LAYOUT_FIT_POLICY
                 ), underscore_line_scope(
-                    ParagraphFinder, config_id.get("underscoreLinePolicy") == UNDERSCORE_LINE_POLICY
+                    ParagraphFinder, config_id.get("underscoreLinePolicy") in (UNDERSCORE_LINE_POLICY, UNDERSCORE_LINE_POLICY_V2),
+                    policy=config_id.get("underscoreLinePolicy") or UNDERSCORE_LINE_POLICY
                 ), redirect_stdout(sys.stderr):
                     result = high_level.translate(config)
             finally:
@@ -772,7 +773,7 @@ def parse(params):
         "PDF capture supports only en, zh, zh-CN or zh-Hans",
     )
     pages, min_length = validate_options(options)
-    config = capture_config(pages, min_length, options["language"], LAYOUT_FIT_POLICY, UNDERSCORE_LINE_POLICY)
+    config = capture_config(pages, min_length, options["language"], LAYOUT_FIT_POLICY, UNDERSCORE_LINE_POLICY_V2)
     send(
         {
             "jsonrpc": "2.0",

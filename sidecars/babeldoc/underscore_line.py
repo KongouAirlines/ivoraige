@@ -8,6 +8,7 @@ from contextlib import contextmanager
 
 
 UNDERSCORE_LINE_POLICY = "ascii-base-v1"
+UNDERSCORE_LINE_POLICY_V2 = "ascii-base-v2"
 
 
 def _ascii_letter(char):
@@ -17,8 +18,19 @@ def _ascii_letter(char):
     )
 
 
-def _candidate_bounds(chars, bounds):
+def _valid_box(box):
+    return (
+        box is not None
+        and all(isinstance(value, (int, float)) and math.isfinite(value)
+                for value in (box.x, box.y, box.x2, box.y2))
+        and box.x2 > box.x and box.y2 > box.y
+    )
+
+
+def _candidate_bounds(chars, bounds, policy=UNDERSCORE_LINE_POLICY):
     """Return per-glyph bounds for clear, same-style ASCII identifier underscores."""
+    if policy not in (UNDERSCORE_LINE_POLICY, UNDERSCORE_LINE_POLICY_V2):
+        raise ValueError(f"Unsupported underscore line policy: {policy}")
     replacements = {}
     for index in range(1, len(chars) - 1):
         left, underscore, right = chars[index - 1:index + 2]
@@ -46,11 +58,7 @@ def _candidate_bounds(chars, bounds):
             continue
         boxes = [char.visual_bbox.box if char.visual_bbox else None
                  for char in (left, underscore, right)]
-        if any(box is None or not all(
-            isinstance(value, (int, float)) and math.isfinite(value)
-            for value in (box.x, box.y, box.x2, box.y2)
-        ) or box.x2 <= box.x or box.y2 <= box.y
-               for box in boxes):
+        if any(not _valid_box(box) for box in boxes):
             continue
         lbox, ubox, rbox = boxes
         if not (lbox.x < ubox.x < rbox.x):
@@ -69,23 +77,39 @@ def _candidate_bounds(chars, bounds):
         left_center = (ly1 + ly2) / 2
         right_center = (ry1 + ry2) / 2
         underscore_center = (uy1 + uy2) / 2
-        if (abs(left_center - right_center) > 0.1 * em
-                or underscore_center > min(left_center, right_center) - 0.2 * em
+        if (underscore_center > min(left_center, right_center) - 0.2 * em
                 or max(left_center, right_center) - underscore_center > em):
             continue
+        if policy == UNDERSCORE_LINE_POLICY:
+            if abs(left_center - right_center) > 0.1 * em:
+                continue
+        else:
+            # Nominal baseline evidence must not override disjoint ink lines.
+            if min(ly2, ry2) <= max(ly1, ry1):
+                continue
+            nominal_boxes = [char.box for char in (left, underscore, right)]
+            if any(not _valid_box(box) for box in nominal_boxes):
+                continue
+            # Same-font LTChar nominal boxes express the baseline; ink can
+            # legitimately have different visual centers for adjacent letters.
+            if (max(box.y for box in nominal_boxes)
+                    - min(box.y for box in nominal_boxes) > 0.05 * em
+                    or max(box.y2 for box in nominal_boxes)
+                    - min(box.y2 for box in nominal_boxes) > 0.05 * em):
+                continue
         replacements[id(underscore)] = (min(ly1, ry1), max(ly2, ry2))
     return replacements
 
 
 def split_paragraph_with_underscore_bounds(finder, paragraph, formula_font_ids,
-                                          original_split):
+                                          original_split, policy=UNDERSCORE_LINE_POLICY):
     """Run upstream's splitter with temporary bounds only for eligible underscores."""
     chars = [
         composition.pdf_character
         for composition in paragraph.pdf_paragraph_composition or []
     ]
     original_bounds = finder._get_effective_y_bounds
-    replacements = _candidate_bounds(chars, original_bounds)
+    replacements = _candidate_bounds(chars, original_bounds, policy)
     if not replacements:
         return original_split(finder, paragraph, formula_font_ids)
     had_override = "_get_effective_y_bounds" in vars(finder)
@@ -106,7 +130,8 @@ def split_paragraph_with_underscore_bounds(finder, paragraph, formula_font_ids,
 
 
 @contextmanager
-def underscore_line_scope(paragraph_finder_class, enabled=True):
+def underscore_line_scope(paragraph_finder_class, enabled=True,
+                          policy=UNDERSCORE_LINE_POLICY):
     """Apply the local split guard for one BabelDOC capture or replay invocation."""
     if not enabled:
         yield
@@ -115,7 +140,7 @@ def underscore_line_scope(paragraph_finder_class, enabled=True):
 
     def guarded_split(finder, paragraph, formula_font_ids):
         return split_paragraph_with_underscore_bounds(
-            finder, paragraph, formula_font_ids, original_split
+            finder, paragraph, formula_font_ids, original_split, policy
         )
 
     paragraph_finder_class._split_paragraph_into_lines = guarded_split
