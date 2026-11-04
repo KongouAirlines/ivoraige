@@ -55,6 +55,8 @@ When a new PDF import reaches the placeholder alignment search limit, it keeps a
 
 New PDF captures also pin a layout-fit policy: replay can reuse a dry-run box together with its scale after rechecking available space, then runs BabelDOC's normal fit checks. Existing bindings retain the previous path. This avoids one extra shrink step; it does not establish visual correctness.
 
+New captures keep a clearly identified low underscore between nearby, same-style horizontal ASCII letters with its word during line splitting. The rule changes temporary line bounds only; it neither moves glyphs nor sorts text globally. Older captures retain their recorded behavior, and other formulas and page layouts still need review.
+
 The source sidecar in this branch routes declared `en` PDF sources to `zh`/`zh-CN`/`zh-Hans`, and declared `zh`/`zh-CN`/`zh-Hans` sources to `en`. Select the real source language; the app does not detect it. Chinese-to-English PDF rendering is an implemented candidate pending real BabelDOC and Mac visual verification. It requires the matching source sidecar; existing installed components may still accept English only. Source-mode PDF export copies the verified original without a target language.
 
 For configuration, debugging, and contributing, see the [development guide](docs/plan/0.1.0/development-guide.md). Detailed guides are currently mostly in Chinese.

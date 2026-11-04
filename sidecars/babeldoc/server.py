@@ -25,6 +25,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from layout_fit import LAYOUT_FIT_POLICY, fitted_layout_scope
+from underscore_line import UNDERSCORE_LINE_POLICY, underscore_line_scope
 
 PROTOCOL_VERSION = 1
 ENGINE_VERSION = "0.6.4"
@@ -394,7 +395,7 @@ def engine_pair(source):
     return ("en", "zh") if source == "en" else ("zh", "en")
 
 
-def capture_config(pages, min_text_length, source="en", layout_fit_policy=None):
+def capture_config(pages, min_text_length, source="en", layout_fit_policy=None, underscore_line_policy=None):
     engine_pair(source)
     config = {
         "babeldoc": ENGINE_VERSION,
@@ -414,6 +415,9 @@ def capture_config(pages, min_text_length, source="en", layout_fit_policy=None):
     if layout_fit_policy is not None:
         require(layout_fit_policy == LAYOUT_FIT_POLICY, "PDF layout fit policy unsupported")
         config["layoutFitPolicy"] = layout_fit_policy
+    if underscore_line_policy is not None:
+        require(underscore_line_policy == UNDERSCORE_LINE_POLICY, "PDF underscore line policy unsupported")
+        config["underscoreLinePolicy"] = underscore_line_policy
     return config
 
 
@@ -509,6 +513,7 @@ def _run_engine(
     from babeldoc.docvision.doclayout import OnnxModel
     from babeldoc.format.pdf.document_il.midend.il_translator import ILTranslator
     from babeldoc.format.pdf.document_il.midend.typesetting import Typesetting
+    from babeldoc.format.pdf.document_il.midend.paragraph_finder import ParagraphFinder
     from babeldoc.format.pdf import high_level
     from babeldoc.format.pdf.translation_config import (
         TranslationConfig,
@@ -657,6 +662,8 @@ def _run_engine(
             try:
                 with fitted_layout_scope(
                     Typesetting, config_id.get("layoutFitPolicy") == LAYOUT_FIT_POLICY
+                ), underscore_line_scope(
+                    ParagraphFinder, config_id.get("underscoreLinePolicy") == UNDERSCORE_LINE_POLICY
                 ), redirect_stdout(sys.stderr):
                     result = high_level.translate(config)
             finally:
@@ -765,7 +772,7 @@ def parse(params):
         "PDF capture supports only en, zh, zh-CN or zh-Hans",
     )
     pages, min_length = validate_options(options)
-    config = capture_config(pages, min_length, options["language"], LAYOUT_FIT_POLICY)
+    config = capture_config(pages, min_length, options["language"], LAYOUT_FIT_POLICY, UNDERSCORE_LINE_POLICY)
     send(
         {
             "jsonrpc": "2.0",
@@ -967,7 +974,7 @@ def rebuild(params):
     config = binding.get("captureConfig")
     require(
         isinstance(config, dict)
-        and config == capture_config(config.get("pages"), config.get("minTextLength"), document["language"], config.get("layoutFitPolicy")),
+        and config == capture_config(config.get("pages"), config.get("minTextLength"), document["language"], config.get("layoutFitPolicy"), config.get("underscoreLinePolicy")),
         "Capture configuration changed",
     )
     raw_records = binding.get("records")

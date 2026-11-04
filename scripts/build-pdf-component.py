@@ -182,7 +182,7 @@ def main() -> None:
     if missing_hyperscan_libs:
         raise RuntimeError(f"PyInstaller output omits hyperscan DLLs; rebuild without --reuse-pyinstaller-build: {missing_hyperscan_libs}")
     shutil.copytree(built, stage, dirs_exist_ok=True)
-    for name in ("server.py", "layout_fit.py", "requirements.lock", "LICENSE", "COPYING"):
+    for name in ("server.py", "layout_fit.py", "underscore_line.py", "requirements.lock", "LICENSE", "COPYING"):
         shutil.copyfile(ROOT / "sidecars/babeldoc" / name, stage / name)
     (stage / "README.md").write_text(
         "BabelDOC sidecar 0.6.4 for Windows x64. Install the separate asset archive under ./assets before PDF capture.\n",
