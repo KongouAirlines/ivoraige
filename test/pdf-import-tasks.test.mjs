@@ -413,8 +413,8 @@ test('direct PDF mount imports and replays from a relative custom directory afte
     const parsed = await initial.get('ivoraige.parse').parse({ format: 'pdf', content: Buffer.from(pdfBytes) })
     assert.equal(isAbsolute(parsed.sourceBinding.sourcePath), true)
     assert.equal(dirname(parsed.sourceBinding.sourcePath), join(directory, 'sources'))
-    const frozen = { document: { id: 'direct-mount' }, sourceBinding: parsed.sourceBinding,
-      snapshot: { id: 'direct-snapshot' },
+    const frozen = { document: { id: 'direct-mount', language: 'en' }, sourceBinding: parsed.sourceBinding,
+      snapshot: { id: 'direct-snapshot', targetLang: 'zh' },
       units: parsed.units.map(unit => ({ unit, text: unit.sourceText })) }
     const originalOutput = await initial.get('ivoraige.outputs').get('pdf').rebuild(frozen)
     assert.match(originalOutput.content.toString(), /^%PDF-FAKE-TEST/)

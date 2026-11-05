@@ -26,6 +26,7 @@ The goal is a shared foundation for people and AI: choose the capabilities you n
 
 - **Add what you need.** Start with text and Markdown. Install the optional PDF component when your workflow calls for it.
 - **Keep a hand in the result.** Compare source and translation, save drafts, accept revisions, and return to earlier work.
+- **Check the translation boundary.** New model requests identify only the source unit as the translation target and provide neighboring units as context. A complete internal request JSON echo fails the translation task before it can become a revision; inspect the task error and retry after checking the model. Review short labels and paragraphs for other echoed fields or duplicated neighboring text before export. Previously accepted revisions and frozen exports are not rewritten.
 - **Reuse accepted translations.** Export supported formats from one frozen snapshot. Exporting does not ask a model to translate again.
 - **Keep the original structure.** CLI export with `--content-mode source` can produce Markdown or JSON without a target language or accepted translation. For imported PDFs, it can also copy the verified managed original PDF. The default remains accepted-translation export with `--target-lang`.
 - **Select an implementation when needed.** `--format` names the document or output format; `--adapter ID` explicitly selects an installed implementation. Otherwise the highest match across compatible input views wins; equal matches require an explicit choice. Queued work keeps the selected implementation and version, and asks you to retry if it changes. A text-only adapter does not replace the optional component for PDF files or binary uploads.
@@ -47,6 +48,10 @@ Use Node.js `>=24.22.1 <25 || >=26.12.1 <27` with npm. Later stable patches with
 
 For PDF, prepare the optional Windows development environment using the [PDF development guide (中文)](docs/plan/0.1.0/pdf-development.md), then follow the [PDF guide (中文)](docs/plan/0.1.0/pdf-guide.md). The default online component source currently has no downloadable Release.
 
+New PDF imports show captured units, translation callback requests, retained units without callbacks, audited lines and empty units in the workbench and frozen JSON summary. These are source inventory counts, not proof that all original text was captured or translated; audited lines and empty units can overlap with retained units.
+
+The source sidecar in this branch routes declared `en` PDF sources to `zh`/`zh-CN`/`zh-Hans`, and declared `zh`/`zh-CN`/`zh-Hans` sources to `en`. Select the real source language; the app does not detect it. Chinese-to-English PDF rendering is an implemented candidate pending real BabelDOC and Mac visual verification. It requires the matching source sidecar; existing installed components may still accept English only. Source-mode PDF export copies the verified original without a target language.
+
 For configuration, debugging, and contributing, see the [development guide](docs/plan/0.1.0/development-guide.md). Detailed guides are currently mostly in Chinese.
 
 Component installation and document tasks share a bounded background-job quota. A queued document task waits for installation to finish; an installation requested during active document work reports a conflict so you can retry.
@@ -60,7 +65,7 @@ PDF failures retain bounded local diagnostics when using the matching source sid
 | Area | Available scope |
 | --- | --- |
 | Text & Markdown | Import, translation tasks, manual review, and Markdown/JSON export. Markdown supports a documented subset. |
-| PDF · optional | Native-text English PDFs to Chinese monolingual PDFs, with source-page references and frozen PDF/Markdown/JSON export. |
+| PDF · optional | Native-text English→Chinese and Chinese→English PDF routes in the matching source sidecar, with source-page references and frozen PDF/Markdown/JSON export; Chinese→English layout awaits real-engine verification. |
 | Saved work | Persistent documents, revisions, tasks, and export snapshots. |
 | Access | Local browser workbench, CLI, HTTP/SSE, and MCP over stdio or Streamable HTTP. |
 | Platforms | The Node.js kernel has been tested on Windows, Linux, and macOS. PDF development setup has been verified on Windows x64; prebuilt downloads are currently unavailable. |
@@ -84,6 +89,8 @@ These are directions, not delivery dates. The [0.1.x plan](docs/plan/0.1.x/READM
 [Using the workbench (中文)](docs/plan/0.1.0/workbench-guide.md) · [Model settings (中文)](docs/plan/0.1.0/settings-guide.md) · [Development](docs/plan/0.1.0/development-guide.md) · [Issues](https://github.com/KongouAirlines/ivoraige/issues)
 
 Tell us what you are trying to translate or process, where the workflow gets in your way, and which tools you would like to combine. Reproducible reports and original or shareable samples are especially useful.
+
+Sample-library development lives in the access-restricted private repository [translate-source-lib](https://github.com/KongouAirlines/translate-source-lib). See [repository responsibilities and verification guidance (中文)](docs/plan/0.1.x/sample-library.md) for its merged baseline, authorized sample use, and the distinction between sample checks and actual ivoraige execution. External contributors can first describe the problem, public source and license in an issue; do not upload private document text.
 
 See [contribution guidance](CONTRIBUTING.md) and [security reporting](SECURITY.md). The core uses **LGPL-3.0-or-later**; the business modules listed in [LICENSE](LICENSE) use **MIT**. The optional BabelDOC Python plugin uses **AGPL-3.0-only** and is packaged separately. Contributions require DCO sign-off.
 

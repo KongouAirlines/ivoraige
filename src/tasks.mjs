@@ -9,10 +9,18 @@ import { basename, resolve } from 'node:path'
 
 const terminal = new Set(['succeeded', 'failed', 'canceled', 'abandoned'])
 const active = new Set(['queued', 'running'])
-const safeMessage = (error, kind = 'translate') => error instanceof KernelError &&
-  ['CONFLICT', 'PRECONDITION_FAILED', 'INVALID_ARGUMENT', 'NOT_FOUND', 'COMPONENT_MISSING'].includes(error.code)
-  ? error.message : kind === 'translate' ? 'Translation failed; check the configured model and retry' :
+function safeMessage(error, kind = 'translate') {
+  if (kind === 'translate' && error instanceof KernelError && error.code === 'UPSTREAM_FAILURE' &&
+      error.details?.diagnostic === 'request-envelope') {
+    return 'Model returned request fields instead of a translation; check the model before retrying'
+  }
+  if (error instanceof KernelError &&
+      ['CONFLICT', 'PRECONDITION_FAILED', 'INVALID_ARGUMENT', 'NOT_FOUND', 'COMPONENT_MISSING'].includes(error.code)) {
+    return error.message
+  }
+  return kind === 'translate' ? 'Translation failed; check the configured model and retry' :
     `${kind === 'import' ? 'Import' : 'Export'} failed; check the source and configured components, then retry`
+}
 
 export class Tasks extends Service {
   static inject = ['ivoraige.records', 'jobs']
@@ -198,7 +206,7 @@ export class Tasks extends Service {
     if (!outputRegistry) throw new KernelError('COMPONENT_MISSING', 'Output adapter registry is unavailable')
     const selectedOutputs = outputs.map(output => {
       const adapter = outputRegistry.get(output.format,
-        { adapterId: output.adapterId, adapterVersion: output.adapterVersion, binding, provenance: source.document, contentMode })
+        { adapterId: output.adapterId, adapterVersion: output.adapterVersion, binding, provenance: source.document, contentMode, targetLang })
       return { ...output, adapterId: adapter.id, adapterVersion: adapter.version ?? 'unversioned' }
     })
     const paths = outputs.filter(item => item.out !== undefined).map(item => {
@@ -580,7 +588,8 @@ export class Tasks extends Service {
             if (!outputRegistry) throw new KernelError('COMPONENT_MISSING', 'Output adapter registry is unavailable')
             for (const output of pendingOutputs) outputRegistry.get(output.format,
               { adapterId: output.adapterId, adapterVersion: output.adapterVersion, binding: frozen.sourceBinding,
-                provenance: frozen.document, contentMode: frozen.snapshot.contentMode ?? 'accepted-translation' })
+                provenance: frozen.document, contentMode: frozen.snapshot.contentMode ?? 'accepted-translation',
+                targetLang: frozen.snapshot.targetLang })
           }
         }
         else throw new KernelError('PRECONDITION_FAILED', 'Import tasks cannot be resumed')

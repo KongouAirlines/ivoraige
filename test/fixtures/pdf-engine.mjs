@@ -20,6 +20,12 @@ if (mode === 'empty-structure') {
   records.push({ order: 2, requestText: '', sourceUnicode: '', rawSourceUnicode: null,
     page: 2, callback: false, placeholders: [] })
 }
+if (mode === 'coverage-summary') {
+  units.push({ order: 2, kind: 'body', sourceText: 'Invented audit line', translatable: false,
+    locator: { page: 2, bbox: [110, 20, 130, 40], key: 'audit' } })
+  records.push({ order: 2, requestText: 'Invented audit line', sourceUnicode: 'Invented audit line',
+    page: 2, callback: false, layoutLabel: 'unmapped_pdf_text', placeholders: [] })
+}
 
 for await (const line of createInterface({ input: process.stdin })) {
   const { id, method, params } = JSON.parse(line)
@@ -35,8 +41,18 @@ for await (const line of createInterface({ input: process.stdin })) {
     }
     const bytes = await readFile(params.path)
     if (!bytes.includes(Buffer.from('%PDF-'))) throw new Error('expected managed PDF source')
-    reply(id, { doc: { format: 'pdf', title: 'Fixture paper', units, chapters: [], resources: [],
-      sourceBinding: { adapterId: 'babeldoc', records } } })
+    const chinese = params.options.language.startsWith('zh')
+    const parsedUnits = units.map(unit => ({ ...unit,
+      sourceText: chinese && unit.translatable ? '中文 <b1> 结果。' : unit.sourceText }))
+    const parsedRecords = records.map(record => ({ ...record,
+      requestText: chinese && record.callback !== false ? '中文 <b1> 结果。' : record.requestText }))
+    reply(id, { doc: { format: 'pdf', title: 'Fixture paper', units: parsedUnits, chapters: [], resources: [],
+      ...(mode === 'coverage-summary' ? { sourceCoverage: { called: 2,
+        uncalled: [{ key: 'audit', sourceUnicode: 'Invented audit line', called: false }],
+        summary: { unitCount: 3, callbackCount: 2, uncalledCount: 1,
+          auditOnlyLineCount: 1, emptyUnitCount: 0 } } } : {}),
+      sourceBinding: { adapterId: 'babeldoc', captureConfig: params.options.language === 'en'
+        ? {} : { sourceLanguage: params.options.language }, records: parsedRecords } } })
   } else if (method === 'rebuild') {
     if (mode === 'hang-once-rebuild' && marker) {
       let exists = true
@@ -46,6 +62,8 @@ for await (const line of createInterface({ input: process.stdin })) {
     const source = JSON.parse(await readFile(params.docRef, 'utf8'))
     const frozen = JSON.parse(await readFile(params.revisionsRef, 'utf8'))
     const body = JSON.stringify({ snapshotId: frozen.snapshot.id,
+      sourceLanguage: source.document.language, targetLanguage: frozen.snapshot.targetLang,
+      captureLanguage: source.sourceBinding.captureConfig?.sourceLanguage ?? 'en',
       sourceDigest: source.sourceBinding.sourceDigest,
       units: frozen.units.map(({ unit, text }) => ({ order: unit.order, page: unit.locator.page, text })) })
     // Deliberately fake PDF bytes: this fixture tests transport and frozen data flow.

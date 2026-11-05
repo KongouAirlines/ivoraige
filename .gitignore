@@ -38,3 +38,6 @@ __pycache__/
 
 # Disposable local runtime probes.
 /.test-tmp/
+
+# Machine-local Basic Memory project routing.
+/.codex/basic-memory.json

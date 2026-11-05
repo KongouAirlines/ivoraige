@@ -32,7 +32,7 @@
 | D04 | 现有 host/browser 性能和故障基线 | [测量协议](desktop.md)；可并行 | 草案 | [桌面生命周期](packages/desktop.md#d04) |
 | D05 | 桌面候选探针、选型及集成验收 | D01–D04；正式壳依赖稳定接口 | 草案 | [桌面生命周期](packages/desktop.md#d05) |
 | W01 | 能力/产物/来源契约与默认链的真实组合证明 | P02、P03、P04；独立插件证据接 P05 | 草案 | [可组合工作流](packages/workflows.md#w01) |
-| W02 | 可保存模板/实例版本、运行追溯与局部重跑 | W01；紧接基础，复用 P02/P04/P05 | 草案 | [可组合工作流](packages/workflows.md#w02) |
+| W02 | 可保存模板/实例版本、运行追溯与局部重跑 | 完整工作流依赖 W01，复用 P02/P04/P05；[admission-text@1](#w02admission-text1-首版受理子交付) 先行仅需现有 Records/Tasks/P04，外部另接 I01.shared | 草案 | [可组合工作流](packages/workflows.md#w02) |
 | W03 | 内容优先工作台与卡片/参数编辑 | W01、W02、D03；发布管理 UI 子交付 W03.publish-ui@1 另接 I01.callable@1；自动销毁另依赖 D02 | 草案 | [可组合工作流](packages/workflows.md#w03) |
 | W04 | 高级节点图编辑与无损视图切换 | W02、W03；不作为真实组合保存的前置 | 草案 | [可组合工作流](packages/workflows.md#w04) |
 | U01 | 独立普通翻译、可选即时预览、局部候选与修订交互 | P04；仅预览切片另需 U02 模型/连接与预览设置交付（[U-V02.preview-settings](validation/ui.md#u-v02-preview-settings)），普通页不等 U02；保留既有 Records/翻译服务；预览独立选用已有配置模型，内置引擎/语言包及 #39 非前置，转项目另接 W02 | 草案 | [普通翻译与管理 UI](packages/ui.md#u01) |
@@ -71,7 +71,12 @@ W01 的前置是 P02/P03/P04，P05 只承接独立插件证据；W02 紧接可�
 | [pdf-store-relocation](../follow-ups/pdf-store-relocation.md)、[pdf-source-restoration](../follow-ups/pdf-source-restoration.md) | P02/P03 相关兼容回归 | 资源搬迁、同源重导入复用、跨引擎迁移是不同验收 |
 | [#23](https://github.com/KongouAirlines/ivoraige/issues/23) 的 F6-3/F9-4 | 小型协议校验修复可独立，完整服务管理远期 | 同一非法 compat/reasoningEfforts 错误映射只算一类；不等待模型目录重设计 |
 | [records-update-validation](../follow-ups/records-update-validation.md) | D04 可先观察；是否优化由测量决定 | 不为性能删除事务/适用性/schema 校验 |
-| [#13](https://github.com/KongouAirlines/ivoraige/issues/13) | 合规小样本、私有评测接口 | 基础链不等待完整长期私有样本库；不默认外发或公开材料 |
+| [#13](https://github.com/KongouAirlines/ivoraige/issues/13) | [独立样本库与验证分工](sample-library.md)；ivoraige 保留实际流程与回归验证 | 样本库开发移至需授权访问的私库 translate-source-lib；观察报告导出器本轮不承接，需要时沿 #13 另立工作包；#53 已关闭未合并，不在主仓库复制语料或工具；基础链不等待完整样本库，不默认外发或公开材料 |
 | [#21](https://github.com/KongouAirlines/ivoraige/issues/21)、[#22](https://github.com/KongouAirlines/ivoraige/issues/22)、[#23](https://github.com/KongouAirlines/ivoraige/issues/23) | 远期；接口留实际扩展点 | 风格/漫画/超分/完整服务配置不阻塞首轮；不预定 schema 或默认引擎 |
 
 完整报告复核已进入 [审计映射](audit/README.md)。若实现时发现阻塞本轮验收的正确性缺陷，先拆小修复 PR，不能借“架构重构以后处理”跳过；表外低优先主题按原事项触发条件处理。
+
+
+### W02.admission-text@1 首版受理子交付
+
+这是 W02 的先行子交付，状态为草案，不改变 W01/W02 完整工作流及 I01.callable@1 的原依赖。复用 Records、Tasks、P04 和现有 TXT/翻译接点，交付单文本持久输入、幂等受理、有效非秘密配置冻结、run/task 映射、显式恢复和未知调用诊断；U01 接普通页，外部开放另需 I01.shared@1 的主体、限额和旧入口防旁路门禁。不等待模板/项目 UI 或 U03.terms，首版术语仅允许 none，非空术语仍须 U03.terms@1。完整边界、存量任务迁移、后续 RunDefinition 映射及 C 验收见[四接口 RFC](../../requirements/0.1.x/control-admission-rfc.md)。子交付通过不等于 W02/I01.callable 完成。

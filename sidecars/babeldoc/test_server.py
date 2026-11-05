@@ -16,6 +16,111 @@ import server
 
 
 class BindingTests(unittest.TestCase):
+    def test_capture_summary_counts_overlapping_audit_and_empty_units(self):
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
+            path = Path(directory) / "invented.pdf"
+            path.write_bytes(b"%PDF-1.7\n")
+            def item(key, text, label="plain text"):
+                return {"page": 0, "bbox": [0, 0, 1, 1], "key": key,
+                        "sourceUnicode": text, "layoutLabel": label}
+            # An upstream label alone does not establish audit provenance.
+            called = item("called", "Invented body", "unmapped_pdf_text")
+            paragraphs = [called, item("retained", "Figure marker"),
+                          item("empty", None, "unknown")]
+            audit = {**item("audit", "Separate extracted line", "unmapped_pdf_text"),
+                     "rawExtractedText": "Separate extracted line",
+                     "coverageOrigin": "pymupdf_line_audit"}
+            with patch.object(server, "run_engine", return_value=(
+                    [{**called, "requestText": "Invented body", "placeholderPayloads": []}],
+                    paragraphs, [])), \
+                 patch.object(server, "unbound_pdf_lines", return_value=[audit]):
+                parsed = server.parse({"path": str(path), "options": {"language": "en"}})["doc"]
+            coverage = parsed["sourceCoverage"]
+            self.assertEqual(coverage["summary"], {
+                "unitCount": 4, "callbackCount": 1, "uncalledCount": 3,
+                "emptyUnitCount": 1, "auditOnlyLineCount": 1,
+            })
+            self.assertEqual(len(parsed["units"]), 4)
+            self.assertEqual(len(coverage["uncalled"]), 3)
+            self.assertIn("Separate extracted line", [unit["sourceText"] for unit in parsed["units"]])
+
+    def test_language_route_keeps_legacy_config_and_exact_chinese_source(self):
+        legacy = server.capture_config(None, 5)
+        self.assertNotIn("sourceLanguage", legacy)
+        self.assertEqual(server.engine_pair("en"), ("en", "zh"))
+        for source in ("zh", "zh-CN", "zh-Hans"):
+            self.assertEqual(server.engine_pair(source), ("zh", "en"))
+            self.assertEqual(server.capture_config(None, 5, source)["sourceLanguage"], source)
+        with self.assertRaises(server.SidecarError):
+            server.engine_pair("zh-TW")
+
+    def test_chinese_capture_passes_persisted_route_to_engine(self):
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
+            path = Path(directory) / "chinese.pdf"
+            path.write_bytes(b"%PDF-1.7\n")
+            paragraph = {"page": 0, "bbox": [0, 0, 1, 1],
+                         "key": "p0:0.000,0.000,1.000,1.000",
+                         "sourceUnicode": "中文原文", "layoutLabel": "plain text"}
+            call = {**paragraph, "requestText": "中文原文", "placeholderPayloads": []}
+
+            def capture(_source, config, mode):
+                self.assertEqual(mode, "capture")
+                self.assertEqual(config["sourceLanguage"], "zh-CN")
+                self.assertEqual(server.engine_pair(config["sourceLanguage"]), ("zh", "en"))
+                return [call], [paragraph], []
+
+            with patch.object(server, "run_engine", side_effect=capture), \
+                 patch.object(server, "unbound_pdf_lines", return_value=[]):
+                parsed = server.parse({"path": str(path), "options": {"language": "zh-CN"}})
+            self.assertEqual(parsed["doc"]["sourceBinding"]["captureConfig"]["sourceLanguage"], "zh-CN")
+            self.assertEqual(parsed["doc"]["units"][0]["sourceText"], "中文原文")
+
+    def test_chinese_replay_requires_bound_source_and_english_target(self):
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
+            root = Path(directory)
+            source = root / "source.pdf"
+            source.write_bytes(b"%PDF-1.7\n")
+            record = {"order": 0, "page": 0, "bbox": [0, 0, 1, 1],
+                      "key": "p0:0.000,0.000,1.000,1.000", "requestText": "中文原文",
+                      "sourceUnicode": "中文原文", "placeholders": [], "callback": True}
+            binding = {"adapterId": "babeldoc", "engineVersion": server.ENGINE_VERSION,
+                       "sourcePath": str(source),
+                       "captureConfig": server.capture_config(None, 5, "zh-Hans"),
+                       "records": [record]}
+            doc_ref = root / "doc.json"
+            frozen_ref = root / "frozen.json"
+            frozen = {"snapshot": {"targetLang": "en"}, "units": [
+                {"unit": {"id": "u", "order": 0, "sourceText": "中文原文"},
+                 "decision": {"type": "revision"}, "text": "English text"}]}
+            params = {"docRef": str(doc_ref), "revisionsRef": str(frozen_ref),
+                      "out": str(root / "output.pdf"), "format": "pdf"}
+
+            def write(source_language, target):
+                doc_ref.write_text(json.dumps({"document": {"language": source_language},
+                                               "sourceBinding": binding}), encoding="utf-8")
+                frozen["snapshot"]["targetLang"] = target
+                frozen_ref.write_text(json.dumps(frozen), encoding="utf-8")
+
+            write("zh-CN", "en")
+            with self.assertRaisesRegex(server.SidecarError, "Capture configuration changed"):
+                server.rebuild(params)
+            write("zh-Hans", "zh")
+            with self.assertRaisesRegex(server.SidecarError, "target language unsupported"):
+                server.rebuild(params)
+            write("zh-Hans", "en")
+
+            def replay(_source, config, mode, records, staging):
+                self.assertEqual(mode, "replay")
+                self.assertEqual(config["sourceLanguage"], "zh-Hans")
+                self.assertEqual(server.engine_pair(config["sourceLanguage"]), ("zh", "en"))
+                self.assertEqual(records[0]["engineProjection"], "English text")
+                staging.joinpath("translated.pdf").write_bytes(b"%PDF-1.7\n")
+                return [{"key": record["key"]}], [], []
+
+            with patch.object(server, "run_engine", side_effect=replay):
+                result = server.rebuild(params)
+            self.assertEqual(result["evidence"]["modelRequests"], 0)
+
     def test_null_noncallback_structure_keeps_location_and_body(self):
         structure = {'key': 'layout', 'page': 0, 'bbox': [0, 0, 1, 1],
                      'sourceUnicode': None, 'layoutLabel': 'unknown'}

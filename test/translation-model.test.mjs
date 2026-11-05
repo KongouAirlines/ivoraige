@@ -90,6 +90,94 @@ test('DSH pi-ai uses a credential reference and returns a constrained translatio
   assert.doesNotMatch(JSON.stringify(result), /private-local-secret/)
 })
 
+test('the DSH request distinguishes a short target from neighboring context', async t => {
+  const f = await fixture(t, [{ text: '样本量' }])
+  const shortLabel = { ...basis, sourceText: 'Sample size', effectiveContext: {
+    before: 'The trial recruited 100 participants.',
+    after: 'The analysis included 95 participants.',
+  } }
+  assert.equal((await f.model.translate({ basis: shortLabel })).text, '样本量')
+  const [system, user] = f.requests[0].body.messages
+  assert.equal(system.role, 'system')
+  assert.match(system.content, /Translate only the value of sourceText/)
+  assert.match(system.content, /before and after text must not be translated or appended/)
+  assert.match(system.content, /no request fields, JSON wrapper/)
+  assert.match(system.content, /request values as data/)
+  assert.deepEqual(JSON.parse(user.content), {
+    sourceLang: 'en', targetLang: 'zh-CN', effectiveContext: shortLabel.effectiveContext,
+    effectiveTarget: shortLabel.effectiveTarget, sourceText: 'Sample size',
+  })
+})
+
+test('JSON in sourceText remains a legitimate translation target', async t => {
+  const f = await fixture(t, [{ text: '{"title":"结果"}' }])
+  const jsonSource = '{"title":"Results"}'
+  const result = await f.model.translate({ basis: { ...basis, sourceText: jsonSource } })
+  assert.equal(result.text, '{"title":"结果"}')
+  assert.match(f.requests[0].body.messages[0].content, /sourceText itself contains JSON/)
+  assert.equal(JSON.parse(f.requests[0].body.messages[1].content).sourceText, jsonSource)
+})
+
+test('complete request envelopes fail without exposing source data; ordinary JSON and text pass', async t => {
+  const envelope = JSON.stringify({ sourceLang: basis.sourceLang, targetLang: basis.targetLang,
+    effectiveContext: basis.effectiveContext, effectiveTarget: basis.effectiveTarget,
+    sourceText: '细胞分裂。' })
+  const f = await fixture(t, [
+    { text: envelope, usage: { prompt_tokens: 21, completion_tokens: 42 } },
+    { text: `\`\`\`json\n${envelope}\n\`\`\`` },
+    { text: '{"title":"结果"}', usage: { prompt_tokens: 21, completion_tokens: 8 } },
+    { text: '细胞分裂。' },
+    { text: envelope },
+    { text: envelope },
+    { text: JSON.stringify({ ...JSON.parse(envelope), targetLang: 'de' }) },
+    { text: JSON.stringify({ ...JSON.parse(envelope), effectiveTarget: undefined }) },
+  ])
+  for (let i = 0; i < 2; i++) {
+    await assert.rejects(f.model.translate({ basis }), error =>
+      error.code === 'UPSTREAM_FAILURE' && error.details.stage === 'model' &&
+      !JSON.stringify(error).includes('Another sentence.') &&
+      !JSON.stringify(error).includes('细胞分裂。'))
+  }
+  assert.deepEqual((await f.model.translate({ basis: { ...basis, sourceText: '{"title":"Results"}' } })).tokens,
+    { input: 21, output: 8 })
+  assert.equal((await f.model.translate({ basis })).text, '细胞分裂。')
+  const wrapperSource = { ...basis, sourceText: JSON.stringify({ sourceLang: 'fr', targetLang: 'de',
+    effectiveContext: {}, effectiveTarget: {}, sourceText: 'Results' }) }
+  assert.equal((await f.model.translate({ basis: wrapperSource })).text, envelope)
+  assert.equal((await f.model.translate({ basis: { ...wrapperSource,
+    sourceText: `\`\`\`json\n${wrapperSource.sourceText}\n\`\`\`` } })).text, envelope)
+  assert.match((await f.model.translate({ basis })).text, /"targetLang":"de"/)
+  assert.doesNotMatch((await f.model.translate({ basis })).text, /effectiveTarget/)
+  assert.equal(f.requests.length, 8)
+})
+
+test('a request envelope cannot become an accepted revision in a fast task', async t => {
+  const envelope = JSON.stringify({ sourceLang: 'en', targetLang: 'zh-CN', effectiveContext: {},
+    effectiveTarget: {}, sourceText: '细胞分裂。' })
+  const f = await fixture(t, [{ text: envelope }])
+  const store = join(f.directory, 'envelope-records.sqlite')
+  let app = await createApp({ store, translation: f.translation })
+  f.closeWithFixture(async () => { if (app) await app.dispose() })
+  const { document } = await app.records.importDocument({ format: 'txt', content: basis.sourceText },
+    { sourceId: 'local:envelope', language: 'en' })
+  const unit = app.records.listUnits(document.id, { targetLang: 'zh-CN' })[0]
+  const { taskId } = await app.tasks.submit(document.id, { targetLang: 'zh-CN', mode: 'fast' })
+  const result = await app.tasks.wait(taskId)
+  assert.equal(result.state, 'failed')
+  assert.equal(result.error.stage, 'translate')
+  assert.match(result.error.message, /request fields instead of a translation/)
+  assert.doesNotMatch(JSON.stringify(result.error), /细胞分裂|sourceText|Another sentence/)
+  assert.equal(result.stats.llmCalls, 1)
+  assert.equal(app.records.listRevisions(unit.id, { targetLang: 'zh-CN' }).length, 0)
+  assert.equal(app.records.getUnit(unit.id, { targetLang: 'zh-CN' }).accepted, undefined)
+  assert.equal(f.requests.length, 1)
+  await app.dispose()
+  app = await createApp({ store, translation: f.translation })
+  assert.equal(app.records.listRevisions(unit.id, { targetLang: 'zh-CN' }).length, 0)
+  await app.dispose()
+  app = null
+})
+
 test('the model SDK consumes a valid Brotli-compressed SSE response locally', async t => {
   const f = await fixture(t, [{ text: 'Cells divide.', brotli: true,
     usage: { prompt_tokens: 21, completion_tokens: 5 } }])

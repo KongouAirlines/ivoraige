@@ -26,6 +26,7 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 
 - **按需增加能力。** 从文本和 Markdown 开始，需要处理 PDF 时再安装可选组件。
 - **保留人工判断。** 对照原文与译文、保存草稿、接受修订，随时继续已有工作。
+- **核对翻译范围。** 新模型请求仅以当前原文单元为翻译目标，相邻单元只供参考。模型若完整回显内部请求 JSON，翻译任务会在创建修订前失败；查看任务错误、检查模型后重试。导出前仍需检查短标签和段落是否有其他字段回显或相邻正文重复。既有接受译文和冻结产物不会被改写。
 - **复用已接受译文。** 从同一冻结快照导出支持的格式，导出不会再次调用模型翻译。
 - **保留原文结构。** CLI 使用 `--content-mode source` 可在没有目标语言或已接受译文时导出 Markdown/JSON；已导入的 PDF 也可复制经过校验的受管原件。默认仍需 `--target-lang` 导出已接受译文。
 - **需要时指定实现。** `--format` 表示文档或输出格式，`--adapter ID` 显式指定已安装的适配器。未指定时按兼容输入视图的最高匹配分选择，同分需要显式选择。排队任务固定所选实现及版本，期间变化则报错并提示重试。只接收文本的实现不会替代处理 PDF 文件或二进制上传所需的可选组件。
@@ -44,6 +45,10 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 
 处理 PDF 时，先按 [PDF 开发参考](docs/plan/0.1.0/pdf-development.md)准备 Windows 可选环境，再按 [PDF 指南](docs/plan/0.1.0/pdf-guide.md)操作。默认在线组件源目前没有可下载的 Release。
 
+新导入的 PDF 会在工作台与冻结 JSON 摘要中显示捕获单位、翻译回调请求、未进入回调但保留的单位、行审计补录及空文本单位。这些是来源清单数量，不能证明原件文字全部捕获或翻译；行审计与空文本单位可能和保留单位重叠。
+
+本分支配套源码 sidecar 可将声明为 `en` 的 PDF 路由到 `zh`／`zh-CN`／`zh-Hans`，将声明为 `zh`／`zh-CN`／`zh-Hans` 的 PDF 路由到 `en`。请选择实际原文语言；程序不会自动识别。中文→英文 PDF 排版尚待真实 BabelDOC 与 Mac 目检；需使用本分支配套 sidecar，已有安装组件可能仍只支持英文来源。原件 PDF 的来源模式导出不需要目标语言。
+
 配置、调试与贡献代码请看[开发指南](docs/plan/0.1.0/development-guide.md)。详细指南目前以中文为主。
 
 组件安装与文档任务共享有限后台任务配额。安装期间受理的文档任务排队等待；文档任务执行时提交安装会提示冲突，可在任务结束后重试。
@@ -57,7 +62,7 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 | 领域 | 已有范围 |
 | --- | --- |
 | 文本与 Markdown | 导入、翻译任务、人工审校、Markdown/JSON 导出；Markdown 支持范围有单独说明。 |
-| PDF · 可选 | 原生文本英文 PDF 到中文单语 PDF，包含来源页码定位与 PDF/Markdown/JSON 冻结导出。 |
+| PDF · 可选 | 配套源码 sidecar 的原生文本英文→中文、中文→英文 PDF 路由，包含来源页码定位与 PDF/Markdown/JSON 冻结导出；中文→英文版面待真实引擎核验。 |
 | 保存工作 | 持久保存文档、修订、任务和导出快照。 |
 | 使用入口 | 本地浏览器工作台、CLI、HTTP/SSE，以及 stdio 或 Streamable HTTP MCP。 |
 | 平台 | Node.js 内核曾在 Windows、Linux、macOS 测试。PDF 开发准备已在 Windows x64 验证；目前不提供预构建下载包。 |
@@ -81,6 +86,8 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 [工作台使用](docs/plan/0.1.0/workbench-guide.md) · [模型设置](docs/plan/0.1.0/settings-guide.md) · [开发指南](docs/plan/0.1.0/development-guide.md) · [问题反馈](https://github.com/KongouAirlines/ivoraige/issues)
 
 欢迎告诉我们你想翻译或处理什么、在哪一步遇到困难，以及希望组合哪些工具。可以复现的反馈与原创或可分享的样本尤其有帮助。
+
+样本库开发在需授权访问的独立私有仓库 [translate-source-lib](https://github.com/KongouAirlines/translate-source-lib) 进行。参见[仓库分工与验证说明](docs/plan/0.1.x/sample-library.md)，了解当前已合并基线、样本使用权限，以及样本检查和实际 ivoraige 运行的区别。外部贡献者请先通过 issue 说明问题、公开来源与许可依据，不上传私人正文。
 
 参与前请阅读[贡献指南](CONTRIBUTING.md)及[安全报告说明](SECURITY.md)。核心采用 **LGPL-3.0-or-later**，[LICENSE](LICENSE) 列出的自有业务模块采用 **MIT**。可选 BabelDOC Python 插件采用 **AGPL-3.0-only**，单独打包分发。贡献提交需附 DCO 签署。
 
