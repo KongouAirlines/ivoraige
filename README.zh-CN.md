@@ -45,7 +45,7 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 
 处理 PDF 时，先按 [PDF 开发参考](docs/plan/0.1.0/pdf-development.md)准备 Windows 可选环境，再按 [PDF 指南](docs/plan/0.1.0/pdf-guide.md)操作。默认在线组件源目前没有可下载的 Release。
 
-PDF 目前只支持英文原文；程序不会从文档文字自动识别语言，不能把其他语言标成 English（`en`）来绕过限制。译文 PDF 回放仅接受 `zh`、`zh-CN` 或 `zh-Hans` 目标语言。原件 PDF 的来源模式导出不需要目标语言。
+本分支配套源码 sidecar 可将声明为 `en` 的 PDF 路由到 `zh`／`zh-CN`／`zh-Hans`，将声明为 `zh`／`zh-CN`／`zh-Hans` 的 PDF 路由到 `en`。请选择实际原文语言；程序不会自动识别。中文→英文 PDF 排版尚待真实 BabelDOC 与 Mac 目检；需使用本分支配套 sidecar，已有安装组件可能仍只支持英文来源。原件 PDF 的来源模式导出不需要目标语言。
 
 配置、调试与贡献代码请看[开发指南](docs/plan/0.1.0/development-guide.md)。详细指南目前以中文为主。
 
@@ -60,7 +60,7 @@ PDF 目前只支持英文原文；程序不会从文档文字自动识别语言�
 | 领域 | 已有范围 |
 | --- | --- |
 | 文本与 Markdown | 导入、翻译任务、人工审校、Markdown/JSON 导出；Markdown 支持范围有单独说明。 |
-| PDF · 可选 | 原生文本英文 PDF 到中文单语 PDF，包含来源页码定位与 PDF/Markdown/JSON 冻结导出。 |
+| PDF · 可选 | 配套源码 sidecar 的原生文本英文→中文、中文→英文 PDF 路由，包含来源页码定位与 PDF/Markdown/JSON 冻结导出；中文→英文版面待真实引擎核验。 |
 | 保存工作 | 持久保存文档、修订、任务和导出快照。 |
 | 使用入口 | 本地浏览器工作台、CLI、HTTP/SSE，以及 stdio 或 Streamable HTTP MCP。 |
 | 平台 | Node.js 内核曾在 Windows、Linux、macOS 测试。PDF 开发准备已在 Windows x64 验证；目前不提供预构建下载包。 |

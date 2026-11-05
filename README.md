@@ -48,7 +48,7 @@ Use Node.js `>=24.22.1 <25 || >=26.12.1 <27` with npm. Later stable patches with
 
 For PDF, prepare the optional Windows development environment using the [PDF development guide (中文)](docs/plan/0.1.0/pdf-development.md), then follow the [PDF guide (中文)](docs/plan/0.1.0/pdf-guide.md). The default online component source currently has no downloadable Release.
 
-PDF capture supports English-source documents only; the selected language is not detected from the document. Do not relabel another language as English to bypass this limit. Translated PDF replay accepts only `zh`, `zh-CN`, or `zh-Hans` targets. Source-mode PDF export copies the verified original without a target language.
+The source sidecar in this branch routes declared `en` PDF sources to `zh`/`zh-CN`/`zh-Hans`, and declared `zh`/`zh-CN`/`zh-Hans` sources to `en`. Select the real source language; the app does not detect it. Chinese-to-English PDF rendering is an implemented candidate pending real BabelDOC and Mac visual verification. It requires the matching source sidecar; existing installed components may still accept English only. Source-mode PDF export copies the verified original without a target language.
 
 For configuration, debugging, and contributing, see the [development guide](docs/plan/0.1.0/development-guide.md). Detailed guides are currently mostly in Chinese.
 
@@ -63,7 +63,7 @@ PDF failures retain bounded local diagnostics when using the matching source sid
 | Area | Available scope |
 | --- | --- |
 | Text & Markdown | Import, translation tasks, manual review, and Markdown/JSON export. Markdown supports a documented subset. |
-| PDF · optional | Native-text English PDFs to Chinese monolingual PDFs, with source-page references and frozen PDF/Markdown/JSON export. |
+| PDF · optional | Native-text English→Chinese and Chinese→English PDF routes in the matching source sidecar, with source-page references and frozen PDF/Markdown/JSON export; Chinese→English layout awaits real-engine verification. |
 | Saved work | Persistent documents, revisions, tasks, and export snapshots. |
 | Access | Local browser workbench, CLI, HTTP/SSE, and MCP over stdio or Streamable HTTP. |
 | Platforms | The Node.js kernel has been tested on Windows, Linux, and macOS. PDF development setup has been verified on Windows x64; prebuilt downloads are currently unavailable. |
