@@ -26,6 +26,70 @@ if (mode === 'coverage-summary') {
   records.push({ order: 2, requestText: 'Invented audit line', sourceUnicode: 'Invented audit line',
     page: 2, callback: false, layoutLabel: 'unmapped_pdf_text', placeholders: [] })
 }
+if (mode === 'markdown-structure') {
+  units.splice(0, units.length,
+    { order: 0, kind: 'heading', sourceText: 'Results_2026 <b1>',
+      locator: { page: 1 }, translatable: true },
+    { order: 1, kind: 'body', sourceText: '1. Metric_Total = x\\alpha & 5 < 7; <b2> &lt; 1.',
+      locator: { page: 1 }, translatable: true },
+    { order: 2, kind: 'caption', sourceText: 'Figure_1: *literal* caption.',
+      locator: { page: 2 }, translatable: false },
+    { order: 3, kind: 'formula', sourceText: 'α_<f1> end',
+      locator: { page: 2 }, translatable: false })
+  records.splice(0, records.length,
+    { order: 0, requestText: units[0].sourceText, placeholders: [{ token: '<b1>', text: 'a<b' }] },
+    { order: 1, requestText: units[1].sourceText, placeholders: [] },
+    { order: 2, requestText: units[2].sourceText, placeholders: [] },
+    { order: 3, requestText: units[3].sourceText, placeholderPayloads: [
+      { type: 'formula', placeholder: '<f1>', formula_chars: 'x_1 < y' } ] })
+}
+if (mode === 'markdown-setext') {
+  units.splice(0, units.length, ...[0, 1, 2, 3, 4].map(order => ({
+    order, kind: 'body', sourceText: `Line ${order}\n${' '.repeat(order)}===`,
+    locator: { page: 1 }, translatable: false,
+  })))
+  records.splice(0, records.length, ...units.map(unit => ({
+    order: unit.order, requestText: unit.sourceText, placeholders: [],
+  })))
+}
+if (mode === 'markdown-indent') {
+  const prefixes = [' ', '  ', '   ', '    ', '\t', ' \t', '  \t', '   \t',
+    '\t ', ' \t ', '    \t', '     ', '\t\t', '  \t  ']
+  units.splice(0, units.length, ...prefixes.map((prefix, order) => ({
+    order, kind: 'body', sourceText: `${prefix}Metric_Total <note> &lt;`,
+    locator: { page: 1 }, translatable: false,
+  })))
+  records.splice(0, records.length, ...units.map(unit => ({
+    order: unit.order, requestText: unit.sourceText, placeholders: [],
+  })))
+}
+if (mode === 'markdown-url') {
+  const sources = [
+    'Source https://example.com/a-b_c?key_name=1&x=2',
+    'Entity https://example.com/a?x=&copy;',
+    'Enclosed (https://example.com/a_(b)).',
+    'Angle <https://example.com/a-b>',
+    'Email user-name_test@example.com',
+    'Web www.example.com/a-b_c',
+    'FTP ftp://example.com/a-b_c',
+    'Quote "https://example.com/a-b"',
+    'Bracket https://example.com/a[b](test)',
+    'Backslash https://example.com/a\\b',
+    'Suffix https://example.com/a_',
+    'Invalid https://[bad',
+    'Spacing\n \thttps://example.com/a-b',
+    'Invalid nested https://[bad:https://example.com',
+    'Invalid nested www https://[badwww.example.com',
+    'Invalid mail https://[bad/user-name@example.com',
+    'Punctuation https://example.com/a-b;',
+  ]
+  units.splice(0, units.length, ...sources.map((sourceText, order) => ({
+    order, kind: 'body', sourceText, locator: { page: 1 }, translatable: false,
+  })))
+  records.splice(0, records.length, ...units.map(unit => ({
+    order: unit.order, requestText: unit.sourceText, placeholders: [],
+  })))
+}
 
 for await (const line of createInterface({ input: process.stdin })) {
   const { id, method, params } = JSON.parse(line)
