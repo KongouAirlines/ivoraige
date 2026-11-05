@@ -31,6 +31,30 @@ function upstreamFailure(canceled = false, reason = 'Model translation failed', 
   return new KernelError('UPSTREAM_FAILURE', reason, { stage: 'model', ...(canceled ? { canceled: true } : {}) }, { cause })
 }
 
+const REQUEST_FIELDS = ['sourceLang', 'targetLang', 'effectiveContext', 'effectiveTarget', 'sourceText']
+
+function parseObject(text, fenced = false) {
+  const trimmed = text.trim()
+  const body = fenced ? /^```(?:json)?\s*\n([\s\S]*?)\n```\s*$/i.exec(trimmed)?.[1] : trimmed
+  if (!body) return null
+  try {
+    const value = JSON.parse(body)
+    return value && typeof value === 'object' && !Array.isArray(value) ? value : null
+  } catch {
+    return null
+  }
+}
+
+function requestEnvelope(value, sourceLang, targetLang) {
+  return value && Object.keys(value).length === REQUEST_FIELDS.length &&
+    REQUEST_FIELDS.every(field => Object.hasOwn(value, field)) &&
+    typeof value.sourceLang === 'string' && typeof value.targetLang === 'string' &&
+    (sourceLang === undefined || (value.sourceLang === sourceLang && value.targetLang === targetLang)) &&
+    typeof value.sourceText === 'string' &&
+    value.effectiveContext && typeof value.effectiveContext === 'object' && !Array.isArray(value.effectiveContext) &&
+    value.effectiveTarget && typeof value.effectiveTarget === 'object' && !Array.isArray(value.effectiveTarget)
+}
+
 export class TranslationModel extends Service {
   static inject = ['llm']
 
@@ -118,6 +142,13 @@ export class TranslationModel extends Service {
     }
     const text = blocks.filter(block => block.type === 'text').map(block => block.text).join('')
     if (!text.trim()) throw upstreamFailure(false, 'Model returned empty translation')
+    // A JSON source can legitimately translate into the same shape. Only reject a complete
+    // response envelope when the source itself is not an envelope.
+    if (!requestEnvelope(parseObject(sourceText) ?? parseObject(sourceText, true)) &&
+        requestEnvelope(parseObject(text) ?? parseObject(text, true), sourceLang, targetLang)) {
+      throw new KernelError('UPSTREAM_FAILURE', 'Model returned an internal request envelope',
+        { stage: 'model', diagnostic: 'request-envelope' })
+    }
     return {
       text,
       modelId: `${provider}/${model}`,
