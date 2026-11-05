@@ -44,6 +44,8 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 
 处理 PDF 时，先按 [PDF 开发参考](docs/plan/0.1.0/pdf-development.md)准备 Windows 可选环境，再按 [PDF 指南](docs/plan/0.1.0/pdf-guide.md)操作。默认在线组件源目前没有可下载的 Release。
 
+PDF 目前只支持英文原文；程序不会从文档文字自动识别语言，不能把其他语言标成 English（`en`）来绕过限制。译文 PDF 回放仅接受 `zh`、`zh-CN` 或 `zh-Hans` 目标语言。原件 PDF 的来源模式导出不需要目标语言。
+
 配置、调试与贡献代码请看[开发指南](docs/plan/0.1.0/development-guide.md)。详细指南目前以中文为主。
 
 组件安装与文档任务共享有限后台任务配额。安装期间受理的文档任务排队等待；文档任务执行时提交安装会提示冲突，可在任务结束后重试。

@@ -11,6 +11,15 @@ import { readablePdfText, validatePdfTranslation } from './pdf-text.mjs'
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 const fail = message => { throw new KernelError('PRECONDITION_FAILED', message) }
+const pdfTargets = new Set(['zh', 'zh-CN', 'zh-Hans'])
+const validateSourceLanguage = language => {
+  if (language !== 'en') fail('Only English (en) PDF source capture is supported; other source languages are not supported')
+}
+const validatePdfExport = ({ contentMode, targetLang, provenance }) => {
+  if (contentMode === 'source') return
+  if (provenance?.language !== 'en') fail('Translated PDF replay requires an English (en) captured source')
+  if (!pdfTargets.has(targetLang)) fail('Translated PDF replay supports only zh, zh-CN or zh-Hans targets')
+}
 
 // This runtime owns files and a subprocess only. It has no Cordis context or model access.
 class PdfRuntime {
@@ -90,6 +99,7 @@ class PdfRuntime {
   }
 
   async capture(file, temporary) {
+    validateSourceLanguage(file.language ?? 'en')
     if (!this.sourceOwner) fail('PDF import requires a store-owned source directory')
     if ((file.path === undefined) === (file.content === undefined)) {
       throw new KernelError('INVALID_ARGUMENT', 'PDF requires exactly one of path or binary content')
@@ -158,6 +168,7 @@ class PdfRuntime {
   }
 
   async parse(file) {
+    validateSourceLanguage(file.language ?? 'en')
     const work = join(this.directory, 'work')
     await mkdir(work, { recursive: true })
     const temporary = await mkdtemp(join(work, 'import-'))
@@ -172,6 +183,7 @@ class PdfRuntime {
   }
 
   async import(file, persist, isReferenced) {
+    validateSourceLanguage(file.language ?? 'en')
     const work = join(this.directory, 'work')
     await mkdir(work, { recursive: true })
     const temporary = await mkdtemp(join(work, 'import-'))
@@ -197,6 +209,8 @@ class PdfRuntime {
 
   async rebuild(frozen, { signal } = {}) {
     const { sourceBinding } = frozen
+    validatePdfExport({ contentMode: frozen.snapshot.contentMode ?? 'accepted-translation',
+      targetLang: frozen.snapshot.targetLang, provenance: frozen.document })
     if (frozen.snapshot.contentMode === 'source') {
       signal?.throwIfAborted()
       const sourcePath = await this.exportSource(sourceBinding)
@@ -241,6 +255,7 @@ export function Pdf(ctx, config) {
       /\.pdf$/i.test(file.path ?? file.name ?? '') ? 0.9 : 0,
     parse: file => runtime.parse(file),
     import: (file, persist, isReferenced) => runtime.import(file, persist, isReferenced),
+    validateSourceLanguage,
     validateTranslation: validatePdfTranslation,
     readableText: readablePdfText,
   }))
@@ -251,6 +266,7 @@ export function Pdf(ctx, config) {
     supports: (binding, contentMode) => binding?.adapterId === 'babeldoc' &&
       (contentMode === 'source' || runtime.status.state !== 'unavailable'),
     status: () => ({ ...runtime.status }),
+    validateExport: validatePdfExport,
     rebuild: (frozen, options) => runtime.rebuild(frozen, options),
   }))
 }

@@ -28,6 +28,8 @@ export class Outputs extends Service {
     if (adapter.requiredViews !== undefined && (!Array.isArray(adapter.requiredViews) ||
         adapter.requiredViews.some(view => !['readable-text', 'native-markdown'].includes(view))))
       throw new KernelError('INVALID_ARGUMENT', 'Output adapter requiredViews is invalid')
+    if (adapter.validateExport !== undefined && typeof adapter.validateExport !== 'function')
+      throw new KernelError('INVALID_ARGUMENT', 'Output adapter validateExport must be a function')
     this.adapters.set(adapter.id, adapter)
     this.ctx.emit('ivoraige/capabilities-changed', { kind: 'output', id: adapter.id })
     return () => {
@@ -59,7 +61,7 @@ export class Outputs extends Service {
   listFormats(options = {}) { return [...new Set(this.availableAdapters(options)
     .flatMap(adapter => adapter.formats ?? [adapter.id]))] }
 
-  get(format, { adapterId, adapterVersion, binding, provenance, contentMode } = {}) {
+  get(format, { adapterId, adapterVersion, binding, provenance, contentMode, targetLang } = {}) {
     if (adapterId !== undefined && (typeof adapterId !== 'string' || !adapterId))
       throw new KernelError('INVALID_ARGUMENT', 'adapterId must be a nonempty string')
     if (adapterVersion !== undefined && (typeof adapterVersion !== 'string' || !adapterVersion.trim()))
@@ -83,6 +85,8 @@ export class Outputs extends Service {
     if (adapterVersion !== undefined && adapterVersion !== (adapter.version ?? 'unversioned'))
       throw new KernelError('PRECONDITION_FAILED', 'Pinned output adapter version is unavailable',
         { adapterId: adapter.id, adapterVersion })
+    if (binding !== undefined && contentMode !== undefined) adapter.validateExport?.(Object.freeze({ contentMode, targetLang,
+      provenance: provenance === undefined ? undefined : Object.freeze(structuredClone(provenance)) }))
     return adapter
   }
 }

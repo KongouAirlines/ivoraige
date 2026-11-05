@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Service } from '../dist/dsh.mjs'
 import { createApp } from '../src/app.mjs'
+import { serve } from '../src/http.mjs'
 import { placeholderTokens } from '../src/adapters/pdf-text.mjs'
 
 const engine = fileURLToPath(new URL('./fixtures/pdf-engine.mjs', import.meta.url))
@@ -95,6 +96,93 @@ test('mock PDF source snapshot copies verified managed bytes without rebuild or 
   assert.equal(source.task.stats.llmCalls, 0)
   assert.equal(f.app.records.record(document.id).revisions.length, 0)
   await assert.rejects(readFile(f.marker), { code: 'ENOENT' })
+})
+
+test('PDF source-language admission rejects unsupported selected imports before task or sidecar work', async t => {
+  const f = await fixture(t)
+  for (const language of ['zh', 'zh-CN', 'fr']) {
+    await assert.rejects(f.app.tasks.importDocument({ format: 'pdf', path: f.original },
+      { sourceId: `paper:${language}`, language }, { wait: false }),
+    { code: 'PRECONDITION_FAILED', message: /Only English \(en\) PDF source capture/ })
+  }
+  await assert.rejects(f.app.parse.parse({ format: 'pdf', path: f.original, language: 'zh' }),
+    { code: 'PRECONDITION_FAILED', message: /Only English \(en\) PDF source capture/ })
+  assert.deepEqual(f.app.records.listTasks(), [])
+  assert.deepEqual(f.app.records.listDocuments(), [])
+  const doc = await imported(f)
+  assert.equal(doc.language, 'en')
+})
+
+test('PDF export admission rejects unsupported replay targets before snapshots or tasks', async t => {
+  const f = await fixture(t)
+  const doc = await imported(f)
+  assert.equal(f.app.outputs.get('pdf').id, 'pdf')
+  assert.equal(f.app.outputs.get('pdf', { binding: f.app.records.record(doc.id).sourceBinding }).id, 'pdf')
+  const createSnapshot = f.app.records.createSnapshot
+  let snapshotAttempts = 0
+  f.app.records.createSnapshot = (...args) => { snapshotAttempts++; return createSnapshot(...args) }
+  for (const targetLang of ['en', 'fr', 'zh-TW']) {
+    await assert.rejects(f.app.tasks.exportDocument(doc.id,
+      { targetLang, onMissingAccepted: 'skip', outputs: [{ format: 'pdf' }] }),
+    { code: 'PRECONDITION_FAILED', message: /only zh, zh-CN or zh-Hans/ })
+    await assert.rejects(f.app.exporter.exportDocument(doc.id,
+      { targetLang, onMissingAccepted: 'skip', outputs: [{ format: 'pdf' }] }),
+    { code: 'PRECONDITION_FAILED', message: /only zh, zh-CN or zh-Hans/ })
+  }
+  await assert.rejects(f.app.tasks.exportDocument(doc.id,
+    { targetLang: 'fr', onMissingAccepted: 'skip', outputs: [{ format: 'md' }, { format: 'pdf' }] }),
+  { code: 'PRECONDITION_FAILED', message: /only zh, zh-CN or zh-Hans/ })
+  assert.deepEqual(f.app.records.listSnapshots(doc.id), [])
+  assert.deepEqual(f.app.records.listTasks().filter(task => task.kind === 'export'), [])
+  assert.deepEqual(f.app.records.listArtifacts(doc.id), [])
+  assert.equal(snapshotAttempts, 0)
+  f.app.records.createSnapshot = createSnapshot
+  const text = await exported(f.app, doc.id,
+    { targetLang: 'fr', onMissingAccepted: 'skip', outputs: [{ format: 'md' }] })
+  assert.equal(text.task.state, 'succeeded')
+  for (const targetLang of ['zh', 'zh-CN', 'zh-Hans']) {
+    const result = await exported(f.app, doc.id,
+      { targetLang, onMissingAccepted: 'skip', outputs: [{ format: 'pdf' }] })
+    assert.equal(result.task.stats.llmCalls, 0)
+  }
+})
+
+test('resuming a persisted unsupported PDF export leaves its task paused and output untouched', async t => {
+  const f = await fixture(t)
+  const doc = await imported(f)
+  const snapshot = await f.app.records.createSnapshot(doc.id,
+    { targetLang: 'fr', onMissingAccepted: 'skip' })
+  const task = await f.app.records.createOperationTask(doc.id, { kind: 'export',
+    targetLang: 'fr', snapshotId: snapshot.id,
+    outputs: [{ format: 'pdf', adapterId: 'pdf', adapterVersion: '0.1.0' }] })
+  await f.app.records.updateTask(task.id, current => ({ ...current, state: 'paused' }))
+  await assert.rejects(f.app.tasks.resume(task.id),
+    { code: 'PRECONDITION_FAILED', message: /only zh, zh-CN or zh-Hans/ })
+  assert.equal((await f.app.tasks.get(task.id)).state, 'paused')
+  assert.equal((await f.app.tasks.get(task.id)).cursor, 0)
+  assert.deepEqual(f.app.records.listArtifacts(doc.id), [])
+  assert.equal(f.app.records.listSnapshots(doc.id).length, 1)
+  await assert.rejects(readFile(f.marker), { code: 'ENOENT' })
+})
+
+test('HTTP rejects unsupported PDF language requests without queuing work', async t => {
+  const f = await fixture(t)
+  const doc = await imported(f)
+  const server = await serve(f.app, { port: 0 })
+  t.after(() => server.close())
+  const post = (path, body) => fetch(`${server.url}/api${path}`, { method: 'POST',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  const initialTasks = f.app.records.listTasks().length
+  const importResponse = await post('/documents/import', { format: 'pdf', language: 'zh',
+    contentBase64: Buffer.from(originalBytes).toString('base64') })
+  assert.equal(importResponse.status, 412)
+  assert.equal((await importResponse.json()).error.code, 'PRECONDITION_FAILED')
+  const exportResponse = await post(`/documents/${doc.id}/export`, { targetLang: 'fr',
+    onMissingAccepted: 'skip', outputs: [{ format: 'pdf' }] })
+  assert.equal(exportResponse.status, 412)
+  assert.equal((await exportResponse.json()).error.code, 'PRECONDITION_FAILED')
+  assert.equal(f.app.records.listTasks().length, initialTasks)
+  assert.deepEqual(f.app.records.listSnapshots(doc.id), [])
 })
 
 test('unresolved PDF displays preserve tokens and allow import and all frozen outputs', async t => {
