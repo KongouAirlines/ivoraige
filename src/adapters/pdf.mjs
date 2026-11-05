@@ -11,14 +11,20 @@ import { readablePdfText, validatePdfTranslation } from './pdf-text.mjs'
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 const fail = message => { throw new KernelError('PRECONDITION_FAILED', message) }
-const pdfTargets = new Set(['zh', 'zh-CN', 'zh-Hans'])
+const chinese = new Set(['zh', 'zh-CN', 'zh-Hans'])
 const validateSourceLanguage = language => {
-  if (language !== 'en') fail('Only English (en) PDF source capture is supported; other source languages are not supported')
+  if (language !== 'en' && !chinese.has(language)) fail('PDF source capture supports only en, zh, zh-CN or zh-Hans')
 }
-const validatePdfExport = ({ contentMode, targetLang, provenance }) => {
+const validatePdfExport = ({ contentMode, targetLang, provenance, binding }) => {
   if (contentMode === 'source') return
-  if (provenance?.language !== 'en') fail('Translated PDF replay requires an English (en) captured source')
-  if (!pdfTargets.has(targetLang)) fail('Translated PDF replay supports only zh, zh-CN or zh-Hans targets')
+  const source = provenance?.language
+  validateSourceLanguage(source)
+  if (binding?.captureConfig?.sourceLanguage !== (source === 'en' ? undefined : source)) {
+    fail('PDF capture source language differs from the document source language')
+  }
+  if (source === 'en' ? !chinese.has(targetLang) : targetLang !== 'en') {
+    fail('Translated PDF replay supports only en → zh/zh-CN/zh-Hans or zh/zh-CN/zh-Hans → en')
+  }
 }
 
 // This runtime owns files and a subprocess only. It has no Cordis context or model access.
@@ -210,7 +216,7 @@ class PdfRuntime {
   async rebuild(frozen, { signal } = {}) {
     const { sourceBinding } = frozen
     validatePdfExport({ contentMode: frozen.snapshot.contentMode ?? 'accepted-translation',
-      targetLang: frozen.snapshot.targetLang, provenance: frozen.document })
+      targetLang: frozen.snapshot.targetLang, provenance: frozen.document, binding: sourceBinding })
     if (frozen.snapshot.contentMode === 'source') {
       signal?.throwIfAborted()
       const sourcePath = await this.exportSource(sourceBinding)

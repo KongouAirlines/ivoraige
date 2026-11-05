@@ -118,7 +118,7 @@ export function PdfSettings({ api, Button = 'button', ErrorBox, capabilities, re
         <dt>当前输出格式</dt><dd>{capabilities?.outputFormats?.join('、') || '无'}</dd></dl></section>
     {managed ? <>
       <section className="settings-card"><h3>安装可选 PDF 组件</h3>
-        <p>需要处理原生文本英文 PDF 时，可从受控发布源安装 BabelDOC。文本与 Markdown 无需安装它。</p>
+        <p>需要处理原生文本 PDF 时，可从受控发布源安装 BabelDOC；中文→英文路由须配套本分支源码 sidecar。文本与 Markdown 无需安装它。</p>
         <p role="status">{installed ? '组件包已安装' : '组件包尚未安装'}{installed && component.installed.version ? ` · ${component.installed.version}` : ''}</p>
         {component?.unavailable && <div className="notice error" role="alert">{component.unavailable}</div>}
         {component?.repository && <p className="hint">发布源：{/^https:\/\//.test(component.repository) ?
@@ -150,10 +150,10 @@ export function PdfSettings({ api, Button = 'button', ErrorBox, capabilities, re
         {message && <div className="notice success" role="status">{message}</div>}
         {ErrorBox ? <ErrorBox message={error}/> : error && <div className="notice error" role="alert">{error}</div>}
       </section>
-      <section className="settings-card"><h3>使用范围</h3><p>当前 PDF 功能面向原生文本英文 PDF → 中文单语 PDF。模型和翻译密钥在“模型”页设置。</p>
+      <section className="settings-card"><h3>使用范围</h3><p>配套源码 sidecar 提供英文→中文与中文→英文单语 PDF 路由；中文→英文真实排版尚待实机核验。模型和翻译密钥在“模型”页设置。</p>
         <p>安装完成后请手动重启服务。<a href={guide} target="_blank" rel="noreferrer">查看 PDF 使用说明 ↗</a></p></section>
     </> : <section className="settings-card"><h3>准备与启动</h3>
-      <p>当前支持原生文本英文 PDF → 中文单语 PDF。模型和密钥在“模型”页管理。</p>
+      <p>配套源码 sidecar 提供英文→中文与中文→英文单语 PDF 路由；中文→英文真实排版尚待实机核验。模型和密钥在“模型”页管理。</p>
       <p>此服务未启用组件安装管理。现有 PDF 配置可继续使用；需要安装说明时，请查看
         <a href={guide} target="_blank" rel="noreferrer"> PDF 使用说明 ↗</a>。</p>
       <p className="hint">更改组件配置后，请手动重启服务。</p></section>}
