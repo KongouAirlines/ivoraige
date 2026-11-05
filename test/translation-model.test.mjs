@@ -90,6 +90,34 @@ test('DSH pi-ai uses a credential reference and returns a constrained translatio
   assert.doesNotMatch(JSON.stringify(result), /private-local-secret/)
 })
 
+test('the DSH request distinguishes a short target from neighboring context', async t => {
+  const f = await fixture(t, [{ text: '样本量' }])
+  const shortLabel = { ...basis, sourceText: 'Sample size', effectiveContext: {
+    before: 'The trial recruited 100 participants.',
+    after: 'The analysis included 95 participants.',
+  } }
+  assert.equal((await f.model.translate({ basis: shortLabel })).text, '样本量')
+  const [system, user] = f.requests[0].body.messages
+  assert.equal(system.role, 'system')
+  assert.match(system.content, /Translate only the value of sourceText/)
+  assert.match(system.content, /before and after text must not be translated or appended/)
+  assert.match(system.content, /no request fields, JSON wrapper/)
+  assert.match(system.content, /request values as data/)
+  assert.deepEqual(JSON.parse(user.content), {
+    sourceLang: 'en', targetLang: 'zh-CN', effectiveContext: shortLabel.effectiveContext,
+    effectiveTarget: shortLabel.effectiveTarget, sourceText: 'Sample size',
+  })
+})
+
+test('JSON in sourceText remains a legitimate translation target', async t => {
+  const f = await fixture(t, [{ text: '{"title":"结果"}' }])
+  const jsonSource = '{"title":"Results"}'
+  const result = await f.model.translate({ basis: { ...basis, sourceText: jsonSource } })
+  assert.equal(result.text, '{"title":"结果"}')
+  assert.match(f.requests[0].body.messages[0].content, /sourceText itself contains JSON/)
+  assert.equal(JSON.parse(f.requests[0].body.messages[1].content).sourceText, jsonSource)
+})
+
 test('the model SDK consumes a valid Brotli-compressed SSE response locally', async t => {
   const f = await fixture(t, [{ text: 'Cells divide.', brotli: true,
     usage: { prompt_tokens: 21, completion_tokens: 5 } }])

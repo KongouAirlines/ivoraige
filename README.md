@@ -26,6 +26,7 @@ The goal is a shared foundation for people and AI: choose the capabilities you n
 
 - **Add what you need.** Start with text and Markdown. Install the optional PDF component when your workflow calls for it.
 - **Keep a hand in the result.** Compare source and translation, save drafts, accept revisions, and return to earlier work.
+- **Check the translation boundary.** New model requests identify only the source unit as the translation target and provide neighboring units as context. Review short labels and paragraphs for echoed request fields or duplicated neighboring text before export. Previously accepted revisions and frozen exports are not rewritten by a prompt update.
 - **Reuse accepted translations.** Export supported formats from one frozen snapshot. Exporting does not ask a model to translate again.
 - **Keep the original structure.** CLI export with `--content-mode source` can produce Markdown or JSON without a target language or accepted translation. For imported PDFs, it can also copy the verified managed original PDF. The default remains accepted-translation export with `--target-lang`.
 - **Select an implementation when needed.** `--format` names the document or output format; `--adapter ID` explicitly selects an installed implementation. Otherwise the highest match across compatible input views wins; equal matches require an explicit choice. Queued work keeps the selected implementation and version, and asks you to retry if it changes. A text-only adapter does not replace the optional component for PDF files or binary uploads.
