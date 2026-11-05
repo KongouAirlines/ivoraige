@@ -34,6 +34,8 @@ export const json = {
         id: document.id, sourceId: document.sourceId, title: document.title,
         sourceLang: document.language,
         ...(snapshot.targetLang ? { targetLang: snapshot.targetLang } : {}),
+        ...(document.sourceCoverage?.summary
+          ? { sourceCoverage: { summary: document.sourceCoverage.summary } } : {}),
       },
       units: units.map(({ unit, decision, text, readableText }) => ({
         id: unit.id, order: unit.order, kind: unit.kind, locator: unit.locator,

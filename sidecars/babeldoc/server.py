@@ -873,6 +873,14 @@ def parse(params):
             "sourceCoverage": {
                 "called": len(calls),
                 "uncalled": [item for item in coverage if not item["called"]],
+                "summary": {
+                    "unitCount": len(units),
+                    "callbackCount": len(calls),
+                    "uncalledCount": sum(not item["called"] for item in coverage),
+                    "emptyUnitCount": sum(not item["sourceUnicode"].strip() for item in coverage),
+                    # Audit lines are also uncalled units, not another disjoint category.
+                    "auditOnlyLineCount": len(extras),
+                },
             },
             "sourceBinding": {
                 "adapterId": "babeldoc",
