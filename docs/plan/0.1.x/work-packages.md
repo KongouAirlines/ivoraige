@@ -32,7 +32,7 @@
 | D04 | 现有 host/browser 性能和故障基线 | [测量协议](desktop.md)；可并行 | 草案 | [桌面生命周期](packages/desktop.md#d04) |
 | D05 | 桌面候选探针、选型及集成验收 | D01–D04；正式壳依赖稳定接口 | 草案 | [桌面生命周期](packages/desktop.md#d05) |
 | W01 | 能力/产物/来源契约与默认链的真实组合证明 | P02、P03、P04；独立插件证据接 P05 | 草案 | [可组合工作流](packages/workflows.md#w01) |
-| W02 | 可保存模板/实例版本、运行追溯与局部重跑 | W01；紧接基础，复用 P02/P04/P05 | 草案 | [可组合工作流](packages/workflows.md#w02) |
+| W02 | 可保存模板/实例版本、运行追溯与局部重跑 | 完整工作流依赖 W01，复用 P02/P04/P05；[admission-text@1](packages/workflows.md#w02-admission-text) 先行仅需现有 Records/Tasks/P04，外部另接 I01.shared | 草案 | [可组合工作流](packages/workflows.md#w02)；[W-V02.admission-text](validation/workflows.md#w-v02-admission-text) |
 | W03 | 内容优先工作台与卡片/参数编辑 | W01、W02、D03；发布管理 UI 子交付 W03.publish-ui@1 另接 I01.callable@1；自动销毁另依赖 D02 | 草案 | [可组合工作流](packages/workflows.md#w03) |
 | W04 | 高级节点图编辑与无损视图切换 | W02、W03；不作为真实组合保存的前置 | 草案 | [可组合工作流](packages/workflows.md#w04) |
 | U01 | 独立普通翻译、可选即时预览、局部候选与修订交互 | P04；仅预览切片另需 U02 模型/连接与预览设置交付（[U-V02.preview-settings](validation/ui.md#u-v02-preview-settings)），普通页不等 U02；保留既有 Records/翻译服务；预览独立选用已有配置模型，内置引擎/语言包及 #39 非前置，转项目另接 W02 | 草案 | [普通翻译与管理 UI](packages/ui.md#u01) |
