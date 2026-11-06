@@ -15,6 +15,7 @@
 | <a id="v06"></a>V06 | [基础契约与正确性](validation/foundation.md#基础验证链) |
 | <a id="w-v01"></a>W-V01 | [可组合工作流](validation/workflows.md#工作流与内容工作台) |
 | <a id="w-v02"></a>W-V02 | [可组合工作流](validation/workflows.md#工作流与内容工作台) |
+| <a id="w-v02-admission-text"></a>W-V02.admission-text | [单文本受理与固定 DSH 跨重启门禁](validation/workflows.md#w-v02-admission-text)；子项通过不代表整个 W-V02 通过 |
 | <a id="w-v03"></a>W-V03 | [可组合工作流](validation/workflows.md#工作流与内容工作台) |
 | <a id="w-v04"></a>W-V04 | [可组合工作流](validation/workflows.md#工作流与内容工作台) |
 | <a id="u-v01"></a>U-V01 | [普通翻译与管理 UI](validation/ui.md#u-v01-普通翻译) |

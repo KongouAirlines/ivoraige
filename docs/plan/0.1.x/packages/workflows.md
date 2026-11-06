@@ -18,6 +18,17 @@
 - 验收：[W02 专项](../validation/workflows.md#w02)，并通过 [W-V02](../validation.md#w-v02)。
 - 回退：停新编排保留旧入口和历史；新持久 schema 按备份/双读回退，外部副作用不能靠降版撤销。
 
+<a id="w02-admission-text"></a>
+
+### W02.admission-text@1
+
+W02 的先行子交付，状态为草案。复用 Records、Tasks、P04 和现有 TXT/翻译接点，交付单文本持久输入、幂等受理、有效非秘密配置冻结、run/task 映射、显式恢复及未知调用诊断。U01 接普通页，外部开放另需 I01.shared@1 的主体、限额和旧入口防旁路门禁；本地 owner 可先验收，不等待完整 W01/W02 模板/项目 UI、I01.callable@1 或 U03.terms。术语仅允许 none，非空仍须 U03.terms@1。
+
+- 冻结配置首版按固定 DSH 的相关有效值核验；无法证明实际调用一致则阻塞，不临时改全局设置、不假定必须升级 DSH。跨重启恢复是独立必验收项。
+- 验收：[W-V02.admission-text](../validation/workflows.md#w-v02-admission-text)，边界与存量迁移见[四接口 RFC](../../../requirements/0.1.x/control-admission-rfc.md#固定-dsh-下的冻结执行门禁)。
+- 后续映射为 RunDefinition 时保留 runId/taskId、输入与冻结事实，不补造未曾存在的实例/方案血缘。回退停新受理并保留旧记录，未知新 schema 不能交给旧程序写；按完整备份恢复。
+- 子项通过不等于 W02 或 I01.callable 完成，不包含文件导入续传、通用工作流或多版本插件并行。
+
 ## W03
 
 正文/原译文/预览主区、轻状态条、折叠步骤/参数/来源栏、卡片编辑与上下文恢复。

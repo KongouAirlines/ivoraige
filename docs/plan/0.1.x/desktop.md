@@ -36,7 +36,7 @@ HostSession/TaskCapabilities/WorkerLifecycle 适配既有 ivoraige.tasks 和 DSH
 - 状态和地址取自当前 host 的实际运行信息；尚未就绪、启动失败或地址/端口未知时明确显示原因，不显示推测地址或伪报可用；菜单和复制内容不暴露凭据。
 - 停止一个入口只停止该入口，不关闭共用 HTTP 监听、WebUI 或 host，也不影响另一个入口；所有操作复用唯一 host，不另启第二个 SQLite 所有者。
 
-安装状态共用 PluginDelivery 的权威投影，显示“已安装，待重启并验证”，实际探针通过才显示可用；显式配置覆盖不能冒充新包已激活。owner 配对、MCP 保存开关/启动约束、stdio 桥接与超时后保留管理通道按[四接口 RFC](../../requirements/0.1.x/control-admission-rfc.md)的 A/B 验收。纯 WebUI/serve 首版允许提示手动重启；host 不负责拉起自己。
+安装状态共用 PluginDelivery 的权威投影，显示“已安装，待重启并验证”，实际探针通过才显示可用；显式配置覆盖不能冒充新包已激活。本地 owner bootstrap 是管理页安装的前置，即使未启用外部入口也要通过受信启动器/终端交接短时一次性凭证并换取浏览器会话，不等待完整 I01.shared；临时 CLI owner 拒绝常驻 attach。配对、MCP 保存开关/启动约束、stdio 桥接与超时后保留管理通道按[四接口 RFC](../../requirements/0.1.x/control-admission-rfc.md)的 A/B 验收。纯 WebUI/serve 首版允许提示手动重启；host 不负责拉起自己。
 
 ## 必须先有的基础契约
 

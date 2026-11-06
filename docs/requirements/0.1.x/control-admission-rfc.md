@@ -1,6 +1,6 @@
 # 0.1.x 四接口 RFC：宿主、入口、插件交付与运行受理
 
-状态：**接口设计待评审，未实现、未冻结 API；运行时暂缓迁移的顺序已定**。修订日期：2026-11-05；源码基线：`7e60dda61e22f9b85aa0b4da97b5f84dacbaa4a3`。本文的方法名、状态和 JSON 是讨论用伪接口，不可直接调用，不代表新的 HTTP 路径、MCP 工具或已发布 SDK。实现时逐项提交机器 schema、兼容映射和验收证据。
+状态：**接口设计待评审，未实现、未冻结 API；运行时暂缓迁移的顺序已定**。修订日期：2026-11-06；源码基线：`7e60dda61e22f9b85aa0b4da97b5f84dacbaa4a3`。本文的方法名、状态和 JSON 是讨论用伪接口，不可直接调用，不代表新的 HTTP 路径、MCP 工具或已发布 SDK。实现时逐项提交机器 schema、兼容映射和验收证据。
 
 目标是让最小托盘、WebUI 插件管理页、MCP/OpenAI 入口和保存工作流共享清楚的边界。四接口属于 ivoraige；Cordis 提供插件/服务装配、依赖和 effect 生命周期，DSH 提供经验证的基础服务。本文不设计第二套 Loader、任务系统、凭据库或通用事件总线。
 
@@ -8,7 +8,7 @@
 
 - 延续[组合契约](contracts.md)、[工作流模型](workflows.md)、[外部 API](external-api.md)及其[协议附录](external-protocol.md)。HostControl 汇总既有 HostSession/退出语义；EntryControl 细化[首版最小托盘](../../plan/0.1.x/desktop.md#首版最小托盘子集)；PluginDelivery 细化 P05/P08；RunAdmission 细化 W02/I01.callable@1。它们不是四个强制独立 npm 包。
 - 当前实现与兼容协议继续有效；下文明确列出的 owner/授权/冻结行为在对应实现切片通过迁移验收后才替换旧行为。本文不替换 P04 operation catalog、事件 barrier、Records 或 ExportSnapshot；已启用部分见 [P04 证据](../../plan/0.1.x/evidence/foundation-p04.md)。现有工作包表中的分支历史标签不能替代本次 main 源码核对，也不在本 RFC 中批量整理。
-- **运行时迁移暂缓：只有 Cordis 上游正式稳定且 DSH 已完成对应迁移两个条件同时满足，才评估 ivoraige 的依赖迁移。** 两条件是必要条件，不自动批准升级；仍须固定精确版本元组并通过本项目兼容验证。该顺序取代[旧评估](../../plan/0.1.x/runtime-sequence.md)中“基础改造前段优先采用候选”的建议；旧源码证据和验证矩阵保留。当前功能设计、固定 pin 下的实现与测试可继续，不等待迁移。
+- **运行时迁移暂缓：只有 Cordis 上游正式稳定且 DSH 已完成对应迁移两个条件同时满足，才评估 ivoraige 的依赖迁移。** 两条件是必要条件，不自动批准升级；仍须固定精确版本元组并通过本项目兼容验证。决策记录见 [ADR-0003](../../decisions/0003-runtime-migration-gate-0.1.x.md)。该顺序取代[旧评估](../../plan/0.1.x/runtime-sequence.md)中“基础改造前段优先采用候选”的建议；旧源码证据和验证矩阵保留。当前功能设计、固定 pin 下的实现与测试可继续，不等待迁移。
 - 不选择桌面框架，不增加远程控制、系统服务、自启、安装市场、任意插件热卸载或全新账号体系；不改当前发行版本号。首版目标仍是最小托盘和插件管理页可安装官方 PDF 能力，完整原生 UI 后置。发行物及平台支持必须另有实际证据。
 
 ### 已有基础与缺口
@@ -54,7 +54,14 @@
 
 ### 数据域、状态权威与修订
 
-`dataDomainRef` 与幂等域中的 `hostDataDomain` 指向同一持久数据域标识，绑定规范化后的实际 store 身份及其 owner 配置；不以端口、进程、调用入口或 settings 路径另分一份数据域。同一 store 的路径别名须归一；同一 store 搭配不同 settings-dir、组件根或显式 pdf-config 时，先核对已有域配置，冲突就拒绝 attach/start，不能以另一个配置身份抢占同一数据库。配置调整由 owner 显式执行，并记录是否需重启；迁移/复制为新域时重新分配身份，不能混用原域的幂等记录。
+`dataDomainRef` 与幂等域中的 `hostDataDomain` 指向同一持久数据域标识，绑定规范化后的实际 store 身份及其 owner 配置；不以端口、进程、调用入口或 settings 路径另分一份数据域。同一 store 的路径别名须归一；同一 store 搭配不同 settings-dir、组件根或显式 pdf-config 时，先核对已有域配置，冲突就拒绝 attach/start，不能以另一个配置身份抢占同一数据库。配置调整由 owner 显式执行，并记录是否需重启。路径和文件身份用于识别存储位置，不直接充当可随搬迁变化的数据域 ID。
+
+域 ID 存在 store 内还不足以识别副本。bootstrap 另在 store 外的本机受控登记中关联域 ID、本机登记身份、规范 store 位置及平台可取得的文件身份；检查在受理业务和 attach 前完成，不能只信复制来的 instance.json。同一文件的路径别名归一，已登记且身份一致才正常启动；首次遇到已有域 ID、位置/文件身份改变或同 ID 对应不同 store 时，停止业务受理并要求本地 owner 选择：
+
+- **迁移**：确认旧 owner 已退出、原位置不再作为活动域使用，再转移登记；保留域 ID、历史记录及幂等结果，重新建立本机会话。无法证明旧 owner 安全退出时不自动接管。
+- **副本**：为副本分配新域 ID，保留内容、修订、任务/快照及来源关系；原域幂等记录只作为历史，不参与副本受理查重；不继承原域活跃会话、客户端授权或自动恢复未完成任务，owner 显式认领后再按恢复规则操作。
+
+验收覆盖同机改路径/文件替换、复制到另一目录、首次带入另一台机器及两份同时出现。整机克隆连本机登记也可能相同；首版不承诺离线识别任意位级克隆或提供跨机器锁，备份恢复/克隆必须显式走迁移或副本流程，不能把这项能力写成由 UUID 自动保障。
 
 | 权威对象 | 写入者、恢复来源与派生投影 |
 | --- | --- |
@@ -66,7 +73,7 @@
 | 运行、task、job 与引用 | Records 持久受理记录/输入/快照/任务及版本引用为恢复来源；Tasks 调度并维护 runId→taskId 映射，进程内 jobId 是一次执行尝试，不是持久队列或第二运行身份 |
 | P04 stateRevision | 既有 event bridge 的 generation 内提交序号，仅作快照/barrier 同步；不要求跨重启递增，不代替 entryRevision、catalogRevision、配置修订或记录修订 |
 
-host generation 应复用该 incarnation 的 P04 bridge generation 或提供固定的一对一映射，不能另造彼此独立的权威换代时钟。管理端和业务端的投影都保留各自 scope；旧 generation 的句柄必须失效。
+host generation 应复用该 incarnation 的 P04 bridge generation 或提供固定的一对一映射，不能另造彼此独立的权威换代时钟。首版公开接口只保留 generation 作为 incarnation 身份，不再返回等价的 hostInstanceId；进程 PID/启动诊断标识若保留，仅用于定位而不参与并发校验。管理端和业务端的投影都保留各自 scope；旧 generation 的句柄必须失效。
 
 ### Cordis 生命周期映射
 
@@ -86,7 +93,7 @@ host generation 应复用该 incarnation 的 P04 bridge generation 或提供固�
 | 动作/状态 | 请求与响应语义 |
 | --- | --- |
 | start / attach | start 取得锁后才装配；发现已运行 owner 则 attach，竞争失败者重查而非创建第二 SQLite owner。attach 只连接，不自动启动；不存在返回 NOT_FOUND，锁存在但 owner 状态未知返回可诊断冲突，不删锁抢占 |
-| state | 返回 hostInstanceId、generation、starting/ready/draining/stopping/failed 状态和阻塞原因；客户端连接失败只能报告 disconnected/unknown，不能据此断言 stopped。stopped 由可信启动控制器确认退出后报告 |
+| state | 返回 generation、starting/ready/draining/stopping/failed 状态和阻塞原因；客户端连接失败只能报告 disconnected/unknown，不能据此断言 stopped。stopped 由可信启动控制器确认退出后报告 |
 | drain | 原子关闭新任务、安装、运行及后续片段受理；已受理工作按种类完成、暂停或取消，报告残留 task/operation 与 deadline。drain 完成是可安全退出，不是进程已退出 |
 | exit | 内含 drain；只有全部必要清理完成才关库、释放锁并退出。超时返回未完成和可恢复诊断，保持 owner，不伪报成功。重复 exit 加入同一收尾操作；失败后重试只推进未完成阶段，不复用已销毁对象 |
 
@@ -94,7 +101,7 @@ host generation 应复用该 incarnation 的 P04 bridge generation 或提供固�
 
 ### 启动路径和退出顺序
 
-现状是 launch 写 instance.json，而 serve、mcp --stdio 和本地 CLI 还可直接 createApp 持锁；这不是已经统一的 HostControl。目标让所有可持锁路径先经过同一 bootstrap：已有 owner 时 attach，缺席时只有获准的启动路径能创建 owner 并登记；一次性 CLI 保留等待/最终退出语义，但只能释放自己创建的临时 owner，不能退出 attach 的常驻 host。stdio MCP 改为连接此 owner 的受限客户端桥，断开只释放其会话；在该迁移完成前显示不受 EntryControl 管理，不能宣称托盘已经能控制独立 stdio 进程。
+现状是 launch 写 instance.json，而 serve、mcp --stdio 和本地 CLI 还可直接 createApp 持锁；这不是已经统一的 HostControl。目标让所有可持锁路径先经过同一 bootstrap：已有 owner 时 attach，缺席时只有获准的启动路径能创建 owner 并登记；一次性 CLI 保留等待/最终退出语义，但只能释放自己创建的临时 owner，不能退出 attach 的常驻 host。首版明确区分临时与常驻生命周期：一次性 CLI 自建的临时 owner 不接受托盘、WebUI 或 stdio 的常驻 attach，也不因请求到来自动转为常驻；返回可诊断的 temporary-owner 冲突，提示 CLI 完成并退出后重新 start，不能并起第二 owner。CLI 结束后按相同 drain/exit 边界收尾；超时保留受保护的诊断/退出通道和锁，不能因 CLI 已结束就丢弃未完成工作。CLI attach 已有常驻 host 则只关闭自己的会话。stdio MCP 改为连接此常驻 owner 的受限客户端桥，断开只释放其会话；在该迁移完成前显示不受 EntryControl 管理，不能宣称托盘已经能控制独立 stdio 进程。
 
 正常退出的顺序必须是：关闭新业务受理 → 保留 owner 管理查询/退出通道和实例记录 → 按 task kind 收尾、提交 checkpoint/安装事务 → 关闭 worker/业务消费者和存储 → 撤销管理通道/实例记录并释放锁 → 确认退出。共享 HTTP 不能在 drain 前整体 close；若管理走独立 IPC，也必须到最后保持可达。deadline 经控制层、operation 层、Tasks/worker 传递同一剩余预算，不能每层重置或被固定 30 秒覆盖。超时仍可查询残留工作并用新 deadline 继续等待/重试，不重新开放业务。
 
@@ -102,7 +109,7 @@ host generation 应复用该 incarnation 的 P04 bridge generation 或提供固�
 
 ## EntryControl
 
-最小动作：`list/state(entryId)`、`setEnabled(entryId, enabled, expectedGeneration, expectedRevision)`。entryId 表示入站 MCP 或入站 OpenAI 兼容入口；上游模型/provider 连接配置仍归模型设置，不能用入口开关替代。
+最小动作：`list/state(entryId)`、`setEnabled(entryId, enabled, expectedGeneration, expectedRevision)`。entryId 表示入站 MCP 或入站 OpenAI 兼容逻辑入口，不是 Cordis Loader entry；开关仅改变该入口的路由/会话受理，不加载、卸载或启停底层插件。上游模型/provider 连接配置仍归模型设置，不能用入口开关替代。
 
 建议状态分开表示：期望 `enabled`；实际 `disabled / starting / ready / draining / unavailable / failed`；运行时返回实际 transport 和 address。HTTP 地址只能来自成功绑定的监听器及已注册且就绪的路由，未知用 null 和 reason；完成桥接后的 stdio MCP 无 URL，展示 transport=stdio 和经过脱敏的连接方式，不编造端口；其开关只控制本域桥接接入/会话，不管理客户端进程。状态与复制操作不带 token、模型 key 或秘密参数。
 
@@ -122,7 +129,13 @@ host generation 应复用该 incarnation 的 P04 bridge generation 或提供固�
 | 业务客户端 principal/grant | 仅可调用获准的业务操作、查看/取消自己的获准运行；业务令牌不能安装组件或取得 owner 权限；resume 另见运行恢复规则 |
 | 匿名网页、普通 MCP 或未配对 WebUI | 不得调用管理动作、订阅全局事件或下载他人产物。loopback、Host/Origin 合法与 JSON 自报 owner 都不能替代身份 |
 
-I01.shared 的启用门禁同时收口现有 component_install、组件 HTTP 管理、内部通用 operation、匿名 /mcp、/api/events 和产物读取：关闭旧旁路或接入同一 owner/业务授权检查，含查询、订阅快照、后续事件和断线重连。存量数据仅本地 owner 可见；新外部运行归已认证主体，owner 可管理恢复不意味着普通 WebUI 会话自动看见全部数据。跨主体共享只经显式授权；未通过门禁就不能开放新外部入口。身份迁移保持旧 ID 和数据，不把未知历史作者写成某个外部客户端。
+**本地管理页的 owner 会话是 A 的前置，不等待 I01.shared 完整交付，也不以是否启用外部接入为条件。** 普通用户安装 PDF 前同样需要 owner 身份，但受信启动器可以完成交接，无需先配置业务客户端令牌。首版采用本机 bootstrap 换取 WebUI 会话的最小路径：
+
+1. launch/托盘通过 OS 权限保护的本地控制通道向常驻 host 取得短时、单次、绑定数据域与 generation 的 bootstrap 凭证，然后打开本机 WebUI。serve 无启动器时由受信本地终端取得同类一次性链接；不能让匿名 HTTP 请求自行签发凭证，也不能仅凭 loopback 或“第一个访问者”认定 owner。
+2. 链接仅将一次性凭证放在 URL fragment，页面先清除地址栏历史中的 fragment，再向同源交换端点 POST；凭证不进入 query、日志、Referer、剪贴板连接地址或第三方资源。交换须校验 Host/Origin、有效期、单次消费、域与 generation，原子消费后建立受保护的 HttpOnly/SameSite 会话；HTTPS 时使用 Secure，并保留写操作 CSRF 防护。长期 owner 凭证不放 URL 或浏览器可读存储。
+3. 无凭证直接打开的网页仅能显示未配对状态和取得本地授权的指引，不能安装/退出/读取私有事件或产物。过期、重放、错误域/generation、跨源交换均拒绝；host 重启或 owner 撤销使旧会话失效，受信启动入口可重新交接。
+
+这是一条待实现的首版路径，不要求先做完整账号系统；OS 通道细节与会话 schema 随实现验证。临时 CLI owner 不签发常驻浏览器会话。**管理页上线前**先收口现有 component_install、组件 HTTP 管理、内部通用 operation 的管理动作、匿名 /mcp、/api/events 和产物读取；I01.shared 开放外部业务前再补齐主体隔离、scope/配额及撤销门禁：关闭旧旁路或接入同一 owner/业务授权检查，含查询、订阅快照、后续事件和断线重连。存量数据仅本地 owner 可见；新外部运行归已认证主体，owner 可管理恢复不意味着普通 WebUI 会话自动看见全部数据。跨主体共享只经显式授权；未通过门禁就不能开放新外部入口。身份迁移保持旧 ID 和数据，不把未知历史作者写成某个外部客户端。
 
 ## PluginDelivery
 
@@ -147,13 +160,17 @@ I01.shared 的启用门禁同时收口现有 component_install、组件 HTTP 管
 
 首版包是 BabelDOC 侧车及运行时/资产，PDF adapter 仍内置于宿主，不能当成可由 Loader 热装卸的 Cordis 插件。hostApiRange 表示该组件与宿主 PDF bridge 的兼容范围；所需服务是 adapter 依赖的宿主服务/侧车能力。未来真正 Cordis 包另核对应 DSH 的 peerDependencies 规则，不假设固定 pin 已采用 engines.dsh。
 
-精确执行身份至少包含：组件 packageId/version/内容摘要和 manifest 来源、内置 adapter 版本、实际 BabelDOC/依赖引擎版本、binding schema、sidecar 协议及所需能力集合。版本来自校验后的清单和实际握手/探测，二者不一致即不可用；硬编码 adapter 0.1.0 或协议数字 1 不能证明包未变化或具备新增语言路由。缺少证据记 unknown 并阻塞需要该能力的恢复，不填当前值冒充历史。
+精确执行身份至少包含：组件 packageId/version/内容摘要和 manifest 来源、内置 adapter 版本、实际 BabelDOC/依赖引擎版本、binding schema、sidecar 协议及所需能力集合。版本来自校验后的清单与可核验的实际装载内容，运行能力由握手/探测核对，来源不一致即不可用；硬编码 adapter 0.1.0 或协议数字 1 不能证明包未变化或具备新增语言路由。缺少证据记 unknown 并阻塞需要该能力的恢复，不填当前值冒充历史。
+
+现有 protocolVersion=1 握手已返回 parse/rebuild 能力，但未返回实际 BabelDOC 版本和语言路由等细分能力；协议数字、内置 adapter 版本和粗粒度能力均不足以证明它们。实现可采用经验证的可选握手字段/独立探测，或将受控包清单绑定到经校验的实际内容作为身份来源，不能只信自报版本。新增可选结果字段不预设必须 bump 协议；保持 v1 需证明旧 host 忽略扩展、新 host 遇旧 sidecar 缺字段时仅开放有证据的既有能力，缺失证据不得伪报 ready。若改变必需字段、方法或既有语义而不兼容，才另定协议版本并做显式兼容/拒绝映射。旧/新两端组合与未知字段测试见[协议 §7](../v2.0/03_API-protocol_v2.0.md#71-握手与方法)的待实现扩展门禁；本 RFC 不修改现有版本号。
 
 启动时主动进行有界的文件/配置、进程握手、协议/能力及必需资产检查，不等第一次导入/导出才从 unchecked 推测 ready；探针短暂进程及时退出，不初始化 GPU，不调用翻译模型或以昂贵 GPU 工作冒充状态查询。安装成功显示“已安装，待重启并验证”；旧版仍工作时同时显示 installedVersion、activeVersion 和旧版 ready。重启后探针通过才显示“可用”，失败显示保留的安装状态和具体修复动作，托盘/WebUI 使用同一投影。若显式 `--pdf-config` 覆盖安装指针，activeSource 必须标识该配置，安装不会覆盖它；只有解除覆盖或显式切换后才评估新包激活，不能一直提示“重启后必然可用”。
 
 持久引用由已受理的 task/run/导出快照持有，并记录所需的精确组件内容；暂停、失败但仍可恢复和 host 重启都不释放它。启动在清理前重建引用，运行中的短期 lease 另防止在用资源撤销；终态及明确放弃按既有保留策略释放，历史快照仍有引用则继续保护。同版本修复也不得原地替换/删除被引用目录，应暂存为新的内容身份；不能安全替换时阻塞修复。清理缺乏可靠引用证据时保守拒绝，不把引用保护仅做成进程内计数。
 
-首版只有一个 active 组件组合，不承诺旧新版并行或自动降级。对可恢复任务，若当前 active 精确匹配则继续；若不匹配，先阻塞并给出版本/摘要/能力原因。只有经过兼容与数据安全校验的显式恢复选择、重启和 ready 复核才能切回保留的精确旧包；若该恢复路径尚未实现、旧包缺失或不兼容，保持阻塞，用户可明确选择用新版新建运行，不静默换版或重写旧快照。现有禁止降级的安装接口不能冒充这条恢复路径。PDF 文档的模型翻译循环不调用 PDF 侧车；精确侧车恢复重点是导出/回放，不能因升级无条件阻断不依赖它的文本翻译。导入仍不可续传。
+首版只有一个 active 组件组合，不承诺旧新版并行或自动降级。**首版必验收的是“当前精确匹配则恢复，否则明确阻塞”，切回旧包不作为必交功能。** 对可恢复任务，若当前 active 精确匹配且 ready 则继续；若不匹配，显示所需/实际版本、摘要、能力差异和可用动作，重复 resume/重启均不能绕过阻塞。尚无切回实现时明确显示“当前不支持恢复旧包”，用户仍可选择取消/保留待恢复，或用新版新建运行，不静默换版或重写旧快照。
+
+若某个交付版本另提供切回旧包，则该路径必须经兼容与数据安全校验、owner 显式选择、重启和 ready 复核，并以同一冻结快照零翻译导出证明精确恢复；旧包缺失、不兼容或切回失败须保留阻塞。此为提供恢复功能时的条件验收，不以目录尚存冒充执行能力。现有禁止降级的安装接口不能冒充这条恢复路径。PDF 文档的模型翻译循环不调用 PDF 侧车；精确侧车恢复重点是导出/回放，不能因升级无条件阻断不依赖它的文本翻译。导入仍不可续传。
 
 安装和任务首版共享现有单执行槽（当前 maxConcurrentJobsPerOwner=1、Tasks 串行）。安装请求遇忙可明确返回忙碌，已受理任务可有界排队；显示等待对象/原因、取消和 deadline，不要求新调度器，也不再承诺无关业务永不等待。安装不得破坏已有任务、数据或关闭无关能力，二者与执行时段互斥须区别表达。
 
@@ -173,7 +190,7 @@ I01.shared 的启用门禁同时收口现有 component_install、组件 HTTP 管
 
 ### 单文本先行切片
 
-单文本切片归 **W02.admission-text@1**（W02 的子交付，不新增顶层工作包）：基于已验证的 Records/Tasks/P04 与现有 TXT/翻译接点，持久保存文本输入、目标语言、有效配置及 run/task 映射。U01 提供用户入口，I01.shared 接主体/幂等/限额；第一步可由本地 owner 验收，不等待 W02 全部模板/项目 UI、I01.callable 或 U03.terms。术语仅允许明确 none，非空约束必须在 U03.terms@1 到位后才接受，不能忽略。文件导入、文档流水线和入站 OpenAI 另按原工作包门禁启用。
+单文本切片归 [**W02.admission-text@1**](../../plan/0.1.x/packages/workflows.md#w02-admission-text)（W02 的子交付，不新增顶层工作包，验证 ID 为 [W-V02.admission-text](../../plan/0.1.x/validation/workflows.md#w-v02-admission-text)）：基于已验证的 Records/Tasks/P04 与现有 TXT/翻译接点，持久保存文本输入、目标语言、有效配置及 run/task 映射。U01 提供用户入口，I01.shared 接主体/幂等/限额；第一步可由本地 owner 验收，不等待 W02 全部模板/项目 UI、I01.callable 或 U03.terms。术语仅允许明确 none，非空约束必须在 U03.terms@1 到位后才接受，不能忽略。文件导入、文档流水线和入站 OpenAI 另按原工作包门禁启用。
 
 单文本受理记录沿用现有持久任务记录的版本化扩展，不另造持久任务系统；输入与配置先可恢复提交再派发。后续映射为 RunDefinition 时保留既有 runId/taskId、输入与冻结事实；未曾存在的 WorkflowInstance/plan 修订保持缺席，不能给历史补造模板来源。下节方案选择和拓扑检查仅适用于后续通用运行，单文本使用显式的内置文本操作版本。
 
@@ -182,19 +199,30 @@ I01.shared 的启用门禁同时收口现有 component_install、组件 HTTP 管
 1. 验证身份、权限、输入 schema、资源归属及单次载荷上限；按既有[跨协议幂等](external-protocol.md#跨协议幂等)查首次记录。幂等重试也须重新核查授权，不能因找到键就返回未获准结果；合法同键重试返回首次运行，不重占新运行配额，也不因新运行限额已满而拒绝。
 2. 解析确切 plan 修订及其绑定的 WorkflowInstance 修订，或 owner 直接选择的实例修订，按声明顺序合并默认、实例配置与允许 overrides；校验拓扑、输入类型与来源版本、所需能力及副作用用途。先形成可展示的有效配置再执行，不临时修改全局模型设置。预检结果不是预留，提交前需复核修订和能力。
 3. 在唯一 host 的受理提交边界复核 generation、drain、授权及配置/插件版本；受理与授权撤销、drain 进入须有一致的先后顺序，先撤销/关闭受理则拒绝提交，先受理则按后续取消规则处理。仅首次受理检查新运行并发/速率限额，并在提交时重新查键，原子登记幂等键、有效定义、输入/版本引用、限流预留和 runId；任务入队用同事务或可恢复的持久交接，崩溃不能留下无运行的扣额、无引用快照或重排两次任务。响应 accepted 只在可恢复提交后发出，未提交不调用模型。
-4. 调度前重新验证当前授权及已冻结版本可用，获取/确认执行 lease；执行使用冻结值，不读后来改变的全局默认。提供者失活、资源不兼容时明确阻塞/失败，不换模型、插件或输入。恢复也不得偷偷采用新版本；改配置须派生新运行。
+4. 调度前重新验证当前授权及已冻结版本可用，获取/确认执行 lease；只有能证明实际调用配置与冻结值一致才执行；按下述 DSH 首版门禁准备调用，不接受后来改变的全局默认。提供者失活、资源不兼容时明确阻塞/失败，不换模型、插件或输入。恢复也不得偷偷采用新版本；改配置须派生新运行。
 
 通用 RunDefinition 最小保存：确切 WorkflowInstance 修订、来源 plan 修订（仅通过方案受理时记录）、确切输入资源/修订、归一化规则版本及有效非秘密配置、模型/连接引用及其配置修订、适用术语库/义项与抽取配置的有效版本、实际能力/插件/引擎/binding 版本、执行策略、principal/grant 引用。术语范围先于优先级，版本变更重新判断复用适用性；不是只记录一个插件名称。没有术语的运行明确空约束，不能用“当前库”补历史。
 
 单文本和通用运行都必须冻结实际有效的非秘密值：provider/model、API 类型、endpoint/baseURL、compat、请求参数/超时、有效提示/语言/约束、来源/版本及 credentialRef；配置修订只做溯源，粗粒度 llm-pi-ai revision 变化或修改无关 provider 不自动阻塞。不能只存一个可变引用然后执行时读全局当前值。
 
-密钥只存受控 credentialRef，执行时仍由 DSH 解析，不进入快照/模板/日志。密钥轮换可在同一获准 provider/端点/用途下解析新秘密；引用缺失、用途改变或冻结配置已无法通过当前能力兼容检查则停止。适配层须证明可把冻结值交给 DSH 执行，不能通过临时切换全局 provider 配置实现并发隔离。**冻结配置不冻结权限**：每次调用、调度、新片段与重连读当前 grant；撤销拒绝后续动作、关闭相关流并请求取消在途任务，按 best-effort 记录已发出供应商调用的未知结果，不声称能撤回费用或实现 exactly-once。结果继续按主体保护。
+密钥只存受控 credentialRef，执行时仍由 DSH 解析，不进入快照/模板/日志。密钥轮换可在同一获准 provider/端点/用途下解析新秘密；引用缺失、用途改变或冻结配置已无法通过当前能力兼容检查则停止。适配层须证明实际 DSH 调用使用冻结值；不能通过临时切换全局 provider 配置实现并发隔离，也不能把内存中的准备对象当成可持久恢复的配置。**冻结配置不冻结权限**：每次调用、调度、新片段与重连读当前 grant；撤销拒绝后续动作、关闭相关流并请求取消在途任务，按 best-effort 记录已发出供应商调用的未知结果，不声称能撤回费用或实现 exactly-once。结果继续按主体保护。
 
 幂等域、摘要规范及期限完全沿用协议附录：`(hostDataDomain, principalId, operationKind, key)`，不按 transport/grantId 分桶；同键同业务输入返回首次 runId，同键异内容返回 CONFLICT。并发最多提交一个运行；省略方案修订的重试保持首次解析值。幂等记录跨重启，至少保留至终态后 24 小时，按既有 idempotencyExpiresAt 对外说明；无键或记录过期不能自动安全重试。运行冻结与导出 ExportSnapshot 各有职责：导出仍在其受理时冻结可输出的数据，输出端只消费快照，绝不翻译。
 
+### 固定 DSH 下的冻结执行门禁
+
+固定 pin `639ed015` 的 [GenerateOptions](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/llm/llm/src/types.ts#L511) 提供 provider/model 路由，但没有按调用传入 baseURL/compat 的字段；llm-pi-ai 的 [stream/prepareCall](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/llm/llm-pi-ai/src/adapter.ts#L318-L348) 从调用时 current() 取配置，prepareCall 只能固定本进程这次准备的调用；公共接口还是 [one-shot](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/llm/llm/src/index.ts#L928-L982)，不能直接序列化后跨重启重建，也不能复用作整段多次调用的运行句柄。这是当前公共接口的静态能力边界，不证明当前 pin 上所有适配方案均不可行，更不是已经通过的恢复测试。首版不以升级 DSH、维护私有分叉或重写模型服务为前置，采用以下保守契约：
+
+- 冻结有效值用于执行一致性校验，不承诺任意历史配置可在当前环境继续执行。能按调用传入的 model/参数使用冻结值；依赖全局 current() 的 endpoint/API/compat 等，在每次准备调用前与所需冻结投影核对，不能仅比较整个设置 revision。无关 provider 变化不阻塞。
+- 比对、准备调用和配置更新之间必须有经验证的一致性边界，覆盖检查后改设置的竞态；可以复用 DSH 已准备调用能力和最小配置写入协调，不另造 provider。无法证明同一配置快照即拒绝派发，不能先检查 A 再实际调用 B。已准备的同进程调用能否继续用 A，也必须由真实 DSH 接线测试证明。
+- 暂停、排队后执行和重启恢复都重新准备并核验。endpoint/compat 等相关有效值不一致或无法核验时，保留 checkpoint/runId，返回可解释的 blocked/config-mismatch 或 config-unverifiable，禁止调用模型；明确展示所需/当前差异（脱敏），可恢复所需配置后再次显式 resume，或选择新配置新建运行。后者不等于重译。
+- 首版允许编辑未来配置，但必须提示它可能阻塞已受理运行后续尚未准备的调用；不能写成“对既有运行完全无影响”。设置编辑锁只有在上述准备/比较竞态和阻塞恢复均验收后才可缩短或解除，旧执行路径仍保留必要保护。
+
+W-V02.admission-text 必须给出真实 pinned DSH 证据：以配置 A 受理并暂停，修改相关配置为 B，销毁 host/准备对象后重启；resume 不调用 B 且报告阻塞，恢复 A 后仍用原 run/checkpoint 显式继续；另测无关 provider 修改、仅粗粒度 revision 变化、准备调用与配置写入竞态及未知配置。只做 mock、同进程 prepareCall 或只保存字段不能通过此门禁。将来若能直接从冻结值重建调用，必须另交跨重启在 B 全局配置下仍实际使用 A 的证据，再提升恢复承诺；运行时迁移仍遵守 ADR-0003，不自动升级。
+
 ### 恢复、存量任务、复用与排队
 
-新运行按冻结值 resume，改全局设置仅影响未来受理；在该执行路径验收后，解除这些已冻结任务对全局模型设置编辑的锁。对仍按单元读取全局配置的旧执行路径保留必要保护，不能先删锁后让新运行漂移。历史任务无冻结值时标为 legacy/config-unknown，保留旧 checkpoint 与实际已知来源；默认不自动恢复。owner 可明确选择兼容恢复：告知历史配置未知，把这次选定配置记录为后续执行段并重新核查授权/能力，而不是伪称整段历史被冻结；或派生新运行。不可证明旧版精确引用时同样标未知，不能补当前版本。
+新运行只在冻结配置可执行时 resume；固定 pin 首版遵守上述“不一致即阻塞”语义，不能承诺改全局设置后旧运行一定可继续。对仍按单元读取全局配置的旧执行路径保留必要保护，不能先删锁后让新运行漂移。历史任务无冻结值时标为 legacy/config-unknown，保留旧 checkpoint 与实际已知来源；默认不自动恢复。owner 可明确选择兼容恢复：告知历史配置未知，把这次选定配置记录为后续执行段并重新核查授权/能力，而不是伪称整段历史被冻结；或派生新运行。不可证明旧版精确引用时同样标未知，不能补当前版本。
 
 新建运行并不等于重译，默认保留按既有 content/方向/约束及适用性判定可复用的已接受译文；模型不是现有复用身份的一部分。要用新模型重新翻译已有内容，用户须明确选择重译范围/策略，产生新候选/修订，不覆盖旧接受版本。用新版重建 PDF 输出仍只消费冻结快照，绝不触发翻译。
 
@@ -246,16 +274,16 @@ PDF 闭环：启动控制器 start 得到 g7（或 attach 已有 g7）→ 插件
 
 | 顺序 / 归属 | 最小可证实验收 |
 | --- | --- |
-| A：D01/D05、P04 | launch/serve/CLI/stdio 同域竞争仅一 owner；路径别名/配置冲突可诊断；两客户端 attach generation 相同、重启后旧句柄拒绝；关窗任务继续；drain 超时管理通道仍可查询和重试，强退不误杀/不早释锁；无托盘明确手动重启 |
-| A：I01.shared、P04、D05 | 未配对 WebUI、匿名/业务令牌不能安装或退出；旧 component_install、HTTP、事件及产物无旁路；历史 owner 与新主体隔离；旧匿名配置升级默认关闭、保存 enabled/CLI 强制关闭优先级正确；MCP 关开不影响 WebUI，未实现 OpenAI 不可开启；entry/catalog/P04 修订不混用 |
+| A：D01/D05、P04 | launch/serve/CLI/stdio 同域竞争仅一 owner；路径别名/配置冲突及迁移/副本选择可诊断；临时 CLI owner 拒绝常驻 attach，结束仅收尾自己创建的 owner；两客户端 attach 常驻 host generation 相同、重启后旧句柄拒绝；关窗任务继续；drain 超时管理通道仍可查询和重试，强退不误杀/不早释锁；无托盘明确手动重启 |
+| A：P04、D05、U02；外部另接 I01.shared | 未启用外部入口也须先通过本地 owner bootstrap 完成管理页安装；凭证过期/重放/跨源/错域/重启拒绝，旧会话失效；未配对 WebUI、匿名/业务令牌不能安装或退出；旧 component_install、HTTP、事件及产物无旁路；历史 owner 与新主体隔离；旧匿名配置升级默认关闭、保存 enabled/CLI 强制关闭优先级正确；MCP 关开不装卸 Loader 插件、不影响 WebUI，未实现 OpenAI 不可开启；entry/catalog/P04 修订不混用 |
 | B：P05/P08、U02 | Windows 干净主体经管理页安装真实受控 PDF 候选包；清单/摘要/引擎/协议/能力匹配；断网、缺资产、磁盘失败和崩溃恢复不损坏旧包；installed/pendingRestart 与 active/ready 分离且各界面一致；重启探针与 pdf-config 覆盖不会伪报 ready |
-| B：P05、Q02、Tasks | 暂停/重启后旧导出引用仍保护资源；升级和同版本修复不覆盖在用内容；单 active 精确恢复需显式选择与重启验证；缺旧包/未知版本明确阻塞，新版新运行需选择；不阻塞无侧车依赖翻译，不声称导入续传；共享槽可见忙碌/有界等待 |
-| C：W02.admission-text@1、U01；外部另接 I01.shared | 一段文本跨协议/并发/重启重发仅一个 run/task；受理崩溃无丢输入、双重扣额或重复任务；改 model/endpoint/compat/参数不漂移；无关 provider revision 变化不误阻塞；凭据只存引用，当前授权继续检查 |
+| B：P05、Q02、Tasks | 暂停/重启后旧导出引用仍保护资源；升级和同版本修复不覆盖在用内容；首版必测当前精确匹配恢复与不匹配/缺旧包/未知版本持续阻塞；仅在提供切回功能时另测显式选择、重启验证及失败恢复，新版新运行需选择；不阻塞无侧车依赖翻译，不声称导入续传；共享槽可见忙碌/有界等待 |
+| C：W02.admission-text@1、U01；外部另接 I01.shared | 一段文本跨协议/并发/重启重发仅一个 run/task；受理崩溃无丢输入、双重扣额或重复任务；按 [W-V02.admission-text](../../plan/0.1.x/validation/workflows.md#w-v02-admission-text) 证明真实 DSH 跨重启相关配置不一致阻塞且零误发、恢复匹配配置可继续、准备/写入竞态安全；可传入的 model/参数使用冻结值，无关 provider revision 变化不误阻塞；凭据只存引用，当前授权继续检查 |
 | C：Tasks/Records、P04 | 未派发与上游已调用未知两类恢复可区分，未知不自动重发；legacy/config-unknown 明示，继续段不伪造历史；新运行默认复用，重译独立确认；暂停额度、串行排队、deadline/取消和 owner resume 可验证；文件导入保留不可续传限制 |
 | 后续：W01/W02、I01.callable、U03.terms | 模板先实例化保存；plan 指向确切实例修订；非空术语有真实后端及版本；人工片段、局部重跑和通用插件引用按原工作包验收，不塞入单文本门槛 |
 | 共用：P01/P04、P05/P08/D05 | 旧 wire/Records/快照兼容，依赖失败诊断和 barrier 收敛；干净 npm tarball/实际应用入口、冻结输出零翻译；三系统/独立 exe/第二真实包分别证明，fixture 与文档检查不能替代真实安装或通用性验收 |
 
-先完成 A 的唯一 owner/控制和授权基础，再接真实托盘与外部入口；B 的包清单/管理页状态和 C 的受理/冻结 fixture 可以与 A 并行，真实安装提交与恢复依赖 A 的退出边界，外部单文本开放依赖 I01.shared 防旁路门禁。B、C 不互为前置。固定 pin 下继续推进，运行时升级独立暂缓。
+先完成 A 的唯一 owner/控制及本地 owner 会话基础，再接真实托盘和管理页；外部入口另等 I01.shared，不能把本地管理鉴权推迟到外部开放时。B 的包清单/管理页状态和 C 的受理/冻结 fixture 可以与 A 并行，真实安装提交与恢复依赖 A 的退出边界，外部单文本开放依赖 I01.shared 防旁路门禁。B、C 不互为前置。固定 pin 下继续推进，运行时升级独立暂缓。
 
 ### 评审问题对应
 
@@ -267,7 +295,9 @@ PDF 闭环：启动控制器 start 得到 g7（或 attach 已有 g7）→ 插件
 | moewell 2；OBG 17–22、24 | 单文本先行、有效配置、恢复/复用/排队及 C 验收 |
 | OBG 1–6 | 数据域、HostControl 启动/退出及 A 验收 |
 | OBG 7–10、23 | 权威/修订、身份与旧入口迁移及 A 验收 |
-| OBG 26 | 范围中的已定迁移顺序及 runtime-sequence 的决定依据 |
+| OBG 26 | 范围中的已定迁移顺序及 [ADR-0003](../../decisions/0003-runtime-migration-gate-0.1.x.md) |
+
+[2026-11-06 复核](https://github.com/KongouAirlines/ivoraige/pull/70#issuecomment-6676297679)对应：1→固定 DSH 冻结门禁及 W-V02.admission-text；2→PDF 必需阻塞/条件恢复验收；3→本地 owner bootstrap；4→迁移/副本登记；5→临时 owner 拒绝常驻 attach；6→W02 工作包与验证 ID；7→ADR-0003。次要项分别落在协议 §7 扩展门禁、迁移矩阵的匿名 MCP 变更、逻辑 entryId 与单一 generation。对应不表示实际实现或评审已经通过。
 
 ## 待决问题
 
@@ -275,7 +305,7 @@ PDF 闭环：启动控制器 start 得到 g7（或 attach 已有 g7）→ 插件
 2. HostControl 的平台启动控制器与 drain deadline：首版支持哪些平台、哪些任务可暂停、哪些只能取消？保留现有导入不可续传事实。
 3. 入口停止的在途会话收尾与重新启用：具体协议状态码、deadline 数值及 stdio 桥接机制需要真实 transport fixture；遵守已定持久开关和共享 listener 边界。
 4. PluginDelivery 首批包/资源清单、ready 探针成本和离线恢复路径：检查必需资产，不启动昂贵 GPU 工作冒充轻量状态查询；安装来源与发布包以 P05/P08 证据定案。
-5. W02.admission-text@1 的原子落库/任务交接、冻结配置传入 DSH 的实现及引用保留：复用现有事务/任务恢复能力，选择最小可恢复方案；术语有效版本与 credentialRef 的轮换绑定规则须与 DSH 实际服务核验。
+5. W02.admission-text@1 的原子落库/任务交接、冻结校验/调用准备一致性与引用保留：复用现有事务/任务恢复能力，选择最小可恢复方案；核验失败执行上述阻塞语义，不静默降级或要求运行时迁移。术语有效版本与 credentialRef 的轮换绑定规则须与 DSH 实际服务核验。
 
 ## 官方参考与采用边界
 
