@@ -56,16 +56,26 @@
 
 `dataDomainRef` 与幂等域中的 `hostDataDomain` 指向同一持久数据域标识，绑定规范化后的实际 store 身份及其 owner 配置；不以端口、进程、调用入口或 settings 路径另分一份数据域。同一 store 的路径别名须归一；同一 store 搭配不同 settings-dir、组件根或显式 pdf-config 时，先核对已有域配置，冲突就拒绝 attach/start，不能以另一个配置身份抢占同一数据库。配置调整由 owner 显式执行，并记录是否需重启。路径和文件身份用于识别存储位置，不直接充当可随搬迁变化的数据域 ID。
 
-域 ID 存在 store 内还不足以识别副本。bootstrap 另在 store 外的本机受控登记中关联域 ID、本机登记身份、规范 store 位置及平台可取得的文件身份；检查在受理业务和 attach 前完成，不能只信复制来的 instance.json。同一文件的路径别名归一，已登记且身份一致才正常启动；首次遇到已有域 ID、位置/文件身份改变或同 ID 对应不同 store 时，停止业务受理并要求本地 owner 选择：
+域 ID 存在 store 内还不足以识别副本。统一 bootstrap 负责 store 内域元数据和 store 外的本机登记；所有 launch/serve/CLI/stdio 启动路径使用同一登记实现，托盘、WebUI 和 ComponentManager 不另写一份。本机登记按当前 OS 用户存放在独立的 `ivoraige-host/domains.json`：Windows 使用 `%LOCALAPPDATA%`（缺省为用户的 `AppData/Local`），macOS 使用 `~/Library/Application Support`，Linux 使用 `$XDG_STATE_HOME`（缺省为 `~/.local/state`）。此根不随 `--data-dir`、`IVORAIGE_DATA_DIR`、settings-dir 或组件根改变，不包含在普通数据域导出/复制中；仅当前 OS 用户可读写，不保存凭据。登记关联域 ID、本机登记身份、规范 store 位置、平台可取得的文件身份及 owner 配置绑定；文件身份不能确认时不猜测相同。此登记只负责本机识别，不能代替 store 独占锁或活跃 owner 握手。
+
+检查在受理业务和 attach 前完成，不能只信复制来的 instance.json。初始化和变更在 store 独占锁与登记写锁保护下执行，所有入口使用相同锁顺序；登记文件原子替换。store 与登记是两个持久边界，实现须先保存可恢复的登记意图，再提交 store 域元数据并完成登记；崩溃后只续接能与该 store 身份精确对应的未完成操作，不因部分成功重新生成 ID。业务受理须等两边一致。
+
+- **新库或无域 ID 的存量 store**：确认元数据确实缺席、版本可识别且登记没有冲突后，静默生成一次域 ID 并登记，不弹出“迁移/副本”选择。保留原 Records、修订、任务、快照及 owner 归属，不补造历史幂等结果。登记文件尚不存在时可为这次初始登记创建；并发首次启动只产生一个 ID。
+- **已有域 ID 且登记匹配**：同一文件的路径别名归一后正常启动/attach。已有域 ID 却没有本机登记、位置/文件身份变化、owner 配置不符或同 ID 指向不同 store 时停止业务受理；元数据无法读取/版本未知不等于“无 ID”，不得静默初始化。
+- **登记丢失或损坏**：已有 ID 的 store 按身份待核实处理，不自动重建成“已匹配”；登记损坏、不可读或不可写均保留原文件并给出诊断，不清空覆盖，也不影响其他记录的内容。可在旧 owner 安全退出后，从可信备份恢复并重新核对，或由本地 owner 显式重建目标登记；修复没有依据时仍保持阻塞。单纯 settings/组件配置冲突应先恢复匹配配置或走 owner 配置变更，不能借“副本”绕开同一 store 的锁。
+
+需要重新确认存储身份时，本地 owner 明确选择：
 
 - **迁移**：确认旧 owner 已退出、原位置不再作为活动域使用，再转移登记；保留域 ID、历史记录及幂等结果，重新建立本机会话。无法证明旧 owner 安全退出时不自动接管。
 - **副本**：为副本分配新域 ID，保留内容、修订、任务/快照及来源关系；原域幂等记录只作为历史，不参与副本受理查重；不继承原域活跃会话、客户端授权或自动恢复未完成任务，owner 显式认领后再按恢复规则操作。
 
-验收覆盖同机改路径/文件替换、复制到另一目录、首次带入另一台机器及两份同时出现。整机克隆连本机登记也可能相同；首版不承诺离线识别任意位级克隆或提供跨机器锁，备份恢复/克隆必须显式走迁移或副本流程，不能把这项能力写成由 UUID 自动保障。
+**无交互启动采用拒绝路径**：普通 `serve`、一次性 CLI 和 stdio 桥遇到上述待确认情况，返回非零退出码及可诊断的 CONFLICT/PRECONDITION_FAILED（reason 区分登记缺失、冲突或损坏），不读 stdin 等待、不自动开浏览器、不启动业务 owner 或调用模型，也不自动选择迁移/副本。诊断在本地 stderr/既有结构化错误边界提供目标 store、登记位置和恢复步骤，stdio stdout 仍只用于协议。首版须提供不依赖业务 host/WebUI 的本机 owner 恢复子命令：显式选定目标、迁移或副本意图，核对诊断中的原登记条件并重新检查锁/旧 owner 后提交；缺失/损坏登记的修复须显式确认，不允许无条件覆盖其他域。具体命令名/schema 随 A 实现 PR 固定，本文不提供伪称可执行的命令。完成恢复后重新运行原启动命令；没有安全退出依据时继续拒绝，不能用强制参数抢占活跃库。
+
+验收覆盖无 ID 存量升级、登记写入中断、缺失/损坏/权限错误、无交互拒绝与显式恢复，以及同机改路径/文件替换、复制到另一目录、首次带入另一台机器及两份同时出现。整机克隆连本机登记也可能相同；首版不承诺离线识别任意位级克隆或提供跨机器锁，备份恢复/克隆必须显式走迁移或副本流程，不能把这项能力写成由 UUID 自动保障。
 
 | 权威对象 | 写入者、恢复来源与派生投影 |
 | --- | --- |
-| 数据域及本地 owner | bootstrap 在独占锁内建立持久域/owner 映射；旧 Records、任务和产物迁移归该可信本地 owner，保留原 ID，不按访问者认领 |
+| 数据域及本地 owner | 统一 bootstrap 在 store/登记锁内维护 store 域元数据及 OS 用户本机登记；从一致登记或可核实的未完成登记恢复。旧 Records、任务和产物归该可信本地 owner，保留原 ID，不按访问者认领 |
 | host 生命周期 | 唯一 host 控制服务；实例发现记录用于定位，锁与实例握手共同确认存活，记录/PID 单独不能证明 owner。重启创建新 incarnation |
 | 入口 enabled 与 entryRevision | owner 管理操作写现有受控配置，持久化成功后递增，跨重启延续；路由状态、地址由运行中入口投影，不能反写为期望配置 |
 | catalogRevision | 对已验证的目录 manifest 规范内容计算摘要，连同来源保留为此次 inspect 快照；远端无版本号时也不能用本地计数冒充。install 固定该快照并复核，变化返回冲突 |
@@ -214,7 +224,12 @@ host generation 应复用该 incarnation 的 P04 bridge generation 或提供固�
 固定 pin `639ed015` 的 [GenerateOptions](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/llm/llm/src/types.ts#L511) 提供 provider/model 路由，但没有按调用传入 baseURL/compat 的字段；llm-pi-ai 的 [stream/prepareCall](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/llm/llm-pi-ai/src/adapter.ts#L318-L348) 从调用时 current() 取配置，prepareCall 只能固定本进程这次准备的调用；公共接口还是 [one-shot](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/llm/llm/src/index.ts#L928-L982)，不能直接序列化后跨重启重建，也不能复用作整段多次调用的运行句柄。这是当前公共接口的静态能力边界，不证明当前 pin 上所有适配方案均不可行，更不是已经通过的恢复测试。首版不以升级 DSH、维护私有分叉或重写模型服务为前置，采用以下保守契约：
 
 - 冻结有效值用于执行一致性校验，不承诺任意历史配置可在当前环境继续执行。能按调用传入的 model/参数使用冻结值；依赖全局 current() 的 endpoint/API/compat 等，在每次准备调用前与所需冻结投影核对，不能仅比较整个设置 revision。无关 provider 变化不阻塞。
-- 比对、准备调用和配置更新之间必须有经验证的一致性边界，覆盖检查后改设置的竞态；可以复用 DSH 已准备调用能力和最小配置写入协调，不另造 provider。无法证明同一配置快照即拒绝派发，不能先检查 A 再实际调用 B。已准备的同进程调用能否继续用 A，也必须由真实 DSH 接线测试证明。
+- 首版采用**应用侧配置协调边界内的前后核验，再消费同一个已准备调用**。固定 pin 的 PreparedAdapterCall 只公开 model 与 stream，不公开它捕获的 endpoint/compat，不能声称可以直接读回准备对象核验。协调只是现有设置/调用接线的薄层，继续由 DSH 解析配置、管理凭据和执行模型，不新增 provider 或复制一套解析规则。
+  1. 进入当前 host 的准备临界区，读取实际传给该 DSH adapter 的完整有效配置来源，经同一 pinned resolver 得到所选 provider/model 的非秘密投影 A1，以及本进程协调序号。投影包含目录默认值、profile 合并和 model override 后的 endpoint/API/compat、credentialRef 等；只读用户覆盖或 UI 表单不充分。先比较冻结值，不一致即 config-mismatch；读取不完整或来源不能与当前 adapter 对应即 config-unverifiable。
+  2. 在同一临界区以冻结的 model/请求参数调用真实 DSH prepareCall，随后重读同一有效来源及协调序号，得到 A2。仅当 A1、A2 都与冻结投影相等、序号与 adapter 实例未变且准备成功，才允许消费这一个 one-shot 调用。失败就丢弃准备结果，按 config-unverifiable 阻塞，零模型派发；不能改走普通 stream/generate 重新准备。
+  3. 所有会改变该 adapter 实际配置的写入及重载/替换，必须先进入同一协调边界，覆盖 ModelSettings、DSH settings/config-editor、profile/Loader 更新和 adapter 重新注册；生效前后都受保护。协调序号在每次可能生效的变更开始前递增且在 host incarnation 内不复用，失败写入也不回退；重载/替换使旧准备结果失效。固定 pin 的 [settings revision](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/settings/settings/src/index.ts#L302-L337) 是 describe 观察到变化后递增的值，不能充当这个写入序号；前后值或 revision 相等不能排除 A→B→A。协调序号只验证本次准备窗口，不要求与受理时或重启前的数字相等。无法控制/观测的外部配置写入、原地对象修改或热重载路径须禁用在线生效、要求受控重启，或将受影响调用阻塞为 config-unverifiable，不能凭“两次读相同”宣称安全。
+  4. 核验通过后仍须在临界区内绑定并开始消费该准备调用；开始消费指实际推进异步迭代器，仅调用 stream() 或取得 iterator 不算。保护释放点须由真实调用链的快照/晚读探针证明，已有兼容保护在证明前不得缩短。若流执行仍可能晚读可变配置/共享嵌套对象，就保持相关写入保护至调用结束或阻塞，不假定 prepareCall 名称本身提供深不可变保证。授权、drain 与 deadline 继续在派发边界核查；后续片段重新进入该流程。
+- 上述有效来源和快照行为须核对 [llm-pi-ai profile 解析](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/llm/llm-pi-ai/src/index.ts#L149-L180)、[current 缓存](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/llm/llm-pi-ai/src/adapter.ts#L225-L242)和[注册更新](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/llm/llm-pi-ai/src/index.ts#L279-L316)；不能把 pi-ai 的快照语义推广到任意 adapter。其他 adapter 未证明同等边界时按 config-unverifiable 阻塞。凭据仍在消费时由 DSH 解析，允许的密钥轮换不属于冻结非秘密值的保证，也不能改变获准端点/用途。
 - 暂停、排队后执行和重启恢复都重新准备并核验。endpoint/compat 等相关有效值不一致或无法核验时，保留 checkpoint/runId，返回可解释的 blocked/config-mismatch 或 config-unverifiable，禁止调用模型；明确展示所需/当前差异（脱敏），可恢复所需配置后再次显式 resume，或选择新配置新建运行。后者不等于重译。
 - 首版允许编辑未来配置，但必须提示它可能阻塞已受理运行后续尚未准备的调用；不能写成“对既有运行完全无影响”。设置编辑锁只有在上述准备/比较竞态和阻塞恢复均验收后才可缩短或解除，旧执行路径仍保留必要保护。
 
@@ -274,7 +289,7 @@ PDF 闭环：启动控制器 start 得到 g7（或 attach 已有 g7）→ 插件
 
 | 顺序 / 归属 | 最小可证实验收 |
 | --- | --- |
-| A：D01/D05、P04 | launch/serve/CLI/stdio 同域竞争仅一 owner；路径别名/配置冲突及迁移/副本选择可诊断；临时 CLI owner 拒绝常驻 attach，结束仅收尾自己创建的 owner；两客户端 attach 常驻 host generation 相同、重启后旧句柄拒绝；关窗任务继续；drain 超时管理通道仍可查询和重试，强退不误杀/不早释锁；无托盘明确手动重启 |
+| A：D01/D05、P04 | launch/serve/CLI/stdio 同域竞争仅一 owner；不同 data/settings/组件目录仍使用同一 OS 用户登记根；无 ID 存量 store 静默登记且保留原记录/任务身份，并发及写入中断重启不产生第二 ID；已有 ID 登记缺失/损坏/权限错误、路径别名/文件替换/配置冲突及迁移/副本分别验收，不清空登记或抢锁；无 TTY 的 serve/CLI/stdio 及时非零退出、无业务受理/模型调用且不污染协议 stdout，经显式本机恢复后才重试；临时 CLI owner 拒绝常驻 attach，结束仅收尾自己创建的 owner；两客户端 attach 常驻 host generation 相同、重启后旧句柄拒绝；关窗任务继续；drain 超时管理通道仍可查询和重试，强退不误杀/不早释锁；无托盘明确手动重启 |
 | A：P04、D05、U02；外部另接 I01.shared | 未启用外部入口也须先通过本地 owner bootstrap 完成管理页安装；凭证过期/重放/跨源/错域/重启拒绝，旧会话失效；未配对 WebUI、匿名/业务令牌不能安装或退出；旧 component_install、HTTP、事件及产物无旁路；历史 owner 与新主体隔离；旧匿名配置升级默认关闭、保存 enabled/CLI 强制关闭优先级正确；MCP 关开不装卸 Loader 插件、不影响 WebUI，未实现 OpenAI 不可开启；entry/catalog/P04 修订不混用 |
 | B：P05/P08、U02 | Windows 干净主体经管理页安装真实受控 PDF 候选包；清单/摘要/引擎/协议/能力匹配；断网、缺资产、磁盘失败和崩溃恢复不损坏旧包；installed/pendingRestart 与 active/ready 分离且各界面一致；重启探针与 pdf-config 覆盖不会伪报 ready |
 | B：P05、Q02、Tasks | 暂停/重启后旧导出引用仍保护资源；升级和同版本修复不覆盖在用内容；首版必测当前精确匹配恢复与不匹配/缺旧包/未知版本持续阻塞；仅在提供切回功能时另测显式选择、重启验证及失败恢复，新版新运行需选择；不阻塞无侧车依赖翻译，不声称导入续传；共享槽可见忙碌/有界等待 |
@@ -298,6 +313,8 @@ PDF 闭环：启动控制器 start 得到 g7（或 attach 已有 g7）→ 插件
 | OBG 26 | 范围中的已定迁移顺序及 [ADR-0003](../../decisions/0003-runtime-migration-gate-0.1.x.md) |
 
 [2026-11-06 复核](https://github.com/KongouAirlines/ivoraige/pull/70#issuecomment-6676297679)对应：1→固定 DSH 冻结门禁及 W-V02.admission-text；2→PDF 必需阻塞/条件恢复验收；3→本地 owner bootstrap；4→迁移/副本登记；5→临时 owner 拒绝常驻 attach；6→W02 工作包与验证 ID；7→ADR-0003。次要项分别落在协议 §7 扩展门禁、迁移矩阵的匿名 MCP 变更、逻辑 entryId 与单一 generation。对应不表示实际实现或评审已经通过。
+
+[正式 review 5802313934](https://github.com/KongouAirlines/ivoraige/pull/70#pullrequestreview-5802313934)对应：数据域登记补充固定位置/写入者、无 ID 升级、损坏恢复和无交互启动的 A 验收；冻结门禁明确实际有效来源、应用侧变更序号、前后核验及同一准备调用的消费边界，W-V02.admission-text 对应覆盖 ABA 与重载竞态；ADR-0003 标为提议并说明合并确认方式。均为契约修订，实际运行证据仍由实现 PR 提交。
 
 ## 待决问题
 
