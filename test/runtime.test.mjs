@@ -2,13 +2,27 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
-import { mkdtemp, readdir, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { assertSupportedNode, SUPPORTED_NODE_RANGE } from '../src/runtime.mjs'
 import packageInfo from '../package.json' with { type: 'json' }
 import lockInfo from '../package-lock.json' with { type: 'json' }
+
+test('development, CI and portable defaults stay on the validated Node 26 release', async () => {
+  const version = (await readFile(new URL('../.node-version', import.meta.url), 'utf8')).trim()
+  assert.equal(version, '26.13.0')
+  const workflow = await readFile(new URL('../.github/workflows/kernel-smoke.yml', import.meta.url), 'utf8')
+  assert.ok(workflow.includes(`node: ['${version}']`))
+  for (const script of ['build-distribution', 'smoke-distribution']) {
+    const source = await readFile(new URL(`../scripts/${script}.mjs`, import.meta.url), 'utf8')
+    assert.ok(source.includes(`'${version}'`), script)
+    assert.ok(source.includes('14319838b3f355e0398c13569a90270bce4fc68f25189f58c59b03dadae0e6d5'), script)
+  }
+  const license = await readFile(new URL(`../scripts/NODE-LICENSE-v${version}.txt`, import.meta.url), 'utf8')
+  assert.match(license, /Node.js is licensed for use/)
+})
 
 test('the runtime policy excludes unpatched and unvalidated Node release lines', () => {
   assert.equal(SUPPORTED_NODE_RANGE, '>=24.22.1 <25 || >=26.12.1 <27')

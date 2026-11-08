@@ -30,6 +30,7 @@ test('lockfile and installed packages retain the dependency security baseline', 
 
 test('the DSH bundle actually consumes the patched schema and URI dependencies', async () => {
   const evidence = JSON.parse(await readFile(new URL('../dist/build-evidence.json', import.meta.url), 'utf8'))
+  assert.equal(evidence.target, 'node26', 'The default DSH build targets Node 26')
   const notices = await readFile(new URL('../dist/THIRD_PARTY_LICENSES.txt', import.meta.url), 'utf8')
   const roots = new Set(evidence.inputs.map(input => input.replaceAll('\\', '/').match(/^(.*node_modules\/(?:@[^/]+\/)?[^/]+)(?:\/|$)/)?.[1]).filter(Boolean))
   const seen = new Set()
