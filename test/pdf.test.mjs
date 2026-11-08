@@ -153,7 +153,19 @@ test('PDF Markdown bare URLs retain visible text and navigation target', async t
     null,
     null,
     'https://example.com/a-b',
+    'https://example.com/a-b',
+    'https://example.com/a-b_c?x=1&y=2',
+    'https://example.com/a-b',
+    'mailto:help@example.com',
+    "mailto:o'connor@example.com",
+    "mailto:o'connor@example.com",
+    'https://[2001:db8::1]/a',
+    'https://[::1]:8080/a-b?x=1&y=2',
+    'ftp://[2001:db8::1]/a_b',
+    'https://[2001:db8::1]/a%5Bb%5D',
+    null,
   ])
+  assert.ok([...body.querySelectorAll('a')].every(link => URL.canParse(link.getAttribute('href'))))
   assert.equal(body.querySelector('pre,code'), null)
   assert.ok(result.task.artifacts.every(item => item.snapshotId === result.snapshotId))
   assert.equal(result.task.stats.llmCalls, 0)

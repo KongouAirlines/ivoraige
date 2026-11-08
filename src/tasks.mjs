@@ -9,10 +9,18 @@ import { basename, resolve } from 'node:path'
 
 const terminal = new Set(['succeeded', 'failed', 'canceled', 'abandoned'])
 const active = new Set(['queued', 'running'])
-const safeMessage = (error, kind = 'translate') => error instanceof KernelError &&
-  ['CONFLICT', 'PRECONDITION_FAILED', 'INVALID_ARGUMENT', 'NOT_FOUND', 'COMPONENT_MISSING'].includes(error.code)
-  ? error.message : kind === 'translate' ? 'Translation failed; check the configured model and retry' :
+function safeMessage(error, kind = 'translate') {
+  if (kind === 'translate' && error instanceof KernelError && error.code === 'UPSTREAM_FAILURE' &&
+      error.details?.diagnostic === 'request-envelope') {
+    return 'Model returned request fields instead of a translation; check the model before retrying'
+  }
+  if (error instanceof KernelError &&
+      ['CONFLICT', 'PRECONDITION_FAILED', 'INVALID_ARGUMENT', 'NOT_FOUND', 'COMPONENT_MISSING'].includes(error.code)) {
+    return error.message
+  }
+  return kind === 'translate' ? 'Translation failed; check the configured model and retry' :
     `${kind === 'import' ? 'Import' : 'Export'} failed; check the source and configured components, then retry`
+}
 
 export class Tasks extends Service {
   static inject = ['ivoraige.records', 'jobs']
