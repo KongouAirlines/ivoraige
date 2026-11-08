@@ -21,6 +21,8 @@ npm test
 npm run smoke:package
 ```
 
+CI runs the locked dependency set on Node.js 26.13.0 across Linux, macOS and Windows. Node 24 remains in the runtime support range but has no CI job.
+
 See the [development guide](docs/plan/0.1.0/development-guide.md) and, for PDF work,
 [PDF development](docs/plan/0.1.0/pdf-development.md). Default tests use a mock
 provider. Run checks relevant to your change and state what you ran; documentation

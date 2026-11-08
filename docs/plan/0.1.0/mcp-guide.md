@@ -1,6 +1,6 @@
 # 0.1.0 MCP 使用指南
 
-ivoraige 的 MCP 入口把已装插件贡献的内核能力提供给本机 AI 客户端。当前代码使用官方 TypeScript MCP SDK `@modelcontextprotocol/server` 2.3.1 和 `@modelcontextprotocol/node` 2.1.1，提供 stdio 与 Streamable HTTP；文档工具参数沿用 CLI／HTTP 的内核 schema。工具和资源随插件装卸更新，因此客户端发现到的列表以正在运行的实例为准。本页对应 `0.1.0` 源码；旧 `0.1.0-dev.0` Windows 附件不代表本页的 MCP 交付范围。Windows 上曾完成官方 SDK 双 transport 测试及 DSH 0.2.0-rc.2 的真实 HTTP 客户端闭环，证据见下方阶段记录；其他客户端需按其配置方式验证。
+ivoraige 的 MCP 入口把已装插件贡献的内核能力提供给本机 AI 客户端。当前代码使用官方 TypeScript MCP SDK `@modelcontextprotocol/server` 2.4.0 和 `@modelcontextprotocol/node` 2.1.2，提供 stdio 与 Streamable HTTP；文档工具参数沿用 CLI／HTTP 的内核 schema。工具和资源随插件装卸更新，因此客户端发现到的列表以正在运行的实例为准。本页对应 `0.1.0` 源码；旧 `0.1.0-dev.0` Windows 附件不代表本页的 MCP 交付范围。Windows 上曾完成官方 SDK 双 transport 测试及 DSH 0.2.0-rc.2 的真实 HTTP 客户端闭环，证据见下方阶段记录；其他客户端需按其配置方式验证。
 
 ## 连接方式
 

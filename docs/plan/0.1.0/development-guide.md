@@ -38,6 +38,8 @@ npm test
 npm run smoke:package
 ```
 
+CI 使用锁文件中的依赖，仅在 Linux、macOS 和 Windows 上运行 Node.js 26.13.0；Node 24 的运行时支持范围不变，但不再有对应 CI job。历史运行记录保留。
+
 默认测试使用本地 mock，不调用付费模型。修改后按受影响路径验证；文档修改检查链接、版本和打包内容，不为纯文案增加业务测试。发行构建与 Sandbox 验收见[维护者指南](installation-maintenance.md)。
 
 ## 内核与持久化

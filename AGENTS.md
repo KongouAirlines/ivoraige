@@ -58,7 +58,7 @@ node --test test/*.test.mjs              # current foundation suites after build
 npm run smoke:package                   # after build: isolated tarball install and persistence/export smoke
 ```
 
-Node >=24.22.1 <25 or >=26.12.1 <27. Type "module" (ESM). Do not broaden the engines field without verifying the dependency closure and security baseline.
+Node >=24.22.1 <25 or >=26.12.1 <27. CI runs only Node 26.13.0 on Linux/macOS/Windows; the Node 24 runtime support policy is unchanged, without a CI job. Type "module" (ESM). Do not broaden the engines field without verifying the dependency closure and security baseline.
 
 ## Conventions
 

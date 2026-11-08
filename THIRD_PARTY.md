@@ -70,7 +70,7 @@ historical experiment dependency directories are not a supported substitute.
 The dependency lockfile fixes `@earendil-works/pi-ai` 0.87.1,
 `@standard-schema/spec` 1.1.0, `@eslint-community/regexpp` 4.12.2,
 `ajv` 8.20.0, `chokidar` 4.0.3, `esbuild` 0.28.2, `js-yaml` 4.3.2,
-`resolve.exports` 2.0.3, `semver` 7.8.5, `yaml` 2.9.0, `zod` 4.4.3,
+`resolve.exports` 2.0.3, `semver` 7.8.6, `yaml` 2.9.1, `zod` 4.6.7,
 `react` 18.3.1 and `react-dom` 18.3.1, plus their transitive dependencies.
 These dependencies come from the pinned DSH source used in the build closure:
 `credentials-local` imports `yaml` and `chokidar`; `config-editor` imports both
@@ -110,7 +110,12 @@ reference and DSH model settings, while explicit translation configuration
 remains available for examples and tests. When a provider omits usage, the
 business task records unknown (`null`) rather than zero.
 
-The MCP entry uses the official `@modelcontextprotocol/server` 2.3.1 and
-`@modelcontextprotocol/node` 2.1.1 packages (Apache-2.0), kept as production
-npm dependencies with their license files. The official client 2.3.1 is a
+The MCP entry uses the official `@modelcontextprotocol/server` 2.4.0 and
+`@modelcontextprotocol/node` 2.1.2 packages (Apache-2.0), kept as production
+npm dependencies with their license files. The official client 2.4.0 is a
 development-only dependency for protocol and package acceptance tests.
+
+The lockfile also fixes `fast-uri` 3.1.9 in the AJV closure and
+`@hono/node-server` 2.1.6 / `hono` 4.13.17 for the MCP Node transport. Their
+upstream license files remain in the installed packages; bundled notices follow
+actual build inputs.
