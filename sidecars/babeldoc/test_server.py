@@ -259,6 +259,25 @@ class BindingTests(unittest.TestCase):
         self.assertEqual(uncertain, ["literal alignment search limit reached",
                                      "<b1> (literal token)", "<b2> (literal token)"])
 
+    def test_budget_exhaustion_discards_a_complete_but_unproven_solution(self):
+        request = "A <b1> B <b2> C"
+        source = "A x B y B z C"
+        payloads = [{"type": "formula", "placeholder": "<b1>",
+                     "formula_chars": "retained formula"}]
+        # Both limits allow the first complete alignment, but stop the search
+        # before it can discover the second one and disprove uniqueness.
+        for limit, budget in (("DISPLAY_MAPPING_MAX_CANDIDATES", 1),
+                              ("DISPLAY_MAPPING_MAX_SEARCH_CHARS", len(source) - 2)):
+            with self.subTest(limit=limit), patch.object(server, limit, budget):
+                uncertain = []
+                mapped = server.display_mapping(request, source, payloads, uncertain)
+                self.assertEqual(mapped, [
+                    {"token": "<b1>", "text": "retained formula"},
+                    {"token": "<b2>", "text": "<b2>"},
+                ])
+                self.assertEqual(uncertain, ["literal alignment search limit reached",
+                                             "<b1> (payload)", "<b2> (literal token)"])
+
     def test_completed_callbacks_keep_payloads_by_location(self):
         first = {"key": "p0:first", "preparedInput": "A <b1> B",
                  "placeholderPayloads": [{"type": "formula", "placeholder": "<b1>",

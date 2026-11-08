@@ -49,12 +49,19 @@ const escapePdfLiteral = value => value.replace(/\r\n?/g, '\n')
 
 // Keep link labels and destinations separate: GFM bare-URL parsing otherwise
 // treats prose backslash escapes and HTML entities as part of the address.
-const pdfLinks = /\b(?:https?:\/\/|ftp:\/\/|www\.)[^\s<>]+|(?<![A-Za-z0-9.!#$%&'*+/=?^_`{|}~-])[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?![\w-])/gi
+const pdfLinks = /(?:https?:\/\/|ftp:\/\/|\bwww\.)[^\s<>]+|(?<![A-Za-z0-9.!#$%&'*+/=?^_`{|}~-])[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?![\w-])/gi
 function escapePdfMarkdown(value) {
   let result = '', cursor = 0
   for (const match of value.matchAll(pdfLinks)) {
     const raw = match[0]
-    let link = raw
+    let link = raw, prefix = ''
+    // A pair of prose quotes is not part of an email's local name. Apostrophes
+    // inside a name (o'connor@example.com) remain address data.
+    if (!/^(?:https?:\/\/|ftp:\/\/|www\.)/i.test(raw) &&
+        raw.startsWith("'") && value[match.index + raw.length] === "'") {
+      prefix = raw.match(/^'+/)[0]
+      link = raw.slice(prefix.length)
+    }
     // Sentence punctuation and unmatched enclosing brackets stay literal prose.
     const excess = { ')': 0, ']': 0 }
     const entityEnds = new Set([...link.matchAll(/&[A-Za-z0-9]+;/g)]
@@ -77,14 +84,18 @@ function escapePdfMarkdown(value) {
     link = link.slice(0, end)
     const destination = /^www\./i.test(link) ? `http://${link}`
       : /^(?:https?|ftp):\/\//i.test(link) ? link : `mailto:${link}`
-    result += escapePdfLiteral(value.slice(cursor, match.index))
+    result += escapePdfLiteral(value.slice(cursor, match.index) + prefix)
     if (link && URL.canParse(destination)) {
       const href = destination.replace(/&/g, '&amp;').replace(/\\/g, '\\\\')
+        // Preserve IPv6 authority brackets through Markdown URI encoding. Path
+        // brackets still receive the renderer's ordinary percent encoding.
+        .replace(/^((?:https?|ftp):\/\/(?:[^/?#]*@)?)\[([^\]]+)\]/i,
+          '$1&#91;$2&#93;')
       result += `[${escapePdfLiteral(link)}](<${href}>)`
-      result += escapePdfLiteral(raw.slice(link.length))
+      result += escapePdfLiteral(raw.slice(prefix.length + link.length))
     } else {
       // An invalid URL-shaped token is text, not an implicitly corrupted link.
-      result += escapePdfLiteral(raw).replace(/:/g, '&#58;')
+      result += escapePdfLiteral(raw.slice(prefix.length)).replace(/:/g, '&#58;')
         .replace(/\./g, '&#46;').replace(/@/g, '&#64;')
     }
     cursor = match.index + raw.length

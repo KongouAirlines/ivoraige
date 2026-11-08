@@ -82,6 +82,17 @@ if (mode === 'markdown-url') {
     'Invalid nested www https://[badwww.example.com',
     'Invalid mail https://[bad/user-name@example.com',
     'Punctuation https://example.com/a-b;',
+    'Reference_https://example.com/a-b',
+    'Referencehttps://example.com/a-b_c?x=1&y=2',
+    '123https://example.com/a-b',
+    "Contact 'help@example.com'.",
+    "Contact 'o'connor@example.com'.",
+    "Contact o'connor@example.com.",
+    'IPv6 https://[2001:db8::1]/a',
+    'IPv6 port https://[::1]:8080/a-b?x=1&y=2',
+    'IPv6 FTP ftp://[2001:db8::1]/a_b',
+    'IPv6 path https://[2001:db8::1]/a[b]',
+    'Adjacent invalid Reference_https://[bad/a-b',
   ]
   units.splice(0, units.length, ...sources.map((sourceText, order) => ({
     order, kind: 'body', sourceText, locator: { page: 1 }, translatable: false,

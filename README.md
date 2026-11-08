@@ -26,6 +26,7 @@ The goal is a shared foundation for people and AI: choose the capabilities you n
 
 - **Add what you need.** Start with text and Markdown. Install the optional PDF component when your workflow calls for it.
 - **Keep a hand in the result.** Compare source and translation, save drafts, accept revisions, and return to earlier work.
+- **Check the translation boundary.** New model requests identify only the source unit as the translation target and provide neighboring units as context. A complete internal request JSON echo fails the translation task before it can become a revision; inspect the task error and retry after checking the model. Review short labels and paragraphs for other echoed fields or duplicated neighboring text before export. Previously accepted revisions and frozen exports are not rewritten.
 - **Reuse accepted translations.** Export supported formats from one frozen snapshot. Exporting does not ask a model to translate again.
 - **Keep the original structure.** CLI export with `--content-mode source` can produce Markdown or JSON without a target language or accepted translation. For imported PDFs, it can also copy the verified managed original PDF. The default remains accepted-translation export with `--target-lang`.
 - **Select an implementation when needed.** `--format` names the document or output format; `--adapter ID` explicitly selects an installed implementation. Otherwise the highest match across compatible input views wins; equal matches require an explicit choice. Queued work keeps the selected implementation and version, and asks you to retry if it changes. A text-only adapter does not replace the optional component for PDF files or binary uploads.
@@ -51,7 +52,7 @@ New PDF imports show captured units, translation callback requests, retained uni
 
 PDF Markdown export shows captured headings at one unranked section level and keeps extracted symbols, identifiers, and unresolved placeholder tokens visible as literal text. Other captured units remain paragraphs; the export cannot recover missing text, table cells, figures, or accurate heading levels.
 
-Recognized links keep their visible labels and navigation targets; prose escapes do not become part of the address. Leading spaces and tabs, including mixed prefixes, stay visible prose instead of creating code blocks.
+Recognized links keep their visible labels and navigation targets, including URLs adjacent to identifiers, quoted email addresses, and IPv6 hosts; prose escapes do not become part of the address. Leading spaces and tabs, including mixed prefixes, stay visible prose instead of creating code blocks.
 
 When a new PDF import reaches the placeholder alignment search limit, it keeps available formula payloads or visible placeholder tokens and records a warning. Existing bindings are unchanged; this does not verify page layout.
 
@@ -94,6 +95,8 @@ These are directions, not delivery dates. The [0.1.x plan](docs/plan/0.1.x/READM
 [Using the workbench (中文)](docs/plan/0.1.0/workbench-guide.md) · [Model settings (中文)](docs/plan/0.1.0/settings-guide.md) · [Development](docs/plan/0.1.0/development-guide.md) · [Issues](https://github.com/KongouAirlines/ivoraige/issues)
 
 Tell us what you are trying to translate or process, where the workflow gets in your way, and which tools you would like to combine. Reproducible reports and original or shareable samples are especially useful.
+
+Maintainers can use [Codex issue triage (中文)](docs/plan/0.1.x/issue-triage.md) to suggest existing labels and possible duplicates through the OpenAI API. Duplicate suggestions require human judgment; issues are never closed automatically.
 
 Sample-library development lives in the access-restricted private repository [translate-source-lib](https://github.com/KongouAirlines/translate-source-lib). See [repository responsibilities and verification guidance (中文)](docs/plan/0.1.x/sample-library.md) for its merged baseline, authorized sample use, and the distinction between sample checks and actual ivoraige execution. External contributors can first describe the problem, public source and license in an issue; do not upload private document text.
 
