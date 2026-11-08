@@ -25,3 +25,11 @@ msjs在`33c4a1f`的复核指出两处剩余问题，均使用锁定marked18.1.1�
 HTTP/HTTPS/FTP 候选不再要求单词边界；邮箱外侧的配对单引号留在正文，名称内部撇号保留；显式链接目的地将 IPv6 authority 方括号写为字符实体，避免 Markdown 的 URI 编码将它们变成主机名里的 `%5B`／`%5D`。路径中的方括号仍走通常编码。链接夹具从 17 项扩至 28 项，覆盖相邻字母、数字、下划线，邮箱内外撇号，IPv6 端口、查询、FTP、路径及相邻无效地址；逐项核对可见文字、完整 href、URL 可解析性及冻结 JSON，并保留同快照和零模型调用断言。新增回归先在修复前失败，再在修复后通过。
 
 同步 `main` 的 `9a7c930`，保留已合入的语言路由、覆盖统计和翻译边界修复，消除堆叠分支与 squash 提交的冲突。完整 `npm test`（含构建）561 通过、2 条件跳过、0 失败；Python 模拟 sidecar 20/20，npm 包 smoke 83 文件通过，diff 检查通过。真实 PDF、实际链接打开及 Mac 同 head 视觉验收仍未执行。
+
+## 2026-11-08：相邻 www 与引号内标点
+
+按 [msjs 的最新复核](https://github.com/KongouAirlines/ivoraige/pull/77#pullrequestreview-5816912229)，在 `adb2cb5` 独立复现两个剩余边界：`Reference_www.example.com/a-b` 的可见文字出现反斜杠，href 变为 `http://www.example.com/a%5C-b`；`Contact 'help@example.com.'` 的开引号进入收件地址。两例均使用锁定的 marked 18.1.1 与 JSDOM 27.4.0 检查实际渲染结果。
+
+www 候选与 HTTP/HTTPS/FTP 使用相同的相邻字符规则；邮箱闭引号前允许句尾标点，外侧引号和标点仍作为正文输出，名称内部和未配对的前导撇号保留。链接夹具从 28 项扩至 42 项，新增字母、数字、下划线前缀、www 大小写、查询参数、六种句尾标点及组合、内外撇号和未配对引号。回归通过真实冻结 MD/JSON 导出，逐项断言完整可见文字和精确 href，不以 URL 可解析性代替地址正确性。来源绑定、快照格式、sidecar 协议及通用输出服务不变。
+
+Linux、Node 24.22.1、Python 3.12.14：新增链接回归在修复前失败；修复后 PDF Markdown 定向 4/4，通过完整 `npm test`（含构建）561 项、2 条件跳过、0 失败，Python 模拟 sidecar 20/20，npm 包 smoke 83 文件及 `git diff --check` 通过。首次完整运行的无关模型取消测试出现一次请求计数 `1 !== 2`；未修改该路径，单独重跑该套件 12/12、再跑完整套件通过，不能将首次运行记为通过。测试只使用原创合成输入、临时 SQLite 和模拟 sidecar；真实 PDF、实际链接打开及 Mac 界面验收仍未执行。

@@ -49,16 +49,16 @@ const escapePdfLiteral = value => value.replace(/\r\n?/g, '\n')
 
 // Keep link labels and destinations separate: GFM bare-URL parsing otherwise
 // treats prose backslash escapes and HTML entities as part of the address.
-const pdfLinks = /(?:https?:\/\/|ftp:\/\/|\bwww\.)[^\s<>]+|(?<![A-Za-z0-9.!#$%&'*+/=?^_`{|}~-])[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?![\w-])/gi
+const pdfLinks = /(?:https?:\/\/|ftp:\/\/|www\.)[^\s<>]+|(?<![A-Za-z0-9.!#$%&'*+/=?^_`{|}~-])[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}(?![\w-])/gi
 function escapePdfMarkdown(value) {
   let result = '', cursor = 0
   for (const match of value.matchAll(pdfLinks)) {
     const raw = match[0]
     let link = raw, prefix = ''
-    // A pair of prose quotes is not part of an email's local name. Apostrophes
-    // inside a name (o'connor@example.com) remain address data.
+    // Prose quotes may enclose sentence punctuation as well as the email.
+    // Apostrophes inside a name (o'connor@example.com) remain address data.
     if (!/^(?:https?:\/\/|ftp:\/\/|www\.)/i.test(raw) &&
-        raw.startsWith("'") && value[match.index + raw.length] === "'") {
+        raw.startsWith("'") && /^[.!?,:;]*'/.test(value.slice(match.index + raw.length))) {
       prefix = raw.match(/^'+/)[0]
       link = raw.slice(prefix.length)
     }

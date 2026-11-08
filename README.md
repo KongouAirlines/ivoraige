@@ -52,7 +52,7 @@ New PDF imports show captured units, translation callback requests, retained uni
 
 PDF Markdown export shows captured headings at one unranked section level and keeps extracted symbols, identifiers, and unresolved placeholder tokens visible as literal text. Other captured units remain paragraphs; the export cannot recover missing text, table cells, figures, or accurate heading levels.
 
-Recognized links keep their visible labels and navigation targets, including URLs adjacent to identifiers, quoted email addresses, and IPv6 hosts; prose escapes do not become part of the address. Leading spaces and tabs, including mixed prefixes, stay visible prose instead of creating code blocks.
+Recognized links keep their visible labels and navigation targets, including URLs and www addresses adjacent to identifiers, quoted email addresses with punctuation inside or outside the quotes, and IPv6 hosts; prose escapes do not become part of the address. Leading spaces and tabs, including mixed prefixes, stay visible prose instead of creating code blocks.
 
 The source sidecar in this branch routes declared `en` PDF sources to `zh`/`zh-CN`/`zh-Hans`, and declared `zh`/`zh-CN`/`zh-Hans` sources to `en`. Select the real source language; the app does not detect it. Chinese-to-English PDF rendering is an implemented candidate pending real BabelDOC and Mac visual verification. It requires the matching source sidecar; existing installed components may still accept English only. Source-mode PDF export copies the verified original without a target language.
 
