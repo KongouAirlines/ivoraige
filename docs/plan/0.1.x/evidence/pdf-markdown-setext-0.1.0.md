@@ -49,3 +49,15 @@ Linux、Node 24.22.1、Python 3.12.14：新增链接回归在修复前失败；�
 显式尖括号边界现在保留 URL 的末尾字符，裸链接的句尾标点行为不变。候选类型在裁剪前固定，www 候选还核对解析后的主机标签，拒绝空标签、无主机后缀等错误地址，同时保留合法根域句点。字面文本的 `@` 在转义完成后写为字符实体，只有适配器认可的完整邮箱候选能生成链接，避免下游 GFM 二次截断。来源绑定、冻结 JSON 和通用 Markdown 解析不变。
 
 新增 33 个集成场景覆盖显式边界、裸链接对照、无效 www、带后缀的邮箱形标识符、有效邮箱及同段混合有效/无效候选；与此前 57 项一起核对完整可见文字、全部精确 href、MD/JSON 同快照及零模型调用。修复过程的首次实体编码顺序错误被可见文字断言捕获并修正，未发布该中间版本。最终代码在 Linux、Node 24.22.1、marked 18.1.1、JSDOM 27.4.0 下通过 PDF Markdown 定向 5/5、完整 `npm test`（含构建）562 通过、2 条件跳过、0 失败；Python 模拟 sidecar 20/20。真实 PDF、实际链接打开和 Mac 界面验收仍未执行。
+
+## 2026-11-08：完整邮箱候选与收件地址边界
+
+[msjs 的复核](https://github.com/KongouAirlines/ivoraige/pull/77#pullrequestreview-5817468775)指出邮箱正则能回退到较早域名标签。在 `d2bc7cc9`、Node 24.22.1、marked 18.1.1、JSDOM 27.4.0 上直接复现：`user@dept.example.xn--p1ai` 与 `user@dept.example.com_x` 链到 `mailto:user@dept.example`；`user@example.com.foo_bar` 及尖括号变体链到 `mailto:user@example.com`。可见文字未变，但收件目标错误。
+
+实现改为先收集完整正文候选，再校验一个完整邮箱，不通过回溯抽取较短域名或双 `@` 的后半段。ASCII dot-atom 名称保留，DNS/Unicode/Punycode 域名通过内置 IDNA 转换并逐标签验证；明确长度和支持范围，不支持的本地名称、域名字面量及无效后缀完整保留为正文。ASCII/弯单引号在明确配对时作为外侧标点，内部 Unicode 撇号不会被删除后链接剩余部分。mailto 的名称部分按 URI 数据编码，防止 `?`、`#`、`%` 等成为查询、片段或注入载体；被拒绝候选也抑制内层 www 自动链接。URL 的原有优先级、IPv6 和尖括号规则保留，实体形 URL 的十进制/十六进制尾分号不再裁掉。没有增加依赖或改变通用 Markdown、冻结快照、sidecar 协议及 PDF 引擎。
+
+新增 73 个原创场景，与已有 90 个一起核对完整可见文字及每个精确 href，覆盖多层有效/无效域名、Punycode 和 Unicode 域名、双 @、内部 www、相邻文字、引号、尖括号、混合地址、长度边界和有限 HTML/URI 安全探针。新集成测试经过模拟 sidecar、Cordis/临时 SQLite、冻结 MD/JSON 导出和重启后的旧快照重放，继续断言同快照及零模型调用。安全探针不等同于全面安全审计，也不验证邮箱可投递。
+
+扩展测试的首轮把 HTML 会丢弃的 NUL 当作逐字节 DOM 文本来比较而失败；该不适用的 oracle 已拆成独立控制字符用例，验证 Markdown 保有原字符且 HTML 规范化后仍不生成截短链接。此前报告的两个空格加换行形成 `<br>` 属于 Markdown 空白语义，正文与视觉换行未丢，不称其为正文丢失；指南明确了 DOM 文本与冻结原文的区别。
+
+最终验证：Linux、Node 24.22.1、Python 3.12.14，完整 `npm test`（含构建）564 通过、2 条件跳过、0 失败，Python 模拟 sidecar 20/20，npm 包 smoke 83 文件和 `git diff --check` 通过。首次包 smoke 因默认 npm 缓存目录不可写未完成，改用可写的临时缓存后重跑通过。真实 PDF 引擎/样本、实际邮件或链接打开及 Mac GUI 验收未执行；DSH 独立复核与这些本地结果分别报告。

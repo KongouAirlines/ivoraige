@@ -7,9 +7,10 @@ import { fileURLToPath } from 'node:url'
 import { Service } from '../dist/dsh.mjs'
 import { createApp } from '../src/app.mjs'
 import { serve } from '../src/http.mjs'
-import { placeholderTokens } from '../src/adapters/pdf-text.mjs'
+import { placeholderTokens, renderPdfMarkdown } from '../src/adapters/pdf-text.mjs'
 import { marked } from 'marked'
 import { JSDOM } from 'jsdom'
+import { pdfEmailCases } from './fixtures/pdf-email-cases.mjs'
 
 const engine = fileURLToPath(new URL('./fixtures/pdf-engine.mjs', import.meta.url))
 const originalBytes = '%PDF-FAKE-ORIGINAL\nA test source, not a real PDF.\n'
@@ -239,6 +240,53 @@ test('PDF Markdown respects explicit URL boundaries and leaves invalid link cand
   ])
   assert.ok(result.task.artifacts.every(item => item.snapshotId === result.snapshotId))
   assert.equal(result.task.stats.llmCalls, 0)
+})
+
+test('PDF Markdown validates complete email candidates without changing recipients', async t => {
+  const f = await fixture(t, 'markdown-email')
+  const doc = await imported(f)
+  const options = { contentMode: 'source', outputs: [{ format: 'md' }, { format: 'json' }] }
+  const result = await exported(f.app, doc.id, options)
+  const md = await readFile(result.artifacts.md.path, 'utf8')
+  const json = JSON.parse(await readFile(result.artifacts.json.path, 'utf8'))
+  const body = new JSDOM(marked.parse(md)).window.document.body
+  const paragraphs = [...body.querySelectorAll('p')]
+  assert.deepEqual(json.units.map(unit => unit.text), pdfEmailCases.map(([source]) => source))
+  assert.equal(paragraphs.length, pdfEmailCases.length)
+  for (const [index, [source, hrefs]] of pdfEmailCases.entries()) {
+    assert.equal(paragraphs[index].textContent, source, `visible source ${index}`)
+    assert.deepEqual([...paragraphs[index].querySelectorAll('a')].map(a => a.getAttribute('href')),
+      hrefs, `destinations ${index}: ${source}`)
+  }
+  assert.equal(body.querySelector('script,img,iframe,object,form'), null)
+  for (const link of body.querySelectorAll('a')) {
+    const url = new URL(link.getAttribute('href'))
+    assert.ok(['http:', 'https:', 'ftp:', 'mailto:'].includes(url.protocol))
+    if (url.protocol === 'mailto:') {
+      assert.equal(url.search, '')
+      assert.equal(url.hash, '')
+    }
+  }
+  assert.ok(result.task.artifacts.every(item => item.snapshotId === result.snapshotId))
+  assert.equal(result.task.stats.llmCalls, 0)
+  await f.restart()
+  const replay = await exported(f.app, doc.id, { ...options, snapshotId: result.snapshotId })
+  for (const format of ['md', 'json']) {
+    assert.deepEqual(await readFile(replay.artifacts[format].path), await readFile(result.artifacts[format].path))
+  }
+  assert.equal(replay.task.stats.llmCalls, 0)
+})
+
+test('PDF email candidates containing NUL remain unlinked after HTML normalization', () => {
+  const text = 'user@example.com\u0000'
+  const md = renderPdfMarkdown({ sourceBinding: { adapterId: 'babeldoc', records: [{}] },
+    snapshot: { id: 'original-control-probe', revisionSetHash: 'original-control-probe' },
+    document: { title: 'Control probe' }, units: [{ unit: { order: 0, kind: 'body' }, text }] })
+  assert.ok(md.includes('\u0000'))
+  // HTML parsing discards NUL. Do not mistake textContent normalization for
+  // exact source preservation or allow it to create a shorter email link.
+  const body = new JSDOM(marked.parse(md)).window.document.body
+  assert.equal(body.querySelector('a'), null)
 })
 
 test('PDF coverage summary persists in Cordis records and frozen JSON after restart', async t => {
