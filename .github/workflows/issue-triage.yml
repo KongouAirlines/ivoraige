@@ -1,5 +1,10 @@
 name: Codex issue triage
 
+# These upstream actions own their JavaScript runtimes: checkout uses Node 20,
+# github-script uses Node 24, and codex-action internally selects Node 24 with
+# no version input. Project setup-node cannot override those action runtimes.
+# GitHub's JavaScript action metadata currently supports node20/node24, not node26.
+
 on:
   issues:
     types: [opened]

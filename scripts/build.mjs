@@ -12,6 +12,7 @@ if (!existsSync(join(dependencies, 'esbuild/package.json'))) {
 }
 const require = createRequire(join(dependencies, '..', 'package.json'))
 const { build } = require('esbuild')
+const target = 'node26'
 const aliases = new Map()
 async function scan(dir) {
   for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -30,7 +31,7 @@ await mkdir(join(root, 'dist'), { recursive: true })
 const result = await build({
   absWorkingDir: root,
   entryPoints: ['src/dsh-bridge.ts'], outfile: 'dist/dsh.mjs', bundle: true,
-  platform: 'node', format: 'esm', target: 'node24', metafile: true,
+  platform: 'node', format: 'esm', target, metafile: true,
   nodePaths: [dependencies],
   banner: { js: `import { createRequire as __ivoraigeCreateRequire } from "node:module"; const require = __ivoraigeCreateRequire(import.meta.url); export const IVORAIGE_DSH_COMMIT = ${JSON.stringify(DSH_COMMIT)};` },
   plugins: [{ name: 'pinned-dsh-source', setup(builder) {
@@ -96,5 +97,5 @@ for (const directory of [...licenseRoots].sort()) {
   licenseSections.push(`${pkg.name} ${pkg.version} (${pkg.license ?? 'see notice'})\n${texts.join('\n').trim()}`)
 }
 await writeFile(join(root, 'dist/THIRD_PARTY_LICENSES.txt'), licenseSections.join('\n\n====================\n\n') + '\n')
-await writeFile(join(root, 'dist/build-evidence.json'), JSON.stringify({ dshCommit: DSH_COMMIT, inputs: Object.keys(result.metafile.inputs) }, null, 2) + '\n')
+await writeFile(join(root, 'dist/build-evidence.json'), JSON.stringify({ dshCommit: DSH_COMMIT, target, inputs: Object.keys(result.metafile.inputs) }, null, 2) + '\n')
 console.log(`Built dist/dsh.mjs from ${Object.keys(result.metafile.inputs).length} source files (${DSH_COMMIT})`)

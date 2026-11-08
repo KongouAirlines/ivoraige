@@ -15,10 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        node: ['24.22.1']
-        include:
-          - os: windows-latest
-            node: '26.12.1'
+        node: ['26.13.0']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v5

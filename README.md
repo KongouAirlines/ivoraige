@@ -40,7 +40,7 @@ The goal is a shared foundation for people and AI: choose the capabilities you n
 
 **Run 0.1.0 from source.** Follow the [installation guide (中文)](docs/plan/0.1.0/installation-guide.md). The previous Releases and their attachments have been withdrawn; prebuilt downloads will return in a later release. The source repository is public.
 
-Use Node.js `>=24.22.1 <25 || >=26.12.1 <27` with npm. Later stable patches within either supported major are suitable for source use; Node 25 and future majors are outside the current supported range. For a Windows portable build, use the fixed Node.js 26.12.1 runtime.
+Use Node.js **26.13.0** with npm by default (`.node-version`). Node 24 is retained only for compatibility; the supported range remains `>=24.22.1 <25 || >=26.12.1 <27`. Later stable patches within either supported major are suitable for source use; Node 25 and future majors are outside the current supported range. CI validates Node.js 26.13.0 on Linux, macOS and Windows; Node 24 remains supported but no longer has a CI job. The DSH bundle targets Node 26. Windows portable builds require the official fixed Node.js 26.13.0 executable and its matching license.
 
 1. Open the workbench and import a TXT or Markdown file.
 2. Configure a model when you want machine translation, or enter translations yourself.

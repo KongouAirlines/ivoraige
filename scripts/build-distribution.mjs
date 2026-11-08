@@ -10,11 +10,16 @@ import { copyUserDocs, releaseInfo } from './release-docs.mjs'
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const packageJson = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
 const version = packageJson.version
-const nodeVersionRequired = '26.12.1'
+const nodeVersionRequired = '26.13.0'
+// Official https://nodejs.org/dist/v26.13.0/SHASUMS256.txt, win-x64/node.exe.
+const nodeSha256Required = '14319838b3f355e0398c13569a90270bce4fc68f25189f58c59b03dadae0e6d5'
 if (process.platform !== 'win32' || process.arch !== 'x64') {
   throw new Error('Windows distribution builds must run on Windows x64')
 }
 if (process.versions.node !== nodeVersionRequired) throw new Error(`Distribution build requires validated Node.js ${nodeVersionRequired}; found ${process.versions.node}`)
+if (await digest(process.execPath) !== nodeSha256Required) {
+  throw new Error('Distribution build requires the official Windows x64 Node.js executable; SHA-256 mismatch')
+}
 
 const runsRoot = resolve(root, 'evaluation', 'runs')
 const distribution = join(runsRoot, `distribution-${version}`)
@@ -132,6 +137,8 @@ try {
     format: 'portable-folder-zip',
     runtime: `Node.js ${process.versions.node} bundled as runtime/node.exe; official upstream license at runtime/NODE-LICENSE.txt`,
     nodeVersion,
+    nodeSha256: await digest(runtime),
+    nodeSource: `https://nodejs.org/dist/v${nodeVersionRequired}/win-x64/node.exe`,
     entry: 'ivoraige.cmd -> runtime/node.exe app/src/launch.mjs',
     seaProbe: 'Node 26.7 ESM SEA built, then failed on esbuild-generated dynamic require("process") in yaml; CJS output fails at bundle time on top-level await/import.meta.',
     output: archive,

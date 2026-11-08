@@ -1,5 +1,7 @@
 # 0.1.0 实施记录
 
+2026-11-08: [Dependency refresh and latest-Node CI](dependency-refresh.md).
+
 2026-10-22 的 Node.js 安全基线、启动检查、Windows 运行时与验证结果见 [Node 安全阶段记录](node-security.md)。
 
 历史 PR 的完整审查报告见[全量 PR 审查归档](pr-review/README.md)。

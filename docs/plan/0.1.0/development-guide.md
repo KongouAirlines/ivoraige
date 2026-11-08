@@ -4,7 +4,7 @@
 
 ## 准备与启动
 
-`0.1.0` 是首个正式软件版本，本页可用于源码检出或无 `.git` 的源码归档。需要 Git、Node.js `>=24.22.1 <25 || >=26.12.1 <27` 和随 Node 安装的 npm；源码运行可使用这两个受支持主版本内更新的稳定补丁版，Node 25 和未来主版本暂不在支持范围内。Git 用于取得固定 DSH 源码，应用自身的构建不要求源码归档含 Git 元数据。本仓库、固定 DSH 源码与 npm 依赖均来自公开来源。TXT／Markdown 启动无需 Python 或 PDF 资产。在仓库根目录执行：
+`0.1.0` 是首个正式软件版本，本页可用于源码检出或无 `.git` 的源码归档。需要 Git、默认 Node.js 26.13.0（`.node-version`）和随 Node 安装的 npm；DSH bundle 目标为 Node 26，Node 24 仅保留兼容，运行时支持范围仍为 `>=24.22.1 <25 || >=26.12.1 <27`；源码运行可使用这两个受支持主版本内更新的稳定补丁版，Node 25 和未来主版本暂不在支持范围内。Git 用于取得固定 DSH 源码，应用自身的构建不要求源码归档含 Git 元数据。本仓库、固定 DSH 源码与 npm 依赖均来自公开来源。TXT／Markdown 启动无需 Python 或 PDF 资产。在仓库根目录执行：
 
 ```powershell
 npm ci
@@ -37,6 +37,8 @@ VS Code 首次完成依赖准备后，选择“ivoraige: 启动文本工作台�
 npm test
 npm run smoke:package
 ```
+
+CI 使用锁文件中的依赖，仅在 Linux、macOS 和 Windows 上运行 Node.js 26.13.0；Node 24 的运行时支持范围不变，但不再有对应 CI job。历史运行记录保留。
 
 默认测试使用本地 mock，不调用付费模型。修改后按受影响路径验证；文档修改检查链接、版本和打包内容，不为纯文案增加业务测试。发行构建与 Sandbox 验收见[维护者指南](installation-maintenance.md)。
 

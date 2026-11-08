@@ -16,7 +16,7 @@
 
 - HTTP API 前缀 `/api`，当前版本 `"apiVersion": "2.0"`。所有响应 JSON 顶层含 `apiVersion` 字段；CLI `--json` 输出与 REST 响应**同一份序列化结构**（schema 共用 zod 定义，CLI 只是换 stdout）。
 - 破坏性变更升级 `apiVersion` 并保留旧版本端点至少一个次版本；新增可选字段不算破坏。
-- MCP tools 的参数复用同一份 zod schema（当前使用 `@modelcontextprotocol/server` 2.3.1 注册），业务结果复用内核操作的 `apiVersion` 字段与数据结构，命名 `ivoraige_<verb>`，见 §6。
+- MCP tools 的参数复用同一份 zod schema（当前使用 `@modelcontextprotocol/server` 2.4.0 注册），业务结果复用内核操作的 `apiVersion` 字段与数据结构，命名 `ivoraige_<verb>`，见 §6。
 
 ### 1.2 认证与安全（照搬 DSH 凭据体系）
 
