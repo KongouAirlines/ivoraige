@@ -52,7 +52,7 @@ New PDF imports show captured units, translation callback requests, retained uni
 
 PDF Markdown export shows captured headings at one unranked section level and keeps extracted symbols, identifiers, and unresolved placeholder tokens visible as literal text. Other captured units remain paragraphs; the export cannot recover missing text, table cells, figures, or accurate heading levels.
 
-Recognized links keep their visible labels and navigation targets, including URLs adjacent to identifiers, quoted email addresses, and IPv6 hosts; prose escapes do not become part of the address. Leading spaces and tabs, including mixed prefixes, stay visible prose instead of creating code blocks.
+Recognized links keep their visible labels and navigation targets, including URLs and www addresses adjacent to identifiers, quoted email addresses with punctuation inside or outside the quotes, and IPv6 hosts; prose escapes do not become part of the address. Leading spaces and tabs, including mixed prefixes, stay visible prose instead of creating code blocks.
 
 When a new PDF import reaches the placeholder alignment search limit, it keeps available formula payloads or visible placeholder tokens and records a warning. Existing bindings are unchanged; this does not verify page layout.
 
