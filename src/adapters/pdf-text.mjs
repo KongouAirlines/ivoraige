@@ -55,10 +55,11 @@ function escapePdfMarkdown(value) {
   for (const match of value.matchAll(pdfLinks)) {
     const raw = match[0]
     let link = raw, prefix = ''
-    // Prose quotes may enclose sentence punctuation as well as the email.
-    // Apostrophes inside a name (o'connor@example.com) remain address data.
+    // Prose quotes may enclose Unicode punctuation as well as the email, but
+    // do not pair across words or whitespace. Apostrophes inside a name
+    // (o'connor@example.com) remain address data.
     if (!/^(?:https?:\/\/|ftp:\/\/|www\.)/i.test(raw) &&
-        raw.startsWith("'") && /^[.!?,:;]*'/.test(value.slice(match.index + raw.length))) {
+        raw.startsWith("'") && /^\p{P}*'/u.test(value.slice(match.index + raw.length))) {
       prefix = raw.match(/^'+/)[0]
       link = raw.slice(prefix.length)
     }

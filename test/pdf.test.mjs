@@ -178,6 +178,21 @@ test('PDF Markdown bare URLs retain visible text and navigation target', async t
     "mailto:o'connor@example.com",
     "mailto:'o'connor@example.com",
     "mailto:'help@example.com",
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    "mailto:o'connor@example.com",
+    "mailto:o'connor@example.com",
+    "mailto:'o'connor@example.com",
+    "mailto:'help@example.com",
+    "mailto:'help@example.com",
+    "mailto:'help@example.com",
   ])
   assert.ok([...body.querySelectorAll('a')].every(link => URL.canParse(link.getAttribute('href'))))
   assert.equal(body.querySelector('pre,code'), null)
