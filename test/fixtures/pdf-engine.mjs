@@ -1,4 +1,5 @@
 import { createInterface } from 'node:readline'
+import { pdfEmailCases } from './pdf-email-cases.mjs'
 import { readFile, writeFile, access } from 'node:fs/promises'
 
 const [mode = 'normal', marker] = process.argv.slice(2)
@@ -63,8 +64,9 @@ if (mode === 'markdown-indent') {
     order: unit.order, requestText: unit.sourceText, placeholders: [],
   })))
 }
-if (mode === 'markdown-url' || mode === 'markdown-link-boundaries') {
-  const sources = mode === 'markdown-link-boundaries' ? [
+if (['markdown-url', 'markdown-link-boundaries', 'markdown-email'].includes(mode)) {
+  const sources = mode === 'markdown-email' ? pdfEmailCases.map(([source]) => source)
+    : mode === 'markdown-link-boundaries' ? [
     '<https://example.com/a!>',
     '<https://example.com/a?>',
     '<https://example.com/a;>',

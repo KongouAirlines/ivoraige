@@ -54,7 +54,7 @@ PDF Markdown export shows captured headings at one unranked section level and ke
 
 Recognized links keep their visible labels and navigation targets, including URLs and www addresses adjacent to identifiers, quoted email addresses with ASCII or Unicode punctuation inside or outside the quotes, and IPv6 hosts; prose escapes do not become part of the address. Leading spaces and tabs, including mixed prefixes, stay visible prose instead of creating code blocks.
 
-URLs enclosed in angle brackets keep their trailing address characters. Invalid www candidates and email-like identifiers with invalid suffixes remain plain text instead of linking to a different address.
+URLs enclosed in angle brackets keep their trailing address characters. Invalid www candidates and email-like identifiers with invalid suffixes remain plain text instead of linking to a different address. Email validation covers the complete candidate: ASCII dot-atom local parts and DNS/Unicode/Punycode domains separated by ASCII dots. Domains are IDNA-normalized, while URI delimiters in local parts are encoded as address data. Invalid or unsupported candidates never fall back to a shorter mailbox. See the [PDF guide](docs/plan/0.1.0/pdf-guide.md) for supported syntax and boundaries.
 
 The source sidecar in this branch routes declared `en` PDF sources to `zh`/`zh-CN`/`zh-Hans`, and declared `zh`/`zh-CN`/`zh-Hans` sources to `en`. Select the real source language; the app does not detect it. Chinese-to-English PDF rendering is an implemented candidate pending real BabelDOC and Mac visual verification. It requires the matching source sidecar; existing installed components may still accept English only. Source-mode PDF export copies the verified original without a target language.
 
