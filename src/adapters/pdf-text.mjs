@@ -46,6 +46,9 @@ const escapePdfLiteral = value => value.replace(/\r\n?/g, '\n')
   .replace(/^( {0,4})(=+)(?=[ \t]*$)/gm, (_, indent, equals) => `${indent}\\${equals}`)
   .replace(/^(\s{0,3}\d+)\./gm, '$1\\.')
   .replace(/^[ \t]+/gm, spaces => [...spaces].map(char => char === '\t' ? '&#9;' : '&#32;').join(''))
+  // Only the explicit email candidates below may become links. Otherwise GFM
+  // can link a shorter address after an escaped suffix (example.com\_x).
+  .replace(/@/g, '&#64;')
 
 // Keep link labels and destinations separate: GFM bare-URL parsing otherwise
 // treats prose backslash escapes and HTML entities as part of the address.
@@ -54,16 +57,21 @@ function escapePdfMarkdown(value) {
   let result = '', cursor = 0
   for (const match of value.matchAll(pdfLinks)) {
     const raw = match[0]
+    const kind = /^www\./i.test(raw) ? 'www'
+      : /^(?:https?|ftp):\/\//i.test(raw) ? 'url' : 'email'
+    const angleUrl = kind !== 'email' && value[match.index - 1] === '<' &&
+      value[match.index + raw.length] === '>'
     let link = raw, prefix = ''
     // Prose quotes may enclose Unicode punctuation as well as the email, but
     // do not pair across words or whitespace. Apostrophes inside a name
     // (o'connor@example.com) remain address data.
-    if (!/^(?:https?:\/\/|ftp:\/\/|www\.)/i.test(raw) &&
+    if (kind === 'email' &&
         raw.startsWith("'") && /^\p{P}*'/u.test(value.slice(match.index + raw.length))) {
       prefix = raw.match(/^'+/)[0]
       link = raw.slice(prefix.length)
     }
-    // Sentence punctuation and unmatched enclosing brackets stay literal prose.
+    // An explicit <URL> boundary keeps valid trailing address characters.
+    // Bare links leave sentence punctuation and unmatched brackets as prose.
     const excess = { ')': 0, ']': 0 }
     const entityEnds = new Set([...link.matchAll(/&[A-Za-z0-9]+;/g)]
       .map(entity => entity.index + entity[0].length - 1))
@@ -73,7 +81,7 @@ function escapePdfMarkdown(value) {
       else if (char === ')' || char === ']') excess[char]++
     }
     let end = link.length
-    while (end) {
+    while (!angleUrl && end) {
       const char = link[end - 1]
       if (char === ';' && entityEnds.has(end - 1)) break
       if (/[.!?,:;"']/.test(char)) end--
@@ -83,10 +91,17 @@ function escapePdfMarkdown(value) {
       } else break
     }
     link = link.slice(0, end)
-    const destination = /^www\./i.test(link) ? `http://${link}`
-      : /^(?:https?|ftp):\/\//i.test(link) ? link : `mailto:${link}`
+    // Keep the original candidate kind after trimming; a broken www prefix
+    // must not be reinterpreted as a mailbox such as mailto:www.
+    const destination = kind === 'www' ? `http://${link}`
+      : kind === 'url' ? link : `mailto:${link}`
+    const parsed = link ? URL.parse(destination) : null
+    const hostname = parsed?.hostname.replace(/\.$/, '')
+    const validWww = kind !== 'www' || (hostname?.startsWith('www.') &&
+      hostname.split('.').every(label =>
+        /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label)))
     result += escapePdfLiteral(value.slice(cursor, match.index) + prefix)
-    if (link && URL.canParse(destination)) {
+    if (parsed && validWww) {
       const href = destination.replace(/&/g, '&amp;').replace(/\\/g, '\\\\')
         // Preserve IPv6 authority brackets through Markdown URI encoding. Path
         // brackets still receive the renderer's ordinary percent encoding.

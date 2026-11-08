@@ -200,6 +200,47 @@ test('PDF Markdown bare URLs retain visible text and navigation target', async t
   assert.equal(result.task.stats.llmCalls, 0)
 })
 
+test('PDF Markdown respects explicit URL boundaries and leaves invalid link candidates as text', async t => {
+  const f = await fixture(t, 'markdown-link-boundaries')
+  const doc = await imported(f)
+  const result = await exported(f.app, doc.id,
+    { contentMode: 'source', outputs: [{ format: 'md' }, { format: 'json' }] })
+  const md = await readFile(result.artifacts.md.path, 'utf8')
+  const body = new JSDOM(marked.parse(md)).window.document.body
+  const json = JSON.parse(await readFile(result.artifacts.json.path, 'utf8'))
+  const paragraphs = [...body.querySelectorAll('p')]
+  assert.deepEqual(paragraphs.map(node => node.textContent), json.units.map(unit => unit.text))
+  assert.deepEqual(paragraphs.map(node => [...node.querySelectorAll('a')]
+    .map(link => link.getAttribute('href'))), [
+    ['https://example.com/a!'],
+    ['https://example.com/a?'],
+    ['https://example.com/a;'],
+    ['https://example.com/a.'],
+    ['https://example.com/a:'],
+    ['https://example.com/a,'],
+    ['https://example.com/a)'],
+    ['https://example.com/a%5D'],
+    ['https://example.com/a?q=why?'],
+    ['ftp://example.com/a;'],
+    ['http://www.example.com/a!'],
+    ['https://example.com/a'],
+    ['https://example.com/a'],
+    ['https://example.com/a'],
+    ['https://example.com/a'],
+    ['https://example.com/a'],
+    [], [], [], [], [], [], [],
+    [], [], [], [],
+    ['mailto:user_name@example.com'],
+    ['mailto:user@example.com'],
+    ['mailto:other@example.com'],
+    ['http://www.example.com.'],
+    ['http://www.example.com./a'],
+    [],
+  ])
+  assert.ok(result.task.artifacts.every(item => item.snapshotId === result.snapshotId))
+  assert.equal(result.task.stats.llmCalls, 0)
+})
+
 test('PDF coverage summary persists in Cordis records and frozen JSON after restart', async t => {
   const f = await fixture(t, 'coverage-summary')
   const doc = await imported(f)
