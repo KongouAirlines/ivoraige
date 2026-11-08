@@ -59,6 +59,10 @@ const pdfUrls = /(?:https?:\/\/|ftp:\/\/|www\.)[^\s<>]+/gi
 // ASCII prose delimiters and Unicode punctuation separate tokens, except for
 // dot-atom punctuation, single quotes, and IDNA fullwidth dot variants.
 const pdfEmailTokens = /(?:[^\s<>()\[\]",;:\p{P}]|[.!#$%&'*+\/=?^_`{|}~@‘’\-．｡])+/gu
+// A quoted local part can contain whitespace, @, or URL-shaped text. Consume
+// its complete envelope before ordinary prose tokens, then reject the unsupported
+// syntax as a whole rather than linking anything inside the quotes.
+const pdfQuotedEmails = /"(?:[^"\\]|\\.)*"@[^\s<>()\[\]",;:]*/gu
 const emailAtom = /^[A-Za-z0-9!#$%&'*+\/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+\/=?^_`{|}~-]+)*$/
 function pdfEmail(raw, following) {
   const link = raw.replace(/[.!?'‘’]+$/u, '')
@@ -87,7 +91,7 @@ function pdfEmail(raw, following) {
 }
 function escapePdfMarkdown(value) {
   let result = '', cursor = 0
-  const candidates = [...value.matchAll(pdfUrls),
+  const candidates = [...value.matchAll(pdfQuotedEmails), ...value.matchAll(pdfUrls),
     ...[...value.matchAll(pdfEmailTokens)].filter(match => match[0].includes('@'))]
     .sort((a, b) => a.index - b.index)
   for (const match of candidates) {
