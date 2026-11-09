@@ -10,11 +10,29 @@ import { AppBoot } from '../dist/dsh.mjs'
 import { MinerUSource, projectStructured, verifyMineruBundle } from '../plugins/mineru/index.mjs'
 
 const pdf = Buffer.from('%PDF-1.4\n%%EOF\n')
+const fixtures = new WeakMap()
 
 async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), 'ivoraige-mineru-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  const state = { apps: [], cleanups: [] }
+  fixtures.set(t, state)
+  t.after(async () => {
+    // Node runs after hooks in registration order and stops after a thrown
+    // hook. On Windows an open SQLite file prevents removing the directory.
+    let failure
+    const close = async fn => { try { await fn() } catch (error) { failure ??= error } }
+    for (const cleanup of state.cleanups.reverse()) await close(cleanup)
+    for (const app of state.apps.reverse()) await close(() => app.dispose())
+    if (failure) throw failure
+    await rm(dir, { recursive: true, force: true })
+  })
   return dir
+}
+
+async function createFixtureApp(t, options) {
+  const app = await createApp(options)
+  fixtures.get(t).apps.push(app)
+  return app
 }
 
 async function fakeRunner(dir, { nested = false } = {}) {
@@ -53,10 +71,9 @@ send({doc:{engineVersion:'4.0.10',schema:'docvortex.middle',schemaVersion:'2.0'}
 test('MinerU source imports complete saved bundle and exports source MD/JSON without translation', async t => {
   const dir = await fixture(t)
   const runner = await fakeRunner(dir)
-  const app = await createApp({ store: join(dir, 'db.sqlite') })
+  const app = await createFixtureApp(t, { store: join(dir, 'db.sqlite') })
   await app.ctx.plugin(MinerUSource, { directory: join(dir, 'mineru-data'), storePath: join(dir, 'db.sqlite'),
     command: process.execPath, runner })
-  t.after(() => app.dispose())
   const admitted = await app.operations.invoke('importDocument', { format: 'pdf', adapterId: 'mineru',
     contentBase64: pdf.toString('base64'), language: 'en', sourceId: 'synthetic' })
   const completed = await app.tasks.wait(admitted.taskId)
@@ -68,6 +85,11 @@ test('MinerU source imports complete saved bundle and exports source MD/JSON wit
   const record = app.records.record(document.id)
   assert.equal(record.sourceIR.resources.length, 1)
   assert.equal(record.sourceBinding.engineVersion, '4.0.10')
+  assert.equal(await verifyMineruBundle(record.sourceBinding,
+    { directory: join(dir, 'mineru-data'), storePath: join(dir, 'db.sqlite') }), true)
+  const repeated = await app.operations.invoke('importDocument', { format: 'pdf', adapterId: 'mineru',
+    contentBase64: pdf.toString('base64'), language: 'en', sourceId: 'synthetic' })
+  assert.equal((await app.tasks.wait(repeated.taskId)).state, 'succeeded')
   assert.equal(await verifyMineruBundle(record.sourceBinding,
     { directory: join(dir, 'mineru-data'), storePath: join(dir, 'db.sqlite') }), true)
   assert.deepEqual(await readFile(record.sourceBinding.sourcePath), pdf)
@@ -83,7 +105,7 @@ test('MinerU source imports complete saved bundle and exports source MD/JSON wit
   assert.equal(app.records.listSnapshots(document.id).length, 1)
   assert.equal(app.records.listTasks().filter(task => task.kind === 'translate').length, 0)
   await app.dispose()
-  const reopened = await createApp({ store: join(dir, 'db.sqlite') })
+  const reopened = await createFixtureApp(t, { store: join(dir, 'db.sqlite') })
   await reopened.ctx.plugin(MinerUSource, { directory: join(dir, 'mineru-data'), storePath: join(dir, 'db.sqlite'),
     command: process.execPath, runner })
   assert.equal(reopened.records.getDocument(document.id).sourceAdapterId, 'mineru')
@@ -93,9 +115,8 @@ test('MinerU source imports complete saved bundle and exports source MD/JSON wit
 test('MinerU nested chart captions and footnotes remain in frozen source MD/JSON', async t => {
   const dir = await fixture(t)
   const runner = await fakeRunner(dir, { nested: true })
-  const app = await createApp({ store: join(dir, 'db.sqlite') })
+  const app = await createFixtureApp(t, { store: join(dir, 'db.sqlite') })
   await app.ctx.plugin(MinerUSource, { directory: join(dir, 'mineru-data'), command: process.execPath, runner })
-  t.after(() => app.dispose())
   const admitted = await app.operations.invoke('importDocument', { format: 'pdf', adapterId: 'mineru',
     contentBase64: pdf.toString('base64'), language: 'en', sourceId: 'nested' })
   const imported = await app.tasks.wait(admitted.taskId)
@@ -224,7 +245,7 @@ test('DSH profile loads a locally installed package, and disabling its row prese
   const dir = await fixture(t)
   const settingsDir = join(dir, 'settings')
   const store = join(dir, 'db.sqlite')
-  let app = await createApp({ store, settingsDir })
+  let app = await createFixtureApp(t, { store, settingsDir })
   await app.dispose()
   const packageDir = join(settingsDir, 'node_modules', '@ivoraige', 'mineru-source')
   await mkdir(join(settingsDir, 'node_modules', '@ivoraige'), { recursive: true })
@@ -236,20 +257,20 @@ test('DSH profile loads a locally installed package, and disabling its row prese
       directory: join(dir, 'mineru-data'), storePath: store, command: process.execPath, runner,
     } }] }])
   await writeFile(join(settingsDir, 'cordis.patch.yml'), patch(false))
-  app = await createApp({ store, settingsDir })
+  app = await createFixtureApp(t, { store, settingsDir })
   assert.equal(app.parse.adapters.has('mineru'), true)
   await app.dispose()
   const manifestPath = join(packageDir, 'package.json')
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
   await writeFile(manifestPath, JSON.stringify({ ...manifest,
     peerDependencies: { '@deepseek-ai/dsh-app-boot': '0.0.0' } }))
-  app = await createApp({ store, settingsDir })
+  app = await createFixtureApp(t, { store, settingsDir })
   assert.equal(app.parse.adapters.has('mineru'), false)
   assert.equal(app.parse.adapters.has('txt'), true)
   await app.dispose()
   await writeFile(manifestPath, JSON.stringify(manifest))
   await writeFile(join(settingsDir, 'cordis.patch.yml'), patch(true))
-  app = await createApp({ store, settingsDir })
+  app = await createFixtureApp(t, { store, settingsDir })
   assert.equal(app.parse.adapters.has('mineru'), false)
   assert.equal(app.parse.adapters.has('txt'), true)
   await app.dispose()
@@ -262,7 +283,7 @@ test('a second store cannot claim the first store\'s saved bundle', async t => {
   const bindings = []
   for (const store of ['first.sqlite', 'second.sqlite']) {
     const storePath = join(dir, store)
-    const app = await createApp({ store: storePath })
+    const app = await createFixtureApp(t, { store: storePath })
     await app.ctx.plugin(MinerUSource, { directory: root, storePath, command: process.execPath, runner })
     const admitted = await app.operations.invoke('importDocument', { format: 'pdf', adapterId: 'mineru',
       contentBase64: pdf.toString('base64'), language: 'en', sourceId: 'synthetic' })
@@ -290,7 +311,7 @@ test('case-distinct store files never share a MinerU bundle on a case-sensitive 
   const root = join(dir, 'shared-mineru-data')
   const bindings = []
   for (const store of stores) {
-    const app = await createApp({ store })
+    const app = await createFixtureApp(t, { store })
     await app.ctx.plugin(MinerUSource, { directory: root, storePath: store,
       command: process.execPath, runner })
     const admitted = await app.operations.invoke('importDocument', { format: 'pdf', adapterId: 'mineru',
@@ -316,7 +337,7 @@ test('physical store identity survives an aliased parent but rejects another own
   const store = join(alias, 'db.sqlite')
   const root = join(alias, 'mineru-data')
   const runner = await fakeRunner(dir)
-  const app = await createApp({ store })
+  const app = await createFixtureApp(t, { store })
   await app.ctx.plugin(MinerUSource, { directory: root, storePath: store,
     command: process.execPath, runner })
   const admitted = await app.operations.invoke('importDocument', { format: 'pdf', adapterId: 'mineru',
@@ -341,7 +362,7 @@ test('managed work and sources symlinks cannot write outside the bundle root', a
     await writeFile(join(outside, 'marker'), 'keep')
     await symlink(outside, join(root, child), 'dir')
     const store = join(dir, `${child}.sqlite`)
-    const app = await createApp({ store })
+    const app = await createFixtureApp(t, { store })
     await app.ctx.plugin(MinerUSource, { directory: root, storePath: store,
       command: process.execPath, runner })
     const admitted = await app.operations.invoke('importDocument', { format: 'pdf', adapterId: 'mineru',
@@ -366,13 +387,13 @@ for await (const line of createInterface({input:process.stdin})) {
  else if (req.method==='shutdown') { process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:req.id,result:null})+'\\n'); break; }
  else { process.stderr.write('SENTINEL_PRIVATE_SOURCE'); process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:req.id,error:{code:-32001,message:'SENTINEL_PRIVATE_SOURCE',diagnostic:'SENTINEL_PRIVATE_SOURCE'}})+'\\n'); }
 }`)
-  const app = await createApp({ store: join(dir, 'db.sqlite') })
+  const app = await createFixtureApp(t, { store: join(dir, 'db.sqlite') })
   await app.ctx.plugin(MinerUSource, { directory: join(dir, 'mineru-data'), storePath: join(dir, 'db.sqlite'),
     command: process.execPath, runner })
   let logged = ''
   const originalLog = console.error
   console.error = (...parts) => { logged += parts.join(' ') }
-  t.after(() => { console.error = originalLog })
+  fixtures.get(t).cleanups.push(() => { console.error = originalLog })
   const admitted = await app.operations.invoke('importDocument', { format: 'pdf', adapterId: 'mineru',
     contentBase64: pdf.toString('base64'), language: 'en' })
   const task = await app.tasks.wait(admitted.taskId)
@@ -414,6 +435,52 @@ test('MinerU annotation projection follows upstream index order and retains rend
   assert.deepEqual(units.map(unit => unit.sourceText), ['A\\*B', 'Later', 'Table body'])
   assert.deepEqual(units.slice(0, 2).map(unit => unit.locator.childOrder), [1, 0])
   assert.deepEqual(units.slice(0, 2).map(unit => unit.locator.itemIndex), [0, 1])
+  structured.pages[0].blocks[0].captions.pop()
+  assert.throws(() => projectStructured(middle, structured, '/bundle', []),
+    { code: 'UPSTREAM_FAILURE' })
+  structured.pages[0].blocks[0].captions.push({ content: '' })
+  assert.deepEqual(projectStructured(middle, structured, '/bundle', []).units.map(unit => unit.sourceText),
+    ['A\\*B', 'Table body'])
+})
+
+test('MinerU preserves cancellation after a sidecar has returned saved data', async t => {
+  const dir = await fixture(t)
+  const controller = new AbortController()
+  let adapter
+  const client = { close: async () => {}, request: async (_method, params) => {
+    const output = params.options.outputDir
+    const blocks = [{ type: 'text', index: 0, bbox: [1, 2, 3, 4],
+      content: [{ type: 'text', content: 'Source' }] }]
+    await writeFile(join(output, 'middle_json.json'), JSON.stringify({ schema: 'docvortex.middle',
+      schema_version: '2.0', pages: [{ page_idx: 0, blocks }] }))
+    await writeFile(join(output, 'structured_content.json'), JSON.stringify({ pages: [{ page_idx: 0,
+      blocks: [{ type: 'text', bbox: [1, 2, 3, 4], content: 'Source' }] }] }))
+    await writeFile(join(output, 'markdown.md'), 'Source')
+    controller.abort()
+    return { doc: { engineVersion: '4.0.10', schema: 'docvortex.middle', schemaVersion: '2.0' } }
+  } }
+  const ctx = { get: key => ({
+    'ivoraige.storePath': join(dir, 'db.sqlite'),
+    'ivoraige.sidecarFactory': { create: () => client },
+    'ivoraige.parse': { register: value => { adapter = value } },
+    'ivoraige.outputs': { register: () => {} },
+  })[key], effect: callback => callback() }
+  MinerUSource(ctx, { directory: join(dir, 'mineru-data') })
+  let persisted = false
+  await assert.rejects(adapter.import({ content: pdf, signal: controller.signal },
+    async () => { persisted = true }, () => false), error =>
+    error.code === 'UPSTREAM_FAILURE' && error.details.canceled === true && error.cause?.name === 'AbortError')
+  assert.equal(persisted, false)
+  assert.deepEqual(await readdir(join(dir, 'mineru-data', 'work')), [])
+})
+
+test('fixture closes an open SQLite owner before removing its directory', async t => {
+  let dir
+  await t.test('open owner', async nested => {
+    dir = await fixture(nested)
+    await createFixtureApp(nested, { store: join(dir, 'db.sqlite') })
+  })
+  await assert.rejects(readFile(join(dir, 'db.sqlite')), { code: 'ENOENT' })
 })
 
 test('Python runner handshakes before recognizing MinerU and never emits a raw traceback as a message', t => {
@@ -435,6 +502,29 @@ test('Python runner handshakes before recognizing MinerU and never emits a raw t
   assert.equal(messages[1].result.protocolVersion, 1)
   assert.equal(messages[2].error.code, -32002)
   assert.doesNotMatch(messages[2].error.message, /Traceback|\/missing\.pdf/)
+})
+
+test('Python runner rejects DocVortex drift before any parse side effect', t => {
+  const python = process.platform === 'win32' ? 'python' : 'python3'
+  const probe = spawnSync(python, ['--version'], { encoding: 'utf8' })
+  if (probe.error || probe.status !== 0) return t.skip('Python is unavailable')
+  const runner = fileURLToPath(new URL('../plugins/mineru/runner.py', import.meta.url))
+  const input = [
+    { jsonrpc: '2.0', id: 1, method: 'handshake', params: { protocolVersion: 1 } },
+    { jsonrpc: '2.0', id: 2, method: 'configure', params: {} },
+    { jsonrpc: '2.0', id: 3, method: 'shutdown', params: {} },
+  ].map(value => JSON.stringify(value)).join('\n') + '\n'
+  const script = `import importlib.metadata as metadata, runpy, sys\n` +
+    `metadata.version = lambda name: {'mineru':'4.0.10','docvortex':sys.argv[2]}[name]\n` +
+    `runpy.run_path(sys.argv[1], run_name='__main__')\n`
+  for (const [version, expected] of [['0.6.21', true], ['0.6.22', false]]) {
+    const result = spawnSync(python, ['-c', script, runner, version], { input, encoding: 'utf8' })
+    assert.equal(result.status, 0)
+    const messages = result.stdout.trim().split('\n').map(JSON.parse)
+    assert.equal(messages.length, 3)
+    assert.equal(messages[1].error === undefined, expected)
+    if (!expected) assert.equal(messages[1].error.code, -32002)
+  }
 })
 
 test('Python replay rejects complex inline text and reads only inventoried assets', t => {
@@ -462,14 +552,15 @@ for await (const line of createInterface({input:process.stdin})) {
  if(req.method==='handshake') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:req.id,result:{protocolVersion:1}})+'\\n');
  else if(req.method==='configure') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:req.id,result:{}})+'\\n');
  else if(req.method==='parse') {
-   await writeFile(started,'yes');
    process.on('SIGTERM',()=>setTimeout(async()=>{await writeFile(exited,'yes');process.exit(0)},180));
+   await writeFile(started,'yes');
    await new Promise(()=>{});
  }
 }`)
-  const app = await createApp({ store: join(dir, 'db.sqlite') })
+  const app = await createFixtureApp(t, { store: join(dir, 'db.sqlite') })
   const client = app.ctx.get('ivoraige.sidecarFactory').create({ command: process.execPath,
     args: [runner], timeoutMs: 5000 })
+  fixtures.get(t).cleanups.push(() => client.close())
   const controller = new AbortController()
   const pending = client.request('parse', {}, { signal: controller.signal })
   let exists = false
