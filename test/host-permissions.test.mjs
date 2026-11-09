@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -30,6 +30,20 @@ test('private directory rejects a user-owned ancestor symlink', { skip: process.
   const nested = join(actual, 'nested')
   await ensurePrivateDirectory(nested)
   await assert.rejects(assertPrivateDirectory(join(alias, 'nested')), { code: 'PRECONDITION_FAILED' })
+})
+
+test('concurrent private creation publishes a directory safely and creates one file only', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'ivoraige-host-permissions-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const directory = join(root, 'control')
+  await Promise.all(Array.from({ length: 4 }, () => ensurePrivateDirectory(directory)))
+  await assertPrivateDirectory(directory)
+  const file = join(directory, 'exclusive')
+  const results = await Promise.allSettled(Array.from({ length: 4 }, (_, i) => createPrivateFile(file, String(i))))
+  assert.equal(results.filter(item => item.status === 'fulfilled').length, 1)
+  assert.equal(results.filter(item => item.status === 'rejected' && item.reason.code === 'EEXIST').length, 3)
+  assert.equal((await readFile(file, 'utf8')).length, 1)
+  await assertPrivateFile(file)
 })
 
 test('private Windows file rejects a foreign access rule', { skip: process.platform !== 'win32' }, async t => {

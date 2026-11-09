@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHostDomain, findHostDomain, hostRegistryDirectory,
   inspectHostDomain, recoverHostDomain } from '../src/host-domain.mjs'
+import { createPrivateFile } from '../src/host-permissions.mjs'
 
 const config = { settingsDir: '/example/settings', componentRoot: '/example/components', pdfSource: 'installed' }
 async function fixture(t) {
@@ -141,13 +142,13 @@ test('replays interrupted initialization before and after DSH metadata commit', 
   const intent = { version: 1, mode: 'initialize', transactionId: '252c3b8e-753f-4451-b937-bcb203801001',
     beforeRevision: emptyRevision, source: null, record: { ...record, fileIdentity: null } }
   await rm(registryPath)
-  await writeFile(intentPath, `${JSON.stringify(intent)}\n`, { mode: 0o600 })
+  await createPrivateFile(intentPath, `${JSON.stringify(intent)}\n`)
   const afterMetadata = await create(f)
   assert.equal(afterMetadata.dataDomainRef, first.dataDomainRef)
   afterMetadata.storeLease.release()
   await assert.rejects(readFile(intentPath), { code: 'ENOENT' })
 
-  await writeFile(intentPath, `${JSON.stringify(intent)}\n`, { mode: 0o600 })
+  await createPrivateFile(intentPath, `${JSON.stringify(intent)}\n`)
   const afterRegistry = await create(f)
   assert.equal(afterRegistry.dataDomainRef, first.dataDomainRef)
   afterRegistry.storeLease.release()
@@ -155,7 +156,7 @@ test('replays interrupted initialization before and after DSH metadata commit', 
 
   await rm(registryPath)
   await rm(f.store)
-  await writeFile(intentPath, `${JSON.stringify(intent)}\n`, { mode: 0o600 })
+  await createPrivateFile(intentPath, `${JSON.stringify(intent)}\n`)
   const beforeMetadata = await create(f)
   assert.equal(beforeMetadata.dataDomainRef, first.dataDomainRef)
   beforeMetadata.storeLease.release()
