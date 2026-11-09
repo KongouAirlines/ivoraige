@@ -4,7 +4,9 @@ import { chmod, lstat, readFile, rename, rm } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { z } from 'zod'
 import { KernelError } from './errors.mjs'
-import { assertPrivateDirectory, assertPrivateFile, createPrivateFile } from './host-permissions.mjs'
+import { assertPrivateDirectory, assertPrivateFile, createPrivateFile, ensurePrivateDirectory } from './host-permissions.mjs'
+
+import { hostSocketDirectory } from './host-socket-directory.mjs'
 
 export const HOST_INTERFACE_VERSION = 'HostControl@1'
 export const HOST_INTERFACE_MINOR = 0
@@ -234,7 +236,9 @@ export function createHostTransport({ directory, dataDomainRef, generation, life
       return record
     }
     const nonce = randomBytes(16).toString('base64url')
-    const address = process.platform === 'win32' ? `\\\\.\\pipe\\ivoraige-${nonce}` : join(directory, `host-${nonce}.sock`)
+    const socketDirectory = process.platform === 'win32' ? null : await hostSocketDirectory(directory)
+    if (socketDirectory) await ensurePrivateDirectory(socketDirectory)
+    const address = process.platform === 'win32' ? `\\\\.\\pipe\\ivoraige-${nonce}` : join(socketDirectory, `host-${nonce}.sock`)
     if (process.platform !== 'win32' && Buffer.byteLength(address) > 100)
       throw fail('PRECONDITION_FAILED', 'owner-unavailable', 'Host control path is too long')
     capability = process.platform === 'win32' ? randomBytes(32).toString('base64url') : undefined
@@ -322,7 +326,9 @@ export async function connectHostTransport({ directory, dataDomainRef, requiredL
     let info
     try { info = await lstat(record.address) }
     catch { throw fail('CONFLICT', 'owner-unreachable') }
-    if (!record.address.startsWith(`${directory}/`) || !info.isSocket() ||
+    const socketDirectory = await hostSocketDirectory(directory)
+    await assertPrivateDirectory(socketDirectory)
+    if (!record.address.startsWith(`${socketDirectory}/`) || !info.isSocket() ||
       info.uid !== process.getuid() || (info.mode & 0o777) !== 0o600)
       throw fail('CONFLICT', 'owner-unreachable')
   }

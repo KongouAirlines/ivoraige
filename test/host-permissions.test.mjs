@@ -35,6 +35,13 @@ test('private directory rejects a user-owned ancestor symlink', { skip: process.
 test('private Windows file rejects a foreign access rule', { skip: process.platform !== 'win32' }, async t => {
   const root = await mkdtemp(join(tmpdir(), 'ivoraige-host-permissions-'))
   t.after(() => rm(root, { recursive: true, force: true }))
+  // The ACL probe must not depend on PowerShell's Security module autoload.
+  const previousModulePath = process.env.PSModulePath
+  process.env.PSModulePath = join(root, 'missing-modules')
+  t.after(() => {
+    if (previousModulePath === undefined) delete process.env.PSModulePath
+    else process.env.PSModulePath = previousModulePath
+  })
   const directory = join(root, 'control')
   await ensurePrivateDirectory(directory)
   const file = join(directory, 'secret')
@@ -43,11 +50,11 @@ test('private Windows file rejects a foreign access rule', { skip: process.platf
   const literal = `'${file.replaceAll("'", "''")}'`
   const script = `
 $ErrorActionPreference = 'Stop'
-$acl = Get-Acl -LiteralPath ${literal}
+$acl = [System.IO.File]::GetAccessControl(${literal})
 $everyone = [System.Security.Principal.SecurityIdentifier]::new('S-1-1-0')
 $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($everyone, [System.Security.AccessControl.FileSystemRights]::ReadData, [System.Security.AccessControl.AccessControlType]::Allow)
 [void]$acl.AddAccessRule($rule)
-Set-Acl -LiteralPath ${literal} -AclObject $acl
+[System.IO.File]::SetAccessControl(${literal}, $acl)
 `
   await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script])
   await assert.rejects(assertPrivateFile(file), { code: 'PRECONDITION_FAILED' })

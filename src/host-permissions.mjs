@@ -12,8 +12,10 @@ const denied = (cause) => new KernelError('PRECONDITION_FAILED',
 function quotePowerShell(value) { return `'${value.replaceAll("'", "''")}'` }
 
 async function windowsAcl(path, { initialize = false, directory = false } = {}) {
-  // Node's mode bits do not express Windows DACLs. Use the OS ACL API and
-  // refuse to proceed if PowerShell or the ACL probe cannot establish access.
+  // Node's mode bits do not express Windows DACLs. Use .NET Framework's
+  // filesystem ACL API directly: Get-Acl/Set-Acl depend on a PowerShell
+  // module that may not load when the runner's PSModulePath points at pwsh.
+  // Refuse to proceed if the ACL probe cannot establish access.
   const script = `
 $ErrorActionPreference = 'Stop'
 $path = ${quotePowerShell(path)}
@@ -21,7 +23,7 @@ $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $system = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-18')
 if (${directory ? '$true' : '$false'}) {
   $parentPath = [System.IO.Path]::GetDirectoryName($path)
-  $parentAcl = Get-Acl -LiteralPath $parentPath
+  $parentAcl = [System.IO.Directory]::GetAccessControl($parentPath)
   $parentOwner = $parentAcl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
   if ($parentOwner -ne $sid.Value -and $parentOwner -ne $system.Value -and $parentOwner -ne 'S-1-5-32-544') { throw 'untrusted parent owner' }
   $writeMask = [System.Security.AccessControl.FileSystemRights]::WriteData -bor [System.Security.AccessControl.FileSystemRights]::AppendData -bor [System.Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor [System.Security.AccessControl.FileSystemRights]::Delete -bor [System.Security.AccessControl.FileSystemRights]::ChangePermissions -bor [System.Security.AccessControl.FileSystemRights]::TakeOwnership
@@ -31,16 +33,16 @@ if (${directory ? '$true' : '$false'}) {
   }
 }
 if (${initialize ? '$true' : '$false'}) {
-  $acl = Get-Acl -LiteralPath $path
+  $acl = if (${directory ? '$true' : '$false'}) { [System.IO.Directory]::GetAccessControl($path) } else { [System.IO.File]::GetAccessControl($path) }
   if ($acl.Owner -ne $sid.Value -and $acl.Owner -ne $sid.Translate([System.Security.Principal.NTAccount]).Value) { throw 'wrong owner' }
   $acl.SetAccessRuleProtection($true, $false)
   foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRuleAll($rule) }
   $inherit = if (${directory ? '$true' : '$false'}) { [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit } else { [System.Security.AccessControl.InheritanceFlags]::None }
   $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($sid, [System.Security.AccessControl.FileSystemRights]::FullControl, $inherit, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)
   [void]$acl.AddAccessRule($rule)
-  Set-Acl -LiteralPath $path -AclObject $acl
+  if (${directory ? '$true' : '$false'}) { [System.IO.Directory]::SetAccessControl($path, $acl) } else { [System.IO.File]::SetAccessControl($path, $acl) }
 }
-$acl = Get-Acl -LiteralPath $path
+$acl = if (${directory ? '$true' : '$false'}) { [System.IO.Directory]::GetAccessControl($path) } else { [System.IO.File]::GetAccessControl($path) }
 if (-not $acl.AreAccessRulesProtected) { throw 'inherited ACL' }
 $owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
 if ($owner -ne $sid.Value) { throw 'wrong owner' }
