@@ -104,12 +104,11 @@ async function unixCheck(path, kind, mode) {
   return info
 }
 
-export async function assertPrivateDirectory(path) {
-  path = resolve(path)
+async function privateDirectory(path, probeWindowsAcl) {
   if (process.platform === 'win32') {
     const info = await lstat(path)
     if (!info.isDirectory() || info.isSymbolicLink()) throw denied()
-    await windowsAcl(path, { directory: true })
+    if (probeWindowsAcl) await windowsAcl(path, { directory: true })
   } else {
     await unixCheck(path, 'directory', 0o700)
     // Root-owned path aliases such as macOS /var -> /private/var are safe
@@ -123,6 +122,8 @@ export async function assertPrivateDirectory(path) {
   return path
 }
 
+export async function assertPrivateDirectory(path) { return privateDirectory(resolve(path), true) }
+
 export async function ensurePrivateDirectory(path) {
   path = resolve(path)
   if (process.platform === 'win32') {
@@ -130,6 +131,9 @@ export async function ensurePrivateDirectory(path) {
     catch (error) {
       if (error.code !== 'ENOENT') throw error
       await windowsAcl(path, { createDirectory: true, directory: true })
+      // Creation and ACL verification were one OS operation. Recheck the
+      // entry shape without launching a redundant second ACL probe.
+      return privateDirectory(path, false)
     }
     return assertPrivateDirectory(path)
   }
@@ -146,15 +150,16 @@ export async function ensurePrivateDirectory(path) {
   return assertPrivateDirectory(path)
 }
 
-export async function assertPrivateFile(path) {
-  path = resolve(path)
+async function privateFile(path, probeWindowsAcl) {
   if (process.platform === 'win32') {
     const info = await lstat(path)
     if (!info.isFile() || info.isSymbolicLink()) throw denied()
-    await windowsAcl(path)
+    if (probeWindowsAcl) await windowsAcl(path)
   } else await unixCheck(path, 'file', 0o600)
   return path
 }
+
+export async function assertPrivateFile(path) { return privateFile(resolve(path), true) }
 
 export async function createPrivateFile(path, contents) {
   path = resolve(path)
@@ -166,6 +171,6 @@ export async function createPrivateFile(path, contents) {
     await file.sync()
   } finally { await file.close() }
   if (process.platform !== 'win32') await chmod(path, 0o600)
-  await assertPrivateFile(path)
+  await privateFile(path, process.platform !== 'win32')
   return path
 }
