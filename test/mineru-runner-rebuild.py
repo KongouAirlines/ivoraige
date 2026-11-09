@@ -128,6 +128,19 @@ with tempfile.TemporaryDirectory(prefix="mineru-replay-test-") as temporary:
     assert not (work / "output.pdf").exists()
     render.render_pdf = render_pdf
 
+    for bad in ({**replacement, "blockIndex": -1},
+                {**replacement, "pageIndex": -1},
+                {**replacement, "blockIndex": True}):
+        params["replacements"] = [bad]
+        try:
+            runner.rebuild(params)
+        except runner.SidecarError as error:
+            assert "invalid" in str(error)
+        else:
+            raise AssertionError("negative or boolean locator was accepted")
+        assert not (work / "output.pdf").exists()
+    params["replacements"] = [replacement]
+
     middle["pages"][0]["blocks"].append({"type": "table", "index": 9, "bbox": [2, 3, 4, 5],
         "content": [{"type": "table_caption", "index": 8, "bbox": [1, 2, 3, 4],
                      "content": [{"type": "text", "content": "Caption"}]},
@@ -145,6 +158,20 @@ with tempfile.TemporaryDirectory(prefix="mineru-replay-test-") as temporary:
     ParseResult.from_dict = staticmethod(parse_nested)
     runner.rebuild(params)
     (work / "output.pdf").unlink()
+    middle["pages"][0]["blocks"][1]["content"][0]["type"] = "image_caption"
+    middle_path.write_text(json.dumps(middle), encoding="utf-8")
+    params["files"] = inventory(bundle)
+    params["replacements"] = [{**caption, "childType": "image_caption"}]
+    try:
+        runner.rebuild(params)
+    except runner.SidecarError as error:
+        assert "annotation identity" in str(error)
+    else:
+        raise AssertionError("cross-parent annotation type was allowed")
+    assert not (work / "output.pdf").exists()
+    middle["pages"][0]["blocks"][1]["content"][0]["type"] = "table_caption"
+    middle_path.write_text(json.dumps(middle), encoding="utf-8")
+    params["files"] = inventory(bundle)
     params["replacements"] = [{**caption, "childOrder": 1}]
     try:
         runner.rebuild(params)

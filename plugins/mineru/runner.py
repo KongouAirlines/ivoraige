@@ -18,10 +18,11 @@ HANDSHAKEN = False
 
 
 class SidecarError(Exception):
-    def __init__(self, code: int, message: str):
+    def __init__(self, code: int, message: str, data: dict | None = None):
         super().__init__(message)
         self.code = code
         self.message = message
+        self.data = data
 
 
 def offline(*_args, **_kwargs):
@@ -35,15 +36,19 @@ def configure(params):
     try:
         installed = version("mineru")
     except PackageNotFoundError as exc:
-        raise SidecarError(-32002, "MinerU 4.0.10 is not installed") from exc
+        raise SidecarError(-32002, "MinerU 4.0.10 is not installed",
+                           {"component": "mineru", "reason": "missing"}) from exc
     if installed != PIN:
-        raise SidecarError(-32002, "MinerU 4.0.10 is required")
+        raise SidecarError(-32002, "MinerU 4.0.10 is required",
+                           {"component": "mineru", "reason": "incompatible"})
     try:
         docvortex_version = version("docvortex")
     except PackageNotFoundError as exc:
-        raise SidecarError(-32002, "DocVortex 0.6.21 is not installed") from exc
+        raise SidecarError(-32002, "DocVortex 0.6.21 is not installed",
+                           {"component": "docvortex", "reason": "missing"}) from exc
     if docvortex_version != PDF_ENGINE_PIN:
-        raise SidecarError(-32002, "DocVortex 0.6.21 is required")
+        raise SidecarError(-32002, "DocVortex 0.6.21 is required",
+                           {"component": "docvortex", "reason": "incompatible"})
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
     socket.socket.connect = offline
@@ -70,8 +75,11 @@ def parse(params):
         result = mineru_parse(Path(path), tier=tier, ocr_mode=ocr_mode)
         result.save(FileBasedDataWriter(output))
     middle = json.loads((Path(output) / "middle_json.json").read_text(encoding="utf-8"))
-    if middle.get("schema") != "docvortex.middle" or middle.get("schema_version") != "2.0":
-        raise SidecarError(-32001, "MinerU MiddleJson schema is incompatible")
+    metadata = middle.get("metadata") if isinstance(middle, dict) else None
+    producer = metadata.get("producer") if isinstance(metadata, dict) else None
+    if (not isinstance(middle, dict) or middle.get("schema") != "docvortex.middle" or middle.get("schema_version") != "2.0"
+            or not isinstance(producer, dict) or producer.get("version") != PIN):
+        raise SidecarError(-32001, "MinerU MiddleJson version is incompatible")
     return {"doc": {"engineVersion": PIN, "schema": middle["schema"],
                     "schemaVersion": middle["schema_version"]}}
 
@@ -82,9 +90,11 @@ def rebuild(params):
     try:
         renderer_version = version("docvortex")
     except PackageNotFoundError as exc:
-        raise SidecarError(-32002, "DocVortex 0.6.21 is required for PDF replay") from exc
+        raise SidecarError(-32002, "DocVortex 0.6.21 is required for PDF replay",
+                           {"component": "docvortex", "reason": "missing"}) from exc
     if renderer_version != PDF_ENGINE_PIN:
-        raise SidecarError(-32002, "DocVortex 0.6.21 is required for PDF replay")
+        raise SidecarError(-32002, "DocVortex 0.6.21 is required for PDF replay",
+                           {"component": "docvortex", "reason": "incompatible"})
     bundle, output = params.get("bundlePath"), params.get("outputPath")
     files, replacements = params.get("files"), params.get("replacements")
     if not isinstance(bundle, str) or not isinstance(output, str) or not isinstance(files, list) or not isinstance(replacements, list) or params.get("layout") != "original":
@@ -119,7 +129,9 @@ def rebuild(params):
         raise SidecarError(-32001, "MinerU MiddleJson version is incompatible")
     seen = set()
     for row in replacements:
-        if not isinstance(row, dict) or not isinstance(row.get("pageIndex"), int) or not isinstance(row.get("blockIndex"), int) or not isinstance(row.get("text"), str) or not row["text"].strip():
+        if (not isinstance(row, dict) or type(row.get("pageIndex")) is not int or row["pageIndex"] < 0 or
+                type(row.get("blockIndex")) is not int or row["blockIndex"] < 0 or
+                not isinstance(row.get("text"), str) or not row["text"].strip()):
             raise SidecarError(-32001, "MinerU frozen text is invalid")
         page_index, block_index = row["pageIndex"], row["blockIndex"]
         part = row.get("part")
@@ -142,7 +154,9 @@ def rebuild(params):
                 raise SidecarError(-32001, "MinerU frozen block type is incompatible")
         else:
             child_order = row.get("childOrder")
-            if not isinstance(child_order, int) or child_order < 0 or not isinstance(row.get("itemIndex"), int) or row["itemIndex"] < 0:
+            if (block.get("type") not in {"image", "table", "chart", "code"} or
+                    type(child_order) is not int or child_order < 0 or
+                    type(row.get("itemIndex")) is not int or row["itemIndex"] < 0):
                 raise SidecarError(-32001, "MinerU frozen annotation position is invalid")
             try:
                 target = block["content"][child_order]
@@ -150,12 +164,12 @@ def rebuild(params):
                 raise SidecarError(-32001, "MinerU frozen annotation position is invalid") from exc
             if (not isinstance(target, dict) or target.get("type") != row.get("childType") or
                     not isinstance(target.get("type"), str) or
-                    not (target["type"] == part or target["type"].endswith("_" + part)) or
+                    target["type"] != f"{block['type']}_{part}" or
                     target.get("index") != row.get("childIndex") or target.get("bbox") != row.get("childBbox")):
                 raise SidecarError(-32001, "MinerU frozen annotation identity is incompatible")
             matching = [(position, child) for position, child in enumerate(block["content"])
                         if isinstance(child, dict) and isinstance(child.get("type"), str) and
-                        (child["type"] == part or child["type"].endswith("_" + part))]
+                        child["type"] == f"{block['type']}_{part}"]
             matching.sort(key=lambda item: (item[1].get("index") is None,
                                             item[1].get("index") or 0, item[0]))
             if row["itemIndex"] >= len(matching) or matching[row["itemIndex"]][1] is not target:
@@ -232,10 +246,13 @@ def main():
         except Exception as exc:
             diagnostic = traceback.format_exc()[-4096:]
             sys.stderr.write(diagnostic)
+            error = {"code": exc.code if isinstance(exc, SidecarError) else -32001,
+                     "message": exc.message if isinstance(exc, SidecarError) else "MinerU parse failed",
+                     "diagnostic": diagnostic}
+            if isinstance(exc, SidecarError) and exc.data is not None:
+                error["data"] = exc.data
             send({"jsonrpc": "2.0", "id": request.get("id") if isinstance(request, dict) else None,
-                  "error": {"code": exc.code if isinstance(exc, SidecarError) else -32001,
-                            "message": exc.message if isinstance(exc, SidecarError) else "MinerU parse failed",
-                            "diagnostic": diagnostic}})
+                  "error": error})
 
 
 if __name__ == "__main__":
