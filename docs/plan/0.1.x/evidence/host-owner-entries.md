@@ -108,10 +108,17 @@ above. Separate ordinary accounts and fully unelevated tokens remain unverified.
 The first [standard-user attempt](https://github.com/KongouAirlines/ivoraige/actions/runs/42564258647)
 stopped at Secondary Logon preflight (1062), before account creation. The scoped
 [follow-up](https://github.com/KongouAirlines/ivoraige/actions/runs/42568044404)
-at `64d32ec4` is queued as of 2026-11-09; it has no test or cleanup result.
-It uses the production transport from `4882a83c` and adds isolated account probes,
-service-state capture and final cleanup/restoration reporting. A queued run is
-not cross-account acceptance. See [the Windows evidence](host-windows-pipe.md).
+at `64d32ec4` completed with failure on 2026-11-09. It used the production
+transport from `4882a83c`, but credentialed process launch failed with Win32
+error 5 before the account probes established the cross-user boundary. The
+runner reported both created accounts removed and its owned processes exited;
+profile cleanup failed with Win32 error 32. Secondary Logon restoration also
+failed with Win32 error 1052: its final observed state was running rather than
+the initially stopped state, although startup configuration was unchanged.
+The final result reported `passed=false`, `cleanupSucceeded=false` and
+`serviceRestored=false`. Cross-account acceptance remains incomplete; neither
+profile cleanup nor restoration to the original service state is confirmed.
+See [the Windows evidence](host-windows-pipe.md#separate-account-acceptance-attempt).
 Any later source head needs its own applicable CI.
 
 Trusted process-exit observation, force-exit ownership/challenges, full migration

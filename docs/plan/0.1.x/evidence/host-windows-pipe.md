@@ -133,8 +133,35 @@ Linux and macOS also passed their full commands and installed-package smoke;
 counts and boundaries are in the [entry evidence](host-owner-entries.md#native-stack-verification-at-4882a83c).
 These results establish the native helper and installed owner paths at those
 heads. They do not establish separate regular-account or fully unelevated
-acceptance. The [scoped account run](https://github.com/KongouAirlines/ivoraige/actions/runs/42568044404)
-remains queued as of 2026-11-09, with no test or cleanup result.
+acceptance.
+
+### Separate-account acceptance attempt
+
+The [scoped account run](https://github.com/KongouAirlines/ivoraige/actions/runs/42568044404)
+at `64d32ec4681d9c601b4da4b7d68a582f003a6caa` completed with failure on
+2026-11-09. Its [job log](https://github.com/KongouAirlines/ivoraige/actions/runs/42568044404/job/128998805631)
+records the production transport as `4882a83c` and the following results:
+
+- Preflight and 14 Secondary Logon state checks passed. The runner captured
+  Secondary Logon as stopped, started it once, and observed it running without
+  changing its startup configuration.
+- Two ordinary test accounts were created. Credentialed process launch then
+  failed with Win32 error 5 (`ERROR_ACCESS_DENIED`); the run did not establish
+  ordinary-account exchange, cross-user denial or fully unelevated execution.
+- Both account removals and exit of the runner-owned processes were reported.
+  Profile cleanup failed with Win32 error 32 (`ERROR_SHARING_VIOLATION`), so
+  `cleanupSucceeded` was false.
+- Service restoration failed with Win32 error 1052
+  (`ERROR_INVALID_SERVICE_CONTROL`). The final observed service state remained
+  running, rather than the initially stopped state; startup configuration was
+  still unchanged. The final result reported `passed=false`,
+  `serviceRestored=false` and exit code 1.
+
+This is a failed acceptance attempt, not a demonstrated transport defect or
+a cross-account pass. Account deletion and process exit do not establish
+successful profile cleanup or service-state restoration. A later attempt must
+resolve the credentialed launch and cleanup/restoration failures before this
+gate can be considered complete.
 
 A separate-account probe requires an already-provisioned test account or explicit
 authorization to create, use and delete one on a disposable Windows runner. No
