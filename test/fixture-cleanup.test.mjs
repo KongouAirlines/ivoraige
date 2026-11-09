@@ -61,8 +61,11 @@ for (const [file, name, trigger, directory] of [
   ['resource-access', 'shutdown keeps storage owned', '  await entered\n', 'dir'],
   ['source-mode', 'CLI accepts source content', "  const { document } = await app.records.importDocument", 'directory'],
 ]) {
-  test(`actual ${name} fixture cleans after an injected body failure`, async () => {
+  for (const lineEnding of ['LF', 'CRLF']) test(`actual ${name} fixture cleans after an injected body failure (${lineEnding})`, async () => {
     let source = await readFile(new URL(`./${file}.test.mjs`, import.meta.url), 'utf8')
+    if (lineEnding === 'CRLF') source = source.replace(/\r?\n/g, '\r\n')
+    // Git may check JavaScript out with CRLF; injection anchors use LF.
+    source = source.replaceAll('\r\n', '\n')
     const start = source.indexOf(`test('${name}`)
     assert.notEqual(start, -1)
     const end = source.indexOf("\ntest('", start + 1)
@@ -75,7 +78,7 @@ for (const [file, name, trigger, directory] of [
     body = body.slice(0, offset) + `
   let probeDisposed = false
   const probeDispose = app.dispose
-  app.dispose = async (...args) => { await probeDispose(...args); probeDisposed = true }
+  app.dispose = async (...args) => { await probeDispose.call(app, ...args); probeDisposed = true }
   t.after(async () => {
     assert.equal(probeDisposed, true, 'fixture must dispose its application')
     assert.equal(probeFs.promises.open, probeOpen)
