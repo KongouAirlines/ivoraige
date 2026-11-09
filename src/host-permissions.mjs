@@ -34,9 +34,10 @@ if (${directory ? '$true' : '$false'}) {
 }
 if (${initialize ? '$true' : '$false'}) {
   $acl = if (${directory ? '$true' : '$false'}) { [System.IO.Directory]::GetAccessControl($path) } else { [System.IO.File]::GetAccessControl($path) }
-  if ($acl.Owner -ne $sid.Value -and $acl.Owner -ne $sid.Translate([System.Security.Principal.NTAccount]).Value) { throw 'wrong owner' }
+  $initialOwner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+  if ($initialOwner -ne $sid.Value) { throw 'wrong owner' }
   $acl.SetAccessRuleProtection($true, $false)
-  foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRuleAll($rule) }
+  foreach ($rule in @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))) { [void]$acl.RemoveAccessRuleAll($rule) }
   $inherit = if (${directory ? '$true' : '$false'}) { [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit } else { [System.Security.AccessControl.InheritanceFlags]::None }
   $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($sid, [System.Security.AccessControl.FileSystemRights]::FullControl, $inherit, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)
   [void]$acl.AddAccessRule($rule)
@@ -105,8 +106,10 @@ export async function ensurePrivateDirectory(path) {
   try { await lstat(path) }
   catch (error) {
     if (error.code !== 'ENOENT') throw error
-    await mkdir(path, { mode: 0o700 })
-    created = true
+    try { await mkdir(path, { mode: 0o700 }); created = true }
+    catch (cause) { if (cause.code !== 'EEXIST') throw cause }
+    // A concurrent creator winning mkdir is not permission evidence; the
+    // common assertion below still verifies its owner, type and access.
   }
   if (created) {
     if (process.platform === 'win32') await windowsAcl(path, { initialize: true, directory: true })
