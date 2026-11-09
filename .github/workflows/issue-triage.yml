@@ -1,0 +1,89 @@
+name: Codex issue triage
+
+on:
+  issues:
+    types: [opened]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Issue number to analyze
+        required: true
+        type: string
+      dry_run:
+        description: Only show suggestions; do not change the issue
+        default: true
+        type: boolean
+
+permissions: {}
+
+concurrency:
+  group: issue-triage-${{ github.event.issue.number || inputs.issue_number }}
+  cancel-in-progress: false
+
+jobs:
+  analyze:
+    if: github.repository == 'KongouAirlines/ivoraige' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      result: ${{ steps.codex.outputs.final-message }}
+      snapshot: ${{ steps.prepare.outputs.snapshot }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Prepare bounded issue context
+        id: prepare
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const triage = require('./.github/scripts/issue-triage.cjs');
+            await triage.prepare({github, context, core});
+      - name: Check API configuration
+        if: steps.prepare.outputs.allowed == 'true'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo '::error::Add the OPENAI_API_KEY repository Actions secret.'
+            exit 1
+          fi
+      # Keep Codex last: only the separate job below receives issue write access.
+      - name: Analyze labels and possible duplicates
+        id: codex
+        if: steps.prepare.outputs.allowed == 'true'
+        uses: openai/codex-action@1d82a3dba7c7988ec71ecae1ed5b8e8db96495c5 # v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          sandbox: read-only
+          safety-strategy: drop-sudo
+          working-directory: ${{ github.workspace }}/.triage
+          prompt-file: ${{ github.workspace }}/.github/codex/issue-triage.txt
+          output-schema-file: ${{ github.workspace }}/.github/codex/issue-triage.schema.json
+          model: ${{ vars.CODEX_TRIAGE_MODEL }}
+          effort: low
+
+  apply:
+    needs: analyze
+    if: needs.analyze.outputs.result != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Validate and apply suggestions
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          TRIAGE_RESULT: ${{ needs.analyze.outputs.result }}
+          TRIAGE_SNAPSHOT: ${{ needs.analyze.outputs.snapshot }}
+        with:
+          script: |
+            const triage = require('./.github/scripts/issue-triage.cjs');
+            await triage.apply({github, context, core});
