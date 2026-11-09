@@ -100,6 +100,8 @@ export class PromptLibrary extends Service {
     return feature
   }
 
+  hasFeature(input) { return this.features.has(keyOf(input)) }
+
   compatible(template, feature) {
     return !!template && Array.isArray(template.variables) &&
       template.pluginId === feature.pluginId && template.featureId === feature.featureId &&

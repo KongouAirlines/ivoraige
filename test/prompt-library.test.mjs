@@ -23,10 +23,12 @@ async function fixture(t) {
 test('templates are immutable versions, bound by plugin, feature and real connection', async t => {
   const { library } = await fixture(t)
   const stopTranslate = library.register(TRANSLATION_FEATURE)
+  assert.equal(library.hasFeature(TRANSLATION_FEATURE), true)
   const review = { pluginId: 'example.review', featureId: 'review', variables: ['sourceText'], output: 'review-notes' }
   const reviewDefault = { ...review, id: 'builtin:review', version: '1', name: 'Review', style: '' }
   const stopReview = library.register(review, reviewDefault)
   t.after(() => { stopTranslate(); stopReview() })
+  assert.equal(library.hasFeature({ pluginId: 'not-registered', featureId: 'review' }), false)
   const routeA = { api: 'openai-completions', baseURL: 'http://localhost:8001/v1', apiKeyEnv: 'A' }
   const routeB = { ...routeA, baseURL: 'http://localhost:8002/v1' }
   const a = modelConfigurationId({ provider: 'local', model: 'same-name', route: routeA })

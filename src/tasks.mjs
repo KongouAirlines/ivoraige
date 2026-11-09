@@ -3,6 +3,7 @@
 
 import { Service } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
+import { TRANSLATION_FEATURE } from './prompt-library.mjs'
 import { reportFailure } from './diagnostics.mjs'
 import { waitForJob } from './job-wait.mjs'
 import { basename, resolve } from 'node:path'
@@ -435,21 +436,28 @@ export class Tasks extends Service {
         const baseRevisionId = view.draft?.id ?? view.accepted?.id ?? null
         const expectedAcceptedRevisionId = view.accepted?.id ?? null
         const model = this.ctx.get('ivoraige.translationModel')
-        if ((task.promptTemplateId || task.promptSelection) && !model?.resolvePromptSelection)
+        const claimsPrompts = Boolean(model && this.ctx.get('ivoraige.prompts')?.hasFeature?.(TRANSLATION_FEATURE))
+        const resolvesPrompts = typeof model?.resolvePromptSelection === 'function'
+        const checksBasis = typeof model?.preflight === 'function'
+        if ((task.promptTemplateId || task.promptSelection) && !resolvesPrompts)
           throw new KernelError('COMPONENT_MISSING', 'Selected translation model cannot resolve the prompt template')
+        if ((claimsPrompts || resolvesPrompts) && (!resolvesPrompts || !checksBasis))
+          throw new KernelError('COMPONENT_MISSING', 'Translation model prompt contract requires selection and preflight')
         let selection = task.promptSelection
         const noConfiguredModel = !task.promptTemplateId && !task.promptSelection &&
           model?.configuration?.() === null
         // Resolve the selected prompt before reuse; basis preflight is only for an actual model call.
-        if (model?.resolvePromptSelection && !noConfiguredModel) {
+        if (resolvesPrompts && !noConfiguredModel) {
           selection = await model.resolvePromptSelection({ docId: task.docId,
             promptTemplateId: task.promptTemplateId, pinned: selection })
-          if (!task.promptSelection && selection?.promptTrace) {
-            task = await this.records.updateTask(taskId, current => ({ ...current, promptSelection: selection }))
-          }
         }
-        if ((task.promptTemplateId || task.promptSelection) && !selection?.promptTrace)
+        if ((task.promptTemplateId || task.promptSelection || (claimsPrompts && !noConfiguredModel) ||
+             selection?.prompt || selection?.promptTrace) &&
+            (!selection?.prompt || !selection?.promptTrace))
           throw new KernelError('COMPONENT_MISSING', 'Selected translation model did not resolve the prompt template')
+        if (!task.promptSelection && selection?.promptTrace) {
+          task = await this.records.updateTask(taskId, current => ({ ...current, promptSelection: selection }))
+        }
         const promptTrace = selection?.promptTrace
         const reusable = this.records.findReusable(unitId, { targetLang: task.targetLang, promptTrace })
         let outcome
