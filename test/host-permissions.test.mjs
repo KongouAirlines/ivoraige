@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { assertPrivateDirectory, assertPrivateFile, createPrivateFile, ensurePrivateDirectory } from '../src/host-permissions.mjs'
+import { closeWindowsAclWorker, windowsFsOperation, windowsPowerShellPath } from '../src/host-windows-acl.mjs'
 
 const execFileAsync = promisify(execFile)
 
@@ -52,6 +53,7 @@ test('private Windows file rejects a foreign access rule', { skip: process.platf
   // The ACL probe must not depend on PowerShell's Security module autoload.
   const previousModulePath = process.env.PSModulePath
   process.env.PSModulePath = join(root, 'missing-modules')
+  closeWindowsAclWorker()
   t.after(() => {
     if (previousModulePath === undefined) delete process.env.PSModulePath
     else process.env.PSModulePath = previousModulePath
@@ -70,9 +72,50 @@ $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($everyone, [Sy
 [void]$acl.AddAccessRule($rule)
 [System.IO.File]::SetAccessControl(${literal}, $acl)
 `
-  await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script])
+  await execFileAsync(windowsPowerShellPath(), ['-NoProfile', '-NonInteractive', '-Command', script])
   await assert.rejects(assertPrivateFile(file), { code: 'PRECONDITION_FAILED' })
 })
+
+test('Windows ACL helper is reusable and does not keep an idle CLI alive', { skip: process.platform !== 'win32' }, async t => {
+  const root = await mkdtemp(join(tmpdir(), 'ivoraige-host-permissions-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const directory = join(root, "control'; Write-Output 'unsafe")
+  await ensurePrivateDirectory(directory)
+  const pending = windowsFsOperation('assertDirectory', directory)
+  closeWindowsAclWorker()
+  await assert.rejects(pending, /worker closed/)
+  await assertPrivateDirectory(directory)
+  closeWindowsAclWorker()
+  const script = `import { ensurePrivateDirectory } from './src/host-permissions.mjs';
+    await ensurePrivateDirectory(process.argv[1]); console.log('done');`
+  const { stdout } = await execFileAsync(process.execPath, ['--input-type=module', '-e', script, join(root, 'child')],
+    { cwd: new URL('..', import.meta.url), timeout: 15_000 })
+  assert.equal(stdout.trim(), 'done')
+})
+
+test('Windows ancestor replacement rights are rejected but create-only rights are not',
+  { skip: process.platform !== 'win32' }, async t => {
+    for (const [right, rejected] of [['AppendData', false], ['DeleteSubdirectoriesAndFiles', true]]) {
+      const root = await mkdtemp(join(tmpdir(), 'ivoraige-host-permissions-'))
+      t.after(() => rm(root, { recursive: true, force: true }))
+      const parent = join(root, 'parent')
+      const leaf = join(parent, 'leaf')
+      await ensurePrivateDirectory(parent)
+      await ensurePrivateDirectory(leaf)
+      const literal = `'${root.replaceAll("'", "''")}'`
+      const script = `
+$ErrorActionPreference = 'Stop'
+$acl = [System.IO.Directory]::GetAccessControl(${literal})
+$everyone = [System.Security.Principal.SecurityIdentifier]::new('S-1-1-0')
+$rule = [System.Security.AccessControl.FileSystemAccessRule]::new($everyone, [System.Security.AccessControl.FileSystemRights]::${right}, [System.Security.AccessControl.InheritanceFlags]::None, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)
+[void]$acl.AddAccessRule($rule)
+[System.IO.Directory]::SetAccessControl(${literal}, $acl)
+`
+      await execFileAsync(windowsPowerShellPath(), ['-NoProfile', '-NonInteractive', '-Command', script])
+      if (rejected) await assert.rejects(assertPrivateDirectory(leaf), { code: 'PRECONDITION_FAILED' })
+      else await assertPrivateDirectory(leaf)
+    }
+  })
 
 test('preexisting Windows administrator-owned directory is never normalized', { skip: process.platform !== 'win32' }, async t => {
   const root = await mkdtemp(join(tmpdir(), 'ivoraige-host-permissions-'))
@@ -91,11 +134,11 @@ $acl.SetOwner($admin)
 [System.IO.Directory]::SetAccessControl(${literal}, $acl)
 Write-Output 'elevated'
 `
-  const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', setup])
+  const { stdout } = await execFileAsync(windowsPowerShellPath(), ['-NoProfile', '-NonInteractive', '-Command', setup])
   if (stdout.trim() === 'not-elevated') { t.skip('Current token is not elevated'); return }
   assert.equal(stdout.trim(), 'elevated')
   await assert.rejects(ensurePrivateDirectory(directory), { code: 'PRECONDITION_FAILED' })
-  const { stdout: owner } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+  const { stdout: owner } = await execFileAsync(windowsPowerShellPath(), ['-NoProfile', '-NonInteractive', '-Command',
     `$acl = [System.IO.Directory]::GetAccessControl(${literal}); $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value`])
   assert.equal(owner.trim(), 'S-1-5-32-544')
 })

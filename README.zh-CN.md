@@ -39,7 +39,7 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 
 默认使用 Node.js **26.13.0**（`.node-version`）和 npm。Node 24 仅保留兼容，支持范围仍为 `>=24.22.1 <25 || >=26.12.1 <27`。源码运行可使用这两个受支持主版本内更新的稳定补丁版；Node 25 和未来主版本暂不在支持范围内。CI 仅在 Linux、macOS 和 Windows 上验证 Node.js 26.13.0；Node 24 仍在支持范围内，但不再单独运行 CI。DSH bundle 的构建目标为 Node 26；Windows 便携包要求固定的官方 Node.js 26.13.0 可执行文件和对应许可。
 
-Windows owner IPC 还需要内置 Windows PowerShell 5.1 与 .NET Framework，并允许 `Add-Type`。无法核验原生命名管道权限或连接方身份时拒绝连接；详见[owner 控制指南](docs/plan/0.1.x/host-control-guide.md)。
+Windows owner IPC 还需要内置 Windows PowerShell 5.1 与 .NET Framework，并允许 FullLanguage 与 `Add-Type`。内置命令不改变执行策略，仍受组织应用控制约束。无法核验原生命名管道权限或连接方身份时拒绝连接；详见[owner 控制指南](docs/plan/0.1.x/host-control-guide.md)。
 
 1. 打开工作台，导入 TXT 或 Markdown 文件。
 2. 需要机器翻译时配置模型，也可以直接录入自己的译文。

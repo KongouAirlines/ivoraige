@@ -70,11 +70,16 @@ test('protected transport handshakes generation and rejects stale/unknown action
       const raw = createConnection(host.record.address)
       try {
         await once(raw, 'connect')
-        const response = once(raw, 'data')
+        const response = new Promise((resolve, reject) => {
+          let line = ''
+          raw.on('data', chunk => { line += chunk.toString(); if (line.includes('\n')) resolve(line) })
+          raw.once('error', reject)
+          raw.once('end', () => reject(new Error('Owner closed before the authentication response')))
+        })
         raw.write(`${JSON.stringify({ interfaceVersion: 'HostControl@1', minor: 0,
           requestId: 'no-capability', action: 'attach',
           params: { dataDomainRef: 'domain-a', requiredLifetime: 'resident' } })}\n`)
-        assert.equal(JSON.parse((await response)[0].toString()).error.code, 'UNAUTHORIZED')
+        assert.equal(JSON.parse(await response).error.code, 'UNAUTHORIZED')
       } finally { raw.destroy() }
     }
     assert.equal((await client.request('state')).action, 'state')

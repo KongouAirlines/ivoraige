@@ -5,14 +5,16 @@ import { promisify } from 'node:util'
 import { once } from 'node:events'
 import { randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { mkdtemp, mkdir, copyFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { createWindowsPipeServer, connectWindowsPipe } from '../src/host-windows-pipe.mjs'
 
 const windows = { skip: process.platform !== 'win32', timeout: 60_000 }
 const ps = join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
 const probe = fileURLToPath(new URL('./fixtures/windows-pipe-probe.cs', import.meta.url))
 const quote = value => `'${value.replaceAll("'", "''")}'`
-const script = code => `$ErrorActionPreference = 'Stop'; Add-Type -Path ${quote(probe)} -ReferencedAssemblies System,System.Core; ${code}`
+const script = code => `$ErrorActionPreference = 'Stop'; Add-Type -LiteralPath ${quote(probe)} -ReferencedAssemblies System,System.Core; ${code}`
 const address = () => `\\\\.\\pipe\\ivoraige-${randomBytes(16).toString('base64url')}`
 const execute = code => promisify(execFile)(ps, ['-NoProfile', '-NonInteractive', '-Command', script(code)],
   { windowsHide: true, timeout: 40_000, maxBuffer: 8192 })
@@ -26,7 +28,7 @@ async function listen(onConnection = socket => socket.once('data', () => socket.
 test('Windows helper compiles against built-in .NET Framework assemblies', windows, async () => {
   const source = fileURLToPath(new URL('../src/windows/HostPipe.cs', import.meta.url))
   const { stdout } = await promisify(execFile)(ps, ['-NoProfile', '-NonInteractive', '-Command',
-    `$ErrorActionPreference = 'Stop'; Add-Type -Path ${quote(source)} -ReferencedAssemblies System,System.Core,System.Web.Extensions; [Ivoraige.HostPipe].FullName`],
+    `$ErrorActionPreference = 'Stop'; Add-Type -LiteralPath ${quote(source)} -ReferencedAssemblies System,System.Core,System.Web.Extensions; [Ivoraige.HostPipe].FullName`],
   { windowsHide: true, timeout: 30_000, maxBuffer: 32_768 })
   assert.equal(stdout.trim(), 'Ivoraige.HostPipe')
 })
@@ -139,4 +141,24 @@ test('Windows helper startup queue is bounded before native traffic', windows, a
   for (let i = 0; i < 10 && !client.destroyed; i++) client.write(Buffer.alloc(1024 * 1024, 120))
   assert.equal((await failure)[0].code, 'PRECONDITION_FAILED')
   assert.equal(client.destroyed, true)
+})
+
+
+test('Windows actual helper honors Restricted policy and literal installation paths', windows, async () => {
+  // Brackets exercise provider wildcard handling; the apostrophe exercises
+  // PowerShell string quoting. Only the dependency-free transport is copied.
+  const root = await mkdtemp(join(tmpdir(), "ivoraige-[pipe]'-"))
+  try {
+    for (const relative of ['src/host-windows-pipe.mjs', 'src/errors.mjs', 'src/windows/HostPipe.cs',
+      'test/fixtures/windows-pipe-restricted.mjs']) {
+      const target = join(root, relative)
+      await mkdir(dirname(target), { recursive: true })
+      await copyFile(fileURLToPath(new URL(`../${relative}`, import.meta.url)), target)
+    }
+    const runner = join(root, 'test/fixtures/windows-pipe-restricted.mjs')
+    const { stdout } = await promisify(execFile)(ps, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Restricted',
+      '-Command', `$ErrorActionPreference = 'Stop'; if ((Get-ExecutionPolicy) -ne 'Restricted') { throw 'Restricted policy was not effective' }; & ${quote(process.execPath)} ${quote(runner)}; exit $LASTEXITCODE`],
+    { windowsHide: true, timeout: 40_000, maxBuffer: 8192 })
+    assert.match(stdout, /actual-helper-under-Restricted/)
+  } finally { await rm(root, { recursive: true, force: true }) }
 })

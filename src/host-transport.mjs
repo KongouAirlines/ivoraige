@@ -173,7 +173,7 @@ export function createHostTransport({ directory, dataDomainRef, generation, life
     (lifetime === 'resident' && typeof handleControl !== 'function'))
     throw fail('INVALID_ARGUMENT', 'invalid-request')
   directory = resolve(directory)
-  let server, record, capability, closed = false
+  let server, record, capability, closing, closed = false
   const ownerProcess = { pid: process.pid, runtimeStartTimeMs: Math.floor(performance.timeOrigin), nonce: randomUUID() }
   const sockets = new Set()
   const exitWaiters = new Map()
@@ -315,21 +315,30 @@ export function createHostTransport({ directory, dataDomainRef, generation, life
 
   async function close() {
     if (closed) return
-    closed = true
-    // Permit a queued finalization frame to leave the host before tearing
-    // down its authenticated channel. A client that never reads is bounded.
-    if (finalizedSockets.size) await Promise.race([
-      Promise.all([...finalizedSockets].map(socket => socket.destroyed ? undefined :
-        new Promise(resolveClose => socket.once('close', resolveClose)))),
-      new Promise(resolveTimeout => setTimeout(resolveTimeout, 500)),
-    ])
-    for (const socket of sockets) socket.destroy()
-    if (server) await new Promise(resolveClose => server.close(() => resolveClose()))
-    if (record) {
-      if (record.address && process.platform !== 'win32') await rm(record.address, { force: true })
-      else if (record.address) await rm(capabilityPath(directory, dataDomainRef, generation), { force: true })
-    }
-    getSession()?.revokeAll()
+    if (closing) return closing
+    closing = (async () => {
+      // Permit a queued finalization frame to leave the host before tearing
+      // down its authenticated channel. A client that never reads is bounded.
+      if (finalizedSockets.size) await Promise.race([
+        Promise.all([...finalizedSockets].map(socket => socket.destroyed ? undefined :
+          new Promise(resolveClose => socket.once('close', resolveClose)))),
+        new Promise(resolveTimeout => setTimeout(resolveTimeout, 500)),
+      ])
+      for (const socket of sockets) socket.destroy()
+      if (server) await new Promise((resolveClose, reject) => server.close(error => {
+        // Failed POSIX listen never owned a socket. Do not mask its original
+        // EPERM/EACCES with net.Server's already-stopped cleanup diagnostic.
+        if (error && !(process.platform !== 'win32' && error.code === 'ERR_SERVER_NOT_RUNNING')) reject(error)
+        else resolveClose()
+      }))
+      if (record) {
+        if (record.address && process.platform !== 'win32') await rm(record.address, { force: true })
+        else if (record.address) await rm(capabilityPath(directory, dataDomainRef, generation), { force: true })
+      }
+      getSession()?.revokeAll()
+      closed = true
+    })()
+    try { await closing } finally { closing = undefined }
   }
 
   return { start, cleanupDiscovery, finalize, close, get record() { return record } }

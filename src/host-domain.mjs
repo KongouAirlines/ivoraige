@@ -3,7 +3,6 @@
 // The registry is per OS user. The DSH domain is the authority for a store's
 // identity; the registry binds that identity to this machine's canonical path.
 import './runtime.mjs'
-import { execFile } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { lstat, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises'
@@ -12,11 +11,11 @@ import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { backup, DatabaseSync } from 'node:sqlite'
 import { setTimeout as delay } from 'node:timers/promises'
-import { promisify } from 'node:util'
 import { Context, Storage, StorageDomain, StorageSqlite, z } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
 import { acquireStoreLock, canonicalStorePath } from './store-lock.mjs'
 import { assertPrivateFile, createPrivateFile, ensurePrivateDirectory } from './host-permissions.mjs'
+import { windowsFsOperation } from './host-windows-acl.mjs'
 
 const spec = StorageDomain.defineDomain({ name: 'ivoraige_host', version: 1, layout: 'per-record',
   tables: { identity: StorageDomain.domainTable(z.object({ domainId: z.string().uuid(),
@@ -28,7 +27,6 @@ const LOCK = 'domains.owner.sqlite'
 // If DSH disposal cannot be confirmed, retaining the lease is safer than
 // permitting another owner to open a store with a possible live writer.
 const unconfirmedLeases = new Set()
-const execFileAsync = promisify(execFile)
 const fail = (code, reason, details = {}) => new KernelError(code, reason, { reason, ...details })
 const hash = value => createHash('sha256').update(typeof value === 'string' ? value : JSON.stringify(value)).digest('hex')
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b)
@@ -136,23 +134,7 @@ async function durableReplace(dir, name, value) {
     if (process.platform === 'win32') {
       // Node does not expose a directory fsync on Windows. Use the OS's
       // write-through replacement primitive, and fail closed if it is absent.
-      const ps = value => `'${value.replaceAll("'", "''")}'`
-      const script = `
-$ErrorActionPreference = 'Stop'
-Add-Type -TypeDefinition @'
-using System;
-using System.Runtime.InteropServices;
-using System.ComponentModel;
-public static class IvoraigeMoveFile {
-  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
-  public static extern bool MoveFileEx(string source, string target, int flags);
-}
-'@
-if (-not [IvoraigeMoveFile]::MoveFileEx(${ps(tmp)}, ${ps(target)}, 9)) {
-  throw (New-Object System.ComponentModel.Win32Exception([Runtime.InteropServices.Marshal]::GetLastWin32Error()))
-}`
-      try { await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script],
-        { windowsHide: true, timeout: 10_000, maxBuffer: 16_384 }) }
+      try { await windowsFsOperation('moveReplace', tmp, target) }
       catch { throw fail('PRECONDITION_FAILED', 'registry-unavailable') }
     } else await rename(tmp, target)
     await assertPrivateFile(target)

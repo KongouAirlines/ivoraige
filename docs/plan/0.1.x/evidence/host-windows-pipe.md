@@ -18,13 +18,25 @@ lacks the required native boundary. Stop that owner normally before switching
 builds; retaining frame compatibility does not waive the security checks.
 
 The implementation requires built-in Windows PowerShell and .NET Framework
-with `Add-Type` permitted. It does not change script execution policy, fetch a
-binary, create accounts, request elevation, or open a loopback TCP substitute.
+with FullLanguage and `Add-Type` permitted. A fixed internal `-Command` bootstrap
+loads only the packaged C# source with `-LiteralPath` at an escaped application path; no frame or
+discovery field becomes command text. Unlike `-File`, this uses the commands
+permitted by the stock Windows-client Restricted execution policy. It does not
+supply an execution-policy override, unblock a script, change language mode,
+fetch a binary, create accounts, request elevation, or open a TCP substitute.
+ConstrainedLanguage, AppLocker and WDAC restrictions still apply. An organization
+that prohibits this compilation needs an approved deployment; the application
+fails rather than trying another execution route.
 If the helper is absent, prohibited, unable to establish its boundary, or exits,
 the channels fail closed. The source helper ships inside the existing `src/`
 package inclusion. One helper is shared instead of compiling on every request;
-idle helpers close, inherited-stdin EOF closes native handles, and bounded
-shutdown terminates an unresponsive owned helper.
+idle helpers close and inherited-stdin EOF closes native handles. Listening
+must be acknowledged within 25 seconds, including the 20-second startup limit;
+closing must be acknowledged within 2 seconds. A missing acknowledgment fails
+all channels of that owned helper and requests its termination. Close reports
+an error, not success inferred from `kill()`. A later retry can verify closure
+from a native close acknowledgment or an actual helper exit event. It never
+terminates an unrelated process.
 
 ## Native checks
 
@@ -70,11 +82,22 @@ privilege from a disposable test process and its children.
 6. Same-SID operation after removing `SeImpersonatePrivilege` from a disposable
    subprocess token and verifying removal with `GetTokenInformation`.
 7. Bounded queued traffic while the helper starts.
-8. Independent built-in .NET Framework compilation diagnostics.
-9. Retired pipe connections retain `CONFLICT/owner-unreachable`.
+8. Retired pipes preserve `CONFLICT/owner-unreachable` rather than presenting a
+   missing endpoint as a permission failure.
+9. Independent compilation diagnostics against built-in .NET assemblies.
+10. The actual adapter helper operating under Restricted policy inherited from
+    a disposable PowerShell process, with no helper policy override, from an
+    installation path containing brackets and an apostrophe.
+
+`test/host-windows-pipe-broker.test.mjs` separately injects a fake child to check
+lost listen/close acknowledgments, live-channel failure, failed or unconfirmed
+termination, actual-exit recovery, and a healthy close acknowledgment. Those are
+cross-platform JS lifecycle checks, not native security evidence.
+
 
 The tests use only synthetic bytes. They do not create accounts, modify OS
-security policy or change another process's token. Anonymous rejection is not
+machine/user security policy or change another process's token. The Restricted
+acceptance test tightens execution policy only for its disposable process tree. Anonymous rejection is not
 evidence of a separate ordinary logged-in account, and privilege removal from
 an elevated runner is not evidence of a fully unelevated standard-user token.
 
@@ -92,8 +115,21 @@ zero failures. Its 91-file package smoke also passed, but that foundation slice
 does not yet activate the A3 installed owner entry paths. [Native evidence](https://github.com/KongouAirlines/ivoraige/actions/runs/42558967671/job/128970927080).
 The later compile and retired-pipe tests need their own published-head results.
 
-Final-head native checks, A3 installed owner execution, a separate regular user
-and a fully unelevated user remain acceptance gates until recorded.
+After the launcher/acknowledgment changes, the A3 worktree's full host-focused
+command (`node --import ./test/fixtures/host-test-env.mjs --test test/host-*.test.mjs`)
+on Linux / Node 24.22.1 reported 63 tests: 47 passed, 16 explicit platform/socket
+skips, zero failures. This includes the three fake-helper acknowledgment tests;
+it does not establish the unrun native Restricted-policy case.
+
+Native verification of the current launcher/acknowledgment changes, installed-
+package execution, a separate regular user and a
+fully unelevated user remain acceptance gates until actual results are recorded.
+
 A separate-account probe requires an already-provisioned test account or explicit
 authorization to create, use and delete one on a disposable Windows runner. No
 account-management action is performed by this test suite.
+
+The launcher choice follows Microsoft's [Windows PowerShell 5.1 execution-policy
+contract](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_execution_policies?view=powershell-5.1)
+and preserves its [language-mode restrictions](https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_language_modes?view=powershell-5.1).
+Windows Server CI is not by itself evidence of stock Windows-client policy behavior.

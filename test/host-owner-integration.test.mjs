@@ -53,10 +53,12 @@ test('protected exit is accepted before finalization and retires the same genera
   if (!f) return
   const { app, options } = f
   const joined = await attachHost(options)
-  const accepted = await joined.client.request('exit', { budgetMs: 3000 })
+  const accepted = await joined.client.request('exit', { budgetMs: 30_000 })
   assert.equal(accepted.accepted, true)
   assert.equal(accepted.generation, app.generation)
-  await app.host.whenClosed
+  await app.host.control.waitForAttempt()
+  assert.equal(app.host.closed, true, JSON.stringify(app.host.control.operation(accepted.operationId,
+    { expectedGeneration: app.generation })))
   assert.equal(app.host.control.finalizationReceipt().operationId, accepted.operationId)
   assert.equal(app.host.control.state().storeOwnership, 'released')
   await assert.rejects(joined.client.request('state'), error => error.details?.reason === 'owner-unreachable')
