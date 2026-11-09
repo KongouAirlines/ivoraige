@@ -443,8 +443,8 @@ for await (const line of createInterface({input:process.stdin})) {
  if(req.method==='handshake') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:req.id,result:{protocolVersion:1}})+'\\n');
  else if(req.method==='configure') process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:req.id,result:{}})+'\\n');
  else if(req.method==='parse') {
-   await writeFile(started,'yes');
    process.on('SIGTERM',()=>setTimeout(async()=>{await writeFile(exited,'yes');process.exit(0)},180));
+   await writeFile(started,'yes');
    await new Promise(()=>{});
  }
 }`)
