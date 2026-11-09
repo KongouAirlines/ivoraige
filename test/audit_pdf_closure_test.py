@@ -201,6 +201,30 @@ class ClosureTest(unittest.TestCase):
                 (root / name / 'excluded').write_text('fixture')
             self.assertEqual(audit.assets(root), [])
 
+    def test_drive_like_components_rejected(self):
+        for value in ['./C:/file', 'pkg/C:file', 'pkg/C:..', 'C:..']:
+            with self.subTest(path=value):
+                self.assertFalse(audit.portable_relative(value))
+        self.assertTrue(audit.portable_relative('pkg/normal.txt'))
+
+    def test_record_non_directory_parent_is_missing(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp).resolve()
+            info = root / 'demo-1.dist-info'
+            info.mkdir()
+            (info / 'METADATA').write_text('Name: demo\nVersion: 1\n')
+            (info / 'RECORD').write_text('foo/bar,,\n')
+            (root / 'foo').write_text('ordinary file')
+            row = audit.installed(root)[0]
+            self.assertEqual(row['missingRecordFiles'], ['foo/bar'])
+            self.assertEqual(row['outsideOrLinkedRecordFiles'], [])
+
+    def test_link_probe_does_not_hide_permission_errors(self):
+        path = mock.Mock()
+        path.lstat.side_effect = PermissionError('fixture denied')
+        with self.assertRaises(PermissionError):
+            audit.is_link_or_reparse(path)
+
 
 if __name__ == '__main__':
     unittest.main()

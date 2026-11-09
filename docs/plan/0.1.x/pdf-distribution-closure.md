@@ -102,3 +102,9 @@ python3 -c 'import hashlib,pathlib; p=pathlib.Path("../ivoraige-babeldoc-0.7.1/e
 - **保留约定：** 输入路径的任意祖先是链接/reparse point 都拒绝，包括 macOS 常见 `/tmp` alias。这是严格显式根策略，不自动 resolve 到另一个位置，也不为便利放宽权限。调用者须明确选择已授权的真实目录路径；夹具仅对自己创建的临时目录取得真实位置。并发替换与完整系统闭包仍不在保证内。
 
 本轮本地 13/13 清单夹具及 4/4 既有归档夹具通过；没有运行大清单、读取新 P05 包或修改历史 inventory JSON，没有 Windows/macOS 实机运行结论。已有三系统 CI 配置将运行新夹具，远端结果另验。
+
+### 路径组件与损坏 RECORD 的窄范围回归
+
+纯路径夹具确认 `./C:/file`、`pkg/C:file`、`pkg/C:..` 曾通过整体 anchor 检查；`C:..` 已被拒绝。现在按既有保守跨平台格式策略，逐组件拒绝盘符形态，不将其描述为已证实的 Windows 逃逸或 tar 执行漏洞。真实临时文件夹具确认：当 `foo` 是普通文件，RECORD 的 `foo/bar` 曾触发 NotADirectoryError。链接探测现仅将 FileNotFoundError/NotADirectoryError 作为不存在入口返回，随后该项进入 missingRecordFiles；PermissionError 及其他 I/O 错误仍向上传递，未掩盖访问失败。
+
+修复前新增测试产生三项格式断言失败和一项真实 NotADirectoryError；修复后清单夹具 16/16、既有归档夹具 4/4 本地通过。没有运行 native Windows、大清单或依赖下载；历史 inventory JSON 未改。

@@ -20,7 +20,7 @@ def is_link_or_reparse(path):
     # points are rejected even when is_symlink() is false. Other I/O errors fail.
     try:
         entry = path.lstat()
-    except FileNotFoundError:
+    except (FileNotFoundError, NotADirectoryError):
         return False
     return stat.S_ISLNK(entry.st_mode) or bool(
         getattr(entry, 'st_file_attributes', 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT)
@@ -29,7 +29,8 @@ def is_link_or_reparse(path):
 def portable_relative(path):
     posix, windows = PurePosixPath(path), PureWindowsPath(path)
     return bool(path) and not (posix.is_absolute() or windows.anchor
-        or '..' in posix.parts or '..' in windows.parts or '\\' in path)
+        or '..' in posix.parts or '..' in windows.parts or '\\' in path
+        or any(re.match(r'^[A-Za-z]:', part) for part in posix.parts))
 
 
 def labeled_path(value):
