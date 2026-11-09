@@ -81,11 +81,16 @@ matrix run inside `test/babeldoc-offline-exec.py`, which denies `connect`,
 returns EACCES (`network-denial-proof.log`). This is a test constraint, not a
 claim of a security sandbox for installed plugins.
 
-- `test/babeldoc-plugin.test.mjs`: 12 tests including subtests. Covers frozen
+- `test/babeldoc-plugin.test.mjs`: 14 tests including subtests. Covers frozen
   PDF/MD/JSON, reopen, missing runtime, source export while runtime is missing,
   TXT isolation, local-only imports, store mismatch, both duplicate-registration
   orders, 0.6.4/cross-engine rejection without sidecar access, data-only output,
-  missing assets, crash, timeout, cancellation, cleanup and restart.
+  missing assets, crash, timeout, cancellation, cleanup and restart. A single
+  fixture hook closes every opened app before removing its directory, including
+  after an early assertion failure. Close failures do not prevent other closes
+  or the removal attempt, and the first cleanup error is preserved. Two focused
+  regressions cover that ordering/error behavior. This avoids removing a live
+  SQLite store on Windows; the rerun here is Linux, not native Windows evidence.
 - `test/babeldoc-live.mjs`: final report at `evaluation/runs/p07/installed-live-final/report.json`.
   Actual offline P05 install of both packages and AppBoot/Loader activation;
   explicit source selection in one store; two manually accepted Chinese
@@ -95,7 +100,7 @@ claim of a security sandbox for installed plugins.
   disable/enable and restart; missing-other-runtime isolation; removal and
   retained records/resources; TXT remains usable. Every close verifies no child
   process remains. Translation task count is zero.
-- `npm test`: 607 tests / 605 passed / 2 platform skips / 0 failed; `evaluation/runs/p07/npm-test-final.log`. npm runs
+- `npm test`: 609 tests / 607 passed / 2 platform skips / 0 failed; `evaluation/runs/p07/npm-test-cleanup.log`. npm runs
   with `offline=true`, `update_notifier=false`, `audit=false`, `fund=false` and a
   writable local cache. The complete host suite includes loopback HTTP tests;
   the strict child network-denial wrapper applies to the above real-engine and
@@ -107,6 +112,11 @@ this environment's procfs TIDs differ from Node's PID-namespace-relative PID.
 The test now enumerates procfs TIDs; the complete six-phase rerun passes. The
 failed attempt is retained in `evaluation/runs/p07/installed-live.log`. This
 was a verification-script correction, not a host/plugin implementation change.
+
+After the fixture-close ordering correction, the complete real installed-runtime
+sequence was also rerun successfully: `evaluation/runs/p07/installed-live-cleanup/report.json`
+retains all six passing phases, six child-release checks and zero translation
+tasks. Focused cleanup/plugin results are in `evaluation/runs/p07/unit-cleanup.log`.
 
 The original mixed synthetic input SHA-256 is
 `e0b949bc0c1f9532d1cfca41c1e235ff0a0b0db3894eb4239b5ee1360e575d1f`.

@@ -9,15 +9,27 @@ import BabelDOCSource from '../plugins/babeldoc/index.mjs'
 import { Pdf } from '../src/adapters/pdf.mjs'
 
 const pdf = Buffer.from('%PDF-FAKE-ORIGINAL\nA synthetic fixture.\n')
+// One fixture-owned hook: Windows cannot remove an open SQLite store. Always
+// attempt every close before removing files, retaining the first cleanup error.
+async function closeFixture(apps, remove) {
+  let failure
+  for (const app of [...apps].reverse()) {
+    try { await app.dispose() } catch (error) { failure ??= error }
+  }
+  try { await remove() } catch (error) { failure ??= error }
+  if (failure) throw failure
+}
+
 async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), 'ivoraige-babeldoc-plugin-'))
-  t.after(() => rm(dir, { recursive: true, force: true }))
+  const apps = []
+  t.after(() => closeFixture(apps, () => rm(dir, { recursive: true, force: true })))
   const engine = join(dir, 'engine.mjs')
   await writeFile(engine, (await readFile(new URL('./fixtures/pdf-engine.mjs', import.meta.url), 'utf8'))
     .replace("adapterId: 'babeldoc', captureConfig", "adapterId: 'babeldoc', engineVersion: '0.7.1+ivoraige.1', captureConfig"))
   const store = join(dir, 'db.sqlite')
   const config = { directory: join(dir, 'pdf'), command: process.execPath, args: [engine] }
-  const open = async () => { const app = await createApp({ store }); t.after(() => app.dispose()); return app }
+  const open = async () => { const app = await createApp({ store }); apps.push(app); return app }
   return { dir, store, config, open }
 }
 async function importPdf(app) {
@@ -186,4 +198,33 @@ test('legacy-first BabelDOC mount rejects the independent package without replac
   app = await f.open()
   await app.ctx.plugin(BabelDOCSource, f.config)
   await importPdf(app)
+})
+
+test('BabelDOC fixture closes all hosts before removal when a test assertion fails early', async () => {
+  const order = []
+  const apps = [1, 2].map(id => ({ dispose: async () => { order.push(`close-${id}`) } }))
+  const assertion = new Error('early test assertion')
+  await assert.rejects(async () => {
+    try { throw assertion }
+    finally {
+      await closeFixture(apps, async () => {
+        assert.deepEqual(order, ['close-2', 'close-1'])
+        order.push('remove')
+      })
+    }
+  }, error => error === assertion)
+  assert.deepEqual(order, ['close-2', 'close-1', 'remove'])
+})
+
+test('BabelDOC fixture continues cleanup after close errors and preserves the first error', async () => {
+  const order = [], first = new Error('first close failure')
+  const apps = [
+    { dispose: async () => { order.push('close-1'); throw new Error('later close failure') } },
+    { dispose: async () => { order.push('close-2'); throw first } },
+  ]
+  await assert.rejects(closeFixture(apps, async () => {
+    order.push('remove')
+    throw new Error('later removal failure')
+  }), error => error === first)
+  assert.deepEqual(order, ['close-2', 'close-1', 'remove'])
 })
