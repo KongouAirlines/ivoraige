@@ -15,7 +15,7 @@ import { Context, Storage, StorageDomain, StorageSqlite, z } from '../dist/dsh.m
 import { KernelError } from './errors.mjs'
 import { acquireStoreLock, canonicalStorePath } from './store-lock.mjs'
 import { assertPrivateFile, createPrivateFile, ensurePrivateDirectory } from './host-permissions.mjs'
-import { windowsFsOperation } from './host-windows-acl.mjs'
+import { afterWindowsAclWorkerRetirement, windowsFsOperation } from './host-windows-acl.mjs'
 
 const spec = StorageDomain.defineDomain({ name: 'ivoraige_host', version: 1, layout: 'per-record',
   tables: { identity: StorageDomain.domainTable(z.object({ domainId: z.string().uuid(),
@@ -181,7 +181,20 @@ async function acquireRegistryLockBounded(dir) {
     }
   } catch (error) { db.close(); throw error }
   let released = false
-  return { release() { if (!released) { db.close(); released = true } } }
+  return { release() {
+    if (released) return
+    // On a helper timeout/protocol fault, the operation reports failure
+    // promptly, but its native filesystem mutation may still be running.
+    // Keep the SQLite registry lease until the child has actually exited.
+    const deferred = process.platform === 'win32' ? afterWindowsAclWorkerRetirement(() => db.close()) : null
+    if (process.platform !== 'win32') db.close()
+    released = true
+    if (deferred) void deferred.catch(error => {
+      // A failed close is unconfirmed ownership; never silently drop it.
+      unconfirmedLeases.add(db)
+      process.emitWarning(error, 'Windows registry lock release failed')
+    })
+  } }
 }
 async function fileIdentity(path) {
   try {

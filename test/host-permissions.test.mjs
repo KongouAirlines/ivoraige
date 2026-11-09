@@ -1,12 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
+import { EventEmitter } from 'node:events'
 import { mkdir, mkdtemp, readFile, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { PassThrough } from 'node:stream'
 import { promisify } from 'node:util'
 import { assertPrivateDirectory, assertPrivateFile, createPrivateFile, ensurePrivateDirectory } from '../src/host-permissions.mjs'
-import { closeWindowsAclWorker, windowsFsOperation, windowsPowerShellPath } from '../src/host-windows-acl.mjs'
+import { closeWindowsAclWorker, createWindowsAclClientForTesting, windowsFsOperation, windowsPowerShellPath } from '../src/host-windows-acl.mjs'
 
 const execFileAsync = promisify(execFile)
 
@@ -53,7 +55,7 @@ test('private Windows file rejects a foreign access rule', { skip: process.platf
   // The ACL probe must not depend on PowerShell's Security module autoload.
   const previousModulePath = process.env.PSModulePath
   process.env.PSModulePath = join(root, 'missing-modules')
-  closeWindowsAclWorker()
+  await closeWindowsAclWorker()
   t.after(() => {
     if (previousModulePath === undefined) delete process.env.PSModulePath
     else process.env.PSModulePath = previousModulePath
@@ -82,10 +84,11 @@ test('Windows ACL helper is reusable and does not keep an idle CLI alive', { ski
   const directory = join(root, "control'; Write-Output 'unsafe")
   await ensurePrivateDirectory(directory)
   const pending = windowsFsOperation('assertDirectory', directory)
-  closeWindowsAclWorker()
+  const closing = closeWindowsAclWorker()
   await assert.rejects(pending, /worker closed/)
+  await closing
   await assertPrivateDirectory(directory)
-  closeWindowsAclWorker()
+  await closeWindowsAclWorker()
   const script = `import { ensurePrivateDirectory } from './src/host-permissions.mjs';
     await ensurePrivateDirectory(process.argv[1]); console.log('done');`
   const { stdout } = await execFileAsync(process.execPath, ['--input-type=module', '-e', script, join(root, 'child')],
@@ -95,7 +98,11 @@ test('Windows ACL helper is reusable and does not keep an idle CLI alive', { ski
 
 test('Windows ancestor replacement rights are rejected but create-only rights are not',
   { skip: process.platform !== 'win32' }, async t => {
-    for (const [right, rejected] of [['AppendData', false], ['DeleteSubdirectoriesAndFiles', true]]) {
+    for (const [sid, right, rejected] of [
+      ['S-1-1-0', 'AppendData', false],
+      ['S-1-1-0', 'DeleteSubdirectoriesAndFiles', true],
+      ['S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464', 'DeleteSubdirectoriesAndFiles', false],
+    ]) {
       const root = await mkdtemp(join(tmpdir(), 'ivoraige-host-permissions-'))
       t.after(() => rm(root, { recursive: true, force: true }))
       const parent = join(root, 'parent')
@@ -106,8 +113,8 @@ test('Windows ancestor replacement rights are rejected but create-only rights ar
       const script = `
 $ErrorActionPreference = 'Stop'
 $acl = [System.IO.Directory]::GetAccessControl(${literal})
-$everyone = [System.Security.Principal.SecurityIdentifier]::new('S-1-1-0')
-$rule = [System.Security.AccessControl.FileSystemAccessRule]::new($everyone, [System.Security.AccessControl.FileSystemRights]::${right}, [System.Security.AccessControl.InheritanceFlags]::None, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)
+$principal = [System.Security.Principal.SecurityIdentifier]::new('${sid}')
+$rule = [System.Security.AccessControl.FileSystemAccessRule]::new($principal, [System.Security.AccessControl.FileSystemRights]::${right}, [System.Security.AccessControl.InheritanceFlags]::None, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)
 [void]$acl.AddAccessRule($rule)
 [System.IO.Directory]::SetAccessControl(${literal}, $acl)
 `
@@ -116,6 +123,88 @@ $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($everyone, [Sy
       else await assertPrivateDirectory(leaf)
     }
   })
+
+test('faulted Windows ACL helper waits for observed exit before replacement', async () => {
+  const children = []
+  const spawnProcess = () => {
+    const child = new EventEmitter()
+    child.pid = 1000 + children.length
+    child.stdin = new PassThrough()
+    child.stdout = new PassThrough()
+    child.stderr = new PassThrough()
+    child.ref = () => { child.refs++; child.referenced = true }
+    child.unref = () => { child.unrefs++; child.referenced = false }
+    child.refs = 0
+    child.unrefs = 0
+    child.kills = 0
+    child.kill = () => { child.kills++; return false }
+    for (const pipe of [child.stdin, child.stdout, child.stderr]) {
+      pipe.ref = () => {}
+      pipe.unref = () => {}
+    }
+    child.requests = []
+    child.stdin.on('data', data => child.requests.push(JSON.parse(data.toString())))
+    children.push(child)
+    return child
+  }
+  const client = createWindowsAclClientForTesting(spawnProcess)
+  const pending = client.operation('moveReplace', 'C:\\source', 'C:\\target')
+  assert.equal(children.length, 1)
+  assert.equal(children[0].requests[0].op, 'moveReplace')
+  children[0].stdout.write('not json\n')
+  await assert.rejects(pending, /invalid JSON/)
+  const closing = client.close()
+  assert.equal(children[0].kills, 1)
+  assert.equal(children[0].referenced, true)
+  let released = false
+  const deferredRelease = client.afterRetirement(() => { released = true })
+  assert.equal(released, false)
+  assert.ok(deferredRelease instanceof Promise)
+  await assert.rejects(client.operation('createFile', 'C:\\other'), /exit is pending/)
+  assert.equal(children.length, 1)
+  // A late success reply cannot certify that the old helper has stopped.
+  children[0].stdout.write(`${JSON.stringify({ id: children[0].requests[0].id, ok: true, code: 'ok' })}\n`)
+  await assert.rejects(client.operation('assertFile', 'C:\\other'), /exit is pending/)
+  assert.equal(children.length, 1)
+  assert.equal(released, false)
+  children[0].emit('exit', null, 'SIGTERM')
+  await closing
+  await deferredRelease
+  assert.equal(released, true)
+  assert.equal(children[0].referenced, false)
+  const recovered = client.operation('assertFile', 'C:\\other')
+  assert.equal(children.length, 2)
+  assert.equal(children[1].requests[0].op, 'assertFile')
+  children[1].stdout.write(`${JSON.stringify({ id: children[1].requests[0].id, ok: true, code: 'ok' })}\n`)
+  assert.equal(await recovered, 'ok')
+  assert.ok(children[1].refs > 0 && children[1].unrefs > 0)
+  const done = client.close()
+  children[1].emit('exit', null, 'SIGTERM')
+  await done
+})
+
+test('Windows ACL helper can restart after a spawn error with no child process', async () => {
+  let starts = 0
+  const client = createWindowsAclClientForTesting(() => {
+    starts++
+    const child = new EventEmitter()
+    child.stdin = new PassThrough()
+    child.stdout = new PassThrough()
+    child.stderr = new PassThrough()
+    child.ref = () => {}
+    child.unref = () => {}
+    child.kill = () => { throw new Error('no process') }
+    for (const pipe of [child.stdin, child.stdout, child.stderr]) {
+      pipe.ref = () => {}
+      pipe.unref = () => {}
+    }
+    queueMicrotask(() => child.emit('error', new Error('ENOENT')))
+    return child
+  })
+  await assert.rejects(client.operation('assertFile', 'C:\\file'), /ENOENT/)
+  await assert.rejects(client.operation('assertFile', 'C:\\file'), /ENOENT/)
+  assert.equal(starts, 2)
+})
 
 test('preexisting Windows administrator-owned directory is never normalized', { skip: process.platform !== 'win32' }, async t => {
   const root = await mkdtemp(join(tmpdir(), 'ivoraige-host-permissions-'))

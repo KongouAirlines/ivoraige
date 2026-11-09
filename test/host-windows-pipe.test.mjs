@@ -156,9 +156,15 @@ test('Windows actual helper honors Restricted policy and literal installation pa
       await copyFile(fileURLToPath(new URL(`../${relative}`, import.meta.url)), target)
     }
     const runner = join(root, 'test/fixtures/windows-pipe-restricted.mjs')
+    // A pwsh parent can pass an incompatible PSModulePath to Windows
+    // PowerShell. Import the built-in binary module by its strong-name
+    // assembly location, not module discovery or a script manifest. This
+    // changes neither execution policy nor language mode.
+    const policyModule = `[System.Reflection.Assembly]::Load('Microsoft.PowerShell.Security, Version=3.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35')`
     const { stdout } = await promisify(execFile)(ps, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Restricted',
-      '-Command', `$ErrorActionPreference = 'Stop'; if ((Get-ExecutionPolicy) -ne 'Restricted') { throw 'Restricted policy was not effective' }; & ${quote(process.execPath)} ${quote(runner)}; exit $LASTEXITCODE`],
-    { windowsHide: true, timeout: 40_000, maxBuffer: 8192 })
+      '-Command', `$ErrorActionPreference = 'Stop'; $security = ${policyModule}; Import-Module -Name $security.Location -ErrorAction Stop; if ((Microsoft.PowerShell.Security\\Get-ExecutionPolicy) -ne 'Restricted') { throw 'Restricted policy was not effective' }; & ${quote(process.execPath)} ${quote(runner)}; exit $LASTEXITCODE`],
+    { windowsHide: true, timeout: 40_000, maxBuffer: 8192,
+      env: { ...process.env, PSModulePath: join(root, 'missing-modules') } })
     assert.match(stdout, /actual-helper-under-Restricted/)
   } finally { await rm(root, { recursive: true, force: true }) }
 })
