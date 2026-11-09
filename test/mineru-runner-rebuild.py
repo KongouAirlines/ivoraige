@@ -5,6 +5,7 @@ import json
 import sys
 import tempfile
 import types
+from contextlib import contextmanager
 from pathlib import Path
 
 
@@ -43,11 +44,25 @@ with tempfile.TemporaryDirectory(prefix="mineru-replay-test-") as temporary:
     params = {"bundlePath": str(bundle), "outputPath": str(work / "output.pdf"),
               "files": inventory(bundle), "replacements": [replacement], "layout": "original"}
 
-    # The unlisted asset must never be read, even if a renderer requests it.
+    # Model-free renderer/diagnostics peers also model upstream's swallowed
+    # PdfAssetError, rather than assuming an exception always propagates.
     base = types.ModuleType("mineru")
     parser = types.ModuleType("mineru.parser")
     parser_base = types.ModuleType("mineru.parser.base")
     render = types.ModuleType("mineru.render")
+    diagnostics_module = types.ModuleType("docvortex.render._internal.pdf.diagnostics")
+    diagnostic_stack = []
+
+    @contextmanager
+    def collect_pdf_diagnostics():
+        diagnostics = []
+        diagnostic_stack.append(diagnostics)
+        try:
+            yield diagnostics
+        finally:
+            diagnostic_stack.pop()
+
+    diagnostics_module.collect_pdf_diagnostics = collect_pdf_diagnostics
 
     class ParseResult:
         @staticmethod
@@ -61,20 +76,57 @@ with tempfile.TemporaryDirectory(prefix="mineru-replay-test-") as temporary:
     def render_pdf(document, *, asset_resolver, layout):
         assert layout == "original"
         assert asset_resolver("images/crop.png") == b"image bytes"
-        try:
-            asset_resolver("../not-listed.png")
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("unlisted asset was allowed")
         return b"%PDF-1.4\nreplayed\n%%EOF\n"
 
     render.render_pdf = render_pdf
     sys.modules.update({"mineru": base, "mineru.parser": parser,
-                        "mineru.parser.base": parser_base, "mineru.render": render})
+                        "mineru.parser.base": parser_base, "mineru.render": render,
+                        "docvortex": types.ModuleType("docvortex"),
+                        "docvortex.render": types.ModuleType("docvortex.render"),
+                        "docvortex.render._internal": types.ModuleType("docvortex.render._internal"),
+                        "docvortex.render._internal.pdf": types.ModuleType("docvortex.render._internal.pdf"),
+                        "docvortex.render._internal.pdf.diagnostics": diagnostics_module})
     result = runner.rebuild(params)
     assert result["sha256"] == hashlib.sha256((work / "output.pdf").read_bytes()).hexdigest()
     (work / "output.pdf").unlink()
+
+    def swallowed_missing(document, *, asset_resolver, layout):
+        try:
+            asset_resolver("../not-listed.png")
+        except ValueError:
+            pass
+        return b"%PDF-1.4\nmissing image placeholder\n%%EOF\n"
+
+    def swallowed_missing_inventory(document, *, asset_resolver, layout):
+        try:
+            asset_resolver("images/crop.png")
+        except ValueError:
+            pass
+        return b"%PDF-1.4\nmissing image placeholder\n%%EOF\n"
+
+    render.render_pdf = swallowed_missing
+    try:
+        runner.rebuild(params)
+    except runner.SidecarError as error:
+        assert "image could not be replayed" in str(error)
+    else:
+        raise AssertionError("swallowed missing asset produced a successful PDF")
+    assert not (work / "output.pdf").exists()
+
+    def swallowed_corrupt(document, *, asset_resolver, layout):
+        assert asset_resolver("images/crop.png") == b"image bytes"
+        diagnostic_stack[-1].append(types.SimpleNamespace(code="pdf_image_unavailable"))
+        return b"%PDF-1.4\ncorrupt image placeholder\n%%EOF\n"
+
+    render.render_pdf = swallowed_corrupt
+    try:
+        runner.rebuild(params)
+    except runner.SidecarError as error:
+        assert "image could not be replayed" in str(error)
+    else:
+        raise AssertionError("swallowed corrupt image produced a successful PDF")
+    assert not (work / "output.pdf").exists()
+    render.render_pdf = render_pdf
 
     middle["pages"][0]["blocks"].append({"type": "table", "index": 9, "bbox": [2, 3, 4, 5],
         "content": [{"type": "table_caption", "index": 8, "bbox": [1, 2, 3, 4],
@@ -144,10 +196,11 @@ with tempfile.TemporaryDirectory(prefix="mineru-replay-test-") as temporary:
     middle_path.write_text(json.dumps(middle), encoding="utf-8")
     params["replacements"] = [replacement]
     params["files"] = [row for row in inventory(bundle) if row["path"] != "images/crop.png"]
+    render.render_pdf = swallowed_missing_inventory
     try:
         runner.rebuild(params)
-    except ValueError as error:
-        assert "asset is unavailable" in str(error)
+    except runner.SidecarError as error:
+        assert "image could not be replayed" in str(error)
     else:
         raise AssertionError("unlisted asset was silently used")
     assert not (work / "output.pdf").exists()

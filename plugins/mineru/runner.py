@@ -160,14 +160,22 @@ def rebuild(params):
         spans[0]["content"] = row["text"]
     from mineru.parser.base import ParseResult
     from mineru.render import PdfLayout, render_pdf
+    # DocVortex 0.6.21 catches PdfAssetError and may emit a placeholder PDF.
+    # Collect its structured diagnostics rather than treating bytes alone as success.
+    from docvortex.render._internal.pdf.diagnostics import collect_pdf_diagnostics
 
     with contextlib.redirect_stdout(sys.stderr):
         document = ParseResult.from_dict(middle).middle_json
+        missing_assets = []
         def asset_resolver(relative):
             if relative not in verified_images:
+                missing_assets.append(True)
                 raise ValueError("MinerU PDF asset is unavailable")
             return verified_images[relative]
-        rendered = render_pdf(document, asset_resolver=asset_resolver, layout=PdfLayout.ORIGINAL)
+        with collect_pdf_diagnostics() as diagnostics:
+            rendered = render_pdf(document, asset_resolver=asset_resolver, layout=PdfLayout.ORIGINAL)
+    if missing_assets or any(item.code == "pdf_image_unavailable" for item in diagnostics):
+        raise SidecarError(-32001, "MinerU PDF image could not be replayed")
     with open(output, "xb") as stream:
         stream.write(rendered)
     return {"sha256": hashlib.sha256(rendered).hexdigest(), "size": len(rendered)}
