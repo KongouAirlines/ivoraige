@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { createApp } from '../src/app.mjs'
 import { runCli } from '../src/cli.mjs'
-import { serve } from '../src/http.mjs'
+import { serve } from './fixtures/owner-http.mjs'
 import { Service, z } from '../dist/dsh.mjs'
 import { KernelError } from '../src/errors.mjs'
 import { createMcpServer } from '../src/mcp.mjs'
@@ -62,7 +62,7 @@ test('a contributed operation has one schema/result/error contract through CLI, 
   assert.equal((await (await fetch(server.url + '/api/operations/probeEcho', { method: 'POST', body: '{}' })).json()).error.code, 'NOT_FOUND')
 })
 
-test('events:false keeps legacy SSE and remote JSON task events while state streams are unavailable', async t => {
+test('events:false keeps owner task events while state streams are unavailable', async t => {
   const { app } = await fixture(t, { events: false })
   const server = await serve(app, { port: 0 }); t.after(() => server.close())
   const stream = await fetch(server.url + '/api/events')
@@ -74,13 +74,13 @@ test('events:false keeps legacy SSE and remote JSON task events while state stre
   const { writeFile, rm } = await import('node:fs/promises')
   await writeFile(source, 'Legacy task event.')
   t.after(() => rm(source, { force: true }))
-  const code = await runCli(['--url', server.url, '--json-events', 'import', source, '--source-lang', 'en'],
-    { stdout, stderr })
+  const code = await runCli(['--json-events', 'import', source, '--source-lang', 'en'],
+    { app, stdout, stderr })
   assert.equal(code, 0, stderr.text)
   assert.match(stdout.text, /"type":"task.succeeded"/)
 })
 
-test('remote CLI encodes opaque route IDs as one segment for task and component paths', async t => {
+test('HTTP routes and CLI preserve opaque IDs for task and component paths', async t => {
   const { app } = await fixture(t)
   const server = await serve(app, { port: 0 }); t.after(() => server.close())
   for (const opaque of ['a/b', 'a?b', 'a#b', 'a%b']) {
@@ -93,7 +93,7 @@ test('remote CLI encodes opaque route IDs as one segment for task and component 
     ]) {
       const direct = await (await fetch(server.url + path)).json()
       const stdout = output(), stderr = output()
-      await runCli(['--url', server.url, '--json', ...args], { stdout, stderr })
+      await runCli(['--json', ...args], { app, stdout, stderr })
       assert.deepEqual(JSON.parse(stdout.text), direct, `${args.join(' ')} should match the exact HTTP route`)
     }
   }
@@ -156,7 +156,6 @@ test('state HTTP handshake keeps an active session through authoritative reads a
 
 test('an uncooperative MCP request reports incomplete shutdown and keeps storage available until retry', { timeout: 5000 }, async t => {
   const { app, dir } = await fixture(t)
-  app.operationCatalog.drainTimeoutMs = 10
   const entered = gate(), release = gate()
   app.operationCatalog.register({ id: 'probeUncooperative', inputSchema: z.object({}).strict(), resultSchema: z.object({ ok: z.boolean() }),
     cancellable: 'request', handler: async () => { entered.resolve(); await release.promise; return { ok: true } } })
@@ -164,7 +163,9 @@ test('an uncooperative MCP request reports incomplete shutdown and keeps storage
   const client = await connection(t, server.url)
   const pending = client.callTool({ name: 'ivoraige_op_probeUncooperative', arguments: {} }).catch(() => {})
   await entered.promise
-  await assert.rejects(app.dispose(), /drain before the deadline/)
+  await assert.rejects(app.dispose({ budgetMs: 10 }), error =>
+    error.code === 'PRECONDITION_FAILED' && error.details?.reason === 'deadline-exceeded' &&
+    error.details?.phase === 'admissions')
   assert.ok(app.ctx.get('ivoraige.records'))
   await assert.rejects(createApp({ store: join(dir, 'store.sqlite') }), { code: 'CONFLICT' })
   release.resolve(); await pending

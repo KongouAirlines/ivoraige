@@ -12,7 +12,7 @@ import { OperationCatalog } from '../src/operation-catalog.mjs'
 import { Operations } from '../src/operations.mjs'
 import { CoreOperations } from '../src/core-operations.mjs'
 import { createApp } from '../src/app.mjs'
-import { serve } from '../src/http.mjs'
+import { serve } from './fixtures/owner-http.mjs'
 import { runCli } from '../src/cli.mjs'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { managedPathKey, sameDirectory } from '../src/managed-path.mjs'
@@ -538,15 +538,15 @@ test('HTTP, CLI and MCP expose the same explicit retention and abandon operation
   assert.equal(http.status, 200)
   assert.equal((await http.json()).fileDeleted, true)
   let output = ''
-  const cli = await runCli(['--url', server.url, '--json', 'artifacts', doc.id, 'delete', cliArtifact.id],
-    { stdout: { write(chunk) { output += chunk } }, stderr: { write() {} } })
+  const cli = await runCli(['--json', 'artifacts', doc.id, 'delete', cliArtifact.id],
+    { app: f.app, stdout: { write(chunk) { output += chunk } }, stderr: { write() {} } })
   assert.equal(cli, 0)
   assert.equal(JSON.parse(output).fileDeleted, false)
   assert.equal((await stat(cliArtifact.path)).isFile(), true)
   output = ''
-  assert.equal(await runCli(['--url', server.url, '--json', 'artifacts', doc.id, 'delete', cliOwned.id,
+  assert.equal(await runCli(['--json', 'artifacts', doc.id, 'delete', cliOwned.id,
     '--file-action', 'delete-owned'],
-  { stdout: { write(chunk) { output += chunk } }, stderr: { write() {} } }), 0)
+  { app: f.app, stdout: { write(chunk) { output += chunk } }, stderr: { write() {} } }), 0)
   assert.equal(JSON.parse(output).fileDeleted, true)
   await assert.rejects(stat(cliOwned.path), { code: 'ENOENT' })
   const mcp = await client.callTool({ name: 'ivoraige_artifact_delete', arguments: {
@@ -565,8 +565,8 @@ test('HTTP, CLI and MCP expose the same explicit retention and abandon operation
   assert.equal((await httpAbandon.json()).task.state, 'abandoned')
   const cliTask = await failed()
   output = ''
-  assert.equal(await runCli(['--url', server.url, '--json', 'abandon', cliTask],
-    { stdout: { write(chunk) { output += chunk } }, stderr: { write() {} } }), 0)
+  assert.equal(await runCli(['--json', 'abandon', cliTask],
+    { app: f.app, stdout: { write(chunk) { output += chunk } }, stderr: { write() {} } }), 0)
   assert.equal(JSON.parse(output).task.state, 'abandoned')
   const mcpTask = await failed()
   const mcpAbandon = await client.callTool({ name: 'ivoraige_task_abandon', arguments: { taskId: mcpTask } })

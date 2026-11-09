@@ -1,6 +1,8 @@
 # 0.1.x HostControl@1：首个接口设计切片
 
-状态：**候选契约 1.0，供评审，未实现、未发布 API**。日期：2026-11-09。
+状态：**候选契约 1.0，部分实现分支待集成，未发布 API**。日期：2026-11-09。
+
+A1 域/会话基础、A2 生命周期协调及 A3 owner 入口已有草稿实现；当前支持和未完成门禁见[入口证据](../../plan/0.1.x/evidence/host-owner-entries.md)。下文候选要求不是全部已验收行为，尤其 Windows 原生 pipe 身份、强退、完整恢复和持久 MCP 开关。
 
 依据：[四接口 RFC](control-admission-rfc.md)、[D01](../../plan/0.1.x/packages/desktop.md#d01) 与 P04。源码核对固定在 [PR #70 合并提交 978d947](https://github.com/KongouAirlines/ivoraige/commit/978d9471fcc87857f4ca84da1ece6d169ee60a2b)。本切片固定 A 的候选方法、数据形状、所有权和验收顺序，供后续实现 PR 逐项启用。B 的安装和 C 的文本受理仅声明接点，不顺带实现；ADR-0003 的运行时迁移门禁继续有效。
 

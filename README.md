@@ -46,6 +46,8 @@ Use Node.js **26.13.0** with npm by default (`.node-version`). Node 24 is retain
 2. Configure a model when you want machine translation, or enter translations yourself.
 3. Review and accept revisions, then export the result.
 
+The launcher pairs the local browser with a one-use URL fragment; copying the plain server URL does not grant access to documents or settings. CLI commands and stdio MCP attach to the same resident owner when it exists. See the [local owner guide](docs/plan/0.1.x/host-control-guide.md) for startup, authentication, drain and exit behavior. This is still a browser-based workbench, not a native desktop or tray app.
+
 For PDF, prepare the optional Windows development environment using the [PDF development guide (中文)](docs/plan/0.1.0/pdf-development.md), then follow the [PDF guide (中文)](docs/plan/0.1.0/pdf-guide.md). The default online component source currently has no downloadable Release.
 
 New PDF imports show captured units, translation callback requests, retained units without callbacks, audited lines and empty units in the workbench and frozen JSON summary. These are source inventory counts, not proof that all original text was captured or translated; audited lines and empty units can overlap with retained units.
@@ -100,9 +102,9 @@ Built with Cordis and DSH, with optional BabelDOC support. See [third-party ackn
 
 In-process hosts can register operations once and expose them through optional CLI, REST and MCP entries. The workbench refreshes state as operations change, and artifact reads share ownership and size limits. See [composition usage](docs/plan/0.1.0/development-guide.md#p04-operation-and-entry-composition) and [P04 evidence](docs/plan/0.1.x/evidence/foundation-p04.md).
 
-For task-admitting or long-running operations, generic CLI `call` needs a persistent host (`--url` or a caller-supplied app); a self-owned local host rejects the call before creating work. Use the existing local CLI aliases to wait for task completion and receive its final exit code.
+For task-admitting or long-running operations, generic CLI `call` needs a resident owner selected by the same store, or a caller-supplied app. A self-owned temporary host rejects the call before creating work. Use the existing local CLI aliases to wait for task completion and receive its final exit code.
 
-`delete-owned` requires resource access and export services. If either is unavailable, it returns `COMPONENT_MISSING` before changing the artifact record or creating a cleanup marker; record-only deletion still works with Records alone. MCP lists registered tools while required services are absent, and invocation returns `COMPONENT_MISSING` until they become available. `events: false` disables state streams while retaining the legacy `/api/events` task stream and remote CLI `--json-events`. The `components`, `exportDir`, and `maxArtifactBytes` options require a store.
+`delete-owned` requires resource access and export services. If either is unavailable, it returns `COMPONENT_MISSING` before changing the artifact record or creating a cleanup marker; record-only deletion still works with Records alone. MCP lists registered tools while required services are absent, and invocation returns `COMPONENT_MISSING` until they become available. `events: false` disables state streams while retaining the authenticated `/api/events` task stream. Attached CLI task events are not yet streamed; use task polling. The `components`, `exportDir`, and `maxArtifactBytes` options require a store.
 
 ### Adapter availability and readable outputs
 

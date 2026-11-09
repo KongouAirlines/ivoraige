@@ -27,6 +27,12 @@ test('bootstrap is origin bound, single use, and produces a strict host-only coo
     { code: 'FORBIDDEN_HOST' })
   assert.deepEqual(session.authenticate({ cookie, host: '127.0.0.1:4321', method: 'POST',
     requestOrigin: origin, csrfToken: browser.csrfToken }), { dataDomainRef: 'domain-a', generation: 'generation-a' })
+  const refreshed = session.refreshCsrf({ cookie, host: '127.0.0.1:4321' })
+  assert.notEqual(refreshed.csrfToken, browser.csrfToken)
+  assert.throws(() => session.authenticate({ cookie, host: '127.0.0.1:4321', method: 'POST',
+    requestOrigin: origin, csrfToken: browser.csrfToken }), { code: 'FORBIDDEN_HOST' })
+  assert.deepEqual(session.authenticate({ cookie, host: '127.0.0.1:4321', method: 'POST',
+    requestOrigin: origin, csrfToken: refreshed.csrfToken }), { dataDomainRef: 'domain-a', generation: 'generation-a' })
   session.revokeAll()
   assert.throws(() => session.authenticate({ cookie, host: '127.0.0.1:4321' }), { code: 'UNAUTHORIZED' })
   assert.throws(() => session.issueBootstrap(), { code: 'CONFLICT' })

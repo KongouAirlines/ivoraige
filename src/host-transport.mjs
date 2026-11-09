@@ -140,6 +140,12 @@ function sendFrame(socket, frame) {
   socket.end(bytes)
 }
 
+function writeFrame(socket, frame) {
+  const bytes = Buffer.from(`${JSON.stringify(frame)}\n`)
+  if (bytes.length > MAX_FRAME) throw fail('INVALID_ARGUMENT', 'invalid-request')
+  socket.write(bytes)
+}
+
 export function validateHostRequest(value) {
   const base = requestShape.safeParse(value)
   if (!base.success || !Object.hasOwn(actions, base.data.action)) throw fail('INVALID_ARGUMENT', 'invalid-request')
@@ -158,7 +164,7 @@ export function validateHostRequest(value) {
 // Ephemeral owners publish only a protected marker, never a connectable IPC.
 export function createHostTransport({ directory, dataDomainRef, generation, lifetime,
   getState, handleControl, handleBusiness, session, getSession = () => session,
-  getInfo = () => ({}) } = {}) {
+  getInfo = () => ({}), waitForAttempt } = {}) {
   if (!id.safeParse(dataDomainRef).success || !id.safeParse(generation).success ||
     !['resident', 'ephemeral'].includes(lifetime) || typeof getState !== 'function' ||
     (lifetime === 'resident' && typeof handleControl !== 'function'))
@@ -167,6 +173,14 @@ export function createHostTransport({ directory, dataDomainRef, generation, life
   let server, record, capability, closed = false
   const ownerProcess = { pid: process.pid, runtimeStartTimeMs: Math.floor(performance.timeOrigin), nonce: randomUUID() }
   const sockets = new Set()
+  const exitWaiters = new Map()
+  const finalizedSockets = new Set()
+  const removeExitWaiter = socket => {
+    for (const [operationId, peers] of exitWaiters) {
+      peers.delete(socket)
+      if (!peers.size) exitWaiters.delete(operationId)
+    }
+  }
 
   async function handle(socket) {
     try {
@@ -218,7 +232,17 @@ export function createHostTransport({ directory, dataDomainRef, generation, life
           ? await handleBusiness(parsed.params.method, parsed.params.input)
           : await handleBusiness(parsed.action, parsed.params)
       } else result = await handleControl(parsed.action, parsed.params, parsed)
-      sendFrame(socket, { ok: true, result })
+      if (parsed.action === 'exit' && result?.accepted === true && id.safeParse(result.operationId).success) {
+        let peers = exitWaiters.get(result.operationId)
+        if (!peers) exitWaiters.set(result.operationId, peers = new Set())
+        peers.add(socket)
+        writeFrame(socket, { ok: true, result })
+        // A blocked attempt ends without a receipt. No idle socket is kept
+        // waiting for an unrelated future retry of the same operation.
+        if (typeof waitForAttempt === 'function') Promise.resolve().then(() => waitForAttempt()).finally(() => {
+          if (peers.has(socket) && !finalizedSockets.has(socket)) socket.end()
+        }).catch(() => { socket.destroy() })
+      } else sendFrame(socket, { ok: true, result })
     } catch (error) {
       try { sendFrame(socket, { ok: false, error: normalizeError(error) }) } catch { socket.destroy() }
     }
@@ -248,7 +272,7 @@ export function createHostTransport({ directory, dataDomainRef, generation, life
     server = createServer(socket => {
       if (sockets.size >= MAX_CONNECTIONS) { socket.destroy(); return }
       sockets.add(socket)
-      socket.once('close', () => sockets.delete(socket))
+      socket.once('close', () => { sockets.delete(socket); finalizedSockets.delete(socket); removeExitWaiter(socket) })
       void handle(socket)
     })
     try {
@@ -272,9 +296,30 @@ export function createHostTransport({ directory, dataDomainRef, generation, life
     }
   }
 
+  async function finalize(receipt) {
+    if (!receipt || receipt.type !== 'host.finalized' || receipt.dataDomainRef !== dataDomainRef ||
+        receipt.generation !== generation || receipt.storeOwnership !== 'released' ||
+        !id.safeParse(receipt.operationId).success || (await getState()).storeOwnership !== 'released')
+      throw fail('PRECONDITION_FAILED', 'finalization-unavailable')
+    const peers = exitWaiters.get(receipt.operationId)
+    if (!peers) return
+    for (const socket of peers) {
+      if (socket.destroyed) continue
+      finalizedSockets.add(socket)
+      try { sendFrame(socket, receipt) } catch { socket.destroy() }
+    }
+  }
+
   async function close() {
     if (closed) return
     closed = true
+    // Permit a queued finalization frame to leave the host before tearing
+    // down its authenticated channel. A client that never reads is bounded.
+    if (finalizedSockets.size) await Promise.race([
+      Promise.all([...finalizedSockets].map(socket => socket.destroyed ? undefined :
+        new Promise(resolveClose => socket.once('close', resolveClose)))),
+      new Promise(resolveTimeout => setTimeout(resolveTimeout, 500)),
+    ])
     for (const socket of sockets) socket.destroy()
     if (server) await new Promise(resolveClose => server.close(() => resolveClose()))
     if (record) {
@@ -284,7 +329,7 @@ export function createHostTransport({ directory, dataDomainRef, generation, life
     getSession()?.revokeAll()
   }
 
-  return { start, cleanupDiscovery, close, get record() { return record } }
+  return { start, cleanupDiscovery, finalize, close, get record() { return record } }
 }
 
 async function exchangeFrame(address, frame) {

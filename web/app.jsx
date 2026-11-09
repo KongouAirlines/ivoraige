@@ -8,13 +8,14 @@ import { isSettingsPath, initialSettingsLocation, settingsLocation, readSettings
 import { createStateSync } from '../src/state-sync.mjs'
 import { resourcePolicy } from '../src/resource-policy.mjs'
 import { refreshDisposition, savedEditIsCurrent } from './editor-state.mjs'
+import { bootstrapOwnerSession, ownerFetch, clearOwnerSession } from './host-session.mjs'
 
 const h = React.createElement
 const api = async (path, { method = 'GET', body, timeout = 20000 } = {}) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeout)
   try {
-    const response = await fetch(`/api${path}`, { method, headers: body ? { 'Content-Type': 'application/json' } : {},
+    const response = await ownerFetch(`/api${path}`, { method, headers: body ? { 'Content-Type': 'application/json' } : {},
       body: body ? JSON.stringify(body) : undefined, signal: controller.signal, cache: 'no-store' })
     const data = await response.json()
     if (!response.ok) {
@@ -270,7 +271,7 @@ function App() {
         return () => stream.close()
       },
       async snapshot(ready, { signal }) {
-        const response = await fetch('/api/state?subscriptionId=' + encodeURIComponent(ready.subscriptionId),
+        const response = await ownerFetch('/api/state?subscriptionId=' + encodeURIComponent(ready.subscriptionId),
           { signal, cache: 'no-store' })
         if (!response.ok) throw new Error('State synchronization failed')
         return response.json()
@@ -289,4 +290,10 @@ function App() {
     capabilities={{...capabilities,error:capabilities.error||settingsError}} refreshCapabilities={refreshCapabilities}
     api={api} useRemote={useRemote} Button={Button} ErrorBox={ErrorBox}/>}</>
 }
-createRoot(document.getElementById('root')).render(<App/>)
+const root = createRoot(document.getElementById('root'))
+const pairing = <main style={{ maxWidth: 560, margin: '12vh auto', padding: 24 }} role="status">
+  <h1>需要本机授权</h1>
+  <p>请从 ivoraige 启动器重新打开管理页面。普通链接不会显示文档、任务或设置。</p>
+</main>
+window.addEventListener('ivoraige:owner-lost', () => { clearOwnerSession(); root.render(pairing) })
+bootstrapOwnerSession().then(result => root.render(result.authorized ? <App/> : pairing))

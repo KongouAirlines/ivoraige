@@ -8,7 +8,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
 import { lstat, mkdir, mkdtemp, open, readFile, rename, rm, stat } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
 import { backup, DatabaseSync } from 'node:sqlite'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -36,17 +36,22 @@ const uuid = () => randomUUID()
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value)
 
 export function defaultHostRegistryRoot() {
+  if (process.env.IVORAIGE_HOST_REGISTRY_ROOT) {
+    if (!isAbsolute(process.env.IVORAIGE_HOST_REGISTRY_ROOT)) throw fail('INVALID_ARGUMENT', 'invalid-registry-root')
+    return process.env.IVORAIGE_HOST_REGISTRY_ROOT
+  }
   if (process.platform === 'win32') {
     if (!process.env.LOCALAPPDATA) throw fail('PRECONDITION_FAILED', 'registry-unavailable')
     return process.env.LOCALAPPDATA
   }
   if (process.platform === 'darwin') return join(homedir(), 'Library', 'Application Support')
-  if (process.platform === 'linux') return process.env.XDG_STATE_HOME || join(homedir(), '.local', 'state')
+  if (process.platform === 'linux') return process.env.XDG_STATE_HOME && isAbsolute(process.env.XDG_STATE_HOME) ?
+    process.env.XDG_STATE_HOME : join(homedir(), '.local', 'state')
   throw fail('PRECONDITION_FAILED', 'registry-unavailable')
 }
 
 export function hostRegistryDirectory(registryRoot = defaultHostRegistryRoot()) {
-  if (typeof registryRoot !== 'string' || !registryRoot.trim()) throw fail('INVALID_ARGUMENT', 'invalid-registry-root')
+  if (typeof registryRoot !== 'string' || !isAbsolute(registryRoot)) throw fail('INVALID_ARGUMENT', 'invalid-registry-root')
   return join(resolve(registryRoot), 'ivoraige-host')
 }
 
@@ -273,7 +278,7 @@ export async function findHostDomain({ store, registryRoot } = {}) {
 
 // Return an already-held StoreLock lease. The caller must retain it until all
 // writers are disposed; it is never acquired from an arbitrary caller object.
-export async function createHostDomain({ store, ownerConfigBinding, registryRoot } = {}) {
+export async function createHostDomain({ store, ownerConfigBinding, registryRoot } = {}, { prepareStore } = {}) {
   if (!store || typeof store !== 'string') throw fail('INVALID_ARGUMENT', 'invalid-store')
   const path = await canonicalStorePath(store)
   const binding = bindingDigest(ownerConfigBinding)
@@ -284,6 +289,9 @@ export async function createHostDomain({ store, ownerConfigBinding, registryRoot
     const registry = await readRegistry(dir)
     const intent = await readIntent(dir)
     storeLease = await acquireStoreLock(path)
+    // Existing store compatibility is checked under the lease before adding
+    // host metadata. The application supplies its pinned Records gate here.
+    await prepareStore?.(path)
     let identity = await fileIdentity(path)
     if (intent) {
       if (intent.record.canonicalStore !== path) throw fail('CONFLICT', 'registry-intent-pending')

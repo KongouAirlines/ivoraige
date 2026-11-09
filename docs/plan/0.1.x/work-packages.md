@@ -26,7 +26,7 @@
 | P08 | PDF 依赖闭包与独立分发 | 清单核对可并行；成包依赖 P05 | 草案 | [PDF 与独立分发](packages/pdf.md#p08) |
 | P09 | MinerU 自身重建及同译文 PDF 对照 | P06；受影响包依赖 P08 | 草案 | [PDF 与独立分发](packages/pdf.md#p09) |
 | P10 | 跨引擎来源映射与 PDF 重建 | P07、P09；单独批准实验范围 | 草案 | [PDF 与独立分发](packages/pdf.md#p10) |
-| D01 | 桌面 HostSession/任务/worker/退出契约探针 | P01；集成依赖 P04 | [HostControl 接口设计草案](../../requirements/0.1.x/host-control-contract.md)，尚未实施；[设计检查](evidence/host-control-design.md) | [桌面生命周期](packages/desktop.md#d01) |
+| D01 | 桌面 HostSession/任务/worker/退出契约探针 | P01；集成依赖 P04 | [契约](../../requirements/0.1.x/host-control-contract.md)与 A1/A2/A3 实现分支待集成；[生命周期](evidence/host-control-lifecycle.md)、[入口验证及未完成门禁](evidence/host-owner-entries.md) | [桌面生命周期](packages/desktop.md#d01) |
 | D02 | WebUI 草稿日志及恢复 | 可先用 D01 草案做夹具；接线依赖 D01/P04 | 草案 | [桌面生命周期](packages/desktop.md#d02) |
 | D03 | UI session 客户端与事件定向失效 | P04；测量与设计可并行 | 草案 | [桌面生命周期](packages/desktop.md#d03) |
 | D04 | 现有 host/browser 性能和故障基线 | [测量协议](desktop.md)；可并行 | 草案 | [桌面生命周期](packages/desktop.md#d04) |

@@ -8,7 +8,7 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { Context, JobsLocal, Storage, StorageDomain, StorageSqlite, z } from '../dist/dsh.mjs'
 import { createApp } from '../src/app.mjs'
 import { runCli } from '../src/cli.mjs'
-import { serve } from '../src/http.mjs'
+import { serve } from './fixtures/owner-http.mjs'
 import { OperationCatalog } from '../src/operation-catalog.mjs'
 import { Operations } from '../src/operations.mjs'
 import { CoreOperations } from '../src/core-operations.mjs'
@@ -29,6 +29,7 @@ async function cli(args, app) {
 test('self-owned generic task calls reject before admission while aliases and persistent hosts keep working', { timeout: 15000 }, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'ivoraige-p04-self-host-'))
   const store = join(dir, 'store.sqlite'), settingsDir = join(dir, 'settings')
+  const components = { directory: join(dir, 'components') }
   let requests = 0, app, entry
   const model = createServer(async (req, res) => {
     for await (const _ of req) {} // Local synthetic completions only.
@@ -43,7 +44,7 @@ test('self-owned generic task calls reject before admission while aliases and pe
     await rm(dir, { recursive: true, force: true })
   })
   await new Promise(resolve => model.listen(0, '127.0.0.1', resolve))
-  app = await createApp({ store, settingsDir })
+  app = await createApp({ store, settingsDir, components })
   await app.operations.invoke('updateSettings', { provider: 'local-probe', model: 'mock',
     api: 'openai-completions', baseURL: `http://127.0.0.1:${model.address().port}/v1`,
     credentialRef: 'LOCAL_PROBE', contextWindow: 8192, maxTokens: 512, select: true })
@@ -62,20 +63,20 @@ test('self-owned generic task calls reject before admission while aliases and pe
   }
   assert.equal(requests, 0)
   assert.equal((await cli([...host, 'call', 'listDocuments'])).body.items.length, 4)
-  app = await createApp({ store, settingsDir })
+  app = await createApp({ store, settingsDir, components })
   assert.deepEqual(app.records.listTasks(), [])
   await app.dispose(); app = undefined
   const alias = await cli([...host, 'translate', documents[1].id, '--target-lang', 'zh'])
   assert.equal(alias.code, 0, alias.stderr)
-  app = await createApp({ store, settingsDir })
+  app = await createApp({ store, settingsDir, components })
   assert.equal(app.records.getTask(alias.body.taskId).state, 'succeeded')
   const supplied = await cli(['--json', 'call', 'translate', '--set',
     JSON.stringify({ docId: documents[2].id, targetLang: 'zh' })], app)
   assert.equal(supplied.code, 0, supplied.stderr)
   assert.equal((await app.tasks.wait(supplied.body.taskId)).state, 'succeeded')
   entry = await serve(app, { port: 0, mcp: false })
-  const remote = await cli(['--url', entry.url, '--json', '--no-wait', 'call', 'translate', '--set',
-    JSON.stringify({ docId: documents[3].id, targetLang: 'zh' })])
+  const remote = await cli(['--json', '--no-wait', 'call', 'translate', '--set',
+    JSON.stringify({ docId: documents[3].id, targetLang: 'zh' })], { ...app, reused: true })
   assert.equal(remote.code, 0, remote.stderr)
   assert.equal((await app.tasks.wait(remote.body.taskId)).state, 'succeeded')
   assert.equal(requests, 3)

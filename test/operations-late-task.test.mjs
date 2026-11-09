@@ -8,7 +8,7 @@ import { createApp } from '../src/app.mjs'
 import { Records } from '../src/records.mjs'
 import { Importer } from '../src/import.mjs'
 import { Tasks } from '../src/tasks.mjs'
-import { serve } from '../src/http.mjs'
+import { serve } from './fixtures/owner-http.mjs'
 
 async function fixture(t, late) {
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-late-task-'))

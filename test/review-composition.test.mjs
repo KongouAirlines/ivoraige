@@ -22,7 +22,7 @@ import { CapabilityCatalog, CapabilityContributions } from '../src/capability-ca
 import { EntryEvents } from '../src/entry-events.mjs'
 import { installEventState } from '../src/event-state.mjs'
 import { createApp } from '../src/app.mjs'
-import { serve } from '../src/http.mjs'
+import { serve } from './fixtures/owner-http.mjs'
 
 async function fixture(t, directory) {
   const dir = directory ?? await mkdtemp(join(tmpdir(), 'ivoraige-review-composition-'))

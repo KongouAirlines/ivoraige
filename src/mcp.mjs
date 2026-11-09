@@ -137,3 +137,53 @@ export async function runMcpStdio(app, { stdin = process.stdin, stdout = process
     await handle.close()
   }
 }
+
+// The stdio process is only a protocol bridge. It never creates a Context or
+// opens a store: every discovery, invocation and resource read goes through
+// the already authenticated local owner connection.
+export async function runMcpOwnerStdio(client, { stdin = process.stdin, stdout = process.stdout } = {}) {
+  const initial = await client.request('mcp.describe')
+  if (!initial || !Array.isArray(initial.tools) || !Array.isArray(initial.resources))
+    throw new KernelError('UPSTREAM_FAILURE', 'Owner MCP discovery is unavailable')
+  const server = new McpServer({ name: 'ivoraige', version: packageInfo.version },
+    { capabilities: { tools: { listChanged: false }, resources: { listChanged: false } } })
+  const resources = new Map()
+  const syncResources = descriptions => {
+    for (const definition of descriptions) {
+      if (resources.has(definition.name)) continue
+      resources.set(definition.name, server.registerResource(definition.name,
+        new ResourceTemplate(definition.template, { list: undefined }), definition.metadata ?? {},
+        async (uri, variables) => {
+          try { return await client.request('mcp.read', { name: definition.name, uri: uri.href, variables }) }
+          catch (error) { throw resourceError(error) }
+        }))
+    }
+  }
+  syncResources(initial.resources)
+  server.server.setRequestHandler('tools/list', async () => {
+    const description = await client.request('mcp.describe')
+    syncResources(description.resources)
+    return { tools: description.tools }
+  })
+  server.server.setRequestHandler('tools/call', async request => {
+    try { return result(await client.request('mcp.call', {
+      name: request.params.name, input: request.params.arguments ?? {} })) }
+    catch (error) { return result(errorEnvelope(error).body, true) }
+  })
+  let stop
+  const stopped = new Promise(resolve => { stop = resolve })
+  const transport = new StdioServerTransport(stdin, stdout)
+  const handle = serveStdio(() => server, { transport, onerror: error => console.error('MCP stdio error:', error) })
+  const onclose = transport.onclose
+  transport.onclose = () => { try { onclose?.() } finally { stop() } }
+  stdin.once('end', stop)
+  stdin.once('close', stop)
+  process.once('SIGINT', stop)
+  process.once('SIGTERM', stop)
+  try { await stopped }
+  finally {
+    stdin.off('end', stop); stdin.off('close', stop)
+    process.off('SIGINT', stop); process.off('SIGTERM', stop)
+    await handle.close()
+  }
+}

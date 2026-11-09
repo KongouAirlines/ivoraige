@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { test } from 'node:test'
 import { JSDOM } from 'jsdom'
+import { mockOwnerSession } from './fixtures/browser-owner.mjs'
 
 const bundle = await readFile(new URL('../dist/web/app.js', import.meta.url), 'utf8')
 const tick = () => new Promise(resolve => setTimeout(resolve, 10))
@@ -42,7 +43,8 @@ test('reselecting the current unit preserves the editor and unsaved edits; switc
     return { ok: true, status: 200, json: async () => data }
   }
   try {
-    window.eval(bundle)
+  mockOwnerSession(window)
+  window.eval(bundle)
     const editor = () => window.document.querySelector('textarea[aria-label="译文编辑"]')
     const choose = index => window.document.querySelectorAll('.unit-item button')[index].click()
     await until(() => editor()?.value === 'Translation 0')

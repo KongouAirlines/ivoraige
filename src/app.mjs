@@ -15,7 +15,7 @@ import { Tasks } from './tasks.mjs'
 import { Operations } from './operations.mjs'
 import { MarkdownSource } from './adapters/markdown-source.mjs'
 import { bootModelSettings } from './model-settings.mjs'
-import { acquireStoreLock } from './store-lock.mjs'
+import { createOwnedApp } from './host-bootstrap.mjs'
 import { inspectRetentionDomain } from './retention-domain.mjs'
 import { Pdf } from './adapters/pdf.mjs'
 import { McpRegistry } from './mcp-registry.mjs'
@@ -32,8 +32,7 @@ import { CliEntry } from './cli-entry.mjs'
 import { HttpEntry } from './http.mjs'
 import { McpEntry } from './mcp-entry.mjs'
 
-// Composition only: business capabilities live in Cordis services.
-export async function createApp({ store, exportDir, translation, settingsDir, pdf, components, mcp = true,
+function validateAppOptions({ store, exportDir, translation, settingsDir, pdf, components, mcp = true,
   entries = {}, events = true, maxArtifactBytes = null } = {}) {
   if (!entries || typeof entries !== 'object' || Array.isArray(entries) ||
       Object.entries(entries).some(([key, value]) => !['cli', 'http', 'mcp'].includes(key) || typeof value !== 'boolean') ||
@@ -72,7 +71,22 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
       throw new KernelError('INVALID_ARGUMENT', 'credentialsPath must be a nonempty path')
     }
   }
-  const storeLock = store === undefined ? undefined : await acquireStoreLock(store)
+}
+
+// Public persistent construction always goes through the same ownership root.
+// The composition callback and its lease are never caller-provided options.
+export async function createApp(options = {}) {
+  validateAppOptions(options)
+  return createOwnedApp(options, { compose: composeKernel, lifetime: 'ephemeral', attach: false })
+}
+export async function startHost(options = {}) {
+  validateAppOptions(options)
+  return createOwnedApp(options, { compose: composeKernel, lifetime: 'resident', attach: true })
+}
+
+// Composition only: business capabilities live in Cordis services.
+async function composeKernel({ store, exportDir, translation, settingsDir, pdf, components, mcp = true,
+  entries = {}, events = true, maxArtifactBytes = null } = {}, { storeLease: storeLock, generation } = {}) {
   let ctx
   try {
     const retentionDomain = storeLock ? inspectRetentionDomain(storeLock.path) : undefined
@@ -80,7 +94,7 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
       (await bootModelSettings({ directory: settingsDir })).ctx
     await ctx.plugin(CapabilityCatalog)
     await ctx.plugin(OperationCatalog)
-    if (events) await ctx.plugin(EntryEvents)
+    if (events) await ctx.plugin(EntryEvents, { generation })
     if (!ctx.get('ivoraige.settingsPages')) await ctx.plugin(SettingsPages)
     await ctx.plugin(Outputs)
     await ctx.plugin(Parse)
@@ -135,7 +149,14 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
     }
     await ctx.plugin(CapabilityContributions)
     if (events) ctx.effect(() => installEventState(ctx))
-    let disposed = false, disposing
+    // Keep these owner handles even after Cordis withdraws their services.
+    // A later explicit close confirms that a swallowed effect failure did not
+    // leave a writer alive; dependent consumers must finish disposal first.
+    const recordsDomain = ctx.get('ivoraige.records')?.domain
+    const domainFacility = ctx.get('storageDomain')
+    const sqliteBackend = store === undefined ? undefined : ctx.storage.backend.get('sqlite')
+    let storageDisposed = false
+    let storageCloseFailure
     return {
       ctx,
       parse: ctx.get('ivoraige.parse'),
@@ -152,38 +173,56 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
       events: ctx.get('ivoraige.events'),
       resources: ctx.get('ivoraige.resources'),
       cli: ctx.get('ivoraige.cliEntry'),
-      dispose: async () => {
-        if (disposed) return
-        if (!disposing) disposing = (async () => {
-          let failure
-          const close = async fn => { try { await fn() } catch (error) { failure ??= error } }
-          await close(() => ctx.get('ivoraige.httpEntry')?.close())
-          await close(() => ctx.get('ivoraige.mcpEntry')?.close())
-          await close(() => ctx.get('ivoraige.cliEntry')?.close())
-          // A noncooperating request must not keep writing after storage is closed.
-          // A failed drain leaves the context/store owner intact for a later retry.
-          await ctx.get('ivoraige.operationCatalog')?.close()
-          await ctx.get('ivoraige.resources')?.close()
-          await close(() => ctx.get('ivoraige.tasks')?.close())
-          await close(() => ctx.get('ivoraige.components')?.close())
-          await close(() => ctx.get('ivoraige.events')?.close())
-          await close(() => ctx.fiber.dispose())
-          await close(() => storeLock?.release())
-          disposed = true
-          if (failure) throw failure
-        })().finally(() => { disposing = undefined })
-        return disposing
+      async disposeStorage() {
+        if (storageDisposed) return
+        if (storageCloseFailure) throw storageCloseFailure
+        if (store === undefined) await ctx.fiber.dispose()
+        else try {
+          // Cordis owns dependency order, but logs and swallows some effect
+          // failures. Join its disposal, then explicitly confirm each cached
+          // writer has closed before the bootstrap releases the store lease.
+          await ctx.fiber.dispose()
+          if (!recordsDomain || !domainFacility || !sqliteBackend)
+            throw new Error('Storage owner is unavailable during disposal')
+          await recordsDomain.close()
+          await domainFacility.closeAll()
+          await sqliteBackend.close()
+        } catch (error) {
+          // DSH's domain caches a rejected close; never infer a safe retry or
+          // release the store lease after this ambiguous outcome.
+          storageCloseFailure = new KernelError('PRECONDITION_FAILED',
+            'Storage disposal could not be confirmed', { reason: 'storage-disposal-unconfirmed' }, { cause: error })
+          throw storageCloseFailure
+        }
+        storageDisposed = true
       },
     }
   } catch (error) {
-    try { await ctx?.get('ivoraige.httpEntry')?.close() } catch { /* Preserve boot error. */ }
-    try { await ctx?.get('ivoraige.mcpEntry')?.close() } catch { /* Preserve boot error. */ }
-    try { await ctx?.get('ivoraige.cliEntry')?.close() } catch { /* Preserve boot error. */ }
-    try { await ctx?.get('ivoraige.operationCatalog')?.close() } catch { /* No requests during boot. */ }
-    try { await ctx?.get('ivoraige.tasks')?.close() } catch { /* Preserve the boot error. */ }
-    try { await ctx?.get('ivoraige.components')?.close() } catch { /* Preserve the boot error. */ }
-    try { await ctx?.fiber.dispose() } catch { /* Preserve the boot error. */ }
-    try { storeLock?.release() } catch { /* Preserve the boot error. */ }
+    // Bootstrap retains the store lease if any cleanup fails. Never release a
+    // writer's ownership from a finally block after an incomplete shutdown.
+    try {
+      await ctx?.get('ivoraige.httpEntry')?.close()
+      await ctx?.get('ivoraige.mcpEntry')?.close()
+      await ctx?.get('ivoraige.cliEntry')?.close()
+      await ctx?.get('ivoraige.operationCatalog')?.close()
+      await ctx?.get('ivoraige.resources')?.close()
+      await ctx?.get('ivoraige.tasks')?.close()
+      await ctx?.get('ivoraige.components')?.close()
+      await ctx?.get('ivoraige.events')?.close()
+      // Cordis may log rather than propagate effect failures. Even failed
+      // assembly must explicitly certify the writer is closed before the
+      // bootstrap releases its lease.
+      const recordsDomain = ctx?.get('ivoraige.records')?.domain
+      const domainFacility = ctx?.get('storageDomain')
+      const sqliteBackend = store === undefined ? undefined : ctx?.storage?.backend.get('sqlite')
+      await ctx?.fiber.dispose()
+      await recordsDomain?.close()
+      await domainFacility?.closeAll()
+      await sqliteBackend?.close()
+    } catch (cleanupError) {
+      Object.defineProperty(error, 'cleanupIncomplete', { value: true })
+      Object.defineProperty(error, 'cleanupError', { value: cleanupError })
+    }
     throw error
   }
 }

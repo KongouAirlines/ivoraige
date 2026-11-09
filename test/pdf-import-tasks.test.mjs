@@ -6,6 +6,7 @@ import { dirname, join, relative, isAbsolute, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Context, Service } from '../dist/dsh.mjs'
 import { createApp } from '../src/app.mjs'
+import { inspectHostDomain, recoverHostDomain } from '../src/host-domain.mjs'
 import { Parse } from '../src/parse.mjs'
 import { Outputs } from '../src/outputs.mjs'
 import { SettingsPages } from '../src/settings-pages.mjs'
@@ -358,7 +359,7 @@ test('legacy snapshot recovers after reimport without rewriting its binding or s
   assert.equal(await readFile(legacyPath, 'utf8'), damagedLegacy)
 })
 
-test('moved store resolves a saved owned binding within its new managed root', async t => {
+test('explicitly registered store copy resolves a saved owned binding within its new managed root', async t => {
   const original = await mkdtemp(join(tmpdir(), 'ivoraige-pdf-before-move-'))
   const moved = await mkdtemp(join(tmpdir(), 'ivoraige-pdf-moved-'))
   let app
@@ -376,7 +377,13 @@ test('moved store resolves a saved owned binding within its new managed root', a
     await cp(join(original, 'records.sqlite'), join(moved, 'records.sqlite'))
     await cp(join(original, 'pdf'), join(moved, 'pdf'), { recursive: true })
     await rm(saved.sourcePath)
-    app = await createApp({ store: join(moved, 'records.sqlite'), pdf })
+    const copiedStore = join(moved, 'records.sqlite')
+    await assert.rejects(createApp({ store: copiedStore, pdf }),
+      error => error.details?.reason === 'domain-registration-mismatch')
+    const diagnostic = await inspectHostDomain({ store: copiedStore })
+    await recoverHostDomain({ store: copiedStore, mode: 'copy', confirm: true,
+      expectedDiagnostic: diagnostic.diagnosticRevision })
+    app = await createApp({ store: copiedStore, pdf })
     assert.deepEqual(app.records.resolveSnapshot(document.id, snapshot.id).sourceBinding, saved)
     const submitted = await app.tasks.exportDocument(document.id,
       { targetLang: 'zh-CN', snapshotId: snapshot.id, outputs: [{ format: 'pdf' }] })

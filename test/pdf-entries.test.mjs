@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { createApp } from '../src/app.mjs'
 import { readPdfConfig, runCli } from '../src/cli.mjs'
-import { serve } from '../src/http.mjs'
+import { serve } from './fixtures/owner-http.mjs'
 
 test('PDF config resolves relative assets and preserves bare commands and literal arguments', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'ivoraige-pdf-config-'))
@@ -130,9 +130,9 @@ test('HTTP PDF import validates base64 and remote CLI observes real queued tasks
   assert.equal(invalid.status, 400)
   assert.equal((await invalid.json()).error.code, 'INVALID_ARGUMENT')
   let output = '', error = ''
-  let code = await runCli(['--url', server.url, '--no-wait', 'import',
+  let code = await runCli(['--no-wait', 'import',
     '--path', source, '--source-lang', 'en', '--json'], {
-    stdout: { write: text => { output += text } }, stderr: { write: text => { error += text } },
+    app: { ...app, reused: true }, stdout: { write: text => { output += text } }, stderr: { write: text => { error += text } },
   })
   assert.equal(code, 0, error)
   const queued = JSON.parse(output)
@@ -142,8 +142,8 @@ test('HTTP PDF import validates base64 and remote CLI observes real queued tasks
   assert.equal(completed.result.document.format, 'pdf')
   assert.equal(seen[1].path, source)
   output = ''; error = ''
-  code = await runCli(['--url', server.url, 'import', '--path', source, '--source-lang', 'en', '--json'], {
-    stdout: { write: text => { output += text } }, stderr: { write: text => { error += text } },
+  code = await runCli(['import', '--path', source, '--source-lang', 'en', '--json'], {
+    app: { ...app, reused: true }, stdout: { write: text => { output += text } }, stderr: { write: text => { error += text } },
   })
   assert.equal(code, 0, error)
   assert.equal(JSON.parse(output).document.id, completed.result.document.id)
@@ -196,8 +196,9 @@ for await (const line of createInterface({ input: process.stdin })) {
   assert.equal(await readFile(marker, 'utf8'), 'parse')
   output = ''; error = ''
   code = await runCli(['--store', store, 'documents', document.id, '--json'], sink)
-  assert.equal(code, 0, error)
-  assert.deepEqual(JSON.parse(output).document.availableOutputs, [], 'reopening without the bound PDF source cannot project text')
+  assert.equal(code, 3, error)
+  assert.equal(JSON.parse(output).error.details.reason, 'owner-config-mismatch',
+    'a different PDF composition must not silently reopen the store')
   output = ''; error = ''
   code = await runCli(['--store', store, '--pdf-config', config, 'documents', document.id, '--json'], sink)
   assert.equal(code, 0, error)

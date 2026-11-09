@@ -59,11 +59,11 @@ test('CLI accepts source content mode without a target language', async t => {
   const app = await createApp({ store })
   const { document } = await app.records.importDocument({ format: 'txt', content: 'Original source.' },
     { sourceId: 'cli:source', language: 'en' })
-  await app.dispose()
+  t.after(() => app.dispose())
   let out = '', err = ''
-  const code = await runCli(['--store', store, 'export', document.id, '--format', 'json',
+  const code = await runCli(['export', document.id, '--format', 'json',
     '--content-mode', 'source'],
-  { stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
+  { app, stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
   assert.equal(code, 0, err)
   assert.ok(JSON.parse(out).snapshotId)
 })

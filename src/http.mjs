@@ -6,6 +6,7 @@ import { KernelError } from './errors.mjs'
 import { serialize, errorEnvelope } from './protocol.mjs'
 import { Service } from '../dist/dsh.mjs'
 import { resourcePolicy } from './resource-policy.mjs'
+import { validateHostRequest } from './host-transport.mjs'
 
 const id = '([^/]+)'
 const routes = [
@@ -55,8 +56,8 @@ function hostname(header) {
   if (!header) return ''
   try { return new URL(`http://${header}`).hostname.toLowerCase() } catch { return '' }
 }
-function send(res, status, body) {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+function send(res, status, body, headers = {}) {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers })
   res.end(serialize(body))
 }
 async function readBody(req) {
@@ -129,7 +130,7 @@ function events(req, res, app, taskId, activeEvents) {
 
 function stateEvents(req, res, app, scope, activeEvents) {
   if (!app.events) throw new KernelError('COMPONENT_MISSING', 'State event entry is not enabled')
-  const session = app.events.subscribe(scope)
+  const session = app.events.subscribe(scope, { owner: true })
   res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive' })
   let blocked = false, closed = false, delivered = -1
@@ -165,11 +166,16 @@ function stateEvents(req, res, app, scope, activeEvents) {
   sendEvent('state.ready', session.ready)
 }
 
-async function listenHttp(app, { host = '127.0.0.1', port = 8787, staticDir, allowedHosts = [], instance, mcp = true } = {}) {
+async function listenHttp(app, { host = '127.0.0.1', port = 8787, staticDir, allowedHosts = [],
+  instance, mcp = false, authorizeOwner } = {}) {
   if (!loopback(host)) throw new KernelError('INVALID_ARGUMENT',
     'Non-loopback listening requires DSH token authentication, which is not configured')
   if (!Number.isInteger(port) || port < 0 || port > 65535)
     throw new KernelError('INVALID_ARGUMENT', 'port must be an integer from 0 to 65535')
+  if (app.host?.lifetime === 'ephemeral') throw new KernelError('CONFLICT',
+    'Temporary owners cannot expose HTTP', { reason: 'temporary-owner' })
+  if (!app.host && typeof authorizeOwner !== 'function') throw new KernelError('UNAUTHORIZED',
+    'HTTP requires an explicit owner authorization callback', { reason: 'owner-authentication-required' })
   const mcpEndpoint = mcp && app.mcp ? (await import('./mcp.mjs')).createMcpHttp(app) : undefined
   const activeEvents = new Set()
   const controllers = new Set()
@@ -188,6 +194,8 @@ async function listenHttp(app, { host = '127.0.0.1', port = 8787, staticDir, all
   })
   async function handle(req, res, signal) {
     try {
+      res.setHeader('Referrer-Policy', 'no-referrer')
+      res.setHeader('X-Content-Type-Options', 'nosniff')
       if (closing) throw new KernelError('COMPONENT_MISSING', 'HTTP entry is closing')
       const incomingHost = hostname(req.headers.host)
       if (!loopback(incomingHost) && !allowedHosts.includes(incomingHost))
@@ -201,6 +209,70 @@ async function listenHttp(app, { host = '127.0.0.1', port = 8787, staticDir, all
       }
       const url = new URL(req.url, `http://${req.headers.host}`)
       const pathname = url.pathname
+      if (pathname.startsWith('/api/') || pathname === '/mcp' || pathname.startsWith('/mcp/')) {
+        if (app.host) {
+          const ownerSession = app.host.session
+          if (!ownerSession) throw new KernelError('UNAUTHORIZED', 'Owner pairing is not ready',
+            { reason: 'owner-authentication-required' })
+          if (pathname === '/api/host/session' && req.method === 'POST') {
+            const body = await readBody(req)
+            if (Object.keys(body).length !== 1 || typeof body.credential !== 'string')
+              throw new KernelError('INVALID_ARGUMENT', 'Invalid owner session exchange', { reason: 'invalid-request' })
+            const exchanged = ownerSession.exchange({ credential: body.credential,
+              requestOrigin: req.headers.origin, host: req.headers.host })
+            send(res, 200, { apiVersion: '2.0', dataDomainRef: exchanged.dataDomainRef,
+              generation: exchanged.generation, csrfToken: exchanged.csrfToken }, { 'Set-Cookie': exchanged.setCookie })
+            return
+          }
+          ownerSession.authenticate({ cookie: req.headers.cookie, requestOrigin: req.headers.origin,
+            host: req.headers.host, csrfToken: req.headers['x-ivoraige-csrf'], method: req.method })
+          if (pathname === '/api/host/session' && req.method === 'GET') {
+            send(res, 200, { apiVersion: '2.0', ...ownerSession.refreshCsrf({ cookie: req.headers.cookie,
+              requestOrigin: req.headers.origin, host: req.headers.host }) })
+            return
+          }
+        } else if (await authorizeOwner(req) !== true) throw new KernelError('UNAUTHORIZED',
+          'Owner authorization required', { reason: 'owner-authentication-required' })
+      }
+      if (app.host && pathname === '/api/host-control' && req.method === 'POST') {
+        const request = validateHostRequest(await readBody(req))
+        if (!['state', 'drain', 'exit', 'operation'].includes(request.action) ||
+          Object.hasOwn(request, 'capability')) throw new KernelError('INVALID_ARGUMENT', 'Invalid host control action',
+          { reason: 'invalid-request' })
+        if (request.expectedGeneration !== app.host.generation) throw new KernelError('CONFLICT',
+          'Host generation changed', { reason: 'stale-generation' })
+        const result = await app.host.handleControl(request.action, { ...request.params,
+          expectedGeneration: request.expectedGeneration })
+        const key = request.action === 'state' ? 'state' : request.action === 'operation' ? 'operation' : null
+        send(res, 200, { apiVersion: '2.0', interfaceVersion: 'HostControl@1', minor: 0,
+          requestId: request.requestId, ...(key ? { [key]: result } : result) })
+        return
+      }
+      if (app.host && pathname.startsWith('/api/host/') && pathname !== '/api/host/session') {
+        const action = pathname.slice('/api/host/'.length)
+        if (!['state', 'operation', 'drain', 'exit'].includes(action) ||
+            req.method !== (['state', 'operation'].includes(action) ? 'GET' : 'POST'))
+          throw new KernelError('NOT_FOUND', 'Route not found')
+        if (req.method === 'GET' && [...url.searchParams.keys()].length !== new Set(url.searchParams.keys()).size)
+          throw new KernelError('INVALID_ARGUMENT', 'Duplicate host control parameter', { reason: 'invalid-request' })
+        const params = req.method === 'GET' ? Object.fromEntries(url.searchParams) : await readBody(req)
+        const fields = action === 'state' ? ['expectedGeneration'] : action === 'operation' ?
+          ['expectedGeneration', 'operationId'] : ['expectedGeneration', 'budgetMs']
+        if (Object.keys(params).length !== fields.length || fields.some(field => !Object.hasOwn(params, field)))
+          throw new KernelError('INVALID_ARGUMENT', 'Invalid host control request', { reason: 'invalid-request' })
+        if (params.expectedGeneration !== app.host.generation) throw new KernelError('CONFLICT',
+          'Host generation changed', { reason: 'stale-generation' })
+        if (['drain', 'exit'].includes(action) && (!Number.isInteger(params.budgetMs) ||
+            params.budgetMs < 1 || params.budgetMs > 120_000))
+          throw new KernelError('INVALID_ARGUMENT', 'Invalid host control budget', { reason: 'invalid-request' })
+        if (action === 'operation' && (typeof params.operationId !== 'string' ||
+            !/^[A-Za-z0-9_.:-]{1,128}$/.test(params.operationId)))
+          throw new KernelError('INVALID_ARGUMENT', 'Invalid host operation ID', { reason: 'invalid-request' })
+        const result = await app.host.handleControl(action, params)
+        send(res, 200, { apiVersion: '2.0', ...(action === 'state' || action === 'operation'
+          ? { [action]: result } : result) })
+        return
+      }
       if (pathname === '/mcp' && mcpEndpoint) { await mcpEndpoint.handle(req, res); return }
       if (req.method === 'GET' && pathname === '/api/instance' && instance) {
         send(res, 200, instance); return
@@ -318,8 +390,15 @@ async function listenHttp(app, { host = '127.0.0.1', port = 8787, staticDir, all
     throw error
   }
   const address = server.address()
+  const actualOrigin = `http://${host.includes(':') ? `[${host}]` : host}:${address.port}`
+  try { if (app.host) app.host.bindHttp(actualOrigin) }
+  catch (error) {
+    await new Promise(resolveClose => server.close(() => resolveClose()))
+    await mcpEndpoint?.close()
+    throw error
+  }
   let closePromise
-  const entry = { url: `http://${host.includes(':') ? `[${host}]` : host}:${address.port}`,
+  const entry = { url: actualOrigin,
     close: () => {
       if (closePromise) return closePromise
       closing = true
