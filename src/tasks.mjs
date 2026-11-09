@@ -444,8 +444,11 @@ export class Tasks extends Service {
         if ((claimsPrompts || resolvesPrompts) && (!resolvesPrompts || !checksBasis))
           throw new KernelError('COMPONENT_MISSING', 'Translation model prompt contract requires selection and preflight')
         let selection = task.promptSelection
+        const configurationMissing = (claimsPrompts || resolvesPrompts) && model?.configuration?.() === null
         const noConfiguredModel = !task.promptTemplateId && !task.promptSelection &&
-          model?.configuration?.() === null
+          configurationMissing
+        if (configurationMissing && !noConfiguredModel)
+          throw new KernelError('COMPONENT_MISSING', 'No translation model configured')
         // Resolve the selected prompt before reuse; basis preflight is only for an actual model call.
         if (resolvesPrompts && !noConfiguredModel) {
           selection = await model.resolvePromptSelection({ docId: task.docId,
@@ -468,6 +471,7 @@ export class Tasks extends Service {
           // Optional capabilities are resolved per unit so later plugin mounts
           // and replacements take effect without restarting the task service.
           if (!model) throw new KernelError('COMPONENT_MISSING', 'Configure a translation model before translating')
+          if (configurationMissing) throw new KernelError('COMPONENT_MISSING', 'No translation model configured')
           if (model.preflight) await model.preflight({ basis, signal: controller.signal, docId: task.docId,
             promptTemplateId: task.promptTemplateId, pinned: selection?.prompt ? selection : undefined })
           await this.records.incrementTaskCall(taskId)

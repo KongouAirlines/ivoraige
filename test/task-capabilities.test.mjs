@@ -132,3 +132,56 @@ test('claimed prompt model needs selection and basis preflight while translate-o
   const [revision] = app.records.listRevisions(unit.id, { targetLang: 'zh' })
   assert.equal(revision.promptTrace.templateId, 'builtin:scientific-translation')
 })
+
+test('unconfigured prompt-aware model reuses a human revision but cannot create an untraced machine revision', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-unconfigured-prompt-model-'))
+  const app = await createApp({ store: join(directory, 'store.sqlite') })
+  t.after(async () => { await app.dispose(); await rm(directory, { recursive: true, force: true }) })
+  let calls = 0, preflights = 0, selections = 0
+  class UnconfiguredModel extends Service {
+    constructor(ctx) {
+      super(ctx, 'ivoraige.translationModel')
+      ctx.effect(() => ctx.get('ivoraige.prompts').register(TRANSLATION_FEATURE))
+    }
+    configuration() { return null }
+    async resolvePromptSelection() { selections++; return undefined }
+    async preflight() { preflights++ }
+    async translate() {
+      calls++
+      return { text: '模型译文。', modelId: 'fixture', promptVersion: 'fixture-v1',
+        tokens: { input: null, output: null } }
+    }
+  }
+  await app.ctx.plugin(UnconfiguredModel)
+  const { document: reusedDocument } = await app.records.importDocument({ format: 'txt', content: 'Reviewed.' },
+    { sourceId: 'reviewed', language: 'en' })
+  const [reusedUnit] = app.records.listUnits(reusedDocument.id, { targetLang: 'zh' })
+  const human = await app.records.writeRevision(reusedUnit.id, { targetLang: 'zh', text: '人工译文。',
+    baseRevisionId: null, origin: 'human' })
+  await app.records.acceptRevision(human.id, { expectedAcceptedRevisionId: null })
+  const first = await app.tasks.submit(reusedDocument.id, { targetLang: 'zh' })
+  const reused = await app.tasks.wait(first.taskId)
+  assert.equal(reused.state, 'succeeded', JSON.stringify(reused.error))
+  assert.equal(reused.stats.reusedUnits, 1)
+  assert.equal(reused.stats.llmCalls, 0)
+  assert.equal(reused.promptSelection, undefined)
+  const selected = await app.tasks.submit(reusedDocument.id, { targetLang: 'zh',
+    promptTemplateId: 'builtin:scientific-translation' })
+  const explicit = await app.tasks.wait(selected.taskId)
+  assert.equal(explicit.state, 'failed')
+  assert.match(explicit.error.message, /No translation model configured/)
+  assert.equal(explicit.stats.llmCalls, 0)
+
+  const { document: newDocument } = await app.records.importDocument({ format: 'txt', content: 'Needs model.' },
+    { sourceId: 'needs-model', language: 'en' })
+  const [newUnit] = app.records.listUnits(newDocument.id, { targetLang: 'zh' })
+  const second = await app.tasks.submit(newDocument.id, { targetLang: 'zh' })
+  const failed = await app.tasks.wait(second.taskId)
+  assert.equal(failed.state, 'failed')
+  assert.match(failed.error.message, /No translation model configured/)
+  assert.equal(failed.stats.llmCalls, 0)
+  assert.equal(app.records.listRevisions(newUnit.id, { targetLang: 'zh' }).length, 0)
+  assert.equal(calls, 0)
+  assert.equal(preflights, 0)
+  assert.equal(selections, 0)
+})
