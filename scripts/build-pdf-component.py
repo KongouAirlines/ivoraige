@@ -15,7 +15,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["version"]
-COMPONENT_VERSION = "0.7.1+ivoraige.1"
+COMPONENT_VERSION = "0.7.1+ivoraige.2"
 PYMUPDF_VERSION = "1.26.7"
 PYINSTALLER_VERSION = "6.22.3"
 
@@ -186,7 +186,7 @@ def main() -> None:
     for name in ("server.py", "requirements.lock", "LICENSE", "COPYING"):
         shutil.copyfile(ROOT / "sidecars/babeldoc" / name, stage / name)
     (stage / "README.md").write_text(
-        "BabelDOC derived sidecar 0.7.1+ivoraige.1 for Windows x64. Install the separate asset archive under ./assets before PDF capture.\n",
+        "BabelDOC derived sidecar 0.7.1+ivoraige.2 for Windows x64. Install the separate asset archive under ./assets before PDF capture.\n",
         encoding="utf-8",
     )
     # Preserve the repository-relative layout expected by the source build recipe.

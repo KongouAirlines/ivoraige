@@ -2,8 +2,9 @@
 
 ## Scope and migration
 
-The optional sidecar now requires **BabelDOC 0.7.1+ivoraige.1**, a source build
-of official 0.7.1 with a small, versioned source-location bridge. This is not
+The optional sidecar now requires **BabelDOC 0.7.1+ivoraige.2**, a source build
+of official 0.7.1 with a small, versioned source-location bridge and an opt-in
+native line-split guard for low ASCII identifier underscores. This is not
 compatibility with the unmodified official wheel. The native parser's default
 resource limits remain enabled. BabelDOC 0.7.0 fixed the disclosed stream
 expansion and CMap expansion resource-exhaustion issues affecting 0.6.4 and
@@ -16,12 +17,18 @@ earlier; this change does not claim that every possible PDF is safe.
 
 The NDJSON protocol remains v1. Records, accepted revisions, frozen snapshots,
 managed originals and existing readable Markdown/JSON projections are retained.
-Old 0.6.4 source bindings are **not** passed to the upgraded renderer. A translated
+Older 0.6.4 or `0.7.1+ivoraige.1` source bindings are **not** passed to the upgraded renderer. A translated
 PDF replay returns an explicit version error and leaves the old records intact.
 Re-import the original with the upgraded engine, then explicitly reconcile its
 units and accepted revisions against the retained document. Do not rewrite an
 old binding's version string: segmentation, locations and placeholders may
 change. Source-mode PDF export still copies the verified managed original.
+The new `ascii-alnum-base-v1` policy is recorded in capture configuration. It
+borrows neighboring same-baseline ASCII letters' or digits' ink height only for
+the line-split decision; it does not change glyph coordinates or formula
+rendering. Raised/lowered baselines, differing fonts/sizes, distant symbols and
+non-identifier underscores keep upstream behavior. This does not repair general
+formula order, OCR, or the separate layout-fit concern.
 
 ## Build and setup
 
@@ -79,8 +86,8 @@ full translation, intact equations, complete reading order or unclipped text.
 
 ## 中文摘要
 
-本版本使用官方 0.7.1 源码加两个只读观察钩子的派生运行时
-`0.7.1+ivoraige.1`，不是原样官方 wheel。Rust 的安全解析限额保持启用；
+本版本使用官方 0.7.1 源码加两个只读观察钩子及可选的窄范围原生分行修正的派生运行时
+`0.7.1+ivoraige.2`，不是原样官方 wheel。Rust 的安全解析限额保持启用；
 翻译前记录完整段落位置，回调按明确页/段落身份绑定同一冻结译文，不按
 原文相似度或回调顺序猜测。ONNX 原生遥测在创建 session 前禁用。
 
@@ -90,7 +97,7 @@ full translation, intact equations, complete reading order or unclipped text.
 styles/formula 路径或 PDF 都如此。不接受外部预制 IR；未调用段落的原文
 为 null 仍可按既有规则保留。
 
-旧 0.6.4 绑定不能交给新 renderer；旧文档、修订、快照及可读 MD/JSON
+旧 0.6.4 与 `0.7.1+ivoraige.1` 绑定不能交给新 renderer；旧文档、修订、快照及可读 MD/JSON
 不会被改写。需重新导入原件，再人工核对新分段并迁移接受译文，不能只
 改版本字段。来源模式的 PDF 原件复制保留。扫描件没有 OCR 时明确失败。
 

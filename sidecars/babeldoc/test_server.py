@@ -4,6 +4,7 @@
 """Fast preflight tests; no BabelDOC import, model, or asset download."""
 
 import json
+import os
 from io import StringIO
 import tempfile
 import unittest
@@ -131,11 +132,37 @@ class NativeBridgeTests(unittest.TestCase):
                     server.rebuild({"format": "pdf", "docRef": str(doc), "revisionsRef": str(frozen)})
                 engine.assert_not_called()
 
+    def test_previous_derived_binding_also_requires_explicit_reimport(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            doc, frozen = root / "doc.json", root / "frozen.json"
+            doc.write_text(json.dumps({"document": {"language": "en"},
+                "sourceBinding": {"adapterId": "babeldoc", "engineVersion": "0.7.1+ivoraige.1",
+                    "sourcePath": "/missing/original.pdf"}}))
+            frozen.write_text("{}")
+            with patch.object(server, "run_engine") as engine:
+                with self.assertRaisesRegex(server.SidecarError, "re-import.*reconcile accepted revisions"):
+                    server.rebuild({"format": "pdf", "docRef": str(doc), "revisionsRef": str(frozen)})
+                engine.assert_not_called()
+
     def test_capture_config_enables_parser_limits_and_versions_bridge(self):
         config = server.capture_config(None, 5)
         self.assertTrue(config["parserResourceLimits"])
         self.assertEqual(config["sourceBridge"], 1)
-        self.assertEqual(config["babeldoc"], "0.7.1+ivoraige.1")
+        self.assertEqual(config["babeldoc"], "0.7.1+ivoraige.2")
+        self.assertEqual(config["underscoreLinePolicy"], "ascii-alnum-base-v1")
+
+    def test_scoped_native_line_policy_restores_environment_even_on_error(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(ValueError, "synthetic"):
+                with server.underscore_line_scope():
+                    self.assertEqual(os.environ["IVORAIGE_ASCII_ALNUM_BASE_V1"], "1")
+                    raise ValueError("synthetic")
+            self.assertNotIn("IVORAIGE_ASCII_ALNUM_BASE_V1", os.environ)
+            os.environ["IVORAIGE_ASCII_ALNUM_BASE_V1"] = "previous"
+            with server.underscore_line_scope():
+                self.assertEqual(os.environ["IVORAIGE_ASCII_ALNUM_BASE_V1"], "1")
+            self.assertEqual(os.environ["IVORAIGE_ASCII_ALNUM_BASE_V1"], "previous")
 
 
 class BindingTests(unittest.TestCase):

@@ -1,10 +1,10 @@
 # BabelDOC 0.7.1 source bridge v1
 
-This is an explicit derived build, `0.7.1+ivoraige.1`, based on official
+This is an explicit derived build, `0.7.1+ivoraige.2`, based on official
 [v0.7.1](https://github.com/funstory-ai/BabelDOC/releases/tag/v0.7.1), commit
 `d922e2b0c5a353bde8731921eb442c07ae75849d`. The patch retains upstream's AGPL
-license and changes four files. It does not replace or weaken the PDF parser,
-layout analysis, translation normalization, typesetting, or writer.
+license and changes five files. It does not replace the PDF parser, layout analysis, translation normalization,
+typesetting, or writer. It adds a narrowly scoped line-split guard described below.
 
 The stock wheel removed Python `ILTranslator` and does not expose paragraph
 identity to translator callbacks. Its Rust job includes page/paragraph indices,
@@ -20,6 +20,24 @@ the current part's inventory to actual page and box; it never guesses callback
 order. The native module exposes `ivoraige_source_bridge_version = 1` so a stock
 wheel or mismatched build fails before capture. Ordinary translators without the
 observer do not receive the added metadata. No LLM-only path is enabled.
+
+### Scoped ASCII underscore line guard
+
+The fifth changed source file is Rust `paragraph_finder.rs`. The sidecar opts in
+only for its capture/replay engine call with `IVORAIGE_ASCII_ALNUM_BASE_V1=1` and
+restores the prior environment on exit. Other BabelDOC callers retain native
+0.7.1 line splitting unless they explicitly opt in. The native splitter uses
+the neighboring glyphs' visual y range only for a low `_` between adjacent
+ASCII letters or digits with the same XObject, font, size and nominal baseline. It also
+requires compatible horizontal spacing, finite geometry and overlapping letter
+ink. It leaves source glyphs, coordinates, composition order and rendering
+untouched; all other characters follow upstream splitting. A new capture records
+`underscoreLinePolicy: ascii-alnum-base-v1` alongside the derived engine version.
+
+The `.1` wheel and bindings remain unchanged. Because the new line policy can
+change paragraph segmentation and requests, translated-PDF replay refuses `.1`
+bindings under `.2` before opening the source. Re-import and explicitly reconcile
+accepted revisions; never edit a stored binding's version or policy marker.
 
 ### Bounding-box contract
 

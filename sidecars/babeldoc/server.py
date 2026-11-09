@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2026 ivoraige contributors
 
-"""BabelDOC 0.7.1+ivoraige.1 PDF capture/replay over line-delimited JSON-RPC 2.0.
+"""BabelDOC 0.7.1+ivoraige.2 PDF capture/replay over line-delimited JSON-RPC 2.0.
 
 The only stdout writes are protocol messages. BabelDOC runs in this dedicated
 process; it has no translation model, credentials, or download path.
@@ -24,9 +24,10 @@ from contextlib import redirect_stdout, contextmanager
 from pathlib import Path
 
 PROTOCOL_VERSION = 1
-ENGINE_VERSION = "0.7.1+ivoraige.1"
+ENGINE_VERSION = "0.7.1+ivoraige.2"
 UPSTREAM_VERSION = "0.7.1"
 SOURCE_BRIDGE_VERSION = 1
+UNDERSCORE_LINE_POLICY = "ascii-alnum-base-v1"
 PYMUPDF_VERSION = "1.26.7"
 LAYOUT_MODEL = "doclayout_yolo_docstructbench_imgsz1024.onnx"
 TOKEN_RE = re.compile(r"</?(?:b|i|u|s|f)\d+>")
@@ -376,6 +377,7 @@ def capture_config(pages, min_text_length, source="en"):
         "babeldoc": ENGINE_VERSION,
         "pymupdf": PYMUPDF_VERSION,
         "sourceBridge": SOURCE_BRIDGE_VERSION,
+        "underscoreLinePolicy": UNDERSCORE_LINE_POLICY,
         "parserResourceLimits": True,
         "layoutModel": LAYOUT_MODEL,
         "pages": pages,
@@ -390,6 +392,20 @@ def capture_config(pages, min_text_length, source="en"):
     if source != "en":
         config["sourceLanguage"] = source
     return config
+
+
+@contextmanager
+def underscore_line_scope():
+    """Opt in to the narrow native line guard for one sidecar engine call."""
+    previous = os.environ.get("IVORAIGE_ASCII_ALNUM_BASE_V1")
+    os.environ["IVORAIGE_ASCII_ALNUM_BASE_V1"] = "1"
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop("IVORAIGE_ASCII_ALNUM_BASE_V1", None)
+        else:
+            os.environ["IVORAIGE_ASCII_ALNUM_BASE_V1"] = previous
 
 
 def validate_options(options):
@@ -649,7 +665,7 @@ def _run_engine(
                 min_text_length=config_id["minTextLength"],
                 pages=page_arg,
             )
-            with redirect_stdout(sys.stderr):
+            with underscore_line_scope(), redirect_stdout(sys.stderr):
                 result = high_level.translate(config)
             if mode == "replay":
                 require(not engine.errors, "; ".join(engine.errors), -32003)

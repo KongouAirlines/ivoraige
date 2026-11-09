@@ -15,8 +15,8 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 UPSTREAM = "https://github.com/funstory-ai/BabelDOC.git"
 REVISION = "d922e2b0c5a353bde8731921eb442c07ae75849d"
-VERSION = "0.7.1+ivoraige.1"
-PATCH = ROOT / "sidecars/babeldoc/patches/0.7.1/source-bridge-v1.patch"
+VERSION = "0.7.1+ivoraige.2"
+PATCH = ROOT / "sidecars/babeldoc/patches/0.7.1/source-bridge-underscore-v1.patch"
 
 
 def run(args, **kwargs):
@@ -65,7 +65,7 @@ def main():
         run([sys.executable, "-m", "maturin", "build", "--locked", "--release",
              "--manifest-path", str(clean / "rust/p2_bridge/Cargo.toml"),
              "--interpreter", sys.executable, "--out", str(wheels)], cwd=clean, env=env)
-    matches = list(wheels.glob("babeldoc-0.7.1+ivoraige.1-*.whl"))
+    matches = list(wheels.glob("babeldoc-0.7.1+ivoraige.2-*.whl"))
     if len(matches) != 1:
         raise RuntimeError(f"Expected exactly one {VERSION} wheel in {wheels}")
     wheel = matches[0]

@@ -21,7 +21,7 @@ npm run build
 
 先按 [0.7.1 源码构建与迁移指南](../0.1.x/babeldoc-0.7.1.md)准备派生 wheel。官方原样 wheel 不支持本 sidecar 的位置桥。Windows/macOS 派生成包尚未验收。
 
-`setup-pdf.ps1` 用 uv 建立已忽略的 `evaluation/runs/pdf-runtime/.venv`，安装 `sidecars/babeldoc/requirements.lock` 锁定的 Python 3.13、BabelDOC 0.7.1+ivoraige.1 和 PyMuPDF 1.26.7 依赖，并运行 BabelDOC `--warmup` 下载／校验所需字体、CMap、tiktoken 与布局模型到用户默认的 `~/.cache/babeldoc`。首次 warmup 需要网络且耗时；普通导入和导出不会安装或下载。再次运行脚本会复用环境和缓存；`./scripts/setup-pdf.ps1 -CheckOnly` 只检查版本及必需资产。若组件缺失，PDF 任务报告 `COMPONENT_MISSING`，TXT／Markdown 仍可使用。
+`setup-pdf.ps1` 用 uv 建立已忽略的 `evaluation/runs/pdf-runtime/.venv`，安装 `sidecars/babeldoc/requirements.lock` 锁定的 Python 3.13、BabelDOC 0.7.1+ivoraige.2 和 PyMuPDF 1.26.7 依赖，并运行 BabelDOC `--warmup` 下载／校验所需字体、CMap、tiktoken 与布局模型到用户默认的 `~/.cache/babeldoc`。首次 warmup 需要网络且耗时；普通导入和导出不会安装或下载。再次运行脚本会复用环境和缓存；`./scripts/setup-pdf.ps1 -CheckOnly` 只检查版本及必需资产。若组件缺失，PDF 任务报告 `COMPONENT_MISSING`，TXT／Markdown 仍可使用。
 
 [Windows 配置示例](../../../examples/pdf-windows.json)的路径相对于配置文件解析：`command` 指向上述虚拟环境的 `python.exe`，`args` 指向仓库内的 `sidecars/babeldoc/server.py`。未配置 `modelDirs` 时使用 BabelDOC 默认缓存。若使用其他目录，可在 JSON 中添加 `modelDirs.babeldoc`（缓存根目录）或 `modelDirs.doclayout-yolo`（模型文件）；这些路径同样相对于配置文件。`options.workDir` 可指定可写的绝对目录。不要把模型凭据写进 PDF 配置。
 

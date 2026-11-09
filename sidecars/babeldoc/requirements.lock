@@ -1,6 +1,6 @@
 annotated-types==0.8.0
 anyio==4.15.1
-babeldoc==0.7.1+ivoraige.1
+babeldoc==0.7.1+ivoraige.2
 backports-zstd==1.7.0
 bitarray==3.11.0
 bitstring==4.4.0

@@ -5,7 +5,7 @@
 messages only to stdout; engine logs and tracebacks go to stderr. Run it with
 the explicit Python command printed by `scripts/setup-pdf.ps1`. That setup
 script installs the pinned package versions into an ignored project runtime after
-you build the **0.7.1+ivoraige.1** derived wheel using
+you build the **0.7.1+ivoraige.2** derived wheel using
 [`scripts/build-babeldoc-runtime.py`](../../scripts/build-babeldoc-runtime.py);
 it also runs BabelDOC `--warmup` to prepare the default asset cache. Use
 `scripts/setup-pdf.ps1 -CheckOnly` to verify versions and required assets
@@ -28,7 +28,7 @@ at replay.
 The stock official 0.7.1 wheel is not compatible with location-safe replay.
 The [versioned bridge patch](patches/0.7.1/README.md) adds a read-only paragraph
 inventory and exact native callback identity; parser resource limits remain enabled.
-Old 0.6.4 bindings fail translated-PDF replay explicitly. Re-import and reconcile
+Old 0.6.4 and `0.7.1+ivoraige.1` bindings fail translated-PDF replay explicitly. Re-import and reconcile
 accepted revisions; do not relabel or mutate old snapshots. Existing readable
 projections and original-PDF copying remain available. See the
 [build/migration guide](../../docs/plan/0.1.x/babeldoc-0.7.1.md).

@@ -48,7 +48,7 @@ Use Node.js **26.13.0** with npm by default (`.node-version`). Node 24 is retain
 
 For PDF, prepare the optional Windows development environment using the [PDF development guide (中文)](docs/plan/0.1.0/pdf-development.md), then follow the [PDF guide (中文)](docs/plan/0.1.0/pdf-guide.md). The default online component source currently has no downloadable Release.
 
-The matching PDF sidecar now requires the explicitly derived **BabelDOC 0.7.1+ivoraige.1** source bridge, with parser resource limits enabled. The stock 0.7.1 wheel cannot supply location-safe replay callbacks. Old 0.6.4 bindings remain readable but translated-PDF replay requires re-import and explicit revision reconciliation. See the [build and migration guide](docs/plan/0.1.x/babeldoc-0.7.1.md); the tested derived build is Linux x64/glibc 2.34, with Windows/macOS packaging still unverified.
+The matching PDF sidecar now requires the explicitly derived **BabelDOC 0.7.1+ivoraige.2** source bridge, with parser resource limits enabled and a narrow same-baseline ASCII underscore line guard. The stock 0.7.1 wheel cannot supply location-safe replay callbacks. Earlier 0.6.4 and `0.7.1+ivoraige.1` bindings remain readable but translated-PDF replay requires re-import and explicit revision reconciliation. See the [build and migration guide](docs/plan/0.1.x/babeldoc-0.7.1.md); the tested derived build is Linux x64/glibc 2.34, with Windows/macOS packaging still unverified.
 
 New PDF imports show captured units, translation callback requests, retained units without callbacks, audited lines and empty units in the workbench and frozen JSON summary. These are source inventory counts, not proof that all original text was captured or translated; audited lines and empty units can overlap with retained units.
 
