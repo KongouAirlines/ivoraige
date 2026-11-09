@@ -55,11 +55,14 @@ function unitKind(type) {
 
 // The middle JSON and assets remain opaque to the host. Structured content is
 // only a source projection; it is not a replacement for the saved MiddleJson.
-export function projectStructured(middle, structured, bundle, files) {
+export function projectStructured(middle, structured, bundle, files, { projectionVersion = 2 } = {}) {
+  if (![1, 2].includes(projectionVersion))
+    fail('PRECONDITION_FAILED', 'MinerU text projection version is unsupported')
   if (middle?.schema !== 'docvortex.middle' || middle.schema_version !== '2.0' ||
       !Array.isArray(middle.pages) || !Array.isArray(structured?.pages))
     fail('UPSTREAM_FAILURE', 'MinerU returned an unsupported document structure')
   const units = []
+  let nestedText = false
   const pages = new Map(structured.pages.map(page => [page.page_idx, page]))
   for (const page of middle.pages) {
     const pageIndex = page.page_idx
@@ -81,9 +84,42 @@ export function projectStructured(middle, structured, bundle, files) {
         typeof content?.text === 'string' ? content.text : ''
       const translatable = natural.has(block.type) && !!text.trim()
       const sourceText = text.trim() ? text : `[${block.type ?? 'block'}]`
+      const parentLocator = { pageIndex, blockIndex, index: block.index,
+        ...(Array.isArray(block.bbox) ? { bbox: block.bbox } : {}) }
+      const annotations = (part, field) => {
+        const entries = rendered[field] ?? []
+        if (!Array.isArray(entries) || (entries.length && !Array.isArray(block.content)))
+          fail('UPSTREAM_FAILURE', 'MinerU annotation structure is invalid')
+        const children = (Array.isArray(block.content) ? block.content : [])
+          .map((child, childOrder) => ({ child, childOrder }))
+          .filter(({ child }) => typeof child?.type === 'string' &&
+            (child.type === part || child.type.endsWith(`_${part}`)))
+        return entries.map((entry, itemIndex) => {
+          const { child, childOrder } = children[itemIndex] ?? {}
+          const singleText = Array.isArray(child?.content) && child.content.length === 1 &&
+            child.content[0]?.type === 'text' ? child.content[0].content : undefined
+          if (!child || typeof entry?.content !== 'string' ||
+              (singleText !== undefined && singleText !== entry.content) ||
+              (Array.isArray(child.bbox) && Array.isArray(entry.bbox) &&
+                JSON.stringify(child.bbox) !== JSON.stringify(entry.bbox)))
+            fail('UPSTREAM_FAILURE', 'MinerU annotation does not align with MiddleJson')
+          if (!entry.content.trim()) return null
+          nestedText = true
+          return { kind: part === 'caption' ? 'caption' : 'body',
+            sourceText: entry.content, translatable: true,
+            locator: { ...parentLocator, part, itemIndex, childOrder,
+              childType: child.type, ...(child.index === undefined ? {} : { childIndex: child.index }),
+              ...(Array.isArray(child.bbox) ? { childBbox: child.bbox } : {}) } }
+        }).filter(Boolean)
+      }
+      if (projectionVersion === 2)
+        for (const annotation of annotations('caption', 'captions'))
+          units.push({ ...annotation, order: units.length })
       units.push({ order: units.length, kind: unitKind(block.type), sourceText,
-        translatable, locator: { pageIndex, blockIndex, index: block.index,
-          ...(Array.isArray(block.bbox) ? { bbox: block.bbox } : {}) } })
+        translatable, locator: parentLocator })
+      if (projectionVersion === 2)
+        for (const annotation of annotations('footnote', 'footnotes'))
+          units.push({ ...annotation, order: units.length })
     }
   }
   if (!units.length) fail('UPSTREAM_FAILURE', 'MinerU returned no document blocks')
@@ -93,7 +129,7 @@ export function projectStructured(middle, structured, bundle, files) {
   return { format: 'pdf', title: 'PDF document', units, chapters: [], resources,
     sourceBinding: { adapterId: 'mineru', bindingSchemaVersion: BINDING_VERSION,
       engineVersion: ENGINE_VERSION, middleSchema: 'docvortex.middle', middleSchemaVersion: '2.0',
-      bundlePath: bundle, files } }
+      bundlePath: bundle, files, ...(nestedText ? { projectionVersion: 2 } : {}) } }
 }
 
 export async function verifyMineruBundle(binding, { directory, storePath }) {

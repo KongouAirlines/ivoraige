@@ -17,7 +17,7 @@ async function fixture(t) {
   return dir
 }
 
-async function fakeRunner(dir) {
+async function fakeRunner(dir, { nested = false } = {}) {
   const path = join(dir, 'fake-runner.mjs')
   await writeFile(path, `import { mkdir, writeFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
@@ -31,10 +31,11 @@ if (request.method === 'shutdown') {send(null);break;}
 const output = request.params.options.outputDir;
 await mkdir(join(output, 'images'), {recursive:true});
 await writeFile(join(output, 'images', 'page_0_image_1.png'), Buffer.from([1,2,3]));
-const blocks = [{type:'doc_title',index:0,content:[{type:'text',content:'A'}]},{type:'image',index:1,content:[]},{type:'text',index:2,content:[{type:'text',content:'B'}]}].map((block,i)=>({...block,bbox:[1,2,3+i,4+i]}));
+const blocks = [{type:'doc_title',index:0,content:[{type:'text',content:'A'}]},{type:'image',index:1,content:[]},{type:'text',index:2,content:[{type:'text',content:'B'}]}${nested ? ",{type:'chart',index:3,content:[{type:'chart_caption',index:4,content:[{type:'text',content:'Chart caption'}]},{type:'chart_body',index:5,content:'<table><tr><td>A</td></tr></table>'},{type:'chart_footnote',index:6,content:[{type:'text',content:'Chart source'}]}]}" : ''}].map((block,i)=>({...block,bbox:[1,2,3+i,4+i]}));
 const pages = [{page_idx:0,blocks}];
 await writeFile(join(output, 'middle_json.json'), JSON.stringify({schema:'docvortex.middle',schema_version:'2.0',pages,metadata:{producer:{name:'mineru',version:'4.0.10'}}}));
-await writeFile(join(output, 'structured_content.json'), JSON.stringify({pages:[{page_idx:0,blocks:blocks.map((block,i)=>({type:block.type,bbox:block.bbox,content:i===0?'A':i===1?{image_path:'images/page_0_image_1.png'}:'B'}))}]}));
+const views = blocks.map((block,i)=>({type:block.type,bbox:block.bbox,content:i===0?'A':i===1?{image_path:'images/page_0_image_1.png'}:i===2?'B':'Table body',...(i===3?{captions:[{content:'Chart caption'}],footnotes:[{content:'Chart source'}]}:{})}));
+await writeFile(join(output, 'structured_content.json'), JSON.stringify({pages:[{page_idx:0,blocks:views}]}));
 await writeFile(join(output, 'markdown.md'), '# A\\n\\nB\\n');
 send({doc:{engineVersion:'4.0.10',schema:'docvortex.middle',schemaVersion:'2.0'}});
 }
@@ -80,6 +81,46 @@ test('MinerU source imports complete saved bundle and exports source MD/JSON wit
     command: process.execPath, runner })
   assert.equal(reopened.records.getDocument(document.id).sourceAdapterId, 'mineru')
   await reopened.dispose()
+})
+
+test('MinerU nested chart captions and footnotes remain in frozen source MD/JSON', async t => {
+  const dir = await fixture(t)
+  const runner = await fakeRunner(dir, { nested: true })
+  const app = await createApp({ store: join(dir, 'db.sqlite') })
+  await app.ctx.plugin(MinerUSource, { directory: join(dir, 'mineru-data'), command: process.execPath, runner })
+  t.after(() => app.dispose())
+  const admitted = await app.operations.invoke('importDocument', { format: 'pdf', adapterId: 'mineru',
+    contentBase64: pdf.toString('base64'), language: 'en', sourceId: 'nested' })
+  const imported = await app.tasks.wait(admitted.taskId)
+  assert.equal(imported.state, 'succeeded', JSON.stringify(imported))
+  const docId = imported.result.document.id
+  const record = app.records.record(docId)
+  assert.equal(record.sourceBinding.projectionVersion, 2)
+  assert.deepEqual(record.units.map(unit => unit.sourceText),
+    ['A', '[image]', 'B', 'Chart caption', 'Table body', 'Chart source'])
+  assert.equal(record.units[3].kind, 'caption')
+  assert.equal(record.units[3].locator.childOrder, 0)
+  assert.equal(record.units[3].locator.childType, 'chart_caption')
+  assert.equal(record.units[3].locator.part, 'caption')
+  assert.equal(record.units[5].locator.childOrder, 2)
+  assert.equal(record.units[5].locator.part, 'footnote')
+  const exported = await app.exporter.exportDocument(docId, { contentMode: 'source',
+    outputs: [{ format: 'md' }, { format: 'json' }] })
+  const markdown = await readFile(exported.artifacts.find(item => item.format === 'md').path, 'utf8')
+  const json = JSON.parse(await readFile(exported.artifacts.find(item => item.format === 'json').path))
+  assert.match(markdown, /Chart caption/)
+  assert.match(markdown, /Chart source/)
+  assert.deepEqual(json.units.map(unit => unit.sourceText), record.units.map(unit => unit.sourceText))
+  assert.equal(new Set(exported.artifacts.map(item => item.snapshotId)).size, 1)
+  assert.equal(app.records.listTasks().filter(task => task.kind === 'translate').length, 0)
+  const middle = JSON.parse(await readFile(join(record.sourceBinding.bundlePath, 'middle_json.json')))
+  const structured = JSON.parse(await readFile(join(record.sourceBinding.bundlePath, 'structured_content.json')))
+  assert.deepEqual(projectStructured(middle, structured, record.sourceBinding.bundlePath,
+    record.sourceBinding.files, { projectionVersion: 1 }).units.map(unit => unit.sourceText),
+  ['A', '[image]', 'B', 'Table body'])
+  middle.pages[0].blocks[3].content.splice(0, 1)
+  assert.throws(() => projectStructured(middle, structured, record.sourceBinding.bundlePath,
+    record.sourceBinding.files), { code: 'UPSTREAM_FAILURE' })
 })
 
 test('DSH profile loads a locally installed package, and disabling its row preserves other sources', async t => {
