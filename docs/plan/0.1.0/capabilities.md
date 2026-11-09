@@ -11,8 +11,9 @@
 | 任务 | 持久状态、进度、取消；翻译／导出按既有规则暂停与恢复 | PDF 导入可取消但不支持暂停续传；安装任务不续传下载 |
 | 入口 | 浏览器工作台、CLI、HTTP/SSE、MCP stdio／Streamable HTTP 共享内核 | HTTP 本机回环监听；同一 SQLite 由单个内核进程持有；MCP 客户端具有该内核的编辑、设置和组件管理权限 |
 | 模型与组件 | DSH 设置、凭据及模型访问；按需安装 BabelDOC | 公开组件源可匿名读取，私有源仍需显式令牌；在线模型会收到待译内容并可能计费；免费 Index-Translate 尚未专门接入 |
+| 逐单位翻译提示词 | 本地模板、按模型连接与功能绑定、文档及单次覆盖、修订追溯 | 仅 CLI／共享 operation 管理；无工作台编辑页、项目设置或其他模型功能；见[提示词库](prompt-library-guide.md) |
 | 平台 | Node 24 内核曾在三平台 CI 运行；旧 `v0.1.0-dev.0` Windows x64 便携包与 PDF 组件曾在 Windows Sandbox 实测 | 新版 `0.1.0` Windows 包尚未构建或验收；Linux/macOS 独立 PDF 包、完整桌面安装器仍未交付 |
 
 术语库结构与装配、EPUB、Zotero、RAG、基础文件处理扩展仍为规划。当前术语适用性字段不等于可供用户使用的术语库。[0.1.x 计划](../0.1.x/README.md)中的独立插件安装、MinerU 纯解析、第二同类插件及桌面生命周期也是待实施目标，不计入上表。
 
-使用入口：[安装](installation-guide.md) · [文本与 Markdown](workbench-guide.md) · [PDF](pdf-guide.md) · [设置](settings-guide.md) · [MCP](mcp-guide.md)。
+使用入口：[安装](installation-guide.md) · [文本与 Markdown](workbench-guide.md) · [PDF](pdf-guide.md) · [设置](settings-guide.md) · [提示词库](prompt-library-guide.md) · [MCP](mcp-guide.md)。

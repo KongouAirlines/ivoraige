@@ -92,9 +92,26 @@ function hasRetentionRows(db) {
   return found
 }
 
+function hasPromptRows(db) {
+  if (!hasTable(db, 'u_ivoraige_records_documents')) return false
+  for (const { value } of db.prepare('SELECT value FROM u_ivoraige_records_documents').all()) {
+    let record
+    try { record = JSON.parse(value) }
+    catch { throw new KernelError('PRECONDITION_FAILED', 'Records payload cannot be inspected for prompt gate') }
+    if (!record || typeof record !== 'object' || Array.isArray(record))
+      throw new KernelError('PRECONDITION_FAILED', 'Records payload cannot be inspected for prompt gate')
+    if ((record.revisions !== undefined && !Array.isArray(record.revisions)) ||
+        (record.tasks !== undefined && !Array.isArray(record.tasks)))
+      throw new KernelError('PRECONDITION_FAILED', 'Records payload cannot be inspected for prompt gate')
+    if (record.revisions?.some(revision => revision.promptTrace) ||
+        record.tasks?.some(task => task.promptTemplateId || task.promptSelection)) return true
+  }
+  return false
+}
+
 // Only the DSH unit header is changed here. DSH still owns every table row and
 // all record serialization; the store owner lock already excludes another app.
-function promote(storePath) {
+function promote(storePath, target = 2) {
   verifyPin()
   let db
   try {
@@ -102,11 +119,12 @@ function promote(storePath) {
     db.exec('BEGIN IMMEDIATE')
     try {
       const layoutVersion = verifyLayout(db)
-      if (layoutVersion !== 1 && layoutVersion !== 2) throw versionError(layoutVersion)
+      if (![1, 2, 3].includes(layoutVersion)) throw versionError(layoutVersion)
       const current = db.prepare('SELECT version FROM units WHERE name = ?').get(unitName)?.version
-      if (current !== 1 && current !== 2) throw versionError(current)
-      if (current === 1) {
-        const result = db.prepare('UPDATE units SET version = 2 WHERE name = ? AND version = 1').run(unitName)
+      if (![1, 2, 3].includes(current)) throw versionError(current)
+      if (current < target) {
+        const result = db.prepare('UPDATE units SET version = ? WHERE name = ? AND version = ?')
+          .run(target, unitName, current)
         if (result.changes !== 1) throw versionError(current)
       }
       db.exec('COMMIT')
@@ -117,24 +135,34 @@ function promote(storePath) {
 
 export function inspectRetentionDomain(storePath) {
   verifyPin()
-  if (!existsSync(storePath)) return { version: 2, activateRetention() {} }
+  if (!existsSync(storePath)) return { version: 2, activateRetention() {},
+    activatePromptTrace() { promote(storePath, 3) } }
   let db
-  let version, preexistingRetention
+  let version, preexistingRetention, preexistingPrompt
   try {
     db = new DatabaseSync(storePath, { readOnly: true })
     version = verifyLayout(db)
-    if (version === 'new' || version === 'new-unit') return { version: 2, activateRetention() {} }
-    if (version !== 1 && version !== 2) throw versionError(version)
+    if (version === 'new' || version === 'new-unit') return {
+      version: 2, activateRetention() {}, activatePromptTrace() { promote(storePath, 3) },
+    }
+    if (![1, 2, 3].includes(version)) throw versionError(version)
     preexistingRetention = version === 1 && hasRetentionRows(db)
+    preexistingPrompt = version < 3 && hasPromptRows(db)
   } catch (error) { throw inspectError(error) }
   finally { db?.close() }
   if (preexistingRetention) { promote(storePath); version = 2 }
+  if (preexistingPrompt) { promote(storePath, 3); version = 3 }
   return {
     version,
     activateRetention() {
-      if (version === 2) return
-      promote(storePath)
+      if (version >= 2) return
+      promote(storePath, 2)
       version = 2
+    },
+    activatePromptTrace() {
+      if (version === 3) return
+      promote(storePath, 3)
+      version = 3
     },
   }
 }

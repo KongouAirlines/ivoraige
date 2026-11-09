@@ -434,7 +434,23 @@ export class Tasks extends Service {
         const basis = this.records.getBasis(unitId, { targetLang: task.targetLang })
         const baseRevisionId = view.draft?.id ?? view.accepted?.id ?? null
         const expectedAcceptedRevisionId = view.accepted?.id ?? null
-        const reusable = this.records.findReusable(unitId, { targetLang: task.targetLang })
+        const model = this.ctx.get('ivoraige.translationModel')
+        if ((task.promptTemplateId || task.promptSelection) && !model?.preflight)
+          throw new KernelError('COMPONENT_MISSING', 'Selected translation model cannot resolve the prompt template')
+        let selection = task.promptSelection
+        const noConfiguredModel = !task.promptTemplateId && !task.promptSelection &&
+          model?.configuration?.() === null
+        if (model?.preflight && !noConfiguredModel) {
+          selection = await model.preflight({ basis, signal: controller.signal, docId: task.docId,
+            promptTemplateId: task.promptTemplateId, pinned: selection })
+          if (!task.promptSelection && selection?.promptTrace) {
+            task = await this.records.updateTask(taskId, current => ({ ...current, promptSelection: selection }))
+          }
+        }
+        if ((task.promptTemplateId || task.promptSelection) && !selection?.promptTrace)
+          throw new KernelError('COMPONENT_MISSING', 'Selected translation model did not resolve the prompt template')
+        const promptTrace = selection?.promptTrace
+        const reusable = this.records.findReusable(unitId, { targetLang: task.targetLang, promptTrace })
         let outcome
         if (reusable) {
           outcome = await this.records.commitTaskUnit(taskId, { unitId, expectedBasis: basis,
@@ -442,12 +458,12 @@ export class Tasks extends Service {
         } else {
           // Optional capabilities are resolved per unit so later plugin mounts
           // and replacements take effect without restarting the task service.
-          const model = this.ctx.get('ivoraige.translationModel')
           if (!model) throw new KernelError('COMPONENT_MISSING', 'Configure a translation model before translating')
-          await model.preflight?.({ basis, signal: controller.signal })
+          if (noConfiguredModel) await model.preflight({ basis, signal: controller.signal, docId: task.docId })
           await this.records.incrementTaskCall(taskId)
           if (this.tearingDown) return
-          const result = await model.translate({ basis, signal: controller.signal })
+          const result = await model.translate({ basis, signal: controller.signal, docId: task.docId,
+            promptTemplateId: task.promptTemplateId, pinned: selection?.prompt ? selection : undefined })
           if (live.cancel || controller.signal.aborted) break
           outcome = await this.records.commitTaskUnit(taskId, { unitId, expectedBasis: basis,
             baseRevisionId, expectedAcceptedRevisionId, result })

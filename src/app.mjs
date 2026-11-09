@@ -11,6 +11,7 @@ import { Exporter } from './export.mjs'
 import { TextOutputs } from './adapters/text-output.mjs'
 import { KernelError } from './errors.mjs'
 import { TranslationModel } from './translation-model.mjs'
+import { PromptLibrary } from './prompt-library.mjs'
 import { Tasks } from './tasks.mjs'
 import { Operations } from './operations.mjs'
 import { MarkdownSource } from './adapters/markdown-source.mjs'
@@ -101,12 +102,14 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
       await ctx.plugin(StorageSqlite, { path: storeLock.path })
       await ctx.plugin(StorageDomain, { backend: 'sqlite' })
       await ctx.plugin(Records, { storageVersion: retentionDomain.version,
-        activateRetention: retentionDomain.activateRetention })
+        activateRetention: retentionDomain.activateRetention,
+        activatePromptTrace: retentionDomain.activatePromptTrace })
       await ctx.get('ivoraige.records').ready
       await ctx.plugin(ResourceAccess, { maxArtifactBytes })
       await ctx.plugin(Importer)
       await ctx.plugin(TextOutputs)
       await ctx.plugin(Exporter, { root: exportDir ?? join(dirname(store), 'exports') })
+      await ctx.plugin(PromptLibrary)
       if (translation !== undefined) {
         await ctx.plugin(LocalCredentialProvider, {
           path: translation.credentialsPath ?? join(dirname(store), '.credentials.yaml'), watch: false,
@@ -115,10 +118,12 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
         await ctx.plugin(LlmPiAi, { providers: translation.providers })
         await ctx.plugin(TranslationModel, {
           provider: translation.provider, model: translation.model,
+          route: provider => translation.providers[provider],
           ...(translation.timeoutMs === undefined ? {} : { timeoutMs: translation.timeoutMs }),
         })
       } else if (settingsDir !== undefined) {
-        await ctx.plugin(TranslationModel, { select: () => ctx.get('ivoraige.modelSettings')?.resolve() })
+        await ctx.plugin(TranslationModel, { select: () => ctx.get('ivoraige.modelSettings')?.resolve(),
+          route: provider => ctx.settings.describe({ redactSecrets: true }).find(row => row.ns === 'llm-pi-ai')?.value?.providers?.[provider] })
       }
       await ctx.plugin(Tasks)
       await ctx.get('ivoraige.tasks').ready
@@ -146,6 +151,7 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
       mcp: ctx.get('ivoraige.mcp'),
       operations: ctx.get('ivoraige.operations'),
       settings: ctx.get('ivoraige.modelSettings'),
+      prompts: ctx.get('ivoraige.prompts'),
       components: ctx.get('ivoraige.components'),
       capabilities: ctx.get('ivoraige.capabilities'),
       operationCatalog: ctx.get('ivoraige.operationCatalog'),
