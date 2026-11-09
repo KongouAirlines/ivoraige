@@ -57,6 +57,12 @@ an LLM. Native exceptions may be swallowed by upstream; independent sidecar
 error tracking prevents a partially untranslated output being treated as a
 successful accepted replay.
 
+Source paragraphs must retain four finite bounding-box coordinates, including
+non-callback structure. A missing or null box is an explicit unsupported
+inventory error, not a passthrough classification. The configured native PDF
+pipeline assigns boxes before removing empty text; it does not accept arbitrary
+prebuilt IR. Null source text alone remains supported for non-callback structure.
+
 ONNX Runtime telemetry is explicitly disabled before the layout module is
 imported or any inference session is created. Python `connect` and `connect_ex`
 are restricted to loopback throughout engine import, setup and execution.
@@ -76,6 +82,11 @@ full translation, intact equations, complete reading order or unclipped text.
 `0.7.1+ivoraige.1`，不是原样官方 wheel。Rust 的安全解析限额保持启用；
 翻译前记录完整段落位置，回调按明确页/段落身份绑定同一冻结译文，不按
 原文相似度或回调顺序猜测。ONNX 原生遥测在创建 session 前禁用。
+
+包括未进入翻译回调的结构段落在内，来源必须保留四个有限数值的边界坐标。
+缺失或 null 的 box 明确报不支持的 inventory，不能据此推断为保留原文项、
+填零或猜测位置。当前 PDF 解析路径先赋坐标再剔除空白，不接受外部预制 IR；
+未调用段落的原文为 null 仍可按既有规则保留。
 
 旧 0.6.4 绑定不能交给新 renderer；旧文档、修订、快照及可读 MD/JSON
 不会被改写。需重新导入原件，再人工核对新分段并迁移接受译文，不能只

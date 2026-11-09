@@ -174,3 +174,73 @@ and subsequent edit, zero model calls, 24.57 s. This run is retained at
 `evaluation/runs/babeldoc-0.7.1/accepted-formula-isolated/`; the earlier paired
 mixed artifacts and measurements above remain evidence of the unchanged
 native bridge/sidecar implementation, not of this later wheel byte hash.
+
+## Bounding-box contract review
+
+A review asked whether the bridge's nullable `paragraph.box` could legitimately
+produce `bbox: null` for an uncalled paragraph, making the sidecar's strict
+validation reject a supported document. The optional IR type alone does not
+establish this. The configured sidecar accepts fresh PDFs, not externally
+constructed IL, with debug/OCR disabled. The pinned official source establishes
+the following production path:
+
+1. [The parser initializes a fresh page](https://github.com/funstory-ai/BabelDOC/blob/d922e2b0c5a353bde8731921eb442c07ae75849d/rust/parser_core/src/lib.rs#L894-L904)
+   with default empty paragraph storage; it emits PDF characters, not prebuilt
+   paragraphs.
+2. [Paragraph finding creates a paragraph and appends its first character](https://github.com/funstory-ai/BabelDOC/blob/d922e2b0c5a353bde8731921eb442c07ae75849d/rust/p2_stages/src/stages/paragraph_finder.rs#L652-L682).
+   Its first `update` runs on every paragraph before line/whitespace removal.
+   [That update computes and assigns its box](https://github.com/funstory-ai/BabelDOC/blob/d922e2b0c5a353bde8731921eb442c07ae75849d/rust/p2_stages/src/stages/paragraph_finder.rs#L89-L138)
+   from the retained characters. Later empty-composition returns leave the
+   previous box intact. [Split paragraphs also initialize a box](https://github.com/funstory-ai/BabelDOC/blob/d922e2b0c5a353bde8731921eb442c07ae75849d/rust/p2_stages/src/stages/paragraph_finder.rs#L762-L794)
+   before their own update.
+3. [The production order is paragraph finding, then styles](https://github.com/funstory-ai/BabelDOC/blob/d922e2b0c5a353bde8731921eb442c07ae75849d/rust/p2_bridge/src/m_transfer.rs#L726-L769),
+   then this bridge's observer. The pinned
+   [styles stage](https://github.com/funstory-ai/BabelDOC/blob/d922e2b0c5a353bde8731921eb442c07ae75849d/rust/p2_stages/src/stages/styles_and_formulas.rs)
+   changes compositions/styles and does not clear paragraph boxes.
+4. Conversely, [ordinary translation reads an optional box](https://github.com/funstory-ai/BabelDOC/blob/d922e2b0c5a353bde8731921eb442c07ae75849d/rust/p2_bridge/src/ordinary_translation.rs#L1216-L1230)
+   but [does not filter jobs on box presence](https://github.com/funstory-ai/BabelDOC/blob/d922e2b0c5a353bde8731921eb442c07ae75849d/rust/p2_bridge/src/ordinary_translation.rs#L1580-L1600).
+   Thus `bbox: null` cannot safely be classified as uncalled/passthrough.
+
+No supported production path yielding a boxless paragraph was established.
+Validation stays strict for every observed paragraph. The sidecar now gives a
+specific unsupported-inventory error with native indices for missing/null boxes;
+it neither drops the paragraph nor invents a zero box. Null source text with a
+valid box remains supported for non-callback structure. Native patch, package
+version, installed wheel, safety limits and source provenance are unchanged.
+
+Two added unit tests cover null/omitted boxes with null, empty and nonempty
+source text, atomic rejection after a preceding valid paragraph, retained
+textless structure with a real box, and partial/non-finite/malformed boxes.
+All 28 sidecar tests pass. Existing duplicate-text index binding, null-source
+retention and old-binding rejection tests remain passing. The targeted Node
+PDF/sidecar/diagnostics suites passed 35 tests with one Windows-only skip;
+Python compilation and `git diff --check` passed. The full npm suite and native
+build were not repeated for this diagnostic/test/documentation-only correction.
+
+Fresh runtime checks used the already installed derived wheel (SHA-256
+`983e4f0ffe4a55bf83b714c95723fe97e2712146022ee5b36e490ec1dfa56d2c`),
+temporary HOME, empty inherited environment except PATH/LANG/HOME, disabled
+ORT telemetry, and the Linux child seccomp network-deny helper:
+
+- A new original PDF containing ordinary text, space-only and empty drawing
+  calls, and a short numeric line produced four native paragraphs, three
+  callbacks and one retained numeric unit. All four raw observer boxes were
+  finite four-number arrays; no null source or box was observed. Input SHA-256:
+  `26a2cd14a76424be7a74fc6c2154be07c07c4503c226fe380d80e1add0ca15cc`.
+- The unchanged paired mixed PDF produced 23 native inventory entries, all
+  with finite boxes, and 26 final units after the three independent line-audit
+  additions. Thirteen entries entered callbacks; no null source/box appeared.
+- The unchanged original formula fixture again completed capture, acceptance,
+  PDF/MD/JSON export, restart, later edit and frozen replay in 30.58 s, with 14
+  units, 12 callbacks and zero model calls. All 14 retained records had finite
+  boxes. Four distinct accepted texts were each found exactly once in both
+  PDFs on the expected page and x position; replay positions and rendered
+  pixels matched, and the later edit was absent. MD/JSON replay bytes matched.
+
+These fixtures exercise the supported path; they do not prove correctness for
+arbitrary IL or all PDFs. The whitespace calls did not produce a textless
+native paragraph, so null-source retention remains a unit-test contract rather
+than a claim about this fixture. Existing mixed CJK and formula punctuation
+quality limits above are unchanged. Local probe scripts, raw observer report,
+and formula artifacts are retained under
+`evaluation/runs/babeldoc-0.7.1/bbox-contract-0.1.x/` (ignored).

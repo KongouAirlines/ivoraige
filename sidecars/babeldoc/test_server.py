@@ -52,6 +52,37 @@ class NativeBridgeTests(unittest.TestCase):
             with self.assertRaises(server.SidecarError):
                 inventory.load(json.dumps(records))
 
+    def test_inventory_requires_box_even_for_textless_or_uncalled_paragraphs(self):
+        for source in (None, "", "Repeated source"):
+            for missing in (False, True):
+                with self.subTest(source=source, missing=missing):
+                    inventory = server.SourceInventory()
+                    item = {"pageIndex": 0, "paragraphIndex": 3, "page": 7,
+                            "bbox": None, "sourceUnicode": source, "layoutLabel": "unknown"}
+                    if missing:
+                        del item["bbox"]
+                    valid = {**item, "paragraphIndex": 2, "bbox": [0, 0, 10, 10]}
+                    with self.assertRaisesRegex(server.SidecarError,
+                            r"no bounding box at indices \(0, 3\); unsupported source inventory"):
+                        inventory.load(json.dumps([valid, item]))
+                    self.assertEqual(inventory.positions, {})
+        # A textless retained layout paragraph still has its real box, not a
+        # fabricated zero box or an index-derived substitute location.
+        item.update(bbox=[10, 50, 100, 70], sourceUnicode=None)
+        position = server.SourceInventory().load(json.dumps([item]))[0]
+        self.assertEqual(position["bbox"], [10, 50, 100, 70])
+        self.assertIsNone(position["sourceUnicode"])
+
+    def test_inventory_rejects_partial_nonfinite_or_malformed_box(self):
+        for box in ([], [0, 0, 10], [0, 0, 10, 10, 10], {}, "0,0,10,10",
+                    [None, 0, 10, 10], [0, False, 10, 10], [0, 0, "10", 10],
+                    [0, 0, float("nan"), 10], [0, 0, float("inf"), 10]):
+            with self.subTest(box=box):
+                item = {"pageIndex": 0, "paragraphIndex": 0, "page": 0,
+                        "bbox": box, "sourceUnicode": None, "layoutLabel": None}
+                with self.assertRaisesRegex(server.SidecarError, "Invalid native source box"):
+                    server.SourceInventory().load(json.dumps([item]))
+
     def test_socket_connect_and_connect_ex_are_guarded_and_restored(self):
         import socket
         for method in ("connect", "connect_ex"):

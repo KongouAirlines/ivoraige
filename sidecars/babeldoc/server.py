@@ -459,6 +459,11 @@ class SourceInventory:
             require(indices not in positions, "Duplicate native paragraph indices")
             page, box, source = value.get("page"), value.get("bbox"), value.get("sourceUnicode")
             require(type(page) is int and page >= 0, "Invalid native source page")
+            # Fresh-PDF paragraph finding assigns a box before empty lines are
+            # removed; styles retain it. Nullable IR fields do not establish a
+            # supported boxless paragraph, nor prove it will avoid callbacks.
+            require(box is not None,
+                    f"Native paragraph has no bounding box at indices {indices}; unsupported source inventory")
             require(isinstance(box, list) and len(box) == 4 and all(
                 type(v) in (int, float) and math.isfinite(v) for v in box), "Invalid native source box")
             require(source is None or isinstance(source, str), "Invalid native source text")
