@@ -20,6 +20,9 @@ $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
 $sid = $identity.User
 $system = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-18')
 $administrators = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+# Windows volume roots may be owned by the built-in servicing principal. It is
+# trusted only on ancestors, never as owner or an ACE on a private leaf.
+$trustedInstaller = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464')
 
 function Assert-Ancestors($path) {
   $ancestor = [System.IO.Path]::GetDirectoryName($path)
@@ -30,11 +33,11 @@ function Assert-Ancestors($path) {
     if (([System.IO.File]::GetAttributes($ancestor) -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) { throw "reparse ancestor: $ancestor" }
     $acl = [System.IO.Directory]::GetAccessControl($ancestor)
     $owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
-    if ($owner -ne $sid.Value -and $owner -ne $system.Value -and $owner -ne $administrators.Value) { throw "untrusted ancestor owner: $ancestor ($owner)" }
+    if ($owner -ne $sid.Value -and $owner -ne $system.Value -and $owner -ne $administrators.Value -and $owner -ne $trustedInstaller.Value) { throw "untrusted ancestor owner: $ancestor ($owner)" }
     $mask = if ($immediate) { $writeMask } else { $replacementMask }
     foreach ($rule in $acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])) {
       $id = $rule.IdentityReference.Value
-      if ($id -eq $sid.Value -or $id -eq $system.Value -or $id -eq $administrators.Value -or $id -eq 'S-1-3-0' -or $id -eq 'S-1-3-4') { continue }
+      if ($id -eq $sid.Value -or $id -eq $system.Value -or $id -eq $administrators.Value -or $id -eq $trustedInstaller.Value -or $id -eq 'S-1-3-0' -or $id -eq 'S-1-3-4') { continue }
       if ($rule.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow -or
           ($rule.PropagationFlags -band [System.Security.AccessControl.PropagationFlags]::InheritOnly) -ne 0) { continue }
       $rights = [int64]$rule.FileSystemRights
@@ -149,10 +152,6 @@ while ($true) {
 }
 `
 
-let worker = null
-let nextId = 0
-let exitHookInstalled = false
-
 export function windowsPowerShellPath() {
   const systemRoot = process.env.SystemRoot || 'C:\\Windows'
   if (!windowsPath.isAbsolute(systemRoot)) throw new Error('Windows system root is not absolute')
@@ -167,84 +166,136 @@ function setReferenced(state, active) {
   state.child.stderr[action]()
 }
 
-function fault(state, error) {
-  if (state.closed) return
-  state.closed = true
-  if (worker === state) worker = null
-  for (const pending of state.pending.values()) {
-    clearTimeout(pending.timer)
-    pending.reject(error)
-  }
-  state.pending.clear()
-  state.child.kill()
-}
+function createWindowsAclClient(spawnProcess, installExitHook) {
+  let worker = null
+  let nextId = 0
+  let exitHookInstalled = false
 
-function startWorker() {
-  const child = spawn(windowsPowerShellPath(), ['-NoProfile', '-NonInteractive', '-Command', SCRIPT],
-    { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
-  const state = { child, pending: new Map(), buffer: '', stderr: '', closed: false }
-  worker = state
-  if (!exitHookInstalled) {
-    process.once('exit', () => worker?.child.kill())
-    exitHookInstalled = true
-  }
-  child.stdout.setEncoding('utf8')
-  child.stderr.setEncoding('utf8')
-  child.stdout.on('data', chunk => {
+  function retire(state, error, observedExit = false) {
     if (state.closed) return
-    state.buffer += chunk
-    for (;;) {
-      const end = state.buffer.indexOf('\n')
-      if (end < 0) break
-      if (Buffer.byteLength(state.buffer.slice(0, end), 'utf8') > MAX_FRAME) {
-        fault(state, new Error('Windows ACL worker frame too large')); return
-      }
-      const line = state.buffer.slice(0, end).trim()
-      state.buffer = state.buffer.slice(end + 1)
-      let reply
-      try { reply = JSON.parse(line) }
-      catch { fault(state, new Error('Windows ACL worker returned invalid JSON')); return }
-      const pending = state.pending.get(reply.id)
-      if (!pending || typeof reply.ok !== 'boolean' || typeof reply.code !== 'string' ||
-          reply.ok && reply.code !== 'ok' && !(pending.op === 'createFile' && reply.code === 'EEXIST')) {
-        fault(state, new Error('Windows ACL worker returned an unexpected response')); return
-      }
-      state.pending.delete(reply.id)
+    state.closed = true
+    for (const pending of state.pending.values()) {
       clearTimeout(pending.timer)
-      if (reply.ok) pending.resolve(reply.code)
-      else pending.reject(Object.assign(new Error(reply.message || 'Windows ACL operation failed'), { code: reply.code }))
-      if (state.pending.size === 0 && !state.closed) setReferenced(state, false)
+      pending.reject(error)
     }
-    if (Buffer.byteLength(state.buffer, 'utf8') > MAX_FRAME)
-      fault(state, new Error('Windows ACL worker frame too large'))
-  })
-  child.stderr.on('data', chunk => { state.stderr = (state.stderr + chunk).slice(-4096) })
-  child.on('error', error => fault(state, error))
-  child.on('exit', (code, signal) => fault(state,
-    new Error(`Windows ACL worker exited (${code ?? signal ?? 'unknown'}): ${state.stderr}`)))
-  child.stdin.on('error', error => fault(state, error))
-  setReferenced(state, false)
-  return state
+    state.pending.clear()
+    // A failed or delayed kill does not prove the helper stopped. Keep this
+    // state and its pipes referenced until exit. Otherwise the owning Node
+    // process could exit and another process could race the old helper's writes.
+    if (!observedExit && state.child.pid != null) {
+      setReferenced(state, true)
+      try { state.child.kill() }
+      catch { /* The old process remains unproven dead; keep retirement pending. */ }
+    }
+  }
+
+  function observedExit(state, error) {
+    retire(state, error, true)
+    setReferenced(state, false)
+    if (worker === state) worker = null
+    state.resolveExit()
+  }
+
+  function startWorker() {
+    const child = spawnProcess(windowsPowerShellPath(), ['-NoProfile', '-NonInteractive', '-Command', SCRIPT],
+      { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+    let resolveExit
+    const exited = new Promise(resolve => { resolveExit = resolve })
+    const state = { child, pending: new Map(), buffer: '', stderr: '', closed: false, exited, resolveExit }
+    worker = state
+    if (installExitHook && !exitHookInstalled) {
+      process.once('exit', () => worker?.child.kill())
+      exitHookInstalled = true
+    }
+    child.stdout.setEncoding('utf8')
+    child.stderr.setEncoding('utf8')
+    child.stdout.on('data', chunk => {
+      if (state.closed) return
+      state.buffer += chunk
+      for (;;) {
+        const end = state.buffer.indexOf('\n')
+        if (end < 0) break
+        if (Buffer.byteLength(state.buffer.slice(0, end), 'utf8') > MAX_FRAME) {
+          retire(state, new Error('Windows ACL worker frame too large')); return
+        }
+        const line = state.buffer.slice(0, end).trim()
+        state.buffer = state.buffer.slice(end + 1)
+        let reply
+        try { reply = JSON.parse(line) }
+        catch { retire(state, new Error('Windows ACL worker returned invalid JSON')); return }
+        const pending = state.pending.get(reply.id)
+        if (!pending || typeof reply.ok !== 'boolean' || typeof reply.code !== 'string' ||
+            reply.ok && reply.code !== 'ok' && !(pending.op === 'createFile' && reply.code === 'EEXIST')) {
+          retire(state, new Error('Windows ACL worker returned an unexpected response')); return
+        }
+        state.pending.delete(reply.id)
+        clearTimeout(pending.timer)
+        if (reply.ok) pending.resolve(reply.code)
+        else pending.reject(Object.assign(new Error(reply.message || 'Windows ACL operation failed'), { code: reply.code }))
+        if (state.pending.size === 0 && !state.closed) setReferenced(state, false)
+      }
+      if (Buffer.byteLength(state.buffer, 'utf8') > MAX_FRAME)
+        retire(state, new Error('Windows ACL worker frame too large'))
+    })
+    child.stderr.on('data', chunk => { state.stderr = (state.stderr + chunk).slice(-4096) })
+    child.on('error', error => {
+      retire(state, error)
+      // A spawn failure has no process to wait for and may not emit exit.
+      if (child.pid == null) observedExit(state, error)
+    })
+    child.on('exit', (code, signal) => observedExit(state,
+      new Error(`Windows ACL worker exited (${code ?? signal ?? 'unknown'}): ${state.stderr}`)))
+    child.stdin.on('error', error => retire(state, error))
+    setReferenced(state, false)
+    return state
+  }
+
+  function close() {
+    if (!worker) return Promise.resolve()
+    const state = worker
+    retire(state, new Error('Windows ACL worker closed'))
+    return state.exited
+  }
+
+  function afterRetirement(callback) {
+    // Callers holding a cross-process lock must not release it while a timed
+    // out or faulted helper may still complete a filesystem mutation.
+    if (!worker?.closed) { callback(); return null }
+    return worker.exited.then(callback)
+  }
+
+  function operation(op, path, target) {
+    if (!['assertDirectory', 'createDirectory', 'assertFile', 'createFile', 'moveReplace'].includes(op))
+      return Promise.reject(new Error('Invalid Windows filesystem operation'))
+    const request = JSON.stringify({ id: ++nextId, op, path, ...(target === undefined ? {} : { target }) })
+    if (Buffer.byteLength(request, 'utf8') > MAX_FRAME)
+      return Promise.reject(new Error('Windows ACL worker request too large'))
+    if (worker?.closed) return Promise.reject(new Error('Windows ACL worker exit is pending'))
+    let state
+    try { state = worker ?? startWorker() }
+    catch (error) { return Promise.reject(error) }
+    if (state.pending.size >= MAX_PENDING) return Promise.reject(new Error('Windows ACL worker is overloaded'))
+    return new Promise((resolve, reject) => {
+      const id = nextId
+      const timer = setTimeout(() => retire(state, new Error('Windows ACL worker timed out')), OP_TIMEOUT_MS)
+      state.pending.set(id, { resolve, reject, timer, op })
+      setReferenced(state, true)
+      try { state.child.stdin.write(`${request}\n`) }
+      catch (error) { retire(state, error) }
+    })
+  }
+
+  return { operation, close, afterRetirement }
 }
 
-export function closeWindowsAclWorker() {
-  if (worker) fault(worker, new Error('Windows ACL worker closed'))
-}
+const defaultClient = createWindowsAclClient(spawn, true)
 
-export function windowsFsOperation(op, path, target) {
-  if (!['assertDirectory', 'createDirectory', 'assertFile', 'createFile', 'moveReplace'].includes(op))
-    return Promise.reject(new Error('Invalid Windows filesystem operation'))
-  const request = JSON.stringify({ id: ++nextId, op, path, ...(target === undefined ? {} : { target }) })
-  if (Buffer.byteLength(request, 'utf8') > MAX_FRAME)
-    return Promise.reject(new Error('Windows ACL worker request too large'))
-  const state = worker ?? startWorker()
-  if (state.pending.size >= MAX_PENDING) return Promise.reject(new Error('Windows ACL worker is overloaded'))
-  return new Promise((resolve, reject) => {
-    const id = nextId
-    const timer = setTimeout(() => fault(state, new Error('Windows ACL worker timed out')), OP_TIMEOUT_MS)
-    state.pending.set(id, { resolve, reject, timer, op })
-    setReferenced(state, true)
-    try { state.child.stdin.write(`${request}\n`) }
-    catch (error) { fault(state, error) }
-  })
+export const windowsFsOperation = defaultClient.operation
+export const closeWindowsAclWorker = defaultClient.close
+export const afterWindowsAclWorkerRetirement = defaultClient.afterRetirement
+
+// The injected process is confined to a separate client, never the production
+// singleton. Tests can model a kill that fails or exits late without Windows.
+export function createWindowsAclClientForTesting(spawnProcess) {
+  return createWindowsAclClient(spawnProcess, false)
 }
