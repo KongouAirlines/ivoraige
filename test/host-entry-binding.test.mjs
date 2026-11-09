@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, rm, symlink } from 'node:fs/promises'
+import { mkdtemp, mkdir, realpath, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { hostConfigBinding } from '../src/host-bootstrap.mjs'
@@ -11,6 +11,7 @@ test('new settings and component paths bind to a canonical parent before creatio
   t.after(() => rm(root, { recursive: true, force: true }))
   const actual = join(root, 'actual'), alias = join(root, 'alias')
   await mkdir(actual)
+  const canonicalActual = await realpath(actual)
   try { await symlink(actual, alias, process.platform === 'win32' ? 'junction' : 'dir') }
   catch (error) {
     if (['EPERM', 'EACCES'].includes(error.code)) { t.skip('Directory symlinks are blocked'); return }
@@ -21,8 +22,8 @@ test('new settings and component paths bind to a canonical parent before creatio
   const options = { store: join(actual, 'store.sqlite'), registryRoot: join(root, 'registry'),
     settingsDir, components: { directory: componentDir } }
   const before = await hostConfigBinding(options)
-  assert.equal(before.settingsDir, join(actual, 'new', 'settings'))
-  assert.equal(before.componentDir, join(actual, 'new', 'components'))
+  assert.equal(before.settingsDir, join(canonicalActual, 'new', 'settings'))
+  assert.equal(before.componentDir, join(canonicalActual, 'new', 'components'))
   await mkdir(settingsDir, { recursive: true })
   await mkdir(componentDir, { recursive: true })
   const after = await hostConfigBinding(options)

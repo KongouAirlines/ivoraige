@@ -57,6 +57,15 @@ Linux / Node 24.22.1 compatibility runtime:
 - Native socket-dependent tests skip only after an actual local bind denial and
   never skip that denial in CI. These skipped tests are not claimed as passing.
 
+Native Linux / Node 26.13.0, published head `e0eae6f`:
+
+- Complete `npm test`: 611 tests, 606 passed, 5 platform skips, zero failures.
+- Actual `ivoraige-0.1.0.tgz` package smoke passed with 92 files, including
+  installed owner IPC pairing, authenticated API/MCP, saved settings, complete
+  backup/reinstall and unchanged frozen snapshot/original exports.
+- [Native CI evidence](https://github.com/KongouAirlines/ivoraige/actions/runs/42557174845/job/128965406382).
+  This result does not establish other platforms or later heads.
+
 ## Remaining acceptance gates
 
 The Windows named-pipe implementation uses a capability stored in a verified
