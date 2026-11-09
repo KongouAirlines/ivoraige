@@ -7,9 +7,10 @@ import { fileURLToPath } from 'node:url'
 import { Service } from '../dist/dsh.mjs'
 import { createApp } from '../src/app.mjs'
 import { serve } from '../src/http.mjs'
-import { placeholderTokens } from '../src/adapters/pdf-text.mjs'
+import { placeholderTokens, renderPdfMarkdown } from '../src/adapters/pdf-text.mjs'
 import { marked } from 'marked'
 import { JSDOM } from 'jsdom'
+import { pdfEmailCases } from './fixtures/pdf-email-cases.mjs'
 
 const engine = fileURLToPath(new URL('./fixtures/pdf-engine.mjs', import.meta.url))
 const originalBytes = '%PDF-FAKE-ORIGINAL\nA test source, not a real PDF.\n'
@@ -153,10 +154,166 @@ test('PDF Markdown bare URLs retain visible text and navigation target', async t
     null,
     null,
     'https://example.com/a-b',
+    'https://example.com/a-b',
+    'https://example.com/a-b_c?x=1&y=2',
+    'https://example.com/a-b',
+    'mailto:help@example.com',
+    "mailto:o'connor@example.com",
+    "mailto:o'connor@example.com",
+    'https://[2001:db8::1]/a',
+    'https://[::1]:8080/a-b?x=1&y=2',
+    'ftp://[2001:db8::1]/a_b',
+    'https://[2001:db8::1]/a%5Bb%5D',
+    null,
+    'http://www.example.com/a-b',
+    'http://www.example.com/a-b_c?x=1&y=2',
+    'http://www.example.com/a-b',
+    'http://WWW.example.com/a-b_c',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    "mailto:o'connor@example.com",
+    "mailto:'o'connor@example.com",
+    "mailto:'help@example.com",
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    "mailto:o'connor@example.com",
+    "mailto:o'connor@example.com",
+    "mailto:'o'connor@example.com",
+    "mailto:'help@example.com",
+    "mailto:'help@example.com",
+    "mailto:'help@example.com",
   ])
+  assert.ok([...body.querySelectorAll('a')].every(link => URL.canParse(link.getAttribute('href'))))
   assert.equal(body.querySelector('pre,code'), null)
   assert.ok(result.task.artifacts.every(item => item.snapshotId === result.snapshotId))
   assert.equal(result.task.stats.llmCalls, 0)
+})
+
+test('PDF Markdown respects explicit URL boundaries and leaves invalid link candidates as text', async t => {
+  const f = await fixture(t, 'markdown-link-boundaries')
+  const doc = await imported(f)
+  const result = await exported(f.app, doc.id,
+    { contentMode: 'source', outputs: [{ format: 'md' }, { format: 'json' }] })
+  const md = await readFile(result.artifacts.md.path, 'utf8')
+  const body = new JSDOM(marked.parse(md)).window.document.body
+  const json = JSON.parse(await readFile(result.artifacts.json.path, 'utf8'))
+  const paragraphs = [...body.querySelectorAll('p')]
+  assert.deepEqual(paragraphs.map(node => node.textContent), json.units.map(unit => unit.text))
+  assert.deepEqual(paragraphs.map(node => [...node.querySelectorAll('a')]
+    .map(link => link.getAttribute('href'))), [
+    ['https://example.com/a!'],
+    ['https://example.com/a?'],
+    ['https://example.com/a;'],
+    ['https://example.com/a.'],
+    ['https://example.com/a:'],
+    ['https://example.com/a,'],
+    ['https://example.com/a)'],
+    ['https://example.com/a%5D'],
+    ['https://example.com/a?q=why?'],
+    ['ftp://example.com/a;'],
+    ['http://www.example.com/a!'],
+    ['https://example.com/a'],
+    ['https://example.com/a'],
+    ['https://example.com/a'],
+    ['https://example.com/a'],
+    ['https://example.com/a'],
+    [], [], [], [], [], [], [],
+    [], [], [], [],
+    ['mailto:user_name@example.com'],
+    ['mailto:user@example.com'],
+    ['mailto:other@example.com'],
+    ['http://www.example.com.'],
+    ['http://www.example.com./a'],
+    [],
+  ])
+  assert.ok(result.task.artifacts.every(item => item.snapshotId === result.snapshotId))
+  assert.equal(result.task.stats.llmCalls, 0)
+})
+
+test('PDF Markdown validates complete email candidates without changing recipients', async t => {
+  const f = await fixture(t, 'markdown-email')
+  const doc = await imported(f)
+  const options = { contentMode: 'source', outputs: [{ format: 'md' }, { format: 'json' }] }
+  const result = await exported(f.app, doc.id, options)
+  const md = await readFile(result.artifacts.md.path, 'utf8')
+  const json = JSON.parse(await readFile(result.artifacts.json.path, 'utf8'))
+  const body = new JSDOM(marked.parse(md)).window.document.body
+  const paragraphs = [...body.querySelectorAll('p')]
+  assert.deepEqual(json.units.map(unit => unit.text), pdfEmailCases.map(([source]) => source))
+  assert.equal(paragraphs.length, pdfEmailCases.length)
+  for (const [index, [source, hrefs]] of pdfEmailCases.entries()) {
+    assert.equal(paragraphs[index].textContent, source, `visible source ${index}`)
+    assert.deepEqual([...paragraphs[index].querySelectorAll('a')].map(a => a.getAttribute('href')),
+      hrefs, `destinations ${index}: ${source}`)
+  }
+  assert.equal(body.querySelector('script,img,iframe,object,form'), null)
+  for (const link of body.querySelectorAll('a')) {
+    const url = new URL(link.getAttribute('href'))
+    assert.ok(['http:', 'https:', 'ftp:', 'mailto:'].includes(url.protocol))
+    if (url.protocol === 'mailto:') {
+      assert.equal(url.search, '')
+      assert.equal(url.hash, '')
+    }
+  }
+  assert.ok(result.task.artifacts.every(item => item.snapshotId === result.snapshotId))
+  assert.equal(result.task.stats.llmCalls, 0)
+  await f.restart()
+  const replay = await exported(f.app, doc.id, { ...options, snapshotId: result.snapshotId })
+  for (const format of ['md', 'json']) {
+    assert.deepEqual(await readFile(replay.artifacts[format].path), await readFile(result.artifacts[format].path))
+  }
+  assert.equal(replay.task.stats.llmCalls, 0)
+})
+
+test('PDF Markdown preserves numeric-dot literals in body and heading units', () => {
+  const cases = [
+    ['mAP 0.95@0.5 on COCO', []],
+    ['CPU 2.4@3.0GHz', []],
+    ['3.2@scale results', []],
+    ['10.1000/abc@def', []],
+    ['1. item', []],
+    ['  12. item', []],
+    ['Line one\n1. item', []],
+    ['1.user@example.com', ['mailto:1.user@example.com']],
+  ]
+  for (const kind of ['body', 'heading']) {
+    for (const [text, hrefs] of cases) {
+      const md = renderPdfMarkdown({ sourceBinding: { adapterId: 'babeldoc', records: [{}] },
+        snapshot: { id: 'numeric-literal', revisionSetHash: 'numeric-literal' },
+        document: { title: 'Numeric literal' }, units: [{ unit: { order: 0, kind }, text }] })
+      const body = new JSDOM(marked.parse(md)).window.document.body
+      const content = body.querySelector(kind === 'heading' ? 'h2' : 'p')
+      // Captured headings flatten line breaks; body prose keeps them.
+      assert.equal(content.textContent, kind === 'heading' ? text.replace(/\n/g, ' ') : text,
+        `${kind}: ${text}`)
+      assert.deepEqual([...content.querySelectorAll('a')].map(a => a.getAttribute('href')), hrefs)
+      assert.equal(body.querySelector('ol, ul'), null)
+    }
+  }
+})
+
+test('PDF email candidates containing NUL remain unlinked after HTML normalization', () => {
+  const text = 'user@example.com\u0000'
+  const md = renderPdfMarkdown({ sourceBinding: { adapterId: 'babeldoc', records: [{}] },
+    snapshot: { id: 'original-control-probe', revisionSetHash: 'original-control-probe' },
+    document: { title: 'Control probe' }, units: [{ unit: { order: 0, kind: 'body' }, text }] })
+  assert.ok(md.includes('\u0000'))
+  // HTML parsing discards NUL. Do not mistake textContent normalization for
+  // exact source preservation or allow it to create a shorter email link.
+  const body = new JSDOM(marked.parse(md)).window.document.body
+  assert.equal(body.querySelector('a'), null)
 })
 
 test('PDF coverage summary persists in Cordis records and frozen JSON after restart', async t => {
