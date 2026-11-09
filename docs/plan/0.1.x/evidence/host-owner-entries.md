@@ -40,7 +40,7 @@ switch and forced-off override do not claim a persisted EntryControl policy.
 
 Linux / Node 24.22.1 compatibility runtime:
 
-- Complete `npm test`, including build: 608 tests, 595 passed, 13 conditional
+- Complete `npm test`, including build: 611 tests, 597 passed, 14 conditional
   skips, zero failed/cancelled. Independent test workers use private temporary
   registries and subprocesses inherit their worker's selection.
 - Lifecycle/disposal regressions cover dependent-consumer ordering, retained

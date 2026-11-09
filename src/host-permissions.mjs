@@ -11,7 +11,7 @@ const denied = (cause) => new KernelError('PRECONDITION_FAILED',
 
 function quotePowerShell(value) { return `'${value.replaceAll("'", "''")}'` }
 
-async function windowsAcl(path, { initialize = false, directory = false } = {}) {
+async function windowsAcl(path, { createFile = false, createDirectory = false, directory = false } = {}) {
   // Node's mode bits do not express Windows DACLs. Use .NET Framework's
   // filesystem ACL API directly: Get-Acl/Set-Acl depend on a PowerShell
   // module that may not load when the runner's PSModulePath points at pwsh.
@@ -19,29 +19,47 @@ async function windowsAcl(path, { initialize = false, directory = false } = {}) 
   const script = `
 $ErrorActionPreference = 'Stop'
 $path = ${quotePowerShell(path)}
-$sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+$identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+$sid = $identity.User
 $system = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+$administrators = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
 if (${directory ? '$true' : '$false'}) {
   $parentPath = [System.IO.Path]::GetDirectoryName($path)
   $parentAcl = [System.IO.Directory]::GetAccessControl($parentPath)
   $parentOwner = $parentAcl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
-  if ($parentOwner -ne $sid.Value -and $parentOwner -ne $system.Value -and $parentOwner -ne 'S-1-5-32-544') { throw 'untrusted parent owner' }
+  if ($parentOwner -ne $sid.Value -and $parentOwner -ne $system.Value -and $parentOwner -ne $administrators.Value) { throw 'untrusted parent owner' }
   $writeMask = [System.Security.AccessControl.FileSystemRights]::WriteData -bor [System.Security.AccessControl.FileSystemRights]::AppendData -bor [System.Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor [System.Security.AccessControl.FileSystemRights]::Delete -bor [System.Security.AccessControl.FileSystemRights]::ChangePermissions -bor [System.Security.AccessControl.FileSystemRights]::TakeOwnership
   foreach ($rule in $parentAcl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])) {
     $id = $rule.IdentityReference.Value
-    if ($id -ne $sid.Value -and $id -ne $system.Value -and $id -ne 'S-1-5-32-544' -and $id -ne 'S-1-3-0' -and $id -ne 'S-1-3-4' -and $rule.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow -and (($rule.FileSystemRights -band $writeMask) -ne 0)) { throw 'writable parent' }
+    if ($id -ne $sid.Value -and $id -ne $system.Value -and $id -ne $administrators.Value -and $id -ne 'S-1-3-0' -and $id -ne 'S-1-3-4' -and $rule.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow -and (($rule.FileSystemRights -band $writeMask) -ne 0)) { throw 'writable parent' }
   }
 }
-if (${initialize ? '$true' : '$false'}) {
-  $acl = if (${directory ? '$true' : '$false'}) { [System.IO.Directory]::GetAccessControl($path) } else { [System.IO.File]::GetAccessControl($path) }
-  $initialOwner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
-  if ($initialOwner -ne $sid.Value) { throw 'wrong owner' }
-  $acl.SetAccessRuleProtection($true, $false)
-  foreach ($rule in @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))) { [void]$acl.RemoveAccessRuleAll($rule) }
-  $inherit = if (${directory ? '$true' : '$false'}) { [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit } else { [System.Security.AccessControl.InheritanceFlags]::None }
-  $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($sid, [System.Security.AccessControl.FileSystemRights]::FullControl, $inherit, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)
-  [void]$acl.AddAccessRule($rule)
-  if (${directory ? '$true' : '$false'}) { [System.IO.Directory]::SetAccessControl($path, $acl) } else { [System.IO.File]::SetAccessControl($path, $acl) }
+if (${createDirectory ? '$true' : '$false'}) {
+  # CreateDirectory returns an existing directory without changing its ACL.
+  # A concurrent caller therefore never observes an inherited ACL on a new
+  # directory, and a preexisting untrusted directory is only verified below.
+  $privateAcl = [System.Security.AccessControl.DirectorySecurity]::new()
+  $privateAcl.SetOwner($sid)
+  $privateAcl.SetAccessRuleProtection($true, $false)
+  $inherit = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
+  $ownerRule = [System.Security.AccessControl.FileSystemAccessRule]::new($sid, [System.Security.AccessControl.FileSystemRights]::FullControl, $inherit, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)
+  [void]$privateAcl.AddAccessRule($ownerRule)
+  [void][System.IO.Directory]::CreateDirectory($path, $privateAcl)
+}
+if (${createFile ? '$true' : '$false'}) {
+  $privateAcl = [System.Security.AccessControl.FileSecurity]::new()
+  $privateAcl.SetOwner($sid)
+  $privateAcl.SetAccessRuleProtection($true, $false)
+  $ownerRule = [System.Security.AccessControl.FileSystemAccessRule]::new($sid, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.Security.AccessControl.AccessControlType]::Allow)
+  [void]$privateAcl.AddAccessRule($ownerRule)
+  try {
+    # CreateNew is exclusive and applies the DACL before the name is visible.
+    $stream = [System.IO.FileStream]::new($path, [System.IO.FileMode]::CreateNew, [System.Security.AccessControl.FileSystemRights]::FullControl, [System.IO.FileShare]::None, 4096, [System.IO.FileOptions]::None, $privateAcl)
+    $stream.Dispose()
+  } catch {
+    if ([System.IO.File]::Exists($path)) { [Console]::Error.WriteLine('IVORAIGE_FILE_EXISTS'); exit 17 }
+    throw
+  }
 }
 $acl = if (${directory ? '$true' : '$false'}) { [System.IO.Directory]::GetAccessControl($path) } else { [System.IO.File]::GetAccessControl($path) }
 if (-not $acl.AreAccessRulesProtected) { throw 'inherited ACL' }
@@ -58,7 +76,12 @@ if (-not $mine) { throw 'owner has no access' }
 `
   try { await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script],
     { windowsHide: true, timeout: 10_000, maxBuffer: 16_384 }) }
-  catch (error) { throw denied(error) }
+  catch (error) {
+    if (createFile && error.code === 17 && error.stderr?.includes('IVORAIGE_FILE_EXISTS')) {
+      throw Object.assign(new Error('Private file already exists'), { code: 'EEXIST' })
+    }
+    throw denied(error)
+  }
 }
 
 async function unixAncestors(path, allowRootSymlink) {
@@ -102,6 +125,14 @@ export async function assertPrivateDirectory(path) {
 
 export async function ensurePrivateDirectory(path) {
   path = resolve(path)
+  if (process.platform === 'win32') {
+    try { await lstat(path) }
+    catch (error) {
+      if (error.code !== 'ENOENT') throw error
+      await windowsAcl(path, { createDirectory: true, directory: true })
+    }
+    return assertPrivateDirectory(path)
+  }
   let created = false
   try { await lstat(path) }
   catch (error) {
@@ -111,10 +142,7 @@ export async function ensurePrivateDirectory(path) {
     // A concurrent creator winning mkdir is not permission evidence; the
     // common assertion below still verifies its owner, type and access.
   }
-  if (created) {
-    if (process.platform === 'win32') await windowsAcl(path, { initialize: true, directory: true })
-    else await chmod(path, 0o700)
-  }
+  if (created) await chmod(path, 0o700)
   return assertPrivateDirectory(path)
 }
 
@@ -131,13 +159,13 @@ export async function assertPrivateFile(path) {
 export async function createPrivateFile(path, contents) {
   path = resolve(path)
   await assertPrivateDirectory(dirname(path))
-  const file = await open(path, 'wx', 0o600)
+  if (process.platform === 'win32') await windowsAcl(path, { createFile: true })
+  const file = await open(path, process.platform === 'win32' ? 'r+' : 'wx', 0o600)
   try {
     await file.writeFile(contents)
     await file.sync()
   } finally { await file.close() }
-  if (process.platform === 'win32') await windowsAcl(path, { initialize: true })
-  else await chmod(path, 0o600)
+  if (process.platform !== 'win32') await chmod(path, 0o600)
   await assertPrivateFile(path)
   return path
 }

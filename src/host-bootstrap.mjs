@@ -1,7 +1,7 @@
 import './runtime.mjs'
 import { randomUUID, createHash } from 'node:crypto'
-import { realpath, stat } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { lstat, realpath, stat } from 'node:fs/promises'
+import { basename, dirname, join, resolve } from 'node:path'
 import { KernelError } from './errors.mjs'
 import { z } from 'zod'
 import { createHostDomain, findHostDomain, hostRegistryDirectory } from './host-domain.mjs'
@@ -17,12 +17,25 @@ const fail = (code, reason) => new KernelError(code, reason, { reason })
 
 async function canonicalDirectory(path) {
   if (path === undefined) return null
+  const absolute = resolve(path)
   try {
-    const canonical = await realpath(resolve(path))
+    const canonical = await realpath(absolute)
     if (!(await stat(canonical)).isDirectory()) throw new KernelError('INVALID_ARGUMENT', 'Expected a directory path')
     return canonical
   }
-  catch (error) { if (error.code === 'ENOENT') return resolve(path); throw error }
+  catch (error) {
+    if (error.code !== 'ENOENT') throw error
+    // A missing leaf must still bind to the real parent. macOS commonly
+    // resolves /var to /private/var after a settings directory is created;
+    // comparing the unresolved spelling before creation would reject the
+    // same composition on the next start. Do not treat dangling links as
+    // missing leaves, since their future target could change the binding.
+    try { await lstat(absolute); throw new KernelError('INVALID_ARGUMENT', 'Directory path is a dangling link') }
+    catch (cause) { if (cause.code !== 'ENOENT') throw cause }
+    const parent = dirname(absolute)
+    if (parent === absolute) throw error
+    return join(await canonicalDirectory(parent), basename(absolute))
+  }
 }
 
 function fingerprint(value) {
@@ -114,7 +127,7 @@ export async function createOwnedApp(options, { compose, lifetime, attach }) {
   try { domain = await createHostDomain({ store, ownerConfigBinding: persistentBinding, registryRoot },
     { prepareStore: inspectRetentionDomain }) }
   catch (error) {
-    if (!attach || error.code !== 'CONFLICT') throw error
+    if (!attach || error.code !== 'CONFLICT' || error.details?.reason) throw error
     // A racing creator may hold the store before it publishes discovery.
     // Never create a second context while waiting for its authenticated IPC.
     const deadline = performance.now() + 5000

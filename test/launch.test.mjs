@@ -33,8 +33,9 @@ test('a second launch reuses the resident owner and rejects a different composit
   })
 })
 
-test('component repository environment is overridable by explicit composition', async t => {
+test('component repository overrides are explicit but cannot rebind an existing domain', async t => {
   const dataDir = await mkdtemp(join(tmpdir(), 'ivoraige-repository-'))
+  const otherDataDir = await mkdtemp(join(tmpdir(), 'ivoraige-repository-explicit-'))
   const previous = process.env.IVORAIGE_COMPONENTS_REPOSITORY
   let running
   t.after(async () => {
@@ -42,13 +43,16 @@ test('component repository environment is overridable by explicit composition', 
     if (previous === undefined) delete process.env.IVORAIGE_COMPONENTS_REPOSITORY
     else process.env.IVORAIGE_COMPONENTS_REPOSITORY = previous
     await rm(dataDir, { recursive: true, force: true })
+    await rm(otherDataDir, { recursive: true, force: true })
   })
   process.env.IVORAIGE_COMPONENTS_REPOSITORY = 'example/components'
   running = await launchInTest(t, { dataDir, open: false })
   if (!running) return
   assert.equal((await running.app.operations.invoke('componentStatus')).repository, 'example/components')
   await running.close()
-  running = await launch({ dataDir, open: false, components: { repository: 'explicit/components' } })
+  await assert.rejects(launch({ dataDir, open: false, components: { repository: 'explicit/components' } }),
+    error => error.code === 'CONFLICT' && error.details?.reason === 'owner-config-mismatch')
+  running = await launch({ dataDir: otherDataDir, open: false, components: { repository: 'explicit/components' } })
   assert.equal((await running.app.operations.invoke('componentStatus')).repository, 'explicit/components')
 })
 
