@@ -3,6 +3,7 @@
 
 """Fast preflight tests; no BabelDOC import, model, or asset download."""
 
+import importlib.util
 import json
 import subprocess
 import sys
@@ -94,6 +95,45 @@ class LayoutFitTests(unittest.TestCase):
                                  "--reuse-pyinstaller-build"], capture_output=True, text=True)
         self.assertEqual(result.returncode, 2)
         self.assertIn("build a fresh matching sidecar", result.stderr)
+
+    def test_plans_are_object_scoped_consumed_once_and_not_shared_between_calls(self):
+        Engine, first = self.engine()
+        _, second = self.engine()
+        engine = Engine()
+        with fitted_layout_scope(Engine):
+            scale = engine._get_optimal_scale(first, None, [])
+            # Equal geometry alone does not authorize a plan for another object/owner.
+            self.assertFalse(engine.retypeset_with_precomputed_scale(second, None, [], scale))
+            self.assertFalse(Engine().retypeset_with_precomputed_scale(first, None, [], scale))
+            self.assertTrue(engine.retypeset_with_precomputed_scale(first, None, [], scale))
+            first.box.y = 0
+            self.assertFalse(engine.retypeset_with_precomputed_scale(first, None, [], scale))
+            engine._get_optimal_scale(first, None, [])
+        with fitted_layout_scope(Engine):
+            self.assertFalse(engine.retypeset_with_precomputed_scale(first, None, [], scale))
+
+    def test_optional_layout_runtime_gate_checks_all_version_axes(self):
+        from test_layout_engine import require_layout_runtime
+        require_layout_runtime("0.6.4", "1.26.7", (3, 13, 5))
+        for versions in (("0.7.1", "1.26.7", (3, 13)),
+                         ("0.6.4", "1.26.8", (3, 13)),
+                         ("0.6.4", "1.26.7", (3, 12))):
+            with self.subTest(versions=versions), self.assertRaisesRegex(RuntimeError, "requires"):
+                require_layout_runtime(*versions)
+
+    def test_component_stages_the_exact_layout_policy_source(self):
+        root = Path(__file__).resolve().parents[2]
+        spec = importlib.util.spec_from_file_location("component_builder", root / "scripts/build-pdf-component.py")
+        build = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(build)
+        with tempfile.TemporaryDirectory() as directory:
+            stage = Path(directory)
+            source = root / "sidecars/babeldoc"
+            build.stage_sidecar_sources(source, stage)
+            self.assertEqual({item.name for item in stage.iterdir()},
+                             {"server.py", "layout_fit.py", "requirements.lock", "LICENSE", "COPYING"})
+            for item in stage.iterdir():
+                self.assertEqual(item.read_bytes(), (source / item.name).read_bytes())
 
 
 class BindingTests(unittest.TestCase):
