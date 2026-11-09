@@ -90,3 +90,15 @@ python3 -c 'import hashlib,pathlib; p=pathlib.Path("../ivoraige-babeldoc-0.7.1/e
 ```
 
 审查修正后本地 8 项测试通过，包括空输入、metadata/父目录链接、资源链接、tar alias/链接及候选分类；既有三系统 kernel-smoke workflow 已加入该夹具命令。此处只报告本地通过及 CI 配置接入，未声称远端 CI 已通过。历史实物清单保持原样，未重扫 runtime 或新 P05 包。
+
+### 跨平台路径边界复核
+
+第二轮 delta 审查按实际合同处理，不扩大为许可结论：
+
+- **实测问题：** `--assets demo=` 原来会把空路径解释为 cwd；缺少 `=` 会产生 traceback。现在 argparse 对所有输入先检查非空 `LABEL=PATH`，失败返回 2，不执行扫描或创建输出。标签、路径只为空白也拒绝。
+- **可移植路径问题：** RECORD 与 tar 成员统一拒绝 Windows rooted-without-drive、drive-relative（`C:file`）、drive-absolute（`C:/file`）、UNC、反斜杠及上级路径。Windows 语义由 `PureWindowsPath` 检查，即使在 Linux 审计也不遗漏。tar 仍不解压，这里防止跨平台证据歧义，不表示已发生文件写入。
+- **条件性 Windows 风险：** junction 和其他 reparse point 不一定是 symlink。现在对输入祖先、metadata、RECORD 中间路径和资源项使用不跟随最终入口的 `lstat`，检查 `FILE_ATTRIBUTE_REPARSE_POINT`；资源遍历在递归前明确移除此类目录。权限等其他 I/O 错误不吞掉。Linux 本地通过属性模拟及遍历剪枝夹具，尚未运行真实 Windows junction 验证，不能将模拟测试称为 Windows 实包通过。
+- **实测遗漏：** `.cache/.locks` 的目录链接原来先被排除。现在先识别并记录为 uninspected-link，再排除正常缓存目录；链接不下钻。
+- **保留约定：** 输入路径的任意祖先是链接/reparse point 都拒绝，包括 macOS 常见 `/tmp` alias。这是严格显式根策略，不自动 resolve 到另一个位置，也不为便利放宽权限。调用者须明确选择已授权的真实目录路径；夹具仅对自己创建的临时目录取得真实位置。并发替换与完整系统闭包仍不在保证内。
+
+本轮本地 13/13 清单夹具及 4/4 既有归档夹具通过；没有运行大清单、读取新 P05 包或修改历史 inventory JSON，没有 Windows/macOS 实机运行结论。已有三系统 CI 配置将运行新夹具，远端结果另验。

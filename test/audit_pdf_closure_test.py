@@ -6,6 +6,9 @@ import sys
 import tarfile
 import tempfile
 import unittest
+from unittest import mock
+from types import SimpleNamespace
+import stat
 
 spec = importlib.util.spec_from_file_location('audit', pathlib.Path(__file__).parents[1] / 'scripts/audit-pdf-closure.py')
 audit = importlib.util.module_from_spec(spec)
@@ -126,6 +129,77 @@ class ClosureTest(unittest.TestCase):
             result = audit.archive(path)
             self.assertEqual(result['pdfBoundaryCandidates'], names)
             self.assertEqual(result['redistribution'], 'not-cleared')
+
+    def test_label_path_validation_before_audit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            output = pathlib.Path(temp).resolve() / 'out.json'
+            for value in ['demo=', '=fixture', 'demo', 'demo=   ', ' =fixture']:
+                with self.subTest(value=value):
+                    result = subprocess.run([sys.executable, str(spec.origin), '--assets', value,
+                                             '--output', str(output)], capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 2)
+                    self.assertIn('nonempty LABEL=PATH', result.stderr)
+                    self.assertNotIn('Traceback', result.stderr)
+                    self.assertFalse(output.exists())
+
+    def test_portable_record_and_tar_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp).resolve()
+            archive = root / 'fixture.tar'
+            for value in [r'\rooted', '/rooted', 'C:/file', 'C:file',
+                          r'\\host\share\file', r'..\outside', r'\?\C:\file']:
+                with self.subTest(path=value):
+                    self.assertTrue(audit.linked_or_outside(root, value))
+                    with tarfile.open(archive, 'w') as t:
+                        t.addfile(tarfile.TarInfo(value))
+                    with self.assertRaisesRegex(ValueError, 'Unsafe'):
+                        audit.archive(archive)
+            self.assertFalse(audit.linked_or_outside(root, 'package/data.bin'))
+
+    def test_windows_reparse_attribute_guard(self):
+        # Portable contract fixture, not a claim of execution on Windows.
+        path = mock.Mock()
+        path.lstat.return_value = SimpleNamespace(st_mode=stat.S_IFDIR,
+            st_file_attributes=stat.FILE_ATTRIBUTE_REPARSE_POINT)
+        self.assertTrue(audit.is_link_or_reparse(path))
+        path.lstat.assert_called_once_with()
+        path.lstat.return_value = SimpleNamespace(st_mode=stat.S_IFDIR, st_file_attributes=0)
+        self.assertFalse(audit.is_link_or_reparse(path))
+
+    def test_reparse_walk_prunes_before_descending(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp).resolve()
+            junction = root / 'junction-fixture'
+            junction.mkdir()
+            (junction / 'must-not-list').write_text('fixture')
+            real_guard = audit.is_link_or_reparse
+            with mock.patch.object(audit, 'is_link_or_reparse',
+                    side_effect=lambda p: p == junction or real_guard(p)):
+                rows = audit.assets(root)
+                self.assertEqual([r['path'] for r in rows], ['junction-fixture'])
+                self.assertEqual(rows[0]['kind'], 'uninspected-link')
+                with self.assertRaisesRegex(ValueError, 'Linked input path'):
+                    audit.safe_root(junction / 'must-not-list')
+
+    def test_cache_directory_links_reported(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp).resolve() / 'assets'
+            root.mkdir()
+            outside = root.parent / 'fixture-outside'
+            outside.mkdir()
+            try:
+                for name in ['.cache', '.locks']:
+                    (root / name).symlink_to(outside, target_is_directory=True)
+            except OSError as exc:
+                self.skipTest('Symlinks unavailable: ' + str(exc))
+            rows = audit.assets(root)
+            self.assertEqual([r['path'] for r in rows], ['.cache', '.locks'])
+            self.assertTrue(all(r['kind'] == 'uninspected-link' for r in rows))
+            for name in ['.cache', '.locks']:
+                (root / name).unlink()
+                (root / name).mkdir()
+                (root / name / 'excluded').write_text('fixture')
+            self.assertEqual(audit.assets(root), [])
 
 
 if __name__ == '__main__':

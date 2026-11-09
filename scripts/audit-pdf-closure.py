@@ -6,31 +6,56 @@ import email
 import json
 import os
 import re
+import stat
 import tarfile
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 NOTICE = re.compile(r'(licen[cs]e|copying|copyright|notice)', re.I)
 NATIVE = re.compile(r'(\.so(?:\.|$)|\.(dll|dylib|pyd|exe)$)', re.I)
 ASSET = re.compile(r'\.(onnx|pt|safetensors|ttf|otf|ttc|woff2?)$', re.I)
 
 
+def is_link_or_reparse(path):
+    # lstat does not follow the final entry. Windows junctions and other reparse
+    # points are rejected even when is_symlink() is false. Other I/O errors fail.
+    try:
+        entry = path.lstat()
+    except FileNotFoundError:
+        return False
+    return stat.S_ISLNK(entry.st_mode) or bool(
+        getattr(entry, 'st_file_attributes', 0) & stat.FILE_ATTRIBUTE_REPARSE_POINT)
+
+
+def portable_relative(path):
+    posix, windows = PurePosixPath(path), PureWindowsPath(path)
+    return bool(path) and not (posix.is_absolute() or windows.anchor
+        or '..' in posix.parts or '..' in windows.parts or '\\' in path)
+
+
+def labeled_path(value):
+    label, separator, path = value.partition('=')
+    if not separator or not label.strip() or not path.strip():
+        raise argparse.ArgumentTypeError('Expected nonempty LABEL=PATH')
+    return label, path
+
+
 def safe_root(path):
     root = Path(os.path.abspath(path))
     # Reject links before resolving or reading any descendant, including root ancestors.
     for part in reversed([root, *root.parents]):
-        if part.is_symlink():
+        if is_link_or_reparse(part):
             raise ValueError('Linked input path: ' + str(part))
     return root
 
 
 def linked_or_outside(root, rel):
     p = Path(rel)
-    if p.is_absolute() or '..' in p.parts:
+    if not portable_relative(rel):
         return True
     current = root
     for part in p.parts:
         current = current / part
-        if current.is_symlink():
+        if is_link_or_reparse(current):
             return True
     return False
 
@@ -86,7 +111,7 @@ def archive(path):
     with tarfile.open(safe_root(path), 'r:*') as tar:
         for m in tar:
             p = PurePosixPath(m.name)
-            if p.is_absolute() or '..' in p.parts or str(p) in seen or '\\' in m.name:
+            if not portable_relative(m.name) or str(p) in seen:
                 raise ValueError('Unsafe or duplicate archive member: ' + m.name)
             if m.issym() or m.islnk():
                 raise ValueError('Archive link requires separate review: ' + m.name)
@@ -106,26 +131,30 @@ def assets(root):
         raise ValueError('Missing asset directory: ' + str(root))
     rows = []
     for directory, dirs, files in os.walk(root, followlinks=False):
-        dirs[:] = sorted(d for d in dirs if d not in {'.cache', '.locks'})
+        descend = []
         for name in sorted(dirs + files):
             p = Path(directory) / name
             rel = str(p.relative_to(root))
-            if p.is_symlink():
+            if is_link_or_reparse(p):
                 rows.append({'path': rel, 'linked': True, 'bytes': None,
                              'kind': 'uninspected-link', 'license': 'not-verified',
                              'redistribution': 'not-cleared'})
+            elif name in dirs:
+                if name not in {'.cache', '.locks'}:
+                    descend.append(name)
             elif p.is_file():
                 rows.append({'path': rel, 'bytes': p.stat().st_size,
                              'kind': kind(p.name), 'license': 'not-verified',
                              'redistribution': 'not-cleared'})
+        dirs[:] = descend
     return sorted(rows, key=lambda row: row['path'])
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--site-packages', action='append', default=[], metavar='LABEL=PATH')
-    parser.add_argument('--assets', action='append', default=[], metavar='LABEL=PATH')
-    parser.add_argument('--tar', action='append', default=[], metavar='LABEL=PATH')
+    parser.add_argument('--site-packages', action='append', type=labeled_path, default=[], metavar='LABEL=PATH')
+    parser.add_argument('--assets', action='append', type=labeled_path, default=[], metavar='LABEL=PATH')
+    parser.add_argument('--tar', action='append', type=labeled_path, default=[], metavar='LABEL=PATH')
     parser.add_argument('--output', required=True)
     args = parser.parse_args()
     if not (args.site_packages or args.assets or args.tar):
@@ -135,8 +164,7 @@ def main():
            'Metadata license labels and upstream homepages do not establish corresponding source or redistribution clearance.']}
     for key, values, fn in [('installed', args.site_packages, installed), ('assets', args.assets, assets), ('archives', args.tar, archive)]:
         out[key] = {}
-        for value in values:
-            label, path = value.split('=', 1)
+        for label, path in values:
             if label in out[key]:
                 raise ValueError('Duplicate label: ' + label)
             out[key][label] = fn(path)
