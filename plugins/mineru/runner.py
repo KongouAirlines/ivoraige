@@ -17,10 +17,11 @@ HANDSHAKEN = False
 
 
 class SidecarError(Exception):
-    def __init__(self, code: int, message: str):
+    def __init__(self, code: int, message: str, data: dict | None = None):
         super().__init__(message)
         self.code = code
         self.message = message
+        self.data = data
 
 
 def offline(*_args, **_kwargs):
@@ -34,15 +35,19 @@ def configure(params):
     try:
         installed = version("mineru")
     except PackageNotFoundError as exc:
-        raise SidecarError(-32002, "MinerU 4.0.10 is not installed") from exc
+        raise SidecarError(-32002, "MinerU 4.0.10 is not installed",
+                           {"component": "mineru", "reason": "missing"}) from exc
     if installed != PIN:
-        raise SidecarError(-32002, "MinerU 4.0.10 is required")
+        raise SidecarError(-32002, "MinerU 4.0.10 is required",
+                           {"component": "mineru", "reason": "incompatible"})
     try:
         docvortex_version = version("docvortex")
     except PackageNotFoundError as exc:
-        raise SidecarError(-32002, "DocVortex 0.6.21 is not installed") from exc
+        raise SidecarError(-32002, "DocVortex 0.6.21 is not installed",
+                           {"component": "docvortex", "reason": "missing"}) from exc
     if docvortex_version != DOCVORTEX_PIN:
-        raise SidecarError(-32002, "DocVortex 0.6.21 is required")
+        raise SidecarError(-32002, "DocVortex 0.6.21 is required",
+                           {"component": "docvortex", "reason": "incompatible"})
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
     socket.socket.connect = offline
@@ -118,10 +123,13 @@ def main():
         except Exception as exc:
             diagnostic = traceback.format_exc()[-4096:]
             sys.stderr.write(diagnostic)
+            error = {"code": exc.code if isinstance(exc, SidecarError) else -32001,
+                     "message": exc.message if isinstance(exc, SidecarError) else "MinerU parse failed",
+                     "diagnostic": diagnostic}
+            if isinstance(exc, SidecarError) and exc.data is not None:
+                error["data"] = exc.data
             send({"jsonrpc": "2.0", "id": request.get("id") if isinstance(request, dict) else None,
-                  "error": {"code": exc.code if isinstance(exc, SidecarError) else -32001,
-                            "message": exc.message if isinstance(exc, SidecarError) else "MinerU parse failed",
-                            "diagnostic": diagnostic}})
+                  "error": error})
 
 
 if __name__ == "__main__":

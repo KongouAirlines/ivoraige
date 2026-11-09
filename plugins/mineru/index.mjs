@@ -53,6 +53,26 @@ function unitKind(type) {
   return 'other'
 }
 
+function containsText(value) {
+  if (typeof value === 'string') return !!value.trim()
+  if (Array.isArray(value)) return value.some(containsText)
+  return value && typeof value === 'object' && (containsText(value.content) || containsText(value.text))
+}
+
+function unavailableMessage(error) {
+  if (error.code !== 'COMPONENT_MISSING' || error.details?.sidecarCode !== -32002) return null
+  const { component, reason } = error.details.sidecarData ?? {}
+  if (component === 'mineru') {
+    if (reason === 'missing') return 'MinerU 4.0.10 is not installed'
+    if (reason === 'incompatible') return 'MinerU 4.0.10 is required'
+  }
+  if (component === 'docvortex') {
+    if (reason === 'missing') return 'DocVortex 0.6.21 is not installed'
+    if (reason === 'incompatible') return 'DocVortex 0.6.21 is required'
+  }
+  return null
+}
+
 // The middle JSON and assets remain opaque to the host. Structured content is
 // only a source projection; it is not a replacement for the saved MiddleJson.
 export function projectStructured(middle, structured, bundle, files, { projectionVersion = 2 } = {}) {
@@ -90,10 +110,18 @@ export function projectStructured(middle, structured, bundle, files, { projectio
         const entries = rendered[field] ?? []
         if (!Array.isArray(entries) || (entries.length && !Array.isArray(block.content)))
           fail('UPSTREAM_FAILURE', 'MinerU annotation structure is invalid')
-        const children = (Array.isArray(block.content) ? block.content : [])
+        const rawChildren = Array.isArray(block.content) ? block.content : []
+        // DocVortex 0.6.21 admits only the matching visual parent's typed
+        // annotation. Refuse unknown text-bearing annotations, never drop them.
+        const supportedType = ['image', 'table', 'chart', 'code'].includes(block.type)
+          ? `${block.type}_${part}` : null
+        if (rawChildren.some(child => typeof child?.type === 'string' &&
+            (child.type === part || child.type.endsWith(`_${part}`)) &&
+            child.type !== supportedType && containsText(child)))
+          fail('UPSTREAM_FAILURE', 'MinerU returned an unsupported text annotation')
+        const children = rawChildren
           .map((child, childOrder) => ({ child, childOrder }))
-          .filter(({ child }) => ['image', 'table', 'chart', 'code']
-            .some(visual => child?.type === `${visual}_${part}`))
+          .filter(({ child }) => child?.type === supportedType)
           // DocVortex structured_content sorts annotations by source index,
           // with absent indexes last and physical position as the tie-breaker.
           .sort((left, right) => {
@@ -250,7 +278,11 @@ export function MinerUSource(ctx, config = {}) {
       catch (error) {
         if (!['EEXIST', 'ENOTEMPTY', 'EACCES', 'EPERM'].includes(error.code) ||
             !(await lstat(bundlePath).then(stat => stat.isDirectory(), () => false))) throw error
-        await verifyMineruBundle({ ...result.sourceBinding, files }, { directory: root, storePath })
+        try { await verifyMineruBundle({ ...result.sourceBinding, files }, { directory: root, storePath }) }
+        catch (verificationError) {
+          throw new KernelError('PRECONDITION_FAILED', 'MinerU existing bundle cannot be reused', {},
+            { cause: new AggregateError([error, verificationError], 'MinerU bundle reuse verification failed') })
+        }
       }
       status.state = 'ready'; status.message = 'MinerU parse completed'
       try {
@@ -269,11 +301,15 @@ export function MinerUSource(ctx, config = {}) {
       retainTemporary = error.details?.terminationFailed === true
       const absent = error.code === 'COMPONENT_MISSING'
       status.state = absent ? 'unavailable' : 'unchecked'
-      status.message = absent ? 'MinerU 4.0.10 or its local assets are unavailable' :
-        'Last MinerU import failed; retry or inspect local diagnostics'
-      if (error instanceof KernelError) throw error
+      const publicMessage = absent ? unavailableMessage(error) ?? 'MinerU runtime or local assets are unavailable' :
+        'MinerU import failed'
+      status.message = absent ? publicMessage : 'Last MinerU import failed; retry or inspect local diagnostics'
+      if (error instanceof KernelError) {
+        if (file.signal?.aborted) error.details = { ...error.details, canceled: true }
+        throw error
+      }
       const publicError = new KernelError(absent ? 'COMPONENT_MISSING' : 'UPSTREAM_FAILURE',
-        absent ? 'MinerU 4.0.10 or its local assets are unavailable' : 'MinerU import failed',
+        publicMessage,
         { ...(error.details?.canceled || error.name === 'AbortError' || file.signal?.aborted ? { canceled: true } : {}),
           ...(error.details?.terminationFailed ? { terminationFailed: true } : {}) }, { cause: error })
       throw publicError

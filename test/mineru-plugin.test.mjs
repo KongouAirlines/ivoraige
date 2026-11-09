@@ -203,6 +203,26 @@ test('a second store cannot claim the first store\'s saved bundle', async t => {
   assert.equal(await verifyMineruBundle(bindings[1], { directory: root, storePath: join(dir, 'second.sqlite') }), true)
 })
 
+test('failed existing-bundle reuse preserves rename and verification causes', async t => {
+  const dir = await fixture(t)
+  const runner = await fakeRunner(dir)
+  const store = join(dir, 'db.sqlite')
+  const app = await createFixtureApp(t, { store })
+  await app.ctx.plugin(MinerUSource, { directory: join(dir, 'mineru-data'), command: process.execPath, runner })
+  const first = await app.operations.invoke('importDocument', { format: 'pdf', adapterId: 'mineru',
+    contentBase64: pdf.toString('base64'), language: 'en', sourceId: 'reuse' })
+  const imported = await app.tasks.wait(first.taskId)
+  assert.equal(imported.state, 'succeeded')
+  const binding = app.records.record(imported.result.document.id).sourceBinding
+  await rm(join(binding.bundlePath, 'images', 'page_0_image_1.png'))
+  const adapter = app.parse.adapters.get('mineru')
+  await assert.rejects(adapter.import({ content: pdf }, () => { throw new Error('unexpected persist') }, () => true),
+    error => error.code === 'PRECONDITION_FAILED' &&
+      ['EEXIST', 'ENOTEMPTY', 'EACCES', 'EPERM'].includes(error.cause?.errors?.[0]?.code) &&
+      error.cause?.errors?.[1]?.code === 'PRECONDITION_FAILED')
+  assert.deepEqual(await readdir(join(dir, 'mineru-data', 'work')), [])
+})
+
 test('case-distinct store files never share a MinerU bundle on a case-sensitive directory', async t => {
   const dir = await fixture(t)
   const stores = [join(dir, 'A.sqlite'), join(dir, 'a.sqlite')]
@@ -344,6 +364,15 @@ test('MinerU annotation projection follows upstream index order and retains rend
   structured.pages[0].blocks[0].captions.push({ content: '' })
   assert.deepEqual(projectStructured(middle, structured, '/bundle', []).units.map(unit => unit.sourceText),
     ['A\\*B', 'Table body'])
+  for (const type of ['caption', 'other_caption', 'image_caption']) {
+    middle.pages[0].blocks[0].content.push({ type, content: [{ type: 'text', content: 'Unmapped' }] })
+    assert.throws(() => projectStructured(middle, structured, '/bundle', []),
+      { code: 'UPSTREAM_FAILURE' })
+    middle.pages[0].blocks[0].content.pop()
+  }
+  middle.pages[0].blocks[0].content.push({ type: 'other_caption', content: [] })
+  assert.deepEqual(projectStructured(middle, structured, '/bundle', []).units.map(unit => unit.sourceText),
+    ['A\\*B', 'Table body'])
 })
 
 test('MinerU preserves cancellation after a sidecar has returned saved data', async t => {
@@ -374,6 +403,52 @@ test('MinerU preserves cancellation after a sidecar has returned saved data', as
     error.code === 'UPSTREAM_FAILURE' && error.details.canceled === true && error.cause?.name === 'AbortError')
   assert.equal(persisted, false)
   assert.deepEqual(await readdir(join(dir, 'mineru-data', 'work')), [])
+})
+
+test('MinerU keeps cancellation on a local typed error after sidecar response', async t => {
+  const dir = await fixture(t)
+  const controller = new AbortController()
+  let adapter
+  const ctx = { get: key => ({
+    'ivoraige.storePath': join(dir, 'db.sqlite'),
+    'ivoraige.sidecarFactory': { create: () => ({ close: async () => {}, request: async () => {
+      controller.abort()
+      return { doc: { engineVersion: 'unexpected', schema: 'docvortex.middle', schemaVersion: '2.0' } }
+    } }) },
+    'ivoraige.parse': { register: value => { adapter = value } },
+  })[key], effect: callback => callback() }
+  MinerUSource(ctx, { directory: join(dir, 'mineru-data') })
+  await assert.rejects(adapter.import({ content: pdf, signal: controller.signal },
+    () => { throw new Error('unexpected persist') }, () => false), error =>
+    error.code === 'UPSTREAM_FAILURE' && error.details.canceled === true &&
+    error.message === 'MinerU response version is incompatible')
+  assert.deepEqual(await readdir(join(dir, 'mineru-data', 'work')), [])
+})
+
+test('MinerU reports only fixed component-version diagnostics', async t => {
+  const dir = await fixture(t)
+  for (const [component, reason, expected] of [
+    ['docvortex', 'missing', 'DocVortex 0.6.21 is not installed'],
+    ['docvortex', 'incompatible', 'DocVortex 0.6.21 is required'],
+    ['unknown', 'missing', 'MinerU runtime or local assets are unavailable'],
+  ]) {
+    let adapter
+    const ctx = { get: key => ({
+      'ivoraige.storePath': join(dir, 'db.sqlite'),
+      'ivoraige.sidecarFactory': { create: () => ({ close: async () => {}, request: async () => {
+        throw Object.assign(new Error('SENTINEL_PRIVATE_PATH'), { code: 'COMPONENT_MISSING',
+          details: { sidecarCode: -32002, sidecarData: { component, reason } } })
+      } }) },
+      'ivoraige.parse': { register: value => { adapter = value } },
+    })[key], effect: callback => callback() }
+    MinerUSource(ctx, { directory: join(dir, `mineru-${component}-${reason}`) })
+    await assert.rejects(adapter.import({ content: pdf },
+      () => { throw new Error('unexpected persist') }, () => false), error =>
+      error.code === 'COMPONENT_MISSING' && error.message === expected &&
+      error.cause?.message === 'SENTINEL_PRIVATE_PATH' &&
+      !JSON.stringify(error.details).includes('SENTINEL_PRIVATE_PATH'))
+    assert.equal(adapter.status().message, expected)
+  }
 })
 
 test('fixture closes an open SQLite owner before removing its directory', async t => {
@@ -417,15 +492,22 @@ test('Python runner rejects DocVortex drift before any parse side effect', t => 
     { jsonrpc: '2.0', id: 3, method: 'shutdown', params: {} },
   ].map(value => JSON.stringify(value)).join('\n') + '\n'
   const script = `import importlib.metadata as metadata, runpy, sys\n` +
-    `metadata.version = lambda name: {'mineru':'4.0.10','docvortex':sys.argv[2]}[name]\n` +
+    `def selected(name):\n` +
+    `    if name == 'docvortex' and sys.argv[2] == 'missing': raise metadata.PackageNotFoundError(name)\n` +
+    `    return {'mineru':'4.0.10','docvortex':sys.argv[2]}[name]\n` +
+    `metadata.version = selected\n` +
     `runpy.run_path(sys.argv[1], run_name='__main__')\n`
-  for (const [version, expected] of [['0.6.21', true], ['0.6.22', false]]) {
+  for (const [version, expected] of [['0.6.21', true], ['0.6.22', false], ['missing', false]]) {
     const result = spawnSync(python, ['-c', script, runner, version], { input, encoding: 'utf8' })
     assert.equal(result.status, 0)
     const messages = result.stdout.trim().split('\n').map(JSON.parse)
     assert.equal(messages.length, 3)
     assert.equal(messages[1].error === undefined, expected)
-    if (!expected) assert.equal(messages[1].error.code, -32002)
+    if (!expected) {
+      assert.equal(messages[1].error.code, -32002)
+      assert.deepEqual(messages[1].error.data, { component: 'docvortex',
+        reason: version === 'missing' ? 'missing' : 'incompatible' })
+    }
   }
 })
 

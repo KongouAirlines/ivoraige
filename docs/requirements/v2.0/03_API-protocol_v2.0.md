@@ -341,6 +341,8 @@ resources：`ivoraige://docs/{docId}`、`ivoraige://docs/{docId}/units/{unitId}?
 
 MinerU 纯解析插件沿用协议版本 1 的 `handshake → configure → parse → shutdown` 与同一进程/取消边界。`handshake.capabilities` 声明 `parse:["pdf"]`、空 `rebuild`；`configure` 核对本地 MinerU 4.0.10 与决定保存结构的 DocVortex 0.6.21，设置 Hugging Face/Transformers 离线开关并在 Python 层拦截常用 socket 入口，不自动安装或下载权重；这些措施不保证阻断所有网络路径，也不是操作系统级网络沙箱。其 `parse` 使用 `options:{outputDir,tier,ocrMode}`，`outputDir` 是宿主为单次导入创建的临时目录。响应中的 `doc:{engineVersion,schema,schemaVersion}` 是**该插件的私有已保存结果引用确认**，不是 BabelDOC 的 `ParsedDoc`，也不能直接作为通用 IR；Node 来源插件核对版本后读取 `outputDir` 的完整 `middle_json.json`、`structured_content.json`、`markdown.md`、原件与 `images/`，检查块身份，再投影通用 units 和资源清单。成功持久化后，插件将其转入按 store 隔离的受管目录；失败/取消只在 sidecar 子进程确认退出后清理本次临时目录。资源完整性与受管路径在来源插件边界校验。这个私有响应不扩大其他 sidecar 的结果契约，也不提供 MinerU PDF renderer。
 
+MinerU runner 对已知运行时版本错误以 `-32002` 返回私有 `error.data:{component:"mineru"|"docvortex",reason:"missing"|"incompatible"}`。宿主只将这组枚举映射为固定公开消息；其他诊断与原始路径仅保留在本地错误原因中。这个数据字段不改变其他 sidecar 的错误契约。
+
 当前 BabelDOC `rebuild` 响应的 `evidence.warnings: string[]` 经输出适配器传给内核，随成功写入的 `Artifact.warnings` 和 `Task.warnings` 原子持久化；`task.succeeded` 事件也携带提示。CLI 的任务 JSON、HTTP 任务／产物查询及 WebUI 任务／产物提示均可读取，重启后保留。提示不使任务失败，不改写快照。内核输出适配器兼容原有字符串／Buffer 返回值，也接受 `{ content: string | Buffer, warnings?: string[] }`，没有提示的文本输出无需变更。
 
 BabelDOC `rebuild` 的冻结单位中，进入翻译回调的单位接受 `revision` 或 `skip` 决策；`skip` 的 `text` 必须等于绑定的原始请求文本，回放保留原文而不补译。未进入回调的单位仍要求 `keepOriginal`。这些决策继续参与来源与占位符完整性检查。
