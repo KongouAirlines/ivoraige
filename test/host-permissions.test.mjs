@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm, symlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -58,4 +58,30 @@ $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($everyone, [Sy
 `
   await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script])
   await assert.rejects(assertPrivateFile(file), { code: 'PRECONDITION_FAILED' })
+})
+
+test('preexisting Windows administrator-owned directory is never normalized', { skip: process.platform !== 'win32' }, async t => {
+  const root = await mkdtemp(join(tmpdir(), 'ivoraige-host-permissions-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const directory = join(root, 'preexisting')
+  await mkdir(directory)
+  const literal = `'${directory.replaceAll("'", "''")}'`
+  const setup = `
+$ErrorActionPreference = 'Stop'
+$identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = [System.Security.Principal.WindowsPrincipal]::new($identity)
+if (-not $principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)) { Write-Output 'not-elevated'; exit }
+$admin = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-32-544')
+$acl = [System.IO.Directory]::GetAccessControl(${literal})
+$acl.SetOwner($admin)
+[System.IO.Directory]::SetAccessControl(${literal}, $acl)
+Write-Output 'elevated'
+`
+  const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', setup])
+  if (stdout.trim() === 'not-elevated') { t.skip('Current token is not elevated'); return }
+  assert.equal(stdout.trim(), 'elevated')
+  await assert.rejects(ensurePrivateDirectory(directory), { code: 'PRECONDITION_FAILED' })
+  const { stdout: owner } = await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
+    `$acl = [System.IO.Directory]::GetAccessControl(${literal}); $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value`])
+  assert.equal(owner.trim(), 'S-1-5-32-544')
 })
