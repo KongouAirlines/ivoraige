@@ -45,6 +45,21 @@ const result = await build({
       )
       return { contents, loader: 'ts', resolveDir: dirname(args.path) }
     })
+    builder.onLoad({ filter: /[\\/]app-boot[\\/]src[\\/]plugin-compatibility\.ts$/ }, async args => {
+      // A bundled import.meta.url points at ivoraige/dist, not AppBoot's own
+      // source package. Embed the pinned upstream version for DSH's native
+      // peer-dependency gate, never ivoraige's host package version.
+      const pkg = JSON.parse(await readFile(resolve(dirname(args.path), '../package.json'), 'utf8'))
+      if (pkg.name !== '@deepseek-ai/dsh-app-boot' || pkg.version !== '0.2.0-rc.2')
+        throw new Error('Pinned DSH AppBoot package identity changed')
+      const source = await readFile(args.path, 'utf8')
+      const pattern = /export function getDshRuntimeVersion\(\): string \{[\s\S]*?\n\}/g
+      if ([...source.matchAll(pattern)].length !== 1)
+        throw new Error('Pinned DSH AppBoot version reader changed')
+      const contents = source.replace(pattern,
+        `export function getDshRuntimeVersion(): string { return runtimeVersionOf(${JSON.stringify(pkg.version)}) }`)
+      return { contents, loader: 'ts', resolveDir: dirname(args.path) }
+    })
     builder.onResolve({ filter: /^@deepseek-ai\// }, async args => {
       const name = args.path.split('/').slice(0, 2).join('/')
       const main = aliases.get(name)

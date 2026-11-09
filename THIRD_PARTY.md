@@ -21,6 +21,19 @@ metadata and license files accompany the component; asset provenance and
 full notices are in `sidecars/babeldoc/asset-licenses/`. These artifacts remain
 separate from the base application and are installed only when PDF is selected.
 
+The optional `plugins/mineru/` package contains only ivoraige's MIT-licensed
+JavaScript/Python protocol bridge. It does **not** bundle MinerU, DocVortex,
+Python wheels, model weights, fonts, native libraries or downloaded assets.
+The bridge requires the local MinerU **4.0.10** SDK and disables network access
+while parsing. [MinerU's 4.0.10 license](https://github.com/opendatalab/MinerU/blob/mineru-4.0.10-released/LICENSE.md)
+is Apache 2.0 with additional commercial-threshold and online-service
+attribution terms, published as `LicenseRef-MinerU-Open-Source-License` in its
+[package metadata](https://github.com/opendatalab/MinerU/blob/mineru-4.0.10-released/pyproject.toml).
+This is not BabelDOC's license. The actual MinerU Python/native/model/font
+closure and a separately distributable installed package have not been audited
+or accepted for release. The optional DSH peer in the source package is a
+compatibility declaration, not a second bundled DSH runtime.
+
 All GitHub Releases and their assets were withdrawn on 2026-10-19; no release
 packages are currently available for download. The historical audit of the
 `v0.1.0-dev.0` Windows/PDF release found gaps in

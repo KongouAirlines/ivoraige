@@ -31,6 +31,7 @@ import { ResourceAccess } from './resource-access.mjs'
 import { CliEntry } from './cli-entry.mjs'
 import { HttpEntry } from './http.mjs'
 import { McpEntry } from './mcp-entry.mjs'
+import { SidecarFactory } from './sidecar-factory.mjs'
 
 // Composition only: business capabilities live in Cordis services.
 export async function createApp({ store, exportDir, translation, settingsDir, pdf, components, mcp = true,
@@ -77,13 +78,15 @@ export async function createApp({ store, exportDir, translation, settingsDir, pd
   try {
     const retentionDomain = storeLock ? inspectRetentionDomain(storeLock.path) : undefined
     ctx = settingsDir === undefined ? new Context() :
-      (await bootModelSettings({ directory: settingsDir })).ctx
+      (await bootModelSettings({ directory: settingsDir, storePath: storeLock?.path })).ctx
+    if (settingsDir === undefined && storeLock) ctx.provide('ivoraige.storePath', storeLock.path)
     await ctx.plugin(CapabilityCatalog)
     await ctx.plugin(OperationCatalog)
     if (events) await ctx.plugin(EntryEvents)
     if (!ctx.get('ivoraige.settingsPages')) await ctx.plugin(SettingsPages)
-    await ctx.plugin(Outputs)
-    await ctx.plugin(Parse)
+    if (!ctx.get('ivoraige.outputs')) await ctx.plugin(Outputs)
+    if (!ctx.get('ivoraige.parse')) await ctx.plugin(Parse)
+    if (!ctx.get('ivoraige.sidecarFactory')) await ctx.plugin(SidecarFactory)
     await ctx.plugin(TxtSource)
     await ctx.plugin(MarkdownSource)
     if (store !== undefined) {

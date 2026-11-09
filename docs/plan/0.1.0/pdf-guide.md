@@ -33,3 +33,26 @@
 备份前退出程序，复制整个用户数据目录，保留数据库及旁边的 `pdf/` 目录。不要单独移动数据库或修改受管理原件。来源丢失或损坏时，可重新导入完全相同的原 PDF 以恢复本库副本；不需要重新翻译已有文档。跨版本升级和其他平台迁移需另行验证。
 
 更多范围见[能力与限制](capabilities.md)。维护者的来源绑定、目录清理和真实样本证据保存在源码中的 [PDF 实施记录](pdf.md)。
+
+## 可选 MinerU 纯解析源码插件（实验）
+
+本源码还包含独立的 `plugins/mineru/` 来源插件，使用 MinerU **4.0.10 SDK**。它只导入 PDF 并保存原件、完整 MiddleJson、结构化视图、Markdown 和图片资源；可通过通用原文模式导出 MD/JSON。它不提供 PDF 译文重建，不借用 BabelDOC renderer，也不需要翻译模型。当前只有合成 sidecar 测试，没有真实 MinerU/PDF/OCR 验收或可下载的独立 MinerU 安装包。
+
+已自行准备本地 MinerU 4.0.10 Python 环境及所需模型资源的开发者，可以关闭程序后，将 `plugins/mineru/` 复制到本数据目录的 `settings/node_modules/@ivoraige/mineru-source/`（保留 `index.mjs`、`runner.py` 和 `package.json`）。在 `settings/cordis.patch.yml` 的现有补丁列表中加入一项，不要覆盖其他补丁：
+
+```yaml
+- insert:
+    - id: mineru-source
+      name: ./node_modules/@ivoraige/mineru-source/index.mjs
+      config:
+        directory: /absolute/data/mineru
+        command: /absolute/python-environment/bin/python
+        tier: flash
+        ocrMode: auto
+```
+
+Windows 的 `command` 指向该环境的 `python.exe`。宿主把已锁定的 SQLite 路径传给插件作为资源归属身份，不需要在 profile 重复填写。重启后用 `ivoraige import FILE.pdf --format pdf --adapter mineru --source-lang en` 显式选择来源，再用 `ivoraige export DOC_ID --format md,json --content-mode source` 导出。若 BabelDOC 也在场，不指定 adapter 可能发生同分冲突，程序不会暗选。停用时将该 DSH profile 行设为 `disabled: true` 并重启；TXT/Markdown 与已有只读记录继续可用，MinerU 私有修订校验在插件缺席时不可用。
+
+sidecar 在握手后核对 MinerU 精确版本，并关闭当前 Python 进程的网络 socket 及 Hugging Face/Transformers 在线模式；这不是操作系统沙箱，使用前仍应自行准备隔离的本地模型环境。缺少本地运行时/资源会失败，不会由插件自动安装或下载。解析单元的内容、公式/表格及 OCR 质量尚未用真实 PDF 核验。备份时需连同 SQLite 库与受管 `mineru/` 目录一起复制；目前不支持单独移动库或目录。完整资源仍在绑定对应目录中，MD/JSON 文本导出不等于 PDF 版面回放。MinerU 本体有附加许可条款，独立分发前需核对实际 Python、模型、字体与原生库闭包。
+
+上游 MinerU 4.0.10 要求 Python `>=3.10,<3.15`。官方 [MinerU-4 ONNX 模型仓](https://huggingface.co/opendatalab/MinerU-4_models_onnx/tree/358310b4f64b95f9fefc372ad899356e4111f376)在该修订的文件合计 858,220,651 字节（约 858 MB），这不是完整 Python 安装或所有可能模型的大小。插件桥的 MIT 许可不覆盖 MinerU 本体或模型。上游[许可](https://github.com/opendatalab/MinerU/blob/mineru-4.0.10-released/LICENSE.md)包含商用规模门槛和第三方在线服务显著署名要求；模型及其他资源仍按各自来源许可核对。

@@ -333,11 +333,13 @@ resources：`ivoraige://docs/{docId}`、`ivoraige://docs/{docId}/units/{unitId}?
 |---|---|---|---|
 | `handshake` | `{ protocolVersion }` | capabilities | 版本不匹配 → 内核报 COMPONENT_MISSING 并提示升级 sidecar |
 | `configure` | `{ modelDirs: Record<string,string>, options }` | `{}` | 权重目录在此注入（§8），sidecar 不自行下载 |
-| `parse` | `{ path, options }` | `{ doc: ParsedDoc }` | 大文档通过 `progress` 通知报进度 |
+| `parse` | `{ path, options }` | `{ doc: ParsedDoc }`（现有 BabelDOC）；独立来源插件可声明私有落盘引用结果 | 大文档通过 `progress` 通知报进度 |
 | `rebuild` | `{ docRef, revisionsRef, out, format }` | `{ path }` | 输入为内核落盘的临时 JSON 文件路径（避免 stdio 传大对象），输出为文件路径 |
 | `shutdown` | `{}` | — | 内核退出/释放时调用 |
 
 通知：`{"method":"progress","params":{"stage","done","total"}}` → 映射为 `task.progress` 事件。
+
+MinerU 纯解析插件沿用协议版本 1 的 `handshake → configure → parse → shutdown` 与同一进程/取消边界。`handshake.capabilities` 声明 `parse:["pdf"]`、空 `rebuild`；`configure` 核对本地 MinerU 4.0.10，关闭该 Python 进程的直接 socket 访问并设置 Hugging Face/Transformers 离线开关，不自动安装或下载权重；这不是操作系统级网络沙箱。其 `parse` 使用 `options:{outputDir,tier,ocrMode}`，`outputDir` 是宿主为单次导入创建的临时目录。响应中的 `doc:{engineVersion,schema,schemaVersion}` 是**该插件的私有已保存结果引用确认**，不是 BabelDOC 的 `ParsedDoc`，也不能直接作为通用 IR；Node 来源插件核对版本后读取 `outputDir` 的完整 `middle_json.json`、`structured_content.json`、`markdown.md`、原件与 `images/`，检查块身份，再投影通用 units 和资源清单。成功持久化后，插件将其转入按 store 隔离的受管目录；失败/取消只在 sidecar 子进程确认退出后清理本次临时目录。资源完整性与受管路径在来源插件边界校验。这个私有响应不扩大其他 sidecar 的结果契约，也不提供 MinerU PDF renderer。
 
 当前 BabelDOC `rebuild` 响应的 `evidence.warnings: string[]` 经输出适配器传给内核，随成功写入的 `Artifact.warnings` 和 `Task.warnings` 原子持久化；`task.succeeded` 事件也携带提示。CLI 的任务 JSON、HTTP 任务／产物查询及 WebUI 任务／产物提示均可读取，重启后保留。提示不使任务失败，不改写快照。内核输出适配器兼容原有字符串／Buffer 返回值，也接受 `{ content: string | Buffer, warnings?: string[] }`，没有提示的文本输出无需变更。
 
