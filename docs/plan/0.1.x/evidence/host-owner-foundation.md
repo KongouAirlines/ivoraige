@@ -6,7 +6,7 @@ This layer implements the local ownership primitives for D01.H01–H05 and H10. 
 
 - A protected OS-user registry binds a canonical local store/file identity to the `ivoraige_host` v1 DSH StorageDomain. Existing document, revision, task and snapshot identifiers are retained.
 - Registry-before-store locking, bounded registry contention retries, flushed recovery intents, atomic registry replacement, and verified intent replay prevent an interrupted initialization from silently allocating a second identity.
-- Read-only discovery checks the recorded file identity without opening an active application database. Corrupt registrations, unsupported metadata and replacement files fail closed.
+- Read-only discovery checks the recorded file identity. On Windows and for older registrations without creation time, it also checks the DSH domain and registration IDs through a read-only snapshot. Corrupt registrations, unsupported metadata and replacement files fail closed.
 - Owner transport uses a private Unix socket, or a random Windows named pipe with a per-generation capability in a verified current-user DACL file. Ephemeral owners publish only a refusal marker. HTTP instance ids and PIDs are not authentication.
 - One-time browser bootstrap credentials are origin/domain/generation bound, replay protected, and held only in memory. Session cookies are HttpOnly/SameSite=Strict and writes require CSRF validation.
 
@@ -14,7 +14,7 @@ This layer implements the local ownership primitives for D01.H01–H05 and H10. 
 
 `copy` requires a distinct verified store and allocates a new domain/registration identity. `migrate` additionally requires trusted evidence that the source process retired; a free lock and a command-line confirmation do not supply that proof. `repair-registration` does not overwrite an unparseable multi-domain registry: without a trustworthy complete backup and merge evidence it remains unavailable. These limits are deliberate fail-closed results, not completed migration/repair UX.
 
-Metadata inspection uses SQLite's public backup API followed by the DSH domain API on a private temporary copy, without reading DSH private tables. This can hold the registry lock longer for a large database and needs performance evidence before large-library rollout.
+Metadata inspection uses SQLite's public backup API followed by the DSH domain API on a private temporary copy, without reading DSH private tables. Windows discovery needs this snapshot even when dev, inode and creation time match: the #88 Windows run at head `501aa66` accepted a replaced file under that identity check, consistent with NTFS file-system tunneling. The snapshot can copy a large database during discovery and can hold the registry lock longer in writer paths; large-library performance remains unverified.
 
 The pinned DSH domain/backend close methods are explicitly awaited before context disposal. A close rejection keeps the store lease; root Cordis disposal alone is not evidence that storage closed.
 
@@ -33,3 +33,8 @@ ancestry instead of rejecting every alias. User-owned ancestor symlinks remain
 rejected. Windows ACL construction now uses explicit .NET constructors and
 retains the local subprocess cause for diagnostic evidence without exposing it
 through the owner transport. Native reruns are required to accept these changes.
+
+Later #88 CI at head `501aa66` passed macOS and Linux and all Windows cases
+except the deterministic replaced-store assertion. The DSH metadata check for
+Windows discovery addresses that observed gap; native validation of this fix
+is pending.

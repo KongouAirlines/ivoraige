@@ -6,7 +6,7 @@ import './runtime.mjs'
 import { execFile } from 'node:child_process'
 import { createHash, randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import { lstat, mkdir, mkdtemp, open, readFile, rename, rm, stat } from 'node:fs/promises'
+import { lstat, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { performance } from 'node:perf_hooks'
@@ -268,7 +268,8 @@ async function withMetadata(path, work) {
 }
 async function readMetadataSnapshot(path) {
   if (!await fileIdentity(path)) return null
-  const tempDir = await mkdtemp(join(tmpdir(), 'ivoraige-host-inspect-'))
+  const tempDir = join(tmpdir(), `ivoraige-host-inspect-${uuid()}`)
+  await ensurePrivateDirectory(tempDir)
   let source
   try {
     source = new DatabaseSync(path, { readOnly: true })
@@ -294,10 +295,10 @@ export async function findHostDomain({ store, registryRoot } = {}) {
   if (found) {
     const observedIdentity = await fileIdentity(path)
     if (!sameIdentity(found.fileIdentity, observedIdentity)) throw fail('CONFLICT', 'domain-registration-mismatch')
-    // Older registrations did not record creation time. Verify their DSH
-    // registration before accepting a possibly reused inode, then upgrade
-    // through createHostDomain's normal writer path.
-    if (found.fileIdentity.birthtimeNs === undefined) {
+    // Older registrations did not record creation time. Windows can also
+    // retain a deleted path's creation time when that path is quickly
+    // recreated. In either case, verify the DSH registration before attach.
+    if (process.platform === 'win32' || found.fileIdentity.birthtimeNs === undefined) {
       const meta = await readMetadataSnapshot(path)
       if (!sameIdentity(observedIdentity, await fileIdentity(path)) || !meta ||
           meta.domainId !== found.domainId || meta.registrationId !== found.registrationId)
