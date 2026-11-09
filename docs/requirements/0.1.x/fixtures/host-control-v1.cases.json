@@ -1,0 +1,839 @@
+{
+  "designOnly": true,
+  "sourceCommit": "978d9471fcc87857f4ca84da1ece6d169ee60a2b",
+  "cases": [
+    {
+      "id": "request-start",
+      "definition": "Request",
+      "valid": true,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "request-start",
+        "action": "start",
+        "params": {
+          "dataDomainRef": "domain-demo",
+          "lifetime": "resident"
+        }
+      }
+    },
+    {
+      "id": "request-attach",
+      "definition": "Request",
+      "valid": true,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "request-attach",
+        "action": "attach",
+        "params": {
+          "dataDomainRef": "domain-demo",
+          "requiredLifetime": "resident"
+        }
+      }
+    },
+    {
+      "id": "request-state",
+      "definition": "Request",
+      "valid": true,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "request-state",
+        "action": "state",
+        "params": {},
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "request-drain",
+      "definition": "Request",
+      "valid": true,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "request-drain",
+        "action": "drain",
+        "params": {
+          "budgetMs": 15000
+        },
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "request-exit",
+      "definition": "Request",
+      "valid": true,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "request-exit",
+        "action": "exit",
+        "params": {
+          "budgetMs": 30000
+        },
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "request-operation",
+      "definition": "Request",
+      "valid": true,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "request-operation",
+        "action": "operation",
+        "params": {
+          "operationId": "shutdown-demo"
+        },
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "request-ownerBootstrap",
+      "definition": "Request",
+      "valid": true,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "request-ownerBootstrap",
+        "action": "ownerBootstrap",
+        "params": {},
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "request-prepareForceExit",
+      "definition": "Request",
+      "valid": true,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "request-prepareForceExit",
+        "action": "prepareForceExit",
+        "params": {
+          "operationId": "shutdown-demo"
+        },
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "request-forceExit",
+      "definition": "Request",
+      "valid": true,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "request-forceExit",
+        "action": "forceExit",
+        "params": {
+          "operationId": "shutdown-demo",
+          "challengeId": "challenge-demo",
+          "acknowledgeUnknownOutcome": true
+        },
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "state-ready",
+      "definition": "State",
+      "valid": true,
+      "instance": {
+        "dataDomainRef": "domain-demo",
+        "generation": "generation-demo",
+        "lifetime": "resident",
+        "state": "ready",
+        "acceptingBusiness": true,
+        "stateRevision": 21,
+        "synchronization": "p04",
+        "operationId": null,
+        "blockers": [],
+        "blockersTruncated": false,
+        "storeOwnership": "held"
+      }
+    },
+    {
+      "id": "state-response",
+      "definition": "StateResponse",
+      "valid": true,
+      "instance": {
+        "apiVersion": "2.0",
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "reply-demo",
+        "state": {
+          "dataDomainRef": "domain-demo",
+          "generation": "generation-demo",
+          "lifetime": "resident",
+          "state": "ready",
+          "acceptingBusiness": true,
+          "stateRevision": 21,
+          "synchronization": "p04",
+          "operationId": null,
+          "blockers": [],
+          "blockersTruncated": false,
+          "storeOwnership": "held"
+        }
+      }
+    },
+    {
+      "id": "attach-existing",
+      "definition": "Attached",
+      "valid": true,
+      "instance": {
+        "apiVersion": "2.0",
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "reply-demo",
+        "reused": true,
+        "dataDomainRef": "domain-demo",
+        "generation": "generation-demo",
+        "supportedMinors": [
+          0
+        ],
+        "state": {
+          "dataDomainRef": "domain-demo",
+          "generation": "generation-demo",
+          "lifetime": "resident",
+          "state": "ready",
+          "acceptingBusiness": true,
+          "stateRevision": 21,
+          "synchronization": "p04",
+          "operationId": null,
+          "blockers": [],
+          "blockersTruncated": false,
+          "storeOwnership": "held"
+        }
+      }
+    },
+    {
+      "id": "exit-accepted",
+      "definition": "Accepted",
+      "valid": true,
+      "instance": {
+        "apiVersion": "2.0",
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "reply-demo",
+        "accepted": true,
+        "generation": "generation-demo",
+        "operationId": "shutdown-demo"
+      }
+    },
+    {
+      "id": "operation-blocked",
+      "definition": "ControlOperation",
+      "valid": true,
+      "instance": {
+        "operationId": "shutdown-demo",
+        "generation": "generation-demo",
+        "intent": "exit",
+        "phase": "resources",
+        "status": "blocked",
+        "remainingMs": 0,
+        "reason": "deadline-exceeded",
+        "safeToExit": false,
+        "blockers": [
+          {
+            "kind": "worker",
+            "ref": "worker-demo",
+            "reason": "worker-still-running",
+            "recovery": "retry"
+          }
+        ],
+        "blockersTruncated": false
+      }
+    },
+    {
+      "id": "operation-response",
+      "definition": "OperationResponse",
+      "valid": true,
+      "instance": {
+        "apiVersion": "2.0",
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "reply-demo",
+        "operation": {
+          "operationId": "shutdown-demo",
+          "generation": "generation-demo",
+          "intent": "exit",
+          "phase": "resources",
+          "status": "blocked",
+          "remainingMs": 0,
+          "reason": "deadline-exceeded",
+          "safeToExit": false,
+          "blockers": [
+            {
+              "kind": "worker",
+              "ref": "worker-demo",
+              "reason": "worker-still-running",
+              "recovery": "retry"
+            }
+          ],
+          "blockersTruncated": false
+        }
+      }
+    },
+    {
+      "id": "control-only-finalizing",
+      "definition": "State",
+      "valid": true,
+      "instance": {
+        "dataDomainRef": "domain-demo",
+        "generation": "generation-demo",
+        "lifetime": "resident",
+        "state": "stopping",
+        "acceptingBusiness": false,
+        "stateRevision": null,
+        "synchronization": "control-only",
+        "operationId": "shutdown-demo",
+        "blockers": [],
+        "blockersTruncated": false,
+        "storeOwnership": "held"
+      }
+    },
+    {
+      "id": "drain-quiescent",
+      "definition": "ControlOperation",
+      "valid": true,
+      "instance": {
+        "operationId": "shutdown-demo",
+        "generation": "generation-demo",
+        "intent": "drain",
+        "phase": "quiescent",
+        "status": "drained",
+        "remainingMs": 4000,
+        "reason": null,
+        "safeToExit": true,
+        "blockers": [],
+        "blockersTruncated": false
+      }
+    },
+    {
+      "id": "response-additive-field",
+      "definition": "State",
+      "valid": true,
+      "instance": {
+        "dataDomainRef": "domain-demo",
+        "generation": "generation-demo",
+        "lifetime": "resident",
+        "state": "ready",
+        "acceptingBusiness": true,
+        "stateRevision": 21,
+        "synchronization": "p04",
+        "operationId": null,
+        "blockers": [],
+        "blockersTruncated": false,
+        "futureOptionalField": {
+          "example": true
+        },
+        "storeOwnership": "held"
+      }
+    },
+    {
+      "id": "recover-migrate",
+      "definition": "RecoveryRequest",
+      "valid": true,
+      "instance": {
+        "action": "recover",
+        "store": "/example/user-selected/store.sqlite",
+        "mode": "migrate",
+        "expectedDiagnostic": "diagnostic-demo",
+        "confirm": true
+      }
+    },
+    {
+      "id": "recover-copy",
+      "definition": "RecoveryRequest",
+      "valid": true,
+      "instance": {
+        "action": "recover",
+        "store": "/example/user-selected/store.sqlite",
+        "mode": "copy",
+        "expectedDiagnostic": "diagnostic-demo",
+        "confirm": true
+      }
+    },
+    {
+      "id": "recover-repair-registration",
+      "definition": "RecoveryRequest",
+      "valid": true,
+      "instance": {
+        "action": "recover",
+        "store": "/example/user-selected/store.sqlite",
+        "mode": "repair-registration",
+        "expectedDiagnostic": "diagnostic-demo",
+        "confirm": true
+      }
+    },
+    {
+      "id": "unknown-field",
+      "definition": "Request",
+      "valid": false,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "request-exit",
+        "action": "exit",
+        "params": {
+          "budgetMs": 30000
+        },
+        "expectedGeneration": "generation-demo",
+        "owner": true
+      }
+    },
+    {
+      "id": "unsupported-major",
+      "definition": "Request",
+      "valid": false,
+      "instance": {
+        "interfaceVersion": "HostControl@2",
+        "minor": 0,
+        "requestId": "request-exit",
+        "action": "exit",
+        "params": {
+          "budgetMs": 30000
+        },
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "unsupported-minor",
+      "definition": "Request",
+      "valid": false,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 1,
+        "requestId": "request-exit",
+        "action": "exit",
+        "params": {
+          "budgetMs": 30000
+        },
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "empty-request-id",
+      "definition": "Request",
+      "valid": false,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "",
+        "action": "exit",
+        "params": {
+          "budgetMs": 30000
+        },
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "missing-generation",
+      "definition": "Request",
+      "valid": false,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "request-exit",
+        "action": "exit",
+        "params": {
+          "budgetMs": 30000
+        }
+      }
+    },
+    {
+      "id": "self-reported-principal",
+      "definition": "Request",
+      "valid": false,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "request-exit",
+        "action": "exit",
+        "params": {
+          "budgetMs": 30000,
+          "principal": "owner"
+        },
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "invalid-budget-0",
+      "definition": "Request",
+      "valid": false,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "request-exit",
+        "action": "exit",
+        "params": {
+          "budgetMs": 0
+        },
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "invalid-budget--1",
+      "definition": "Request",
+      "valid": false,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "request-exit",
+        "action": "exit",
+        "params": {
+          "budgetMs": -1
+        },
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "invalid-budget-120001",
+      "definition": "Request",
+      "valid": false,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "request-exit",
+        "action": "exit",
+        "params": {
+          "budgetMs": 120001
+        },
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "invalid-budget-1.5",
+      "definition": "Request",
+      "valid": false,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "request-exit",
+        "action": "exit",
+        "params": {
+          "budgetMs": 1.5
+        },
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "invalid-budget-15000",
+      "definition": "Request",
+      "valid": false,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "request-exit",
+        "action": "exit",
+        "params": {
+          "budgetMs": "15000"
+        },
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "wire-path-injection",
+      "definition": "Request",
+      "valid": false,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "request-start",
+        "action": "start",
+        "params": {
+          "dataDomainRef": "domain-demo",
+          "lifetime": "resident",
+          "store": "/tmp/store.sqlite"
+        }
+      }
+    },
+    {
+      "id": "force-without-acknowledgment",
+      "definition": "Request",
+      "valid": false,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "request-forceExit",
+        "action": "forceExit",
+        "params": {
+          "operationId": "shutdown-demo",
+          "challengeId": "challenge-demo",
+          "acknowledgeUnknownOutcome": false
+        },
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "force-without-challenge",
+      "definition": "Request",
+      "valid": false,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "request-forceExit",
+        "action": "forceExit",
+        "params": {
+          "operationId": "shutdown-demo",
+          "acknowledgeUnknownOutcome": true
+        },
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "draining-cannot-admit",
+      "definition": "State",
+      "valid": false,
+      "instance": {
+        "dataDomainRef": "domain-demo",
+        "generation": "generation-demo",
+        "lifetime": "resident",
+        "state": "draining",
+        "acceptingBusiness": true,
+        "stateRevision": 21,
+        "synchronization": "p04",
+        "operationId": null,
+        "blockers": [],
+        "blockersTruncated": false,
+        "storeOwnership": "held"
+      }
+    },
+    {
+      "id": "host-cannot-assert-stopped",
+      "definition": "State",
+      "valid": false,
+      "instance": {
+        "dataDomainRef": "domain-demo",
+        "generation": "generation-demo",
+        "lifetime": "resident",
+        "state": "stopped",
+        "acceptingBusiness": false,
+        "stateRevision": 21,
+        "synchronization": "p04",
+        "operationId": null,
+        "blockers": [],
+        "blockersTruncated": false,
+        "storeOwnership": "held"
+      }
+    },
+    {
+      "id": "control-only-cannot-fake-revision",
+      "definition": "State",
+      "valid": false,
+      "instance": {
+        "dataDomainRef": "domain-demo",
+        "generation": "generation-demo",
+        "lifetime": "resident",
+        "state": "ready",
+        "acceptingBusiness": true,
+        "stateRevision": 21,
+        "synchronization": "control-only",
+        "operationId": null,
+        "blockers": [],
+        "blockersTruncated": false,
+        "storeOwnership": "held"
+      }
+    },
+    {
+      "id": "p04-needs-revision",
+      "definition": "State",
+      "valid": false,
+      "instance": {
+        "dataDomainRef": "domain-demo",
+        "generation": "generation-demo",
+        "lifetime": "resident",
+        "state": "ready",
+        "acceptingBusiness": true,
+        "stateRevision": null,
+        "synchronization": "p04",
+        "operationId": null,
+        "blockers": [],
+        "blockersTruncated": false,
+        "storeOwnership": "held"
+      }
+    },
+    {
+      "id": "blocked-not-safe",
+      "definition": "ControlOperation",
+      "valid": false,
+      "instance": {
+        "operationId": "shutdown-demo",
+        "generation": "generation-demo",
+        "intent": "exit",
+        "phase": "resources",
+        "status": "blocked",
+        "remainingMs": 0,
+        "reason": "deadline-exceeded",
+        "safeToExit": true,
+        "blockers": [
+          {
+            "kind": "worker",
+            "ref": "worker-demo",
+            "reason": "worker-still-running",
+            "recovery": "retry"
+          }
+        ],
+        "blockersTruncated": false
+      }
+    },
+    {
+      "id": "blocked-needs-reason",
+      "definition": "ControlOperation",
+      "valid": false,
+      "instance": {
+        "operationId": "shutdown-demo",
+        "generation": "generation-demo",
+        "intent": "exit",
+        "phase": "resources",
+        "status": "blocked",
+        "remainingMs": 0,
+        "reason": null,
+        "safeToExit": false,
+        "blockers": [
+          {
+            "kind": "worker",
+            "ref": "worker-demo",
+            "reason": "worker-still-running",
+            "recovery": "retry"
+          }
+        ],
+        "blockersTruncated": false
+      }
+    },
+    {
+      "id": "drained-cannot-have-residuals",
+      "definition": "ControlOperation",
+      "valid": false,
+      "instance": {
+        "operationId": "shutdown-demo",
+        "generation": "generation-demo",
+        "intent": "drain",
+        "phase": "quiescent",
+        "status": "drained",
+        "remainingMs": 0,
+        "reason": null,
+        "safeToExit": true,
+        "blockers": [
+          {
+            "kind": "worker",
+            "ref": "worker-demo",
+            "reason": "worker-still-running",
+            "recovery": "retry"
+          }
+        ],
+        "blockersTruncated": false
+      }
+    },
+    {
+      "id": "recovery-without-confirmation",
+      "definition": "RecoveryRequest",
+      "valid": false,
+      "instance": {
+        "action": "recover",
+        "store": "/example/store.sqlite",
+        "mode": "copy",
+        "expectedDiagnostic": "diagnostic-demo",
+        "confirm": false
+      }
+    },
+    {
+      "id": "recovery-force-not-supported",
+      "definition": "RecoveryRequest",
+      "valid": false,
+      "instance": {
+        "action": "recover",
+        "store": "/example/store.sqlite",
+        "mode": "copy",
+        "expectedDiagnostic": "diagnostic-demo",
+        "confirm": true,
+        "force": true
+      }
+    },
+    {
+      "id": "controller-confirms-death-not-cleanup",
+      "definition": "ExitObservation",
+      "valid": true,
+      "instance": {
+        "dataDomainRef": "domain-demo",
+        "generation": "generation-demo",
+        "operationId": "shutdown-demo",
+        "observation": "stopped",
+        "processExited": true,
+        "ownerReleased": true,
+        "cleanupOutcome": "unknown"
+      }
+    },
+    {
+      "id": "controller-cannot-confirm-lock",
+      "definition": "ExitObservation",
+      "valid": true,
+      "instance": {
+        "dataDomainRef": "domain-demo",
+        "generation": "generation-demo",
+        "operationId": "shutdown-demo",
+        "observation": "unknown",
+        "processExited": true,
+        "ownerReleased": null,
+        "cleanupOutcome": "unknown"
+      }
+    },
+    {
+      "id": "controller-cannot-infer-stopped",
+      "definition": "ExitObservation",
+      "valid": false,
+      "instance": {
+        "dataDomainRef": "domain-demo",
+        "generation": "generation-demo",
+        "operationId": "shutdown-demo",
+        "observation": "stopped",
+        "processExited": null,
+        "ownerReleased": true,
+        "cleanupOutcome": "unknown"
+      }
+    },
+    {
+      "id": "ready-must-own-store",
+      "definition": "State",
+      "valid": false,
+      "instance": {
+        "dataDomainRef": "domain-demo",
+        "generation": "generation-demo",
+        "lifetime": "resident",
+        "state": "ready",
+        "acceptingBusiness": true,
+        "stateRevision": 21,
+        "synchronization": "p04",
+        "operationId": null,
+        "blockers": [],
+        "blockersTruncated": false,
+        "storeOwnership": "released"
+      }
+    },
+    {
+      "id": "finalization-receipt",
+      "definition": "FinalizationReceipt",
+      "valid": true,
+      "instance": {
+        "type": "host.finalized",
+        "dataDomainRef": "domain-demo",
+        "generation": "generation-demo",
+        "operationId": "shutdown-demo",
+        "storeOwnership": "released"
+      }
+    },
+    {
+      "id": "receipt-cannot-precede-release",
+      "definition": "FinalizationReceipt",
+      "valid": false,
+      "instance": {
+        "type": "host.finalized",
+        "dataDomainRef": "domain-demo",
+        "generation": "generation-demo",
+        "operationId": "shutdown-demo",
+        "storeOwnership": "held"
+      }
+    }
+  ]
+}
