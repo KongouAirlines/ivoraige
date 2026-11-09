@@ -25,8 +25,8 @@ observer do not receive the added metadata. No LLM-only path is enabled.
 
 The native observer preserves nullable IR fields rather than fabricating
 coordinates. The sidecar accepts only the configured fresh-PDF production
-pipeline, whose paragraphs have four finite bounding-box coordinates at this
-observation point. `sourceUnicode: null` is allowed for retained non-callback
+pipeline and requires four finite bounding-box coordinates at this observation
+point. `sourceUnicode: null` is allowed for retained non-callback
 structure; `bbox: null`, an omitted box, or a partially populated box is not.
 Such an inventory fails explicitly, including when the source text is empty.
 It must not be silently dropped, assigned a zero box, or matched by text/index
@@ -34,11 +34,13 @@ as a substitute for a geometric source location. Native callback eligibility
 does not imply that a box is present, so a missing box is not evidence that a
 paragraph will remain uncalled.
 
-The pinned parser starts with no paragraphs. Paragraph finding appends a
-character to every newly created paragraph and computes its box before
-whitespace removal; split paragraphs also receive an initial box. Styles do
-not clear paragraph boxes. Arbitrary prebuilt IR is not a supported sidecar
-input. See the [source trace and regression evidence](../../../../docs/plan/0.1.x/evidence/babeldoc-0.7.1.md#bounding-box-contract-review).
+In the inspected pinned source paths, the parser starts with no paragraphs;
+paragraph finding assigns boxes before whitespace removal, and split paragraphs
+receive an initial box. The inspected styles code and real fixtures did not
+establish a boxless case. This is not proof that every styles/formula path or
+every PDF preserves a box. Strict rejection is the sidecar's existing contract,
+not a reproduced boxless-PDF defect. Arbitrary prebuilt IR is not supported.
+See the [source trace and regression evidence](../../../../docs/plan/0.1.x/evidence/babeldoc-0.7.1.md#bounding-box-contract-review).
 
 ### Build
 

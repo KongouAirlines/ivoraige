@@ -83,6 +83,17 @@ class NativeBridgeTests(unittest.TestCase):
                 with self.assertRaisesRegex(server.SidecarError, "Invalid native source box"):
                     server.SourceInventory().load(json.dumps([item]))
 
+    def test_handcrafted_inventory_rejects_integer_overflow_as_sidecar_error(self):
+        for value in (10 ** 400, -(10 ** 400)):
+            with self.subTest(value=value):
+                inventory = server.SourceInventory()
+                item = {"pageIndex": 0, "paragraphIndex": 0, "page": 0,
+                        "bbox": [0, 0, value, 10], "sourceUnicode": "Synthetic source",
+                        "layoutLabel": "plain text"}
+                with self.assertRaisesRegex(server.SidecarError, "Invalid native source box"):
+                    inventory.load(json.dumps([item]))
+                self.assertEqual(inventory.positions, {})
+
     def test_socket_connect_and_connect_ex_are_guarded_and_restored(self):
         import socket
         for method in ("connect", "connect_ex"):

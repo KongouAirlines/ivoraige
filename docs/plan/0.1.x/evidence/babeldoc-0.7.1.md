@@ -181,8 +181,9 @@ A review asked whether the bridge's nullable `paragraph.box` could legitimately
 produce `bbox: null` for an uncalled paragraph, making the sidecar's strict
 validation reject a supported document. The optional IR type alone does not
 establish this. The configured sidecar accepts fresh PDFs, not externally
-constructed IL, with debug/OCR disabled. The pinned official source establishes
-the following production path:
+constructed IL, with debug/OCR disabled. The following inspected paths in the
+pinned official source explain the retained boxes in the tested fixtures; they
+are not an exhaustive proof across every styles/formula path or PDF:
 
 1. [The parser initializes a fresh page](https://github.com/funstory-ai/BabelDOC/blob/d922e2b0c5a353bde8731921eb442c07ae75849d/rust/parser_core/src/lib.rs#L894-L904)
    with default empty paragraph storage; it emits PDF characters, not prebuilt
@@ -196,13 +197,16 @@ the following production path:
 3. [The production order is paragraph finding, then styles](https://github.com/funstory-ai/BabelDOC/blob/d922e2b0c5a353bde8731921eb442c07ae75849d/rust/p2_bridge/src/m_transfer.rs#L726-L769),
    then this bridge's observer. The pinned
    [styles stage](https://github.com/funstory-ai/BabelDOC/blob/d922e2b0c5a353bde8731921eb442c07ae75849d/rust/p2_stages/src/stages/styles_and_formulas.rs)
-   changes compositions/styles and does not clear paragraph boxes.
+   changes compositions/styles. No paragraph-box clearing was identified in
+   the inspected code; no boxless case was established by the real fixtures.
 4. Conversely, [ordinary translation reads an optional box](https://github.com/funstory-ai/BabelDOC/blob/d922e2b0c5a353bde8731921eb442c07ae75849d/rust/p2_bridge/src/ordinary_translation.rs#L1216-L1230)
    but [does not filter jobs on box presence](https://github.com/funstory-ai/BabelDOC/blob/d922e2b0c5a353bde8731921eb442c07ae75849d/rust/p2_bridge/src/ordinary_translation.rs#L1580-L1600).
    Thus `bbox: null` cannot safely be classified as uncalled/passthrough.
 
-No supported production path yielding a boxless paragraph was established.
-Validation stays strict for every observed paragraph. The sidecar now gives a
+No supported production path yielding a boxless paragraph was established by
+this review. That evidence limit is not a reproduced boxless-PDF defect or a
+universal upstream invariant. The intentional validation contract stays strict
+for every observed paragraph. The sidecar now gives a
 specific unsupported-inventory error with native indices for missing/null boxes;
 it neither drops the paragraph nor invents a zero box. Null source text with a
 valid box remains supported for non-callback structure. Native patch, package
@@ -244,3 +248,18 @@ than a claim about this fixture. Existing mixed CJK and formula punctuation
 quality limits above are unchanged. Local probe scripts, raw observer report,
 and formula artifacts are retained under
 `evaluation/runs/babeldoc-0.7.1/bbox-contract-0.1.x/` (ignored).
+
+### Handcrafted numeric-input defense
+
+Calling the private inventory validator with manually constructed JSON whose
+box contains `10**400` or `-10**400` reproduced Python `math.isfinite` raising
+`OverflowError` instead of the intended `SidecarError`. These arbitrary-precision
+integer values do not come from the native bridge's floating-point coordinates.
+This is defensive handling of artificial private input, not a demonstrated PDF
+parsing bug or new security finding. The validator now converts that numeric
+overflow into its existing invalid-source-box error. A positive/negative
+large-integer regression was added; normal box validation and native source
+patch/wheel/version remain unchanged. All 29 sidecar unit tests, Python
+compilation and `git diff --check` passed for this correction. Native PDF runs,
+native compilation and the full npm suite were not repeated; the preceding
+fixture results describe the earlier diagnostic revision.

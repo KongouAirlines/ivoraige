@@ -59,9 +59,10 @@ successful accepted replay.
 
 Source paragraphs must retain four finite bounding-box coordinates, including
 non-callback structure. A missing or null box is an explicit unsupported
-inventory error, not a passthrough classification. The configured native PDF
-pipeline assigns boxes before removing empty text; it does not accept arbitrary
-prebuilt IR. Null source text alone remains supported for non-callback structure.
+inventory error, not a passthrough classification. The inspected pinned native
+paths and tested fixtures retained boxes; this does not establish that all
+styles/formula paths or PDFs do so. Arbitrary prebuilt IR is not accepted.
+Null source text alone remains supported for non-callback structure.
 
 ONNX Runtime telemetry is explicitly disabled before the layout module is
 imported or any inference session is created. Python `connect` and `connect_ex`
@@ -85,8 +86,9 @@ full translation, intact equations, complete reading order or unclipped text.
 
 包括未进入翻译回调的结构段落在内，来源必须保留四个有限数值的边界坐标。
 缺失或 null 的 box 明确报不支持的 inventory，不能据此推断为保留原文项、
-填零或猜测位置。当前 PDF 解析路径先赋坐标再剔除空白，不接受外部预制 IR；
-未调用段落的原文为 null 仍可按既有规则保留。
+填零或猜测位置。已检查的固定源码路径和实测样例保留了坐标，但不代表所有
+styles/formula 路径或 PDF 都如此。不接受外部预制 IR；未调用段落的原文
+为 null 仍可按既有规则保留。
 
 旧 0.6.4 绑定不能交给新 renderer；旧文档、修订、快照及可读 MD/JSON
 不会被改写。需重新导入原件，再人工核对新分段并迁移接受译文，不能只
