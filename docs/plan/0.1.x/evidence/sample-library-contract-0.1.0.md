@@ -45,3 +45,5 @@ Linux、Node 24.22.1、Python 3.12.14 下，定向测试 12/12；显式离线 `n
 [PR #89 CI 42565164488](https://github.com/KongouAirlines/ivoraige/actions/runs/42565164488) 的 Linux 和 macOS 成功，Windows 在三项 checkout 来源测试失败。Git for Windows 2.56.0 不接受 Node `os.devNull` 提供的 Windows 设备路径作为配置文件，报 `fatal: unable to access ... Invalid argument`；这是隔离配置的跨平台实现问题，而非 Python 选择或样本模块问题。现每次 Git 元数据采样创建真实临时空配置文件供系统/全局配置路径使用，并在 `finally` 清理；跨平台回归确认子进程得到普通文件、两配置变量指向同一文件且采样后删除。原有真实仓库干净/有改动和全局排除规则污染回归继续通过。
 
 Linux、Node 24.22.1、Python 3.12.14 下定向测试 13/13；显式离线 `npm test`（含构建）574 通过、2 条件跳过、0 失败。相同材料化源码的新合成 smoke 输出在 `evaluation/runs/first-tier-0.1.x/frozen-contract-windows-config-fix-6-0.1.x`，退出 0、零模型调用、冻结重放逐字节一致。修复后的 Windows CI 尚待重跑；其他合成材料、Git 元数据及质量边界不变。
+
+随后复核发现临时仓库回归把 Windows 反斜杠路径直接拼入 Git 配置，可能使全局排除规则未生效而污染测试假通过。夹具现在通过 `git config --file` 正确写入路径：先证明无全局配置时 `local.tmp` 是未跟踪变更，再证明加载该全局配置的 Git 状态确实隐藏它，最后证明 smoke 的隔离采样仍报告 dirty。Linux 定向测试仍为 13/13，显式离线完整测试仍为 574 通过、2 条件跳过、0 失败；本次未更改生产 Git 隔离实现，Windows CI 仍需验证。

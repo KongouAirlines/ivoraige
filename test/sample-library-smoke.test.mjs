@@ -39,7 +39,7 @@ async function isolatedGit(parent) {
     assert.equal(result.status, 0, result.stderr)
     return result.stdout.trim()
   }
-  return { gitAt, emptyTemplate }
+  return { gitAt, emptyTemplate, env }
 }
 
 const passingCli = `import json, sys
@@ -190,7 +190,7 @@ test('checkout distinguishes a clean or dirty root from a nested extraction and 
   t.after(() => rm(parent, { recursive: true, force: true }))
   const repository = join(parent, 'repository')
   await mkdir(repository)
-  const { gitAt, emptyTemplate } = await isolatedGit(parent)
+  const { gitAt, emptyTemplate, env: isolatedEnv } = await isolatedGit(parent)
   const git = (...args) => gitAt(repository, ...args)
   git('init', '-q')
   await writeFile(join(repository, 'tracked.txt'), 'clean\n')
@@ -205,7 +205,7 @@ test('checkout distinguishes a clean or dirty root from a nested extraction and 
   const excluded = join(parent, 'global-excludes')
   const hostConfig = join(parent, 'host-gitconfig')
   await writeFile(excluded, '*.tmp\n')
-  await writeFile(hostConfig, `[core]\n  excludesFile = ${excluded}\n`)
+  gitAt(repository, 'config', '--file', hostConfig, 'core.excludesFile', excluded)
   const overrides = { GIT_DIR: join(other, '.git'), GIT_WORK_TREE: repository,
     GIT_INDEX_FILE: join(other, '.git', 'index'), GIT_CONFIG_GLOBAL: hostConfig,
     GIT_CONFIG_SYSTEM: hostConfig }
@@ -215,6 +215,11 @@ test('checkout distinguishes a clean or dirty root from a nested extraction and 
     assert.deepEqual(checkout(repository), { commit: head, workingTreeChanges: false, kind: 'git' })
     assert.equal(process.env.GIT_DIR, overrides.GIT_DIR)
     await writeFile(join(repository, 'local.tmp'), 'untracked\n')
+    assert.equal(git('status', '--porcelain', '--untracked-files=normal'), '?? local.tmp')
+    const polluted = spawnSync('git', ['-C', repository, 'status', '--porcelain', '--untracked-files=normal'],
+      { encoding: 'utf8', env: { ...isolatedEnv, GIT_CONFIG_GLOBAL: hostConfig } })
+    assert.equal(polluted.status, 0, polluted.stderr)
+    assert.equal(polluted.stdout.trim(), '', 'global excludesFile must actually hide local.tmp')
     assert.deepEqual(checkout(repository), { commit: head, workingTreeChanges: true, kind: 'git' })
     assert.equal(process.env.GIT_CONFIG_GLOBAL, hostConfig)
   } finally {
