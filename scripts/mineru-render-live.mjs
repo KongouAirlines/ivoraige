@@ -86,6 +86,8 @@ try {
   if (sha256(await readFile(current.artifacts[0].path)) === first.sha256)
     throw new Error('A new snapshot did not reflect the new accepted title')
   output[0].newPdfPath = current.artifacts[0].path
+  if (app.records.listTasks().some(task => task.kind === 'translate'))
+    throw new Error('A translation task was created during frozen PDF replay')
 } finally { await app.dispose() }
 await writeFile(join(work, 'report.json'), JSON.stringify(output, null, 2))
 console.log('MinerU frozen source and accepted PDF replay passed for two synthetic PDFs')

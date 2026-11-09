@@ -53,6 +53,26 @@ function unitKind(type) {
   return 'other'
 }
 
+function containsText(value) {
+  if (typeof value === 'string') return !!value.trim()
+  if (Array.isArray(value)) return value.some(containsText)
+  return value && typeof value === 'object' && (containsText(value.content) || containsText(value.text))
+}
+
+function unavailableMessage(error) {
+  if (error.code !== 'COMPONENT_MISSING' || error.details?.sidecarCode !== -32002) return null
+  const { component, reason } = error.details.sidecarData ?? {}
+  if (component === 'mineru') {
+    if (reason === 'missing') return 'MinerU 4.0.10 is not installed'
+    if (reason === 'incompatible') return 'MinerU 4.0.10 is required'
+  }
+  if (component === 'docvortex') {
+    if (reason === 'missing') return 'DocVortex 0.6.21 is not installed'
+    if (reason === 'incompatible') return 'DocVortex 0.6.21 is required'
+  }
+  return null
+}
+
 // The middle JSON and assets remain opaque to the host. Structured content is
 // only a source projection; it is not a replacement for the saved MiddleJson.
 export function projectStructured(middle, structured, bundle, files, { projectionVersion = 2 } = {}) {
@@ -90,10 +110,18 @@ export function projectStructured(middle, structured, bundle, files, { projectio
         const entries = rendered[field] ?? []
         if (!Array.isArray(entries) || (entries.length && !Array.isArray(block.content)))
           fail('UPSTREAM_FAILURE', 'MinerU annotation structure is invalid')
-        const children = (Array.isArray(block.content) ? block.content : [])
+        const rawChildren = Array.isArray(block.content) ? block.content : []
+        // DocVortex 0.6.21 admits only the matching visual parent's typed
+        // annotation. Refuse unknown text-bearing annotations, never drop them.
+        const supportedType = ['image', 'table', 'chart', 'code'].includes(block.type)
+          ? `${block.type}_${part}` : null
+        if (rawChildren.some(child => typeof child?.type === 'string' &&
+            (child.type === part || child.type.endsWith(`_${part}`)) &&
+            child.type !== supportedType && containsText(child)))
+          fail('UPSTREAM_FAILURE', 'MinerU returned an unsupported text annotation')
+        const children = rawChildren
           .map((child, childOrder) => ({ child, childOrder }))
-          .filter(({ child }) => ['image', 'table', 'chart', 'code']
-            .some(visual => child?.type === `${visual}_${part}`))
+          .filter(({ child }) => child?.type === supportedType)
           // DocVortex structured_content sorts annotations by source index,
           // with absent indexes last and physical position as the tie-breaker.
           .sort((left, right) => {
@@ -208,47 +236,50 @@ export function MinerUSource(ctx, config = {}) {
   const client = ctx.get('ivoraige.sidecarFactory').create({ command, args: [selectedRunner], timeoutMs })
   ctx.effect(() => () => client.close())
   const rebuild = async (frozen, { signal } = {}) => {
-    const binding = frozen.sourceBinding
-    if (binding?.adapterId !== 'mineru' || binding.middleSchema !== 'docvortex.middle' ||
-        binding.middleSchemaVersion !== '2.0' || frozen.document?.sourceAdapterId !== 'mineru')
-      fail('PRECONDITION_FAILED', 'MinerU frozen source binding is incompatible')
-    await verifyMineruBundle(binding, { directory: root, storePath })
-    const originalPdf = async () => {
-      const bytes = await readFile(binding.sourcePath)
-      if (sha256(bytes) !== binding.sourceDigest)
-        fail('PRECONDITION_FAILED', 'MinerU original PDF changed')
-      return bytes
-    }
-    if (frozen.snapshot.contentMode === 'source') return originalPdf()
-    if (frozen.snapshot.contentMode !== 'accepted-translation')
-      fail('PRECONDITION_FAILED', 'MinerU snapshot mode is unsupported')
-    const middle = JSON.parse(await readFile(join(binding.bundlePath, 'middle_json.json'), 'utf8'))
-    const structured = JSON.parse(await readFile(join(binding.bundlePath, 'structured_content.json'), 'utf8'))
-    const projected = projectStructured(middle, structured, binding.bundlePath, binding.files,
-      { projectionVersion: binding.projectionVersion === 2 ? 2 : 1 })
-    if (projected.units.length !== frozen.units.length)
-      fail('PRECONDITION_FAILED', 'MinerU frozen units do not match the saved source')
-    const replacements = []
-    for (let order = 0; order < frozen.units.length; order++) {
-      const { unit, decision, text } = frozen.units[order]
-      const original = projected.units[order]
-      if (unit.order !== order || unit.sourceText !== original.sourceText ||
-          unit.translatable !== original.translatable ||
-          JSON.stringify(unit.locator) !== JSON.stringify(original.locator))
-        fail('PRECONDITION_FAILED', 'MinerU frozen units do not match the saved source')
-      if (decision.type === 'revision') {
-        if (!unit.translatable || typeof text !== 'string' || !text.trim())
-          fail('PRECONDITION_FAILED', 'MinerU accepted text is invalid')
-        replacements.push({ ...original.locator, sourceText: original.sourceText, text })
-      }
-    }
-    if (!replacements.length) return originalPdf()
-    const work = join(root, 'work')
-    await mkdir(work, { recursive: true })
-    if (await realpath(work) !== work) fail('PRECONDITION_FAILED', 'MinerU work directory must not be a symlink')
-    const temporary = await mkdtemp(join(work, 'rebuild-'))
-    let retainTemporary = false
+    let work, temporary, retainTemporary = false
     try {
+      const binding = frozen.sourceBinding
+      if (binding?.adapterId !== 'mineru' || binding.middleSchema !== 'docvortex.middle' ||
+          binding.middleSchemaVersion !== '2.0' || frozen.document?.sourceAdapterId !== 'mineru')
+        fail('PRECONDITION_FAILED', 'MinerU frozen source binding is incompatible')
+      await verifyMineruBundle(binding, { directory: root, storePath })
+      const originalPdf = async () => {
+        const bytes = await readFile(binding.sourcePath)
+        if (sha256(bytes) !== binding.sourceDigest)
+          fail('PRECONDITION_FAILED', 'MinerU original PDF changed')
+        return bytes
+      }
+      const projectionVersion = Object.hasOwn(binding, 'projectionVersion') ? binding.projectionVersion : 1
+      if (![1, 2].includes(projectionVersion))
+        fail('PRECONDITION_FAILED', 'MinerU text projection version is unsupported')
+      if (frozen.snapshot.contentMode === 'source') return await originalPdf()
+      if (frozen.snapshot.contentMode !== 'accepted-translation')
+        fail('PRECONDITION_FAILED', 'MinerU snapshot mode is unsupported')
+      const middle = JSON.parse(await readFile(join(binding.bundlePath, 'middle_json.json'), 'utf8'))
+      const structured = JSON.parse(await readFile(join(binding.bundlePath, 'structured_content.json'), 'utf8'))
+      const projected = projectStructured(middle, structured, binding.bundlePath, binding.files,
+        { projectionVersion })
+      if (projected.units.length !== frozen.units.length)
+        fail('PRECONDITION_FAILED', 'MinerU frozen units do not match the saved source')
+      const replacements = []
+      for (let order = 0; order < frozen.units.length; order++) {
+        const { unit, decision, text } = frozen.units[order]
+        const original = projected.units[order]
+        if (unit.order !== order || unit.sourceText !== original.sourceText ||
+            unit.translatable !== original.translatable ||
+            JSON.stringify(unit.locator) !== JSON.stringify(original.locator))
+          fail('PRECONDITION_FAILED', 'MinerU frozen units do not match the saved source')
+        if (decision.type === 'revision') {
+          if (!unit.translatable || typeof text !== 'string' || !text.trim())
+            fail('PRECONDITION_FAILED', 'MinerU accepted text is invalid')
+          replacements.push({ ...original.locator, sourceText: original.sourceText, text })
+        }
+      }
+      if (!replacements.length) return await originalPdf()
+      work = join(root, 'work')
+      await mkdir(work, { recursive: true })
+      if (await realpath(work) !== work) fail('PRECONDITION_FAILED', 'MinerU work directory must not be a symlink')
+      temporary = await mkdtemp(join(work, 'rebuild-'))
       const outputPath = join(temporary, 'output.pdf')
       const result = await client.request('rebuild', { bundlePath: binding.bundlePath,
         files: binding.files, replacements, outputPath, layout: 'original' }, { signal })
@@ -260,19 +291,26 @@ export function MinerUSource(ctx, config = {}) {
       return bytes
     } catch (error) {
       retainTemporary = error.details?.terminationFailed === true
-      if (error.code === 'COMPONENT_MISSING') {
-        outputStatus.state = 'unavailable'
-        outputStatus.message = 'MinerU PDF renderer or its local runtime is unavailable'
-      } else outputStatus.message = 'Last MinerU PDF replay failed; retry or inspect local diagnostics'
-      if (error instanceof KernelError) throw error
-      throw new KernelError(error.code === 'COMPONENT_MISSING' ? 'COMPONENT_MISSING' : 'UPSTREAM_FAILURE',
-        error.code === 'COMPONENT_MISSING' ? 'MinerU 4.0.10 is unavailable' : 'MinerU PDF replay failed',
-        { ...(error.details?.canceled ? { canceled: true } : {}),
+      const absent = error.code === 'COMPONENT_MISSING'
+      outputStatus.state = absent ? 'unavailable' : 'unchecked'
+      const publicMessage = absent ? unavailableMessage(error) ?? 'MinerU PDF renderer or its local runtime is unavailable' :
+        'MinerU PDF replay failed'
+      outputStatus.message = absent ? publicMessage : 'Last MinerU PDF replay failed; retry or inspect local diagnostics'
+      if (error instanceof KernelError) {
+        if (signal?.aborted) error.details = { ...error.details, canceled: true }
+        throw error
+      }
+      throw new KernelError(absent ? 'COMPONENT_MISSING' : 'UPSTREAM_FAILURE', publicMessage,
+        { ...(error.details?.canceled || error.name === 'AbortError' || signal?.aborted ? { canceled: true } : {}),
           ...(error.details?.terminationFailed ? { terminationFailed: true } : {}) }, { cause: error })
     } finally {
-      if (!retainTemporary && await realpath(work).catch(() => null) === work &&
+      if (!retainTemporary && temporary && await realpath(work).catch(() => null) === work &&
           await realpath(temporary).catch(() => null) === temporary)
-        await rm(temporary, { recursive: true, force: true })
+        try { await rm(temporary, { recursive: true, force: true }) }
+        catch (cleanupError) {
+          if (outputStatus.state === 'ready') outputStatus.message = 'MinerU PDF replay completed; temporary cleanup failed'
+          console.error('MinerU PDF temporary cleanup failed', cleanupError)
+        }
     }
   }
   const parse = async (file, persist, isReferenced) => {
@@ -304,6 +342,8 @@ export function MinerUSource(ctx, config = {}) {
         fail('UPSTREAM_FAILURE', 'MinerU saved result is incomplete')
       const middle = JSON.parse(await readFile(join(saved, 'middle_json.json'), 'utf8'))
       const structured = JSON.parse(await readFile(join(saved, 'structured_content.json'), 'utf8'))
+      if (middle?.metadata?.producer?.version !== ENGINE_VERSION)
+        fail('UPSTREAM_FAILURE', 'MinerU MiddleJson producer version is incompatible')
       const bundlePath = bundleOf(root, storePath, sourceDigest, { tier, ocrMode })
       const result = projectStructured(middle, structured, bundlePath, files)
       result.title = file.title ?? (file.path ? basename(file.path) : file.name ?? 'PDF document')
@@ -319,7 +359,11 @@ export function MinerUSource(ctx, config = {}) {
       catch (error) {
         if (!['EEXIST', 'ENOTEMPTY', 'EACCES', 'EPERM'].includes(error.code) ||
             !(await lstat(bundlePath).then(stat => stat.isDirectory(), () => false))) throw error
-        await verifyMineruBundle({ ...result.sourceBinding, files }, { directory: root, storePath })
+        try { await verifyMineruBundle({ ...result.sourceBinding, files }, { directory: root, storePath }) }
+        catch (verificationError) {
+          throw new KernelError('PRECONDITION_FAILED', 'MinerU existing bundle cannot be reused', {},
+            { cause: new AggregateError([error, verificationError], 'MinerU bundle reuse verification failed') })
+        }
       }
       status.state = 'ready'; status.message = 'MinerU parse completed'
       try {
@@ -338,11 +382,15 @@ export function MinerUSource(ctx, config = {}) {
       retainTemporary = error.details?.terminationFailed === true
       const absent = error.code === 'COMPONENT_MISSING'
       status.state = absent ? 'unavailable' : 'unchecked'
-      status.message = absent ? 'MinerU 4.0.10 or its local assets are unavailable' :
-        'Last MinerU import failed; retry or inspect local diagnostics'
-      if (error instanceof KernelError) throw error
+      const publicMessage = absent ? unavailableMessage(error) ?? 'MinerU runtime or local assets are unavailable' :
+        'MinerU import failed'
+      status.message = absent ? publicMessage : 'Last MinerU import failed; retry or inspect local diagnostics'
+      if (error instanceof KernelError) {
+        if (file.signal?.aborted) error.details = { ...error.details, canceled: true }
+        throw error
+      }
       const publicError = new KernelError(absent ? 'COMPONENT_MISSING' : 'UPSTREAM_FAILURE',
-        absent ? 'MinerU 4.0.10 or its local assets are unavailable' : 'MinerU import failed',
+        publicMessage,
         { ...(error.details?.canceled || error.name === 'AbortError' || file.signal?.aborted ? { canceled: true } : {}),
           ...(error.details?.terminationFailed ? { terminationFailed: true } : {}) }, { cause: error })
       throw publicError

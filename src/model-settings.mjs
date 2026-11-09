@@ -384,7 +384,8 @@ export async function bootModelSettings({ directory, storePath, profileLease } =
   const lease = ownLease ? await acquireProfile(directory) : profileLease
   directory = lease.directory
   try {
-    if (ownLease) await recoverProfile(directory)
+    await lease.reacquireProbe()
+    await recoverProfile(directory)
     const result = await bootProfile({ directory, storePath })
     if (ownLease) result.ctx.effect(() => () => lease.release())
     return result

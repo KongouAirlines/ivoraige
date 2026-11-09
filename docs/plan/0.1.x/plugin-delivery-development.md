@@ -109,3 +109,45 @@ The regression uses a real locally installed test plugin which ignores SIGTERM,
 waits at an explicit activation barrier, and proves that recovery happens only
 after SIGKILL releases the probe lease. Native package-run recovery uses the
 upstream recorded-process gate independently.
+
+## CLI path-alias correction
+
+PR #97's macOS job `128990495675` at `b5cbdda966b36dcb29135f38e1ae8ee894ec978d`
+passed the full suite but failed package smoke: the plugin CLI exited successfully
+with empty stdout, so the smoke's JSON parse failed. Its entry guard compared the
+canonical module URL with an unresolved argv path. macOS temporary-directory
+aliases and npm executable links can therefore skip dispatch entirely.
+
+A real directory-symlink invocation reproduced exit 0 with empty stdout on Linux.
+Commit `867179b8f8ddaa278df0493f790fcbe531698b53` applies the existing CLI's
+`realpathSync` comparison to both paths. The regression checks direct and aliased
+execution as well as importing the module without dispatch. On Linux/Node
+24.22.1, the focused regression and offline package smoke passed; the full suite
+reported 596 tests, 594 passed, 2 skipped and 0 failed. Post-fix Node 26/macOS CI
+has not yet established the result on that platform.
+
+The cancellation regression also distinguishes platform signal behavior: its
+POSIX validator ignores SIGTERM and must retain the recovery journal, whereas
+Windows may terminate it and permit immediate rollback. Both paths verify final
+ownership release and restoration. Fixture cleanup now terminates and drains the
+validator before deleting its directory, including when an assertion fails.
+This addresses a reachable test assumption; unavailable Windows job logs do not
+establish that it caused a running CI job to stall.
+
+## Recovery boundary corrections
+
+If the process dies after moving the previous rollback snapshot to `obsolete`
+but before publishing the new snapshot, recovery restores that previous rollback
+point as well as the uncommitted package set. A SIGKILL regression verifies that
+the current complete version reopens and the earlier complete version remains
+available to explicit rollback. Explicit rollback first removes unused obsolete
+bytes, so partially completed cleanup from a committed operation cannot become
+a false rollback snapshot.
+
+CLI failures preserve only the supported `recoveryPending` and positive
+`validationPid` fields from error details; arbitrary details and causes are not
+serialized. Borrowed profile leases remain caller-owned, compare canonical paths
+through directory aliases, and must hold the validation lease while startup
+recovers any interrupted journal. The ordinary boot API never skips recovery
+merely because its lease was supplied by an embedding caller; the isolated
+installation probe retains its separate internal startup primitive.

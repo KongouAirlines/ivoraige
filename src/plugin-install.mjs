@@ -5,7 +5,7 @@ import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { readFile, realpath, mkdir, mkdtemp, cp, lstat } from 'node:fs/promises'
 import { join, resolve, basename, sep } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { realpathSync } from 'node:fs'
 import semver from 'semver'
 import { AppBoot, IVORAIGE_DSH_COMMIT, runProfilePnpm, writeFileAtomic } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
@@ -160,14 +160,32 @@ export async function managePlugins({ directory, action, packageDirectory, name,
   } finally { lease.release() }
 }
 
+// Only operational recovery fields cross the CLI boundary; never dump causes
+// or arbitrary plugin-provided details into the diagnostic object.
+export function pluginDiagnostic(error) {
+  const details = {}
+  if (error.details?.recoveryPending === true) details.recoveryPending = true
+  if (Number.isSafeInteger(error.details?.validationPid) && error.details.validationPid > 0)
+    details.validationPid = error.details.validationPid
+  return { code: error.code ?? 'UPSTREAM_FAILURE', message: error.message,
+    ...(Object.keys(details).length ? { details } : {}) }
+}
+
+function invokedAsCli() {
+  if (!process.argv[1]) return false
+  try { return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(resolve(process.argv[1])) }
+  catch { return false }
+}
+
 // Recovery remains available without starting AppBoot or the optional plugin.
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+// Canonicalize both sides for npm bin links and macOS temporary-directory aliases.
+if (invokedAsCli()) {
   try {
     const [action, directory, target, configuration] = process.argv.slice(2)
     console.log(JSON.stringify(await managePlugins({ action, directory, name: target,
       packageDirectory: target, ...(configuration ? JSON.parse(configuration) : {}) })))
   } catch (error) {
-    console.error(JSON.stringify({ code: error.code ?? 'UPSTREAM_FAILURE', message: error.message }))
+    console.error(JSON.stringify(pluginDiagnostic(error)))
     process.exitCode = 1
   }
 }
