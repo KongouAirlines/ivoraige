@@ -35,7 +35,7 @@ async function createFixtureApp(t, options) {
   return app
 }
 
-async function fakeRunner(dir, { nested = false } = {}) {
+async function fakeRunner(dir, { nested = false, producerVersion = '4.0.10' } = {}) {
   const path = join(dir, 'fake-runner.mjs')
   await writeFile(path, `import { mkdir, writeFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
@@ -51,7 +51,7 @@ await mkdir(join(output, 'images'), {recursive:true});
 await writeFile(join(output, 'images', 'page_0_image_1.png'), Buffer.from([1,2,3]));
 const blocks = [{type:'doc_title',index:0,content:[{type:'text',content:'A'}]},{type:'image',index:1,content:[]},{type:'text',index:2,content:[{type:'text',content:'B'}]}${nested ? ",{type:'chart',index:3,content:[{type:'chart_caption',index:4,content:[{type:'text',content:'Chart caption'}]},{type:'chart_body',index:5,content:'<table><tr><td>A</td></tr></table>'},{type:'chart_footnote',index:6,content:[{type:'text',content:'Chart source'}]}]}" : ''}].map((block,i)=>({...block,bbox:[1,2,3+i,4+i]}));
 const pages = [{page_idx:0,blocks}];
-await writeFile(join(output, 'middle_json.json'), JSON.stringify({schema:'docvortex.middle',schema_version:'2.0',pages,metadata:{producer:{name:'mineru',version:'4.0.10'}}}));
+await writeFile(join(output, 'middle_json.json'), JSON.stringify({schema:'docvortex.middle',schema_version:'2.0',pages,metadata:{producer:{name:'mineru',version:${JSON.stringify(producerVersion)}}}}));
 const views = blocks.map((block,i)=>({type:block.type,bbox:block.bbox,content:i===0?'A':i===1?{image_path:'images/page_0_image_1.png'}:i===2?'B':'Table body',...(i===3?{captions:[{content:'Chart caption'}],footnotes:[{content:'Chart source'}]}:{})}));
 await writeFile(join(output, 'structured_content.json'), JSON.stringify({pages:[{page_idx:0,blocks:views}]}));
 await writeFile(join(output, 'markdown.md'), '# A\\n\\nB\\n');
@@ -103,6 +103,20 @@ test('MinerU source imports complete saved bundle and exports source MD/JSON wit
     command: process.execPath, runner })
   assert.equal(reopened.records.getDocument(document.id).sourceAdapterId, 'mineru')
   await reopened.dispose()
+})
+
+test('MinerU rejects a saved MiddleJson from another producer version', async t => {
+  const dir = await fixture(t)
+  const runner = await fakeRunner(dir, { producerVersion: '4.0.9' })
+  const app = await createFixtureApp(t, { store: join(dir, 'db.sqlite') })
+  await app.ctx.plugin(MinerUSource, { directory: join(dir, 'mineru-data'),
+    command: process.execPath, runner })
+  const admitted = await app.operations.invoke('importDocument', { format: 'pdf', adapterId: 'mineru',
+    contentBase64: pdf.toString('base64'), language: 'en', sourceId: 'wrong-producer' })
+  const task = await app.tasks.wait(admitted.taskId)
+  assert.equal(task.state, 'failed')
+  assert.equal(app.records.listDocuments().length, 0)
+  assert.deepEqual(await readdir(join(dir, 'mineru-data', 'work')), [])
 })
 
 test('MinerU nested chart captions and footnotes remain in frozen source MD/JSON', async t => {
@@ -384,7 +398,8 @@ test('MinerU preserves cancellation after a sidecar has returned saved data', as
     const blocks = [{ type: 'text', index: 0, bbox: [1, 2, 3, 4],
       content: [{ type: 'text', content: 'Source' }] }]
     await writeFile(join(output, 'middle_json.json'), JSON.stringify({ schema: 'docvortex.middle',
-      schema_version: '2.0', pages: [{ page_idx: 0, blocks }] }))
+      schema_version: '2.0', metadata: { producer: { version: '4.0.10' } },
+      pages: [{ page_idx: 0, blocks }] }))
     await writeFile(join(output, 'structured_content.json'), JSON.stringify({ pages: [{ page_idx: 0,
       blocks: [{ type: 'text', bbox: [1, 2, 3, 4], content: 'Source' }] }] }))
     await writeFile(join(output, 'markdown.md'), 'Source')
@@ -509,6 +524,29 @@ test('Python runner rejects DocVortex drift before any parse side effect', t => 
         reason: version === 'missing' ? 'missing' : 'incompatible' })
     }
   }
+})
+
+test('Python runner checks the saved MiddleJson producer, not only its response pin', t => {
+  const python = process.platform === 'win32' ? 'python' : 'python3'
+  const probe = spawnSync(python, ['--version'], { encoding: 'utf8' })
+  if (probe.error || probe.status !== 0) return t.skip('Python is unavailable')
+  const runner = fileURLToPath(new URL('../plugins/mineru/runner.py', import.meta.url))
+  const script = `import importlib.util,json,sys,tempfile,types\n` +
+    `from pathlib import Path\n` +
+    `spec=importlib.util.spec_from_file_location('mineru_runner',sys.argv[1])\n` +
+    `module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);module.CONFIGURED=True\n` +
+    `parser=types.ModuleType('mineru.parser');writer=types.ModuleType('mineru.parser.writer')\n` +
+    `writer.FileBasedDataWriter=lambda output: output\n` +
+    `middle={'schema':'docvortex.middle','schema_version':'2.0','metadata':{'producer':{'version':'4.0.9'}}}\n` +
+    `parser.parse=lambda path,tier,ocr_mode: types.SimpleNamespace(save=lambda output: Path(output,'middle_json.json').write_text(json.dumps(middle)))\n` +
+    `sys.modules.update({'mineru':types.ModuleType('mineru'),'mineru.parser':parser,'mineru.parser.writer':writer})\n` +
+    `with tempfile.TemporaryDirectory() as directory:\n` +
+    `    source=Path(directory,'source.pdf');source.write_bytes(b'%PDF-1.4')\n` +
+    `    try: module.parse({'path':str(source),'options':{'outputDir':directory,'tier':'flash','ocrMode':'auto'}})\n` +
+    `    except module.SidecarError as error: assert 'version is incompatible' in str(error)\n` +
+    `    else: raise AssertionError('wrong producer was accepted')\n`
+  const result = spawnSync(python, ['-c', script, runner], { encoding: 'utf8' })
+  assert.equal(result.status, 0, result.stderr)
 })
 
 test('sidecar cancellation waits for a delayed child exit', async t => {

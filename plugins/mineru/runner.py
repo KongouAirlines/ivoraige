@@ -74,8 +74,11 @@ def parse(params):
         result = mineru_parse(Path(path), tier=tier, ocr_mode=ocr_mode)
         result.save(FileBasedDataWriter(output))
     middle = json.loads((Path(output) / "middle_json.json").read_text(encoding="utf-8"))
-    if middle.get("schema") != "docvortex.middle" or middle.get("schema_version") != "2.0":
-        raise SidecarError(-32001, "MinerU MiddleJson schema is incompatible")
+    metadata = middle.get("metadata") if isinstance(middle, dict) else None
+    producer = metadata.get("producer") if isinstance(metadata, dict) else None
+    if (not isinstance(middle, dict) or middle.get("schema") != "docvortex.middle" or middle.get("schema_version") != "2.0"
+            or not isinstance(producer, dict) or producer.get("version") != PIN):
+        raise SidecarError(-32001, "MinerU MiddleJson version is incompatible")
     return {"doc": {"engineVersion": PIN, "schema": middle["schema"],
                     "schemaVersion": middle["schema_version"]}}
 

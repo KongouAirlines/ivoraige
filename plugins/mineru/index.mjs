@@ -263,6 +263,8 @@ export function MinerUSource(ctx, config = {}) {
         fail('UPSTREAM_FAILURE', 'MinerU saved result is incomplete')
       const middle = JSON.parse(await readFile(join(saved, 'middle_json.json'), 'utf8'))
       const structured = JSON.parse(await readFile(join(saved, 'structured_content.json'), 'utf8'))
+      if (middle?.metadata?.producer?.version !== ENGINE_VERSION)
+        fail('UPSTREAM_FAILURE', 'MinerU MiddleJson producer version is incompatible')
       const bundlePath = bundleOf(root, storePath, sourceDigest, { tier, ocrMode })
       const result = projectStructured(middle, structured, bundlePath, files)
       result.title = file.title ?? (file.path ? basename(file.path) : file.name ?? 'PDF document')
