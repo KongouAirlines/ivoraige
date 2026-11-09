@@ -45,6 +45,8 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 
 处理 PDF 时，先按 [PDF 开发参考](docs/plan/0.1.0/pdf-development.md)准备 Windows 可选环境，再按 [PDF 指南](docs/plan/0.1.0/pdf-guide.md)操作。默认在线组件源目前没有可下载的 Release。
 
+配套 PDF sidecar 现需明确标识的 **BabelDOC 0.7.1+ivoraige.1** 源码派生桥，保留安全解析限额；原样官方 0.7.1 wheel 缺少按位置回放所需的回调身份。旧 0.6.4 记录仍可读取，但译文 PDF 回放需重新导入并明确核对接受修订。见[构建与迁移指南](docs/plan/0.1.x/babeldoc-0.7.1.md)；此派生版本已测 Linux x64/glibc 2.34，Windows/macOS 成包尚未验证。
+
 新导入的 PDF 会在工作台与冻结 JSON 摘要中显示捕获单位、翻译回调请求、未进入回调但保留的单位、行审计补录及空文本单位。这些是来源清单数量，不能证明原件文字全部捕获或翻译；行审计与空文本单位可能和保留单位重叠。
 
 本分支配套源码 sidecar 可将声明为 `en` 的 PDF 路由到 `zh`／`zh-CN`／`zh-Hans`，将声明为 `zh`／`zh-CN`／`zh-Hans` 的 PDF 路由到 `en`。请选择实际原文语言；程序不会自动识别。中文→英文 PDF 排版尚待真实 BabelDOC 与 Mac 目检；需使用本分支配套 sidecar，已有安装组件可能仍只支持英文来源。原件 PDF 的来源模式导出不需要目标语言。

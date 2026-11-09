@@ -23,7 +23,7 @@
 | P05 | 独立官方插件包与安装恢复 | P04；兼容范围定案前完成运行时基线复评（不要求升级） | 草案 | [基础契约与正确性](packages/foundation.md#p05) |
 | P06 | MinerU 纯解析插件 | P05、验证 V01–V04 | 草案 | [PDF 与独立分发](packages/pdf.md#p06) |
 | P07 | 第二同类插件与主体稳定性证明 | P06 后冻结的契约 | 草案 | [PDF 与独立分发](packages/pdf.md#p07) |
-| P08 | PDF 依赖闭包与独立分发 | 清单核对可并行；成包依赖 P05 | 草案 | [PDF 与独立分发](packages/pdf.md#p08) |
+| P08 | PDF 依赖闭包与独立分发 | 清单核对可并行；成包依赖 P05 | BabelDOC 0.7.1 派生来源桥分支验证，独立二进制发布未完成；[证据](evidence/babeldoc-0.7.1.md) | [PDF 与独立分发](packages/pdf.md#p08) |
 | P09 | MinerU 自身重建及同译文 PDF 对照 | P06；受影响包依赖 P08 | 草案 | [PDF 与独立分发](packages/pdf.md#p09) |
 | P10 | 跨引擎来源映射与 PDF 重建 | P07、P09；单独批准实验范围 | 草案 | [PDF 与独立分发](packages/pdf.md#p10) |
 | D01 | 桌面 HostSession/任务/worker/退出契约探针 | P01；集成依赖 P04 | 草案 | [桌面生命周期](packages/desktop.md#d01) |

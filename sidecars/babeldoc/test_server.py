@@ -15,6 +15,87 @@ from unittest.mock import patch
 import server
 
 
+class NativeBridgeTests(unittest.TestCase):
+    def test_duplicate_text_is_bound_by_indices_not_callback_order(self):
+        inventory = server.SourceInventory()
+        items = [{"pageIndex": 0, "paragraphIndex": i, "page": 7,
+                  "bbox": [10, y, 100, y + 20], "sourceUnicode": "Repeated source",
+                  "layoutLabel": "plain text"} for i, y in enumerate((50, 100))]
+        inventory.load(json.dumps(items))
+        def context(index):
+            return {"ivoraigeSource": {"version": 1, "pageIndex": 0,
+                "paragraphIndex": index, "preparedInput": "Repeated source",
+                "placeholderPayloadsJson": "[]"}}
+        second = inventory.locate("Repeated source", context(1))
+        first = inventory.locate("Repeated source", context(0))
+        self.assertEqual(second["bbox"][1], 100)
+        self.assertEqual(first["bbox"][1], 50)
+        self.assertEqual(first["page"], 7)
+        self.assertNotEqual(first["key"], second["key"])
+        with self.assertRaisesRegex(server.SidecarError, "differs from callback"):
+            inventory.locate("Changed source", context(0))
+        with self.assertRaisesRegex(server.SidecarError, "absent from source inventory"):
+            inventory.locate("Repeated source", context(2))
+        with self.assertRaisesRegex(server.SidecarError, "context missing"):
+            inventory.locate("Repeated source", {})
+        inventory.load("[]")
+        with self.assertRaisesRegex(server.SidecarError, "absent from source inventory"):
+            inventory.locate("Repeated source", context(0))
+
+    def test_inventory_retains_uncalled_null_and_rejects_malformed_locations(self):
+        inventory = server.SourceInventory()
+        item = {"pageIndex": 0, "paragraphIndex": 0, "page": 0,
+                "bbox": [0, 0, 10, 10], "sourceUnicode": None, "layoutLabel": None}
+        self.assertIsNone(inventory.load(json.dumps([item]))[0]["sourceUnicode"])
+        for records in ([item, item], [{**item, "bbox": [0, 0, float("inf"), 10]}],
+                        [{**item, "page": True}], [{**item, "sourceUnicode": 1}]):
+            with self.assertRaises(server.SidecarError):
+                inventory.load(json.dumps(records))
+
+    def test_socket_connect_and_connect_ex_are_guarded_and_restored(self):
+        import socket
+        for method in ("connect", "connect_ex"):
+            original = getattr(socket.socket, method)
+            with server.loopback_only_network():
+                with self.assertRaisesRegex(server.SidecarError, "Network access disabled"):
+                    getattr(socket.socket, method)(None, ("example.com", 443))
+            self.assertIs(getattr(socket.socket, method), original)
+
+    def test_runtime_requires_both_derived_distribution_and_native_marker(self):
+        fake_babeldoc = SimpleNamespace(const=SimpleNamespace(__version__="0.7.1"),
+                                      _rust_il=SimpleNamespace(ivoraige_source_bridge_version=1))
+        with patch.dict("sys.modules", {"pymupdf": SimpleNamespace(VersionBind="1.26.7"),
+                                         "babeldoc": fake_babeldoc}):
+            with patch.object(server, "package_version", return_value="0.7.1"):
+                with self.assertRaisesRegex(server.SidecarError, "derived runtime"):
+                    server.runtime()
+            with patch.object(server, "package_version", return_value=server.ENGINE_VERSION):
+                server.runtime()
+                fake_babeldoc._rust_il = SimpleNamespace()
+                with self.assertRaisesRegex(server.SidecarError, "source bridge v1 missing"):
+                    server.runtime()
+
+    def test_old_binding_fails_before_resolving_source_or_running_engine(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            doc = root / "doc.json"
+            frozen = root / "frozen.json"
+            doc.write_text(json.dumps({"document": {"language": "en"},
+                "sourceBinding": {"adapterId": "babeldoc", "engineVersion": "0.6.4",
+                    "sourcePath": "/missing/original.pdf"}}))
+            frozen.write_text("{}")
+            with patch.object(server, "run_engine") as engine:
+                with self.assertRaisesRegex(server.SidecarError, "re-import.*reconcile accepted revisions"):
+                    server.rebuild({"format": "pdf", "docRef": str(doc), "revisionsRef": str(frozen)})
+                engine.assert_not_called()
+
+    def test_capture_config_enables_parser_limits_and_versions_bridge(self):
+        config = server.capture_config(None, 5)
+        self.assertTrue(config["parserResourceLimits"])
+        self.assertEqual(config["sourceBridge"], 1)
+        self.assertEqual(config["babeldoc"], "0.7.1+ivoraige.1")
+
+
 class BindingTests(unittest.TestCase):
     def test_capture_summary_counts_overlapping_audit_and_empty_units(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2026 ivoraige contributors
 
-"""BabelDOC 0.6.4 PDF capture/replay over line-delimited JSON-RPC 2.0.
+"""BabelDOC 0.7.1+ivoraige.1 PDF capture/replay over line-delimited JSON-RPC 2.0.
 
 The only stdout writes are protocol messages. BabelDOC runs in this dedicated
 process; it has no translation model, credentials, or download path.
@@ -10,6 +10,8 @@ process; it has no translation model, credentials, or download path.
 from __future__ import annotations
 
 import json
+import math
+from importlib.metadata import version as package_version
 import multiprocessing as mp
 import os
 import re
@@ -17,14 +19,14 @@ import shutil
 import socket
 import sys
 import tempfile
-import threading
 import traceback
-from contextlib import redirect_stdout
-from dataclasses import asdict
+from contextlib import redirect_stdout, contextmanager
 from pathlib import Path
 
 PROTOCOL_VERSION = 1
-ENGINE_VERSION = "0.6.4"
+ENGINE_VERSION = "0.7.1+ivoraige.1"
+UPSTREAM_VERSION = "0.7.1"
+SOURCE_BRIDGE_VERSION = 1
 PYMUPDF_VERSION = "1.26.7"
 LAYOUT_MODEL = "doclayout_yolo_docstructbench_imgsz1024.onnx"
 TOKEN_RE = re.compile(r"</?(?:b|i|u|s|f)\d+>")
@@ -308,8 +310,8 @@ def runtime():
     from babeldoc import const
 
     require(
-        const.__version__ == ENGINE_VERSION,
-        f"BabelDOC {ENGINE_VERSION} required; found {const.__version__}",
+        const.__version__ == UPSTREAM_VERSION and package_version("BabelDOC") == ENGINE_VERSION,
+        f"BabelDOC derived runtime {ENGINE_VERSION} required; found {package_version('BabelDOC')}",
         -32002,
         "COMPONENT_MISSING",
     )
@@ -319,6 +321,10 @@ def runtime():
         -32002,
         "COMPONENT_MISSING",
     )
+    from babeldoc import _rust_il
+    require(getattr(_rust_il, "ivoraige_source_bridge_version", None) == SOURCE_BRIDGE_VERSION,
+            "BabelDOC native source bridge v1 missing; the stock 0.7.1 wheel cannot replay located records",
+            -32002, "COMPONENT_MISSING")
     return const, pymupdf
 
 
@@ -344,6 +350,14 @@ def assets():
             -32002,
             "COMPONENT_MISSING",
         )
+    from babeldoc.assets.embedding_assets_metadata import (
+        EMBEDDING_FONT_METADATA, CMAP_METADATA, TIKTOKEN_CACHES,
+    )
+    for directory, filenames in (("fonts", EMBEDDING_FONT_METADATA),
+                                 ("cmap", CMAP_METADATA), ("tiktoken", TIKTOKEN_CACHES)):
+        for name in filenames:
+            require((root / directory / name).is_file(),
+                    f"BabelDOC asset missing: {root / directory / name}", -32002, "COMPONENT_MISSING")
     return root, model
 
 
@@ -361,6 +375,8 @@ def capture_config(pages, min_text_length, source="en"):
     config = {
         "babeldoc": ENGINE_VERSION,
         "pymupdf": PYMUPDF_VERSION,
+        "sourceBridge": SOURCE_BRIDGE_VERSION,
+        "parserResourceLimits": True,
         "layoutModel": LAYOUT_MODEL,
         "pages": pages,
         "minTextLength": min_text_length,
@@ -404,6 +420,69 @@ def stage_engine_input(source: Path, task_work: Path) -> Path:
     return staged
 
 
+@contextmanager
+def loopback_only_network():
+    """Keep imports, configuration and native execution inside the same guard."""
+    originals = {name: getattr(socket.socket, name) for name in ("connect", "connect_ex")}
+
+    def guarded(original):
+        def call(sock, address):
+            if isinstance(address, tuple) and address:
+                require(address[0] in ("127.0.0.1", "::1", "localhost"),
+                        f"Network access disabled for PDF sidecar: {address[0]}", -32003)
+            return original(sock, address)
+        return call
+
+    try:
+        for name, original in originals.items():
+            setattr(socket.socket, name, guarded(original))
+        yield
+    finally:
+        for name, original in originals.items():
+            setattr(socket.socket, name, original)
+
+
+class SourceInventory:
+    """Resolve native callback indices only within their observed source part."""
+
+    def __init__(self):
+        self.positions = {}
+
+    def load(self, payload):
+        values = json.loads(payload)
+        require(isinstance(values, list), "Invalid native paragraph inventory")
+        positions = {}
+        for value in values:
+            require(isinstance(value, dict), "Invalid native paragraph record")
+            indices = (value.get("pageIndex"), value.get("paragraphIndex"))
+            require(all(type(v) is int and v >= 0 for v in indices), "Invalid native paragraph indices")
+            require(indices not in positions, "Duplicate native paragraph indices")
+            page, box, source = value.get("page"), value.get("bbox"), value.get("sourceUnicode")
+            require(type(page) is int and page >= 0, "Invalid native source page")
+            require(isinstance(box, list) and len(box) == 4 and all(
+                type(v) in (int, float) and math.isfinite(v) for v in box), "Invalid native source box")
+            require(source is None or isinstance(source, str), "Invalid native source text")
+            positions[indices] = {"page": page, "bbox": box,
+                "key": location_key(page, dict(zip(("x", "y", "x2", "y2"), box))),
+                "sourceUnicode": source, "layoutLabel": str(value.get("layoutLabel"))}
+        self.positions = positions
+        return list(positions.values())
+
+    def locate(self, text, rate_limit_params):
+        context = (rate_limit_params or {}).get("ivoraigeSource")
+        require(isinstance(context, dict) and context.get("version") == SOURCE_BRIDGE_VERSION,
+                "Native source context missing or incompatible")
+        indices = (context.get("pageIndex"), context.get("paragraphIndex"))
+        require(all(type(v) is int and v >= 0 for v in indices), "Invalid native callback indices")
+        position = self.positions.get(indices)
+        require(position is not None, "Native callback is absent from source inventory")
+        require(context.get("preparedInput") == text, "Native prepared request differs from callback")
+        payloads = json.loads(context.get("placeholderPayloadsJson", "null"))
+        require(isinstance(payloads, list) and all(isinstance(p, dict) for p in payloads),
+                "Invalid native placeholder payload")
+        return {**position, "preparedInput": text, "placeholderPayloads": payloads}
+
+
 def _run_engine(
     input_pdf: Path,
     config_id: dict,
@@ -429,8 +508,7 @@ def _run_engine(
         require(key not in by_key, f"Duplicate source location: {key}")
         by_key[key] = record
 
-    local = threading.local()
-    seen = []
+    inventory = SourceInventory()
     all_paragraphs = []
 
     # Set the private writable cache before importing engine modules: some
@@ -465,8 +543,11 @@ def _run_engine(
         return writable
 
     const.get_cache_file_path = cache_path
+    # ORT uses native networking, outside Python socket hooks. Disable its
+    # telemetry before importing the layout adapter or creating any session.
+    import onnxruntime
+    onnxruntime.disable_telemetry_events()
     from babeldoc.docvision.doclayout import OnnxModel
-    from babeldoc.format.pdf.document_il.midend.il_translator import ILTranslator
     from babeldoc.format.pdf import high_level
     from babeldoc.format.pdf.translation_config import (
         TranslationConfig,
@@ -474,54 +555,9 @@ def _run_engine(
     )
     from babeldoc.translator.translator import BaseTranslator
 
-    original = ILTranslator.translate_paragraph
-    original_translate = ILTranslator.translate
     original_document = high_level.Document
     source_documents = []
     lang_in, lang_out = engine_pair(config_id.get("sourceLanguage", "en"))
-
-    def inventory(self, docs):
-        for page in docs.page:
-            for paragraph in page.pdf_paragraph:
-                box = asdict(paragraph.box)
-                all_paragraphs.append(
-                    {
-                        "page": page.page_number,
-                        "bbox": [box[n] for n in ("x", "y", "x2", "y2")],
-                        "key": location_key(page.page_number, box),
-                        "sourceUnicode": paragraph.unicode,
-                        "layoutLabel": str(paragraph.layout_label),
-                    }
-                )
-        return original_translate(self, docs)
-
-    def located(self, paragraph, page, *positional, **keyword):
-        box = asdict(paragraph.box)
-        position = {
-            "page": page.page_number,
-            "bbox": [box[n] for n in ("x", "y", "x2", "y2")],
-            "key": location_key(page.page_number, box),
-            "sourceUnicode": paragraph.unicode,
-            "layoutLabel": str(paragraph.layout_label),
-        }
-        seen.append(position)
-        previous = getattr(local, "position", None)
-        local.position = position
-        try:
-            return original(self, paragraph, page, *positional, **keyword)
-        finally:
-            tracker = keyword.get("tracker") or (
-                positional[1] if len(positional) > 1 else None
-            )
-            if tracker is not None:
-                position["preparedInput"] = getattr(tracker, "input", None)
-                placeholders = []
-                for item in getattr(tracker, "placeholders", []):
-                    raw = item.to_dict()
-                    # BabelDOC's placeholder payload varies by kind; retain it for inspection.
-                    placeholders.append(raw)
-                position["placeholderPayloads"] = placeholders
-            local.position = previous
 
     class RecordTranslator(BaseTranslator):
         name = "ivoraige-records"
@@ -532,6 +568,9 @@ def _run_engine(
             self.calls = []
             self.errors = []
             self.used = set()
+
+        def ivoraige_source_inventory(self, payload):
+            all_paragraphs.extend(inventory.load(payload))
 
         def do_llm_translate(self, text, rate_limit_params=None):
             raise NotImplementedError("No LLM translation capability")
@@ -546,10 +585,11 @@ def _run_engine(
             return f"</b{placeholder_id}>", f"</b{placeholder_id}>"
 
         def do_translate(self, text, rate_limit_params=None):
-            position = getattr(local, "position", None)
-            if position is None:
-                self.errors.append("BabelDOC callback lacked source position")
-                raise ValueError(self.errors[-1])
+            try:
+                position = inventory.locate(text, rate_limit_params)
+            except Exception as error:
+                self.errors.append(str(error))
+                raise
             call = {**position, "requestText": text}
             self.calls.append(call)
             if mode == "capture":
@@ -569,8 +609,6 @@ def _run_engine(
 
     engine = RecordTranslator()
     try:
-        ILTranslator.translate_paragraph = located
-        ILTranslator.translate = inventory
         high_level.Document = source_document_factory(
             original_document, input_pdf, source_documents
         )
@@ -594,30 +632,15 @@ def _run_engine(
                 auto_extract_glossary=False,
                 auto_enable_ocr_workaround=False,
                 skip_scanned_detection=True,
+                disable_parser_resource_limits=False,
                 disable_rich_text_translate=True,
                 pool_max_workers=1,
                 qps=100,
                 min_text_length=config_id["minTextLength"],
                 pages=page_arg,
             )
-            original_connect = socket.socket.connect
-
-            def local_only(sock, address):
-                if isinstance(address, tuple) and address:
-                    require(
-                        address[0] in ("127.0.0.1", "::1", "localhost"),
-                        f"Network access disabled for PDF sidecar: {address[0]}",
-                        -32003,
-                    )
-                return original_connect(sock, address)
-
-            socket.socket.connect = local_only
-            try:
-                with redirect_stdout(sys.stderr):
-                    result = high_level.translate(config)
-            finally:
-                socket.socket.connect = original_connect
-            complete_callbacks(engine.calls, seen)
+            with redirect_stdout(sys.stderr):
+                result = high_level.translate(config)
             if mode == "replay":
                 require(not engine.errors, "; ".join(engine.errors), -32003)
                 require(
@@ -640,8 +663,6 @@ def _run_engine(
             else:
                 checks = []
         finally:
-            ILTranslator.translate_paragraph = original
-            ILTranslator.translate = original_translate
             high_level.Document = original_document
             const.CACHE_FOLDER = old_cache
             const.get_cache_file_path = old_get_cache
@@ -657,7 +678,7 @@ def _run_engine(
     finally:
         pass
     require(not engine.errors, "; ".join(engine.errors), -32003)
-    return engine.calls, all_paragraphs or seen, checks
+    return engine.calls, all_paragraphs, checks
 
 
 def run_engine(
@@ -670,7 +691,8 @@ def run_engine(
     """Remove this invocation's engine files after capture, replay, or failure."""
     STATE.pop("active_run_work", None)
     try:
-        return _run_engine(input_pdf, config_id, mode, records, out_dir)
+        with loopback_only_network():
+            return _run_engine(input_pdf, config_id, mode, records, out_dir)
     finally:
         task_work = STATE.pop("active_run_work", None)
         if task_work is not None and task_work.exists():
@@ -915,7 +937,9 @@ def rebuild(params):
     )
     require(
         binding.get("engineVersion") == ENGINE_VERSION,
-        "BabelDOC source version changed",
+        f"BabelDOC source binding {binding.get('engineVersion')} cannot be replayed by {ENGINE_VERSION}; "
+        "re-import the original with the upgraded engine and explicitly reconcile accepted revisions; "
+        "existing records and snapshots remain unchanged",
     )
     source_path = binding.get("sourcePath")
     require(isinstance(source_path, str), "Managed sourcePath missing from binding")

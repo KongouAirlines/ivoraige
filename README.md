@@ -48,6 +48,8 @@ Use Node.js **26.13.0** with npm by default (`.node-version`). Node 24 is retain
 
 For PDF, prepare the optional Windows development environment using the [PDF development guide (中文)](docs/plan/0.1.0/pdf-development.md), then follow the [PDF guide (中文)](docs/plan/0.1.0/pdf-guide.md). The default online component source currently has no downloadable Release.
 
+The matching PDF sidecar now requires the explicitly derived **BabelDOC 0.7.1+ivoraige.1** source bridge, with parser resource limits enabled. The stock 0.7.1 wheel cannot supply location-safe replay callbacks. Old 0.6.4 bindings remain readable but translated-PDF replay requires re-import and explicit revision reconciliation. See the [build and migration guide](docs/plan/0.1.x/babeldoc-0.7.1.md); the tested derived build is Linux x64/glibc 2.34, with Windows/macOS packaging still unverified.
+
 New PDF imports show captured units, translation callback requests, retained units without callbacks, audited lines and empty units in the workbench and frozen JSON summary. These are source inventory counts, not proof that all original text was captured or translated; audited lines and empty units can overlap with retained units.
 
 The source sidecar in this branch routes declared `en` PDF sources to `zh`/`zh-CN`/`zh-Hans`, and declared `zh`/`zh-CN`/`zh-Hans` sources to `en`. Select the real source language; the app does not detect it. Chinese-to-English PDF rendering is an implemented candidate pending real BabelDOC and Mac visual verification. It requires the matching source sidecar; existing installed components may still accept English only. Source-mode PDF export copies the verified original without a target language.

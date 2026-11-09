@@ -15,7 +15,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["version"]
-COMPONENT_VERSION = "0.6.4"
+COMPONENT_VERSION = "0.7.1+ivoraige.1"
 PYMUPDF_VERSION = "1.26.7"
 PYINSTALLER_VERSION = "6.22.3"
 
@@ -122,11 +122,14 @@ def main() -> None:
     if sys.platform != "win32" or platform.machine().lower() not in {"amd64", "x86_64"}:
         raise RuntimeError("BabelDOC component builds must run on Windows x64")
     import babeldoc.const as babeldoc_const
+    from babeldoc import _rust_il
     import pymupdf
     import PyInstaller
     from PyInstaller.utils.hooks import collect_delvewheel_libs_directory
 
-    if babeldoc_const.__version__ != COMPONENT_VERSION or pymupdf.VersionBind != PYMUPDF_VERSION:
+    if (babeldoc_const.__version__ != "0.7.1" or metadata.version("BabelDOC") != COMPONENT_VERSION
+            or getattr(_rust_il, "ivoraige_source_bridge_version", None) != 1
+            or pymupdf.VersionBind != PYMUPDF_VERSION):
         raise RuntimeError(
             f"Unexpected runtime versions: BabelDOC {babeldoc_const.__version__}, PyMuPDF {pymupdf.VersionBind}"
         )
@@ -183,9 +186,23 @@ def main() -> None:
     for name in ("server.py", "requirements.lock", "LICENSE", "COPYING"):
         shutil.copyfile(ROOT / "sidecars/babeldoc" / name, stage / name)
     (stage / "README.md").write_text(
-        "BabelDOC sidecar 0.6.4 for Windows x64. Install the separate asset archive under ./assets before PDF capture.\n",
+        "BabelDOC derived sidecar 0.7.1+ivoraige.1 for Windows x64. Install the separate asset archive under ./assets before PDF capture.\n",
         encoding="utf-8",
     )
+    # Preserve the repository-relative layout expected by the source build recipe.
+    recipe_root = stage / "source"
+    (recipe_root / "scripts").mkdir(parents=True, exist_ok=True)
+    shutil.copytree(ROOT / "sidecars/babeldoc/patches",
+                    recipe_root / "sidecars/babeldoc/patches", dirs_exist_ok=True)
+    shutil.copyfile(ROOT / "scripts/build-babeldoc-runtime.py",
+                    recipe_root / "scripts/build-babeldoc-runtime.py")
+    # The native Rust closure is independent of Python distribution metadata.
+    babeldoc_dist = metadata.distribution("BabelDOC")
+    sboms = [entry for entry in (babeldoc_dist.files or []) if "/sboms/" in str(entry).replace("\\", "/")]
+    for entry in sboms:
+        target = stage / "sboms" / Path(str(entry)).name
+        target.parent.mkdir(exist_ok=True)
+        shutil.copyfile(babeldoc_dist.locate_file(entry), target)
     (stage / "THIRD_PARTY_LICENSES.txt").write_text(license_text(), encoding="utf-8")
     python_license = Path(sys.base_prefix) / "LICENSE_PYTHON.txt"
     if not python_license.is_file():
@@ -216,7 +233,7 @@ def main() -> None:
     for name in required_asset_paths:
         shutil.copytree(source_cache / name, assets_root / name)
     (assets_root / "ASSET-SOURCES.md").write_text(
-        "BabelDOC offline assets, packaged from the existing BabelDOC 0.6.4 cache.\n\n"
+        "BabelDOC offline assets, packaged from the verified BabelDOC 0.7.1 cache.\n\n"
         "The fonts/ and cmap/ files come from BabelDOC-Assets. The per-file sources,\n"
         "font notices, and included upstream license texts are documented in licenses/.\n"
         "The model file doclayout_yolo_docstructbench_imgsz1024.onnx comes from\n"
