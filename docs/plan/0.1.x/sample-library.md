@@ -71,9 +71,9 @@ node scripts/smoke-sample-library.mjs \
   --output ./evaluation/runs/sample-library-0.1.x
 ```
 
-Windows 使用该虚拟环境实际的 `python.exe` 路径和本机 shell 换行语法；此新增 smoke 尚未在 Windows 实机运行。`--output` 必须是尚不存在的目录。已有目录会被拒绝，既不覆盖旧结果，也不将旧报告当作本次成功。失败保留已经生成的诊断产物；仅内核和 samplelib 都成功时才创建 `summary.json`。重跑换用新的版本化运行目录。
+Windows 使用该虚拟环境实际的 `python.exe` 路径和本机 shell 换行语法；此新增 smoke 尚未在 Windows 实机运行。脚本用 Python `-I` 隔离外部 `PYTHONPATH`，只从指定根目录的 `src/samplelib` 加载并核对实际包入口及 CLI 文件；缺失或来源不符会失败。依赖仍由选用的 Python 环境提供。`--output` 必须是尚不存在的目录。已有目录会被拒绝，既不覆盖旧结果，也不将旧报告当作本次成功。失败保留已经生成的诊断产物；仅内核和 samplelib 都成功时才创建 `summary.json`。重跑换用新的版本化运行目录。
 
-`kernel-check.json` 记录内核检查，`samplelib-report.json` 记录外部工具检查，`summary.json` 汇总两者。Git 提交及工作区变化仅在参数指向仓库根目录时记录；无 Git 元数据的源码使用 `null`，不会错误继承上级仓库提交。检出存在未提交改动时，记录 head 不代表运行文件全部属于该提交，复现需同时保留本地 diff。
+`kernel-check.json` 记录内核检查，`samplelib-report.json` 记录外部工具检查，`samplelib-module.json` 记录实际加载的包和 CLI 文件，`summary.json` 汇总成功结果。每次外部调用还保存 `samplelib-execution.json`（退出码、信号、启动或超时错误）及有大小上限的 `samplelib.stdout.log`、`samplelib.stderr.log`；分享前检查日志是否含有本机路径或私有信息。Git 来源标记区分仓库根目录、非仓库/嵌套提取目录的 `unknown`，以及 Git 命令出错的 `error`。只有所选目录本身是仓库根目录才记录提交及工作区变化；未知来源不是提交归属证明。检出存在未提交改动时，记录 head 不代表运行文件全部属于该提交，复现需同时保留本地 diff。
 
 库存通过允许显式 `skip`，不表示全文已翻译。此 smoke 只证明原创 Markdown 的持久化、冻结导出和库存接口衔接，不能证明 PDF 捕获完整性、MinerU/OCR、翻译语义或视觉质量。观察报告导出器仍未实现。当前验证与限制见[跨仓库实施记录](evidence/sample-library-contract-0.1.0.md)。
 

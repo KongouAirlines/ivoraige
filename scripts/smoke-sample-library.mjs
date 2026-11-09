@@ -8,17 +8,63 @@ import { createApp } from '../src/app.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
-export function checkout(directory) {
-  const top = spawnSync('git', ['-C', directory, 'rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 5_000 })
+const unknownCheckout = reason => ({ commit: null, workingTreeChanges: null, kind: 'unknown', reason })
+const gitFailure = (step, result) => ({ commit: null, workingTreeChanges: null, kind: 'error',
+  reason: result.error?.code === 'ETIMEDOUT' ? 'git_timeout' : result.error ? 'git_spawn_failed'
+    : result.signal ? 'git_signal' : 'git_command_failed', step,
+  detail: result.error?.message ?? result.stderr?.trim() ?? `exit ${result.status}` })
+
+// The runner boundary permits deterministic spawn and timeout regressions without changing Git.
+export function checkout(directory, { runner = spawnSync } = {}) {
+  const run = (step, args) => runner('git', ['-C', directory, ...args],
+    { encoding: 'utf8', timeout: 5_000, maxBuffer: 1024 * 1024,
+      env: { ...process.env, LC_ALL: 'C' } })
+  const top = run('top', ['rev-parse', '--show-toplevel'])
+  if (top.error || top.signal) return gitFailure('top', top)
+  if (top.status !== 0) {
+    if (top.status === 128 && /^fatal: not a git repository\b/.test(top.stderr?.trim() ?? ''))
+      return unknownCheckout('not_repository')
+    return gitFailure('top', top)
+  }
+  if (!top.stdout?.trim()) return gitFailure('top', { ...top, stderr: 'empty Git top-level path' })
   // An extracted source tree inside another repository does not inherit its commit.
-  if (top.status !== 0 || realpathSync(top.stdout.trim()) !== realpathSync(directory))
-    return { commit: null, workingTreeChanges: null }
-  const result = spawnSync('git', ['-C', directory, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 5_000 })
-  if (result.status !== 0) return { commit: null, workingTreeChanges: null }
-  const status = spawnSync('git', ['-C', directory, 'status', '--porcelain', '--untracked-files=normal'],
-    { encoding: 'utf8', timeout: 5_000 })
-  return { commit: result.stdout.trim(), workingTreeChanges: status.status === 0 ? Boolean(status.stdout.trim()) : null }
+  if (realpathSync(top.stdout.trim()) !== realpathSync(directory)) return unknownCheckout('nested_source_tree')
+  const head = run('head', ['rev-parse', 'HEAD'])
+  if (head.error || head.signal) return gitFailure('head', head)
+  if (head.status !== 0) return gitFailure('head', head)
+  const status = run('status', ['status', '--porcelain', '--untracked-files=normal'])
+  if (status.error || status.signal || status.status !== 0) return gitFailure('status', status)
+  return { commit: head.stdout.trim(), workingTreeChanges: Boolean(status.stdout.trim()), kind: 'git' }
 }
+
+// -I ignores PYTHONPATH and the current directory. Resolve both module files from the
+// explicitly supplied source tree before running the CLI, so a global install cannot pass.
+const boundSamplelib = String.raw`
+import importlib.util
+import json
+from pathlib import Path
+import runpy
+import sys
+
+root = Path(sys.argv[1]).resolve(strict=True)
+source = root / 'src'
+package = (source / 'samplelib' / '__init__.py').resolve()
+cli = (source / 'samplelib' / 'cli.py').resolve()
+for target in (package, cli):
+    if not target.is_relative_to(source):
+        raise RuntimeError(f'samplelib module escapes supplied root: {target}')
+    if not target.is_file():
+        raise RuntimeError(f'missing samplelib module in supplied root: {target}')
+sys.path.insert(0, str(source))
+for name, expected in (('samplelib', package), ('samplelib.cli', cli)):
+    spec = importlib.util.find_spec(name)
+    actual = Path(spec.origin).resolve() if spec and spec.origin else None
+    if actual != expected:
+        raise RuntimeError(f'{name} origin mismatch: expected {expected}, got {actual}')
+Path(sys.argv[2]).write_text(json.dumps({'packageFile': str(package), 'moduleFile': str(cli)}) + '\n')
+sys.argv = [str(cli), *sys.argv[3:]]
+runpy.run_module('samplelib.cli', run_name='__main__')
+`
 
 // This is a synthetic integration smoke, not a sample catalog or observation exporter.
 // It deliberately uses a real temporary store, manual revisions, task exports and restart.
@@ -91,23 +137,31 @@ export function parseArguments(args) {
 }
 
 export async function smokeSampleLibrary({ samplelibRoot, python, output }) {
+  samplelibRoot = resolve(samplelibRoot)
+  output = resolve(output)
   const summary = await createFrozenFixture(output)
   const reportPath = join(output, 'samplelib-report.json')
-  const result = spawnSync(python, ['-m', 'samplelib.cli', '--root', samplelibRoot, 'ivoraige-exports',
+  const result = spawnSync(python, ['-I', '-B', '-c', boundSamplelib, samplelibRoot,
+    join(output, 'samplelib-module.json'), '--root', samplelibRoot, 'ivoraige-exports',
     '--source-export', join(output, 'source.json'), '--translation-export', join(output, 'translated.json'),
     '--output', reportPath], { cwd: samplelibRoot,
-    env: { ...process.env, PYTHONPATH: join(samplelibRoot, 'src') },
     encoding: 'utf8', shell: false, timeout: 30_000, maxBuffer: 1024 * 1024 })
-  if (result.error) throw result.error
-  if (result.status !== 0)
-    throw new Error(`samplelib ivoraige-exports failed (exit ${result.status}). Inspect the retained run directory.`)
+  await writeFile(join(output, 'samplelib.stdout.log'), result.stdout ?? '', { flag: 'wx' })
+  await writeFile(join(output, 'samplelib.stderr.log'), result.stderr ?? '', { flag: 'wx' })
+  const execution = { exitCode: result.status, signal: result.signal,
+    error: result.error ? { code: result.error.code, message: result.error.message } : null }
+  await writeFile(join(output, 'samplelib-execution.json'), JSON.stringify(execution, null, 2) + '\n', { flag: 'wx' })
+  if (result.error || result.signal || result.status !== 0)
+    throw new Error(`samplelib ivoraige-exports failed (${result.error?.code ?? result.signal ?? `exit ${result.status}`}). Inspect samplelib-execution.json and retained stdout/stderr in the run directory.`)
   const report = JSON.parse(await readFile(reportPath, 'utf8'))
   assert.equal(report.scope, 'ivoraige_frozen_export_integrity')
   assert.equal(report.status, 'pass')
   assert.equal(report.explicit_skips, true)
   assert.equal(report.counts?.source_units, 3)
   assert.deepEqual(report.counts?.decisions, summary.decisions)
-  const complete = { ...summary, samplelib: checkout(samplelibRoot), integrity: 'pass' }
+  const complete = { ...summary, samplelib: checkout(samplelibRoot),
+    samplelibModule: JSON.parse(await readFile(join(output, 'samplelib-module.json'), 'utf8')),
+    integrity: 'pass' }
   await writeFile(join(output, 'summary.json'), JSON.stringify(complete, null, 2) + '\n', { flag: 'wx' })
   return complete
 }
