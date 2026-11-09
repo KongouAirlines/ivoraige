@@ -8,14 +8,15 @@ native distribution, P10 cross-engine mapping, or arbitrary future plugins.
 
 ## Frozen host boundary
 
-The final host baseline is **75e7ef967c2d6ac9e8aa39f4a6860f987b35ba70**,
-tree `dcf96f6c69a0370354f4a5f0258d824a11afe29b`. Its published counterpart
-`8ad5329cbf8ed6b640092fafbbd6abe7aeaeeca7` was verified to have this same
+The final host baseline is **4d8b72ac58e8b644f4e8b710363bc781ee052cdb**,
+tree `cca6c16993a56e14aa871146057eb17834deb58e`. Its published counterpart
+`b350e2bd70f2d04d31444dd39e2bb056265a4281` was verified to have this same
 tree; local and remote commit identities differ, but host files do not. It includes the final
 MinerU renderer `122a0e5` and P05 recovery, lease, CLI alias and lifecycle
-corrections. It was incorporated by an ordinary merge, preserving the tested
-P07 package history through `f8f99bd`; the merge changes no BabelDOC package
-files. Against this new frozen baseline, P07 adds only `plugins/babeldoc/`,
+corrections and subsequent plugin-install validation repairs. It was incorporated
+by an ordinary merge preserving P07 history through `9df21b9`; the host merge
+itself changes no BabelDOC package files. The package-local synchronous-reference
+error correction described below is a separate change. Against this new frozen baseline, P07 adds only `plugins/babeldoc/`,
 tests, and documentation. Host `src/`, scripts, CI and dependency manifests
 remain byte-identical to the baseline. The recorded comparison is
 `evaluation/runs/p07/frozen-boundary.txt`.
@@ -93,7 +94,7 @@ matrix run inside `test/babeldoc-offline-exec.py`, which denies `connect`,
 returns EACCES (`network-denial-proof.log`). This is a test constraint, not a
 claim of a security sandbox for installed plugins.
 
-- `test/babeldoc-plugin.test.mjs`: 22 tests including subtests. Covers frozen
+- `test/babeldoc-plugin.test.mjs`: 24 tests including subtests. Covers frozen
   PDF/MD/JSON, reopen, missing runtime, source export while runtime is missing,
   TXT isolation, local-only imports, store mismatch, both duplicate-registration
   orders, 0.6.4/cross-engine rejection without sidecar access, data-only output,
@@ -103,7 +104,7 @@ claim of a security sandbox for installed plugins.
   or the removal attempt, and the first cleanup error is preserved. Two focused
   regressions cover that ordering/error behavior. This avoids removing a live
   SQLite store on Windows; the rerun here is Linux, not native Windows evidence.
-- `test/babeldoc-live.mjs`: final report at `evaluation/runs/p07/installed-live-final-host/report.json`.
+- `test/babeldoc-live.mjs`: final report at `evaluation/runs/p07/installed-live-latest-host/report.json`.
   Actual offline P05 install of both packages and AppBoot/Loader activation;
   explicit source selection in one store; two manually accepted Chinese
   title/Abstract revisions per engine with remaining translatable units skipped;
@@ -112,7 +113,7 @@ claim of a security sandbox for installed plugins.
   disable/enable and restart; missing-other-runtime isolation; removal and
   retained records/resources; TXT remains usable. Every close verifies no child
   process remains. Translation task count is zero.
-- `npm test`: 627 tests / 625 passed / 2 platform skips / 0 failed; `evaluation/runs/p07/final-host-full.log`. npm runs
+- `npm test`: 631 tests / 629 passed / 2 platform skips / 0 failed; `evaluation/runs/p07/latest-host-full.log`. npm runs
   with `offline=true`, `update_notifier=false`, `audit=false`, `fund=false` and a
   writable local cache. The complete host suite includes loopback HTTP tests;
   the strict child network-denial wrapper applies to the above real-engine and
@@ -231,3 +232,40 @@ pass, every close leaves no child processes, and translation task count is zero.
 BabelDOC rendered-pixel and MinerU PDF-byte hashes match the prior post-review
 run, preserving the documented quality limitations rather than claiming a
 quality fix from host integration.
+
+
+## Synchronous reference-check failure
+
+The production Importer supplies a synchronous callback to
+`Records.referencesSourcePath`, which checks readiness and reads the records
+table. That callback can throw a storage/readiness error; no asynchronous
+callback contract is involved. Previously, if persistence failed and this
+secondary lookup also threw, the lookup error replaced the persistence failure.
+
+The package now preserves the exact persistence error and records the secondary
+lookup error in its non-enumerable `cleanupErrors`. An inconclusive reference
+check retains the new source: persistence may already have committed before
+throwing, so deleting that source would risk data loss. A pre-commit failure may
+therefore leave an owned source pending later recovery; the change does not
+claim to infer that it is unreferenced or automatically delete it.
+
+Two regressions invoke the actual Importer path with synchronous lookup failure
+before and after a simulated post-insert error. Both failed on the prior code
+(`evaluation/runs/p07/reference-failure-before.log`) and now pass, preserving
+original bytes and the primary error; the committed-document case also exports
+its retained original successfully. The full plugin matrix passes 24/24
+(`reference-failure-focused.log`). On the ordinary-merged `4d8b72a` host, the
+complete suite passes 629 tests with 2 skips (`latest-host-full.log`) and offline
+package smoke passes (`latest-host-package.log`). No host or async callback
+contract change is required.
+
+
+The six-phase real installed-runtime sequence was rerun under child network
+denial after this correction and the `4d8b72a` host merge. All phases pass,
+six closes leave no children, and translation task count remains zero
+(`evaluation/runs/p07/installed-live-latest-host/report.json`). BabelDOC rendered
+pixels and MinerU accepted PDF bytes match the preceding host run. Independent
+plugin packing remains seven files with no bundled dependencies
+(`latest-plugin-pack.json`). The separate combined first-tier evidence document
+retains its original tested implementation snapshot and exact bytes; this
+package correction does not retroactively relabel that earlier broad run.

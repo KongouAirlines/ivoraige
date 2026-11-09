@@ -151,3 +151,15 @@ through directory aliases, and must hold the validation lease while startup
 recovers any interrupted journal. The ordinary boot API never skips recovery
 merely because its lease was supplied by an embedding caller; the isolated
 installation probe retains its separate internal startup primitive.
+
+## Validation-exit ownership race
+
+A deterministic fault-injection regression exercises the real installer and
+validation child, injecting SQLite BUSY only at the first post-validation probe
+reacquisition and allowing the outer recovery retry. Before the correction,
+recovery completed but the transient CONFLICT masked the original activation
+PRECONDITION_FAILED. The installer now preserves that activation failure while
+retrying ownership. A second schedule keeps both attempts busy and verifies that
+recoveryPending remains explicit, with the new package state and journal untouched
+until exclusive recovery is possible. This is reproduced scheduling evidence,
+not a claim that this race occurred in a Windows CI run.

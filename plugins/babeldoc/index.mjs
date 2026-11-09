@@ -28,15 +28,18 @@ const fail = message => { throw new KernelError('PRECONDITION_FAILED', message) 
 // Cleanup must not replace the operation's code, cancellation or termination
 // details. On success, a cleanup failure still fails the operation. Retain any
 // secondary failures on the original Error for local diagnostics.
+function recordCleanupError(primary, error) {
+  if (primary instanceof Error && Object.isExtensible(primary)) {
+    const descriptor = Object.getOwnPropertyDescriptor(primary, 'cleanupErrors')
+    if (!descriptor || descriptor.configurable) Object.defineProperty(primary, 'cleanupErrors', {
+      value: [...(Array.isArray(descriptor?.value) ? descriptor.value : []), error], configurable: true,
+    })
+  }
+}
 async function cleanupPath(path, options, primary) {
   try { await rm(path, options) } catch (error) {
     if (primary === undefined) throw error
-    if (primary instanceof Error && Object.isExtensible(primary)) {
-      const descriptor = Object.getOwnPropertyDescriptor(primary, 'cleanupErrors')
-      if (!descriptor || descriptor.configurable) Object.defineProperty(primary, 'cleanupErrors', {
-        value: [...(Array.isArray(descriptor?.value) ? descriptor.value : []), error], configurable: true,
-      })
-    }
+    recordCleanupError(primary, error)
   }
 }
 const chinese = new Set(['zh', 'zh-CN', 'zh-Hans'])
@@ -241,9 +244,17 @@ class PdfRuntime {
         try { return await persist(parsed) } catch (error) {
           // This path belongs to the locked store. Legacy digest-only sources
           // remain readable through saved bindings and are never cleanup targets.
-          if (created && !isReferenced(sourcePath)) {
-            await cleanupPath(sourcePath, { force: true }, error)
-            this.verified.delete(sourcePath)
+          if (created) {
+            // Persistence may have committed before throwing. If its synchronous
+            // reference check also fails, retain the source rather than risk
+            // deleting committed data, and preserve the persistence error.
+            let referenced = true
+            try { referenced = isReferenced(sourcePath) }
+            catch (lookupError) { recordCleanupError(error, lookupError) }
+            if (!referenced) {
+              await cleanupPath(sourcePath, { force: true }, error)
+              this.verified.delete(sourcePath)
+            }
           }
           throw error
         }

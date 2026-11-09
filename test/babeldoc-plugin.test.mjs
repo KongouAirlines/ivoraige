@@ -333,3 +333,45 @@ test('BabelDOC canonicalizes ancestor aliases but rejects a symlink managed root
   const source = await app.exporter.exportDocument(doc.id, { contentMode: 'source', outputs: [{ format: 'pdf' }] })
   assert.deepEqual(await readFile(source.artifacts[0].path), pdf)
 })
+
+for (const committed of [false, true]) {
+  test(`BabelDOC reference lookup failure preserves persistence error and source (committed=${committed})`, async t => {
+    const f = await fixture(t), app = await f.open()
+    await app.ctx.plugin(BabelDOCSource, f.config)
+    const records = app.records
+    const insert = records.insertDocument.bind(records)
+    const referenced = records.referencesSourcePath.bind(records)
+    const primary = Object.assign(new Error('original persistence failure'), { code: 'UPSTREAM_FAILURE' })
+    const lookup = Object.assign(new Error('reference lookup unavailable'), { code: 'SQLITE_IOERR' })
+    let checks = 0
+    records.insertDocument = async (...args) => {
+      if (committed) await insert(...args)
+      throw primary
+    }
+    // This is the synchronous callback wired by the production Importer.
+    // Storage/readiness failures can throw; there is no asynchronous callback.
+    records.referencesSourcePath = () => { checks++; throw lookup }
+    try {
+      await assert.rejects(records.importDocument({ format: 'pdf', content: pdf },
+        { sourceId: 'reference-read-failure', language: 'en' }), error => {
+        assert.equal(error, primary)
+        assert.ok(error.cleanupErrors.includes(lookup))
+        return true
+      })
+    } finally {
+      records.insertDocument = insert
+      records.referencesSourcePath = referenced
+    }
+    assert.equal(checks, 1)
+    const sources = await readdir(join(f.config.directory, 'sources'))
+    assert.equal(sources.length, 1, 'Unknown references must not delete a potentially committed source')
+    assert.deepEqual(await readFile(join(f.config.directory, 'sources', sources[0])), pdf)
+    assert.deepEqual(await readdir(join(f.config.directory, 'work')), [])
+    assert.equal(records.listDocuments().length, committed ? 1 : 0)
+    if (committed) {
+      const doc = records.listDocuments()[0]
+      const result = await app.exporter.exportDocument(doc.id, { contentMode: 'source', outputs: [{ format: 'pdf' }] })
+      assert.deepEqual(await readFile(result.artifacts[0].path), pdf)
+    }
+  })
+}

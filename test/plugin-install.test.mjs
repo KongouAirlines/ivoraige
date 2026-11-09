@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile, symlink, chmod } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
+import { DatabaseSync } from 'node:sqlite'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { managePlugins, pluginRuntime, pluginDiagnostic } from '../src/plugin-install.mjs'
@@ -383,3 +384,41 @@ test('explicit rollback never promotes partially removed obsolete bytes', async 
   assert.equal((await managePlugins({ directory, action: 'list' })).plugins.length, 0)
   await assert.rejects(managePlugins({ directory, action: 'rollback' }), /No previous complete/)
 })
+
+
+for (const busyAttempts of [[2], [2, 3]]) {
+  test(`validation failure survives probe reacquisition schedule ${busyAttempts.join(',')}`, async t => {
+    const { source, directory, manifest } = await setup(t)
+    await managePlugins({ directory, action: 'list' })
+    const before = await readFile(join(directory, 'package.json'), 'utf8')
+    await writeFile(join(source, 'index.mjs'), `function probe() {}
+      probe.inject = ['originalValidationDependency']; export default probe`)
+    const exec = DatabaseSync.prototype.exec
+    let attempts = 0
+    const injected = t.mock.method(DatabaseSync.prototype, 'exec', function(sql, ...args) {
+      if (sql === 'BEGIN IMMEDIATE' && this.location('main')?.endsWith('.plugin-validation.owner.sqlite')) {
+        attempts++
+        if (busyAttempts.includes(attempts))
+          throw Object.assign(new Error('Injected transient validation ownership conflict'), { errcode: 5 })
+      }
+      return Reflect.apply(exec, this, [sql, ...args])
+    })
+    const error = await managePlugins({ directory, action: 'install', packageDirectory: source }).then(
+      () => assert.fail('Missing expected validation failure'), error => error)
+    assert.equal(attempts, 3, 'Exercise the first reacquisition and the outer recovery retry')
+    injected.mock.restore()
+    if (busyAttempts.length === 1) {
+      assert.equal(error.code, 'PRECONDITION_FAILED')
+      assert.match(error.message, /originalValidationDependency/)
+      assert.equal(error.details?.recoveryPending, undefined)
+      assert.equal(await readFile(join(directory, 'package.json'), 'utf8'), before)
+    } else {
+      assert.equal(error.code, 'CONFLICT')
+      assert.equal(error.details?.recoveryPending, true)
+      assert.ok(JSON.parse(await readFile(join(directory, 'package.json'), 'utf8')).dependencies[manifest.name])
+      assert.ok(await readFile(join(directory, '.plugin-transaction', 'ready')))
+      assert.equal((await managePlugins({ directory, action: 'recover' })).recovered, true)
+      assert.equal(await readFile(join(directory, 'package.json'), 'utf8'), before)
+    }
+  })
+}
