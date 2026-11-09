@@ -111,6 +111,27 @@ test('failure after lock release never reopens the store or deletes discovery on
   assert.ok(control.finalizationReceipt())
 })
 
+test('discovery can finish after its deadline without closing control until an explicit retry', async () => {
+  let releases = 0, discoveries = 0, closes = 0
+  const control = host({ releaseStore: () => { releases++ }, cleanupDiscovery: deadline => {
+    discoveries++
+    // Deterministic clock advance, not a native-cleanup timing requirement.
+    deadline.now = () => Number.MAX_SAFE_INTEGER
+  }, closeControl: () => { closes++ } })
+  const accepted = control.exit({ expectedGeneration: generation, budgetMs: 1000 })
+  await control.waitForAttempt()
+  assert.equal(control.state().storeOwnership, 'released')
+  assert.equal(op(control, accepted.operationId).status, 'blocked')
+  assert.equal(op(control, accepted.operationId).reason, 'deadline-exceeded')
+  assert.equal(closes, 0)
+  const retried = control.exit({ expectedGeneration: generation, budgetMs: 1000 })
+  assert.equal(retried.operationId, accepted.operationId)
+  await control.waitForAttempt()
+  assert.equal(releases, 1)
+  assert.equal(discoveries, 1)
+  assert.equal(closes, 1)
+})
+
 test('stale generation and invalid budget do not close gate; revision is control-only when bridge absent', () => {
   const control = host()
   assert.throws(() => control.exit({ expectedGeneration: 'other', budgetMs: 10 }), { code: 'CONFLICT' })
