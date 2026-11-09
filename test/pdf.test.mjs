@@ -277,6 +277,33 @@ test('PDF Markdown validates complete email candidates without changing recipien
   assert.equal(replay.task.stats.llmCalls, 0)
 })
 
+test('PDF Markdown preserves numeric-dot literals in body and heading units', () => {
+  const cases = [
+    ['mAP 0.95@0.5 on COCO', []],
+    ['CPU 2.4@3.0GHz', []],
+    ['3.2@scale results', []],
+    ['10.1000/abc@def', []],
+    ['1. item', []],
+    ['  12. item', []],
+    ['Line one\n1. item', []],
+    ['1.user@example.com', ['mailto:1.user@example.com']],
+  ]
+  for (const kind of ['body', 'heading']) {
+    for (const [text, hrefs] of cases) {
+      const md = renderPdfMarkdown({ sourceBinding: { adapterId: 'babeldoc', records: [{}] },
+        snapshot: { id: 'numeric-literal', revisionSetHash: 'numeric-literal' },
+        document: { title: 'Numeric literal' }, units: [{ unit: { order: 0, kind }, text }] })
+      const body = new JSDOM(marked.parse(md)).window.document.body
+      const content = body.querySelector(kind === 'heading' ? 'h2' : 'p')
+      // Captured headings flatten line breaks; body prose keeps them.
+      assert.equal(content.textContent, kind === 'heading' ? text.replace(/\n/g, ' ') : text,
+        `${kind}: ${text}`)
+      assert.deepEqual([...content.querySelectorAll('a')].map(a => a.getAttribute('href')), hrefs)
+      assert.equal(body.querySelector('ol, ul'), null)
+    }
+  }
+})
+
 test('PDF email candidates containing NUL remain unlinked after HTML normalization', () => {
   const text = 'user@example.com\u0000'
   const md = renderPdfMarkdown({ sourceBinding: { adapterId: 'babeldoc', records: [{}] },

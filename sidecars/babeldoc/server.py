@@ -170,6 +170,8 @@ def display_mapping(
                 if frames:
                     values.pop()
                 continue
+            # Conservative upper bound per find, not measured scanned characters.
+            # Charge before searching; early hits can exhaust this budget too.
             search_chars += len(source) - search
             if search_chars > DISPLAY_MAPPING_MAX_SEARCH_CHARS:
                 exhausted = True
