@@ -121,9 +121,20 @@ on Linux / Node 24.22.1 reported 63 tests: 47 passed, 16 explicit platform/socke
 skips, zero failures. This includes the three fake-helper acknowledgment tests;
 it does not establish the unrun native Restricted-policy case.
 
-Native verification of the current launcher/acknowledgment changes, installed-
-package execution, a separate regular user and a
-fully unelevated user remain acceptance gates until actual results are recorded.
+Subsequent native Windows / Node 26.13.0 verification at foundation head
+`c1b86730` passed 600 of 603 tests (3 platform skips), including the actual
+Restricted-policy/literal-path test, and the 91-file foundation package smoke.
+[Foundation job](https://github.com/KongouAirlines/ivoraige/actions/runs/42563331451/job/128984338865).
+
+At entry-stack head `4882a83c`, Windows passed 627 of 630 tests (3 platform
+skips), with zero failures or cancellations, and the 95-file installed owner
+package smoke passed. [Entry job](https://github.com/KongouAirlines/ivoraige/actions/runs/42564141101/job/128986838448).
+Linux and macOS also passed their full commands and installed-package smoke;
+counts and boundaries are in the [entry evidence](host-owner-entries.md#native-stack-verification-at-4882a83c).
+These results establish the native helper and installed owner paths at those
+heads. They do not establish separate regular-account or fully unelevated
+acceptance. The [scoped account run](https://github.com/KongouAirlines/ivoraige/actions/runs/42568044404)
+remains queued as of 2026-11-09, with no test or cleanup result.
 
 A separate-account probe requires an already-provisioned test account or explicit
 authorization to create, use and delete one on a disposable Windows runner. No
