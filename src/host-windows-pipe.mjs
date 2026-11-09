@@ -7,6 +7,8 @@ import { KernelError } from './errors.mjs'
 
 const MAX_BYTES = 1024 * 1024
 const MAX_LINE = 2 * MAX_BYTES
+const LISTEN_TIMEOUT = 25_000
+const CLOSE_TIMEOUT = 2_000
 const unavailable = () => new KernelError('PRECONDITION_FAILED',
   'The Windows owner transport could not verify its OS security boundary',
   { reason: 'owner-permissions-unverified' })
@@ -25,13 +27,26 @@ class Broker {
     this.waitingBytes = 0
     this.stopped = false
     this.ready = false
+    this.exited = false
+    const source = fileURLToPath(new URL('./windows/HostPipe.cs', import.meta.url))
+    // Fixed application bootstrap, never assembled from a frame or discovery
+    // record. Restricted execution policy permits commands, not .ps1 files.
+    // Do not change policy or language mode, or retry through another route.
+    const command = `$ErrorActionPreference = 'Stop'; try {
+      if ($ExecutionContext.SessionState.LanguageMode -ne 'FullLanguage') { throw 'Unsupported language mode' }
+      Add-Type -LiteralPath '${source.replaceAll("'", "''")}' -ReferencedAssemblies System,System.Core,System.Web.Extensions;
+      [Ivoraige.HostPipe]::Run()
+    } catch { [Console]::Error.WriteLine('Host pipe helper unavailable'); exit 1 }`
     const systemRoot = process.env.SystemRoot || 'C:\\Windows'
     this.child = spawn(join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
-      ['-NoLogo', '-NoProfile', '-NonInteractive', '-File', fileURLToPath(new URL('./windows/host-pipe.ps1', import.meta.url))],
+      ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', command],
       { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] })
     this.child.stderr.resume() // never forward raw helper/compiler exceptions
-    this.child.on('error', () => this.fail())
-    this.child.on('exit', () => this.fail())
+    this.child.on('error', () => {
+      if (!this.child.pid) this.exited = true // spawn failed: no owned process exists
+      this.fail()
+    })
+    this.child.on('exit', () => { this.exited = true; clearTimeout(this.stopTimer); this.fail() })
     this.child.stdin.on('error', () => this.fail())
     this.startup = setTimeout(() => this.fail(), 20_000)
     let buffered = Buffer.alloc(0)
@@ -59,8 +74,7 @@ class Broker {
       clearTimeout(this.startup)
       this.child.stdin.end()
       // A helper blocked on an OS operation must not outlive its owner.
-      const timer = setTimeout(() => this.child.kill(), 1500)
-      this.child.once('exit', () => clearTimeout(timer))
+      this.stopTimer = setTimeout(() => this.child.kill(), 1500)
     }, 250)
   }
   send(message) {
@@ -80,14 +94,16 @@ class Broker {
     if (this.child.stdin.writableLength + Buffer.byteLength(line) > 8 * MAX_BYTES) { this.fail(); return }
     this.child.stdin.write(line)
   }
-  fail() {
+  fail(error = unavailable()) {
     if (this.stopped) return
     this.stopped = true
+    this.failure = error
     clearTimeout(this.startup)
     clearTimeout(this.idle)
     if (broker === this) broker = undefined
-    this.child.kill()
-    for (const endpoint of [...this.endpoints.values()]) endpoint.failed()
+    this.child.stdin.destroy()
+    this.child.kill() // a request is not proof of exit; only the exit event is
+    for (const endpoint of [...this.endpoints.values()]) endpoint.failed(error)
     this.endpoints.clear()
     this.waiting.length = 0
   }
@@ -145,7 +161,7 @@ class PipeSocket extends Duplex {
     this.owner.remove(this)
     callback(error)
   }
-  failed() { this.destroy(unavailable()) }
+  failed(error = unavailable()) { this.destroy(error) }
   receive(message) {
     if (message.type === 'connected') {
       if (message.peerSid !== this.owner.sid) { this.failed(); return }
@@ -180,27 +196,49 @@ class PipeServer extends EventEmitter {
     this.owner = getBroker()
     this.owner.add(this)
     this.once('listening', callback)
+    this.listenTimer = setTimeout(() => this.owner.fail(), LISTEN_TIMEOUT)
     this.owner.send({ type: 'listen', id: this.id, address })
     return this
   }
   close(callback) {
-    if (!this.owner || this.closed || this.owner.stopped) { queueMicrotask(callback); return this }
+    // OS exit or an explicit native close acknowledgment proves that the
+    // pipe handles are gone. A successful kill() call alone does not.
+    if (!this.owner || this.verifiedClosed || this.owner.exited) { queueMicrotask(() => callback()); return this }
+    if (this.closed || this.owner.stopped) {
+      queueMicrotask(() => callback(this.failure ?? this.owner.failure ?? unavailable()))
+      return this
+    }
     this.once('close', callback)
-    this.owner.send({ type: 'closeServer', id: this.id })
+    if (!this.closing) {
+      this.closing = true
+      this.closeTimer = setTimeout(() => this.owner.fail(), CLOSE_TIMEOUT)
+      this.owner.send({ type: 'closeServer', id: this.id })
+    }
     return this
   }
-  failed() {
+  failed(error = unavailable()) {
+    clearTimeout(this.listenTimer)
+    clearTimeout(this.closeTimer)
     this.closed = true
-    this.emit('error', unavailable())
-    this.emit('close')
+    this.failure = error
+    this.emit('error', error)
+    this.emit('close', error)
   }
   receive(message) {
-    if (message.type === 'listening' && message.sid === this.owner.sid) this.emit('listening')
-    else if (message.type === 'serverClosed') {
+    if (message.type === 'listening' && message.sid === this.owner.sid) {
+      clearTimeout(this.listenTimer)
+      this.emit('listening')
+    } else if (message.type === 'serverClosed') {
+      clearTimeout(this.listenTimer)
+      clearTimeout(this.closeTimer)
       this.closed = true
+      this.verifiedClosed = true
       this.owner.remove(this)
       this.emit('close')
     } else if (message.type === 'error') {
+      // A native listen failure disposes its just-created handle before
+      // reporting the error. It never advertised a live listener.
+      this.verifiedClosed = true
       this.owner.remove(this)
       this.failed()
     } else this.owner.fail()
