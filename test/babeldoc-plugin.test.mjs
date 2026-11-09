@@ -1,6 +1,8 @@
 import test from 'node:test'
+import fs from 'node:fs/promises'
+import { syncBuiltinESMExports } from 'node:module'
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -227,4 +229,107 @@ test('BabelDOC fixture continues cleanup after close errors and preserves the fi
     throw new Error('later removal failure')
   }), error => error === first)
   assert.deepEqual(order, ['close-2', 'close-1', 'remove'])
+})
+
+
+async function filesystemFaults(overrides, operation) {
+  const originals = Object.fromEntries(Object.keys(overrides).map(name => [name, fs[name]]))
+  Object.assign(fs, overrides)
+  syncBuiltinESMExports()
+  try { return await operation() }
+  finally { Object.assign(fs, originals); syncBuiltinESMExports() }
+}
+
+for (const scenario of ['parse', 'import', 'rebuild', 'publish-new', 'publish-repair', 'cleanup-only']) {
+  test(`BabelDOC ${scenario} retains primary failures when filesystem cleanup fails`, async t => {
+    const f = await fixture(t), app = await f.open()
+    const primary = Object.assign(new Error('primary operation failure'), { code: 'CONFLICT', details: { canceled: true } })
+    const busy = Object.assign(new Error('simulated locked file'), { code: 'EBUSY' })
+    const denied = Object.assign(new Error('simulated cleanup EPERM'), { code: 'EPERM' })
+    const originalRm = fs.rm, originalCopy = fs.copyFile, originalRename = fs.rename
+    const config = scenario === 'parse' ? { ...f.config, args: [...f.config.args, 'fail-parse'] } : f.config
+    await app.ctx.plugin(BabelDOCSource, config)
+    const source = app.ctx.get('ivoraige.parse').adapters.get('babeldoc')
+    const output = app.ctx.get('ivoraige.outputs').adapters.get('pdf')
+    const input = { content: pdf, language: 'en' }
+    let binding
+    if (scenario === 'rebuild' || scenario === 'publish-repair') {
+      binding = (await source.parse(input)).sourceBinding
+      if (scenario === 'publish-repair') await writeFile(binding.sourcePath, 'damaged saved source')
+    }
+    let cleanupCalls = 0
+    const faults = { rm: async (path, ...args) => {
+      if (String(path).startsWith(f.config.directory)) { cleanupCalls++; throw denied }
+      return originalRm(path, ...args)
+    } }
+    if (scenario === 'publish-new') faults.copyFile = async (from, to, ...args) => {
+      await originalCopy(from, to, ...args)
+      if (String(to).includes('sources')) await writeFile(to, 'damaged during publication')
+    }
+    if (scenario === 'publish-repair') faults.rename = async (from, to, ...args) => {
+      if (String(from).endsWith('.repair')) throw busy
+      return originalRename(from, to, ...args)
+    }
+    if (scenario === 'rebuild') {
+      // A valid source reaches the real rebuild path; writing its snapshot then
+      // encounters the locked-file primary error before finally removes work.
+      const originalWrite = fs.writeFile
+      faults.writeFile = async (path, ...args) => {
+        if (String(path).endsWith('snapshot.json')) throw busy
+        return originalWrite(path, ...args)
+      }
+    }
+    await filesystemFaults(faults, async () => {
+      const operation = scenario === 'import'
+        ? source.import(input, async () => { throw primary }, () => false)
+        : scenario === 'rebuild'
+          ? output.rebuild({ sourceBinding: binding, snapshot: { targetLang: 'zh' }, document: { language: 'en' }, units: [] })
+          : source.parse(input)
+      await assert.rejects(operation, error => {
+        if (scenario === 'import') {
+          assert.equal(error, primary)
+          assert.equal(error.details.canceled, true)
+        } else if (scenario === 'rebuild' || scenario === 'publish-repair') assert.equal(error, busy)
+        else if (scenario === 'parse') {
+          assert.equal(error.code, 'UPSTREAM_FAILURE')
+          assert.match(error.message, /fixture parse failure/)
+        } else if (scenario === 'publish-new') assert.equal(error.code, 'PRECONDITION_FAILED')
+        else assert.equal(error, denied, 'Cleanup-only failure must not be hidden')
+        if (scenario !== 'cleanup-only') {
+          assert.ok(error.cleanupErrors.includes(denied))
+          assert.equal(Object.keys(error).includes('cleanupErrors'), false)
+        }
+        return true
+      })
+    })
+    assert.ok(cleanupCalls >= 1)
+  })
+}
+
+test('BabelDOC keeps the pinned exact source-language binding contract', async t => {
+  const f = await fixture(t), app = await f.open()
+  await app.ctx.plugin(BabelDOCSource, f.config)
+  const output = app.ctx.get('ivoraige.outputs').adapters.get('pdf')
+  for (const language of ['en', 'zh', 'zh-CN', 'zh-Hans']) {
+    const captureConfig = language === 'en' ? {} : { sourceLanguage: language }
+    const request = { provenance: { language }, targetLang: language === 'en' ? 'zh' : 'en', binding: { captureConfig } }
+    assert.doesNotThrow(() => output.validateExport(request))
+    const changed = { sourceLanguage: language === 'en' ? 'en' : language === 'zh' ? 'zh-CN' : 'zh' }
+    assert.throws(() => output.validateExport({ ...request, binding: { captureConfig: changed } }), /source language differs/)
+  }
+})
+
+
+test('BabelDOC canonicalizes ancestor aliases but rejects a symlink managed root', async t => {
+  const f = await fixture(t), app = await f.open()
+  const alias = join(f.dir, 'alias')
+  await symlink(f.dir, alias, process.platform === 'win32' ? 'junction' : 'dir')
+  await assert.rejects(async () => await app.ctx.plugin(BabelDOCSource,
+    { ...f.config, directory: alias }), /directory must not be a symlink/)
+  await app.ctx.plugin(BabelDOCSource, { ...f.config, directory: join(alias, 'pdf'), storePath: join(alias, 'db.sqlite') })
+  const doc = await importPdf(app)
+  const binding = app.records.record(doc.id).sourceBinding
+  assert.equal(binding.sourcePath, await realpath(binding.sourcePath))
+  const source = await app.exporter.exportDocument(doc.id, { contentMode: 'source', outputs: [{ format: 'pdf' }] })
+  assert.deepEqual(await readFile(source.artifacts[0].path), pdf)
 })

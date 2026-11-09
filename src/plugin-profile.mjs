@@ -1,5 +1,6 @@
 // A stopped-host lease, shared by AppBoot and offline package recovery.
 import { mkdir, cp, readFile, rm, rename, lstat, realpath } from 'node:fs/promises'
+import { realpathSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { acquireStoreLock } from './store-lock.mjs'
 import { writeFileAtomic, awaitTreeGone, treeAlive } from '../dist/dsh.mjs'
@@ -22,7 +23,9 @@ export async function acquireProfile(directory) {
 }
 export function acquireProbe(directory) { return acquireStoreLock(join(directory, '.plugin-validation')) }
 export function ownsProfile(lease, directory) {
-  return leases.has(lease) && lease.directory === resolve(directory)
+  if (!leases.has(lease)) return false
+  try { return lease.directory === realpathSync(resolve(directory)) }
+  catch { return false }
 }
 const files = ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.patch.yml', 'node_modules']
 const journal = directory => join(directory, '.plugin-transaction')
@@ -41,6 +44,12 @@ export async function recoverProfile(directory) {
     if (treeAlive(tree)) throw new Error('A DSH package process is still writing this profile; stop it before recovery')
     await rm(run)
   }
+  // A commit interrupted between its two renames has not replaced the old
+  // rollback point. Preserve it before restoring the uncommitted package set.
+  const previous = join(directory, '.plugin-previous')
+  const obsolete = join(directory, '.plugin-obsolete')
+  if (!await exists(previous) && await exists(join(obsolete, 'ready')))
+    await rename(obsolete, previous)
   const backup = journal(directory)
   if (!await exists(join(backup, 'ready'))) {
     await rm(backup, { recursive: true, force: true })
@@ -83,6 +92,9 @@ export async function commitProfile(directory) {
 export async function rollbackProfile(directory) {
   const previous = join(directory, '.plugin-previous')
   if (!await exists(join(previous, 'ready'))) throw new Error('No previous complete plugin package set')
+  // Obsolete cleanup may have been interrupted after a completed commit. It
+  // is not an interrupted-commit rollback point when explicitly consuming previous.
+  await rm(join(directory, '.plugin-obsolete'), { recursive: true, force: true })
   await rename(previous, journal(directory))
   await recoverProfile(directory)
 }

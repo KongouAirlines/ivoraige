@@ -3,13 +3,42 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import { readFile, writeFile, mkdir, mkdtemp, rm, stat, copyFile, realpath, rename } from 'node:fs/promises'
-import { constants } from 'node:fs'
+import { constants, lstatSync, realpathSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { KernelError } from './errors.mjs'
 import { readablePdfText, validatePdfTranslation } from './pdf-text.mjs'
 
+// Resolve aliases in existing ancestors without requiring a newly configured
+// resource directory to exist. The managed root itself must not be a symlink.
+function canonicalPath(value) {
+  let path = resolve(value)
+  const suffix = []
+  for (;;) {
+    try { return resolve(realpathSync.native(path), ...suffix) }
+    catch (error) {
+      if (error.code !== 'ENOENT' || dirname(path) === path) throw error
+      suffix.unshift(basename(path))
+      path = dirname(path)
+    }
+  }
+}
+
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 const fail = message => { throw new KernelError('PRECONDITION_FAILED', message) }
+// Cleanup must not replace the operation's code, cancellation or termination
+// details. On success, a cleanup failure still fails the operation. Retain any
+// secondary failures on the original Error for local diagnostics.
+async function cleanupPath(path, options, primary) {
+  try { await rm(path, options) } catch (error) {
+    if (primary === undefined) throw error
+    if (primary instanceof Error && Object.isExtensible(primary)) {
+      const descriptor = Object.getOwnPropertyDescriptor(primary, 'cleanupErrors')
+      if (!descriptor || descriptor.configurable) Object.defineProperty(primary, 'cleanupErrors', {
+        value: [...(Array.isArray(descriptor?.value) ? descriptor.value : []), error], configurable: true,
+      })
+    }
+  }
+}
 const chinese = new Set(['zh', 'zh-CN', 'zh-Hans'])
 const validateSourceLanguage = language => {
   if (language !== 'en' && !chinese.has(language)) fail('PDF source capture supports only en, zh, zh-CN or zh-Hans')
@@ -29,7 +58,7 @@ const validatePdfExport = ({ contentMode, targetLang, provenance, binding }) => 
 // This runtime owns files and a subprocess only. It has no Cordis context or model access.
 class PdfRuntime {
   constructor({ directory, storePath, client }) {
-    this.directory = resolve(directory)
+    this.directory = directory
     // The canonical store is exclusively locked for this runtime's lifetime.
     // Different databases may share the PDF directory, but must never share a
     // newly published file: cleanup can only inspect this store's references.
@@ -145,17 +174,21 @@ class PdfRuntime {
     }
     try { await this.verifySource(sourcePath, sourceDigest) } catch (error) {
       if (created) {
-        await rm(sourcePath, { force: true })
+        await cleanupPath(sourcePath, { force: true }, error)
         throw error
       }
       // Capture has already hashed the original. Publish the validated bytes
       // beside the destination and replace the damaged file with one rename.
       const replacement = `${sourcePath}.${randomUUID()}.repair`
+      let failure
       try {
         await copyFile(temporary, replacement, constants.COPYFILE_EXCL)
         await this.verifySource(replacement, sourceDigest)
         await rename(replacement, sourcePath)
-      } finally { await rm(replacement, { force: true }); this.verified.delete(replacement) }
+      } catch (error) { failure = error; throw error } finally {
+        try { await cleanupPath(replacement, { force: true }, failure) }
+        finally { this.verified.delete(replacement) }
+      }
       this.verified.delete(sourcePath)
       await this.verifySource(sourcePath, sourceDigest)
     }
@@ -179,6 +212,7 @@ class PdfRuntime {
     const work = join(this.directory, 'work')
     await mkdir(work, { recursive: true })
     const temporary = await mkdtemp(join(work, 'import-'))
+    let failure
     try {
       const input = join(temporary, 'source.pdf')
       const parsed = await this.capture(file, input)
@@ -186,7 +220,9 @@ class PdfRuntime {
       file.signal?.throwIfAborted()
       await this.withSourceLock(sourceDigest, () => this.publish(input, sourcePath, sourceDigest))
       return parsed
-    } finally { await rm(temporary, { recursive: true, force: true }) }
+    } catch (error) { failure = error; throw error } finally {
+      await cleanupPath(temporary, { recursive: true, force: true }, failure)
+    }
   }
 
   async import(file, persist, isReferenced) {
@@ -194,6 +230,7 @@ class PdfRuntime {
     const work = join(this.directory, 'work')
     await mkdir(work, { recursive: true })
     const temporary = await mkdtemp(join(work, 'import-'))
+    let failure
     try {
       const input = join(temporary, 'source.pdf')
       const parsed = await this.capture(file, input)
@@ -205,13 +242,15 @@ class PdfRuntime {
           // This path belongs to the locked store. Legacy digest-only sources
           // remain readable through saved bindings and are never cleanup targets.
           if (created && !isReferenced(sourcePath)) {
-            await rm(sourcePath, { force: true })
+            await cleanupPath(sourcePath, { force: true }, error)
             this.verified.delete(sourcePath)
           }
           throw error
         }
       })
-    } finally { await rm(temporary, { recursive: true, force: true }) }
+    } catch (error) { failure = error; throw error } finally {
+      await cleanupPath(temporary, { recursive: true, force: true }, failure)
+    }
   }
 
   async rebuild(frozen, { signal } = {}) {
@@ -235,6 +274,7 @@ class PdfRuntime {
     const jobs = join(this.directory, 'work')
     await mkdir(jobs, { recursive: true })
     const temporary = await mkdtemp(join(jobs, 'export-'))
+    let failure
     try {
       const docRef = join(temporary, 'source.json')
       const revisionsRef = join(temporary, 'snapshot.json')
@@ -246,7 +286,9 @@ class PdfRuntime {
       const content = await readFile(out)
       if (!content.subarray(0, 1024).includes(Buffer.from('%PDF-'))) fail('PDF component returned invalid output')
       return { content, warnings: result.evidence?.warnings ?? [] }
-    } finally { await rm(temporary, { recursive: true, force: true }) }
+    } catch (error) { failure = error; throw error } finally {
+      await cleanupPath(temporary, { recursive: true, force: true }, failure)
+    }
   }
 }
 
@@ -254,12 +296,17 @@ export function BabelDOCSource(ctx, config = {}) {
   const storePath = ctx.get('ivoraige.storePath')
   if (typeof config.directory !== 'string' || !config.directory ||
       typeof storePath !== 'string' || !storePath ||
-      (config.storePath !== undefined && resolve(config.storePath) !== storePath)) {
+      (config.storePath !== undefined && (typeof config.storePath !== 'string' || !config.storePath ||
+        canonicalPath(config.storePath) !== canonicalPath(storePath)))) {
     throw new KernelError('INVALID_ARGUMENT', 'BabelDOC requires a directory and the host-owned store path')
   }
   const { directory, storePath: _ignored, ...transport } = config
+  try {
+    if (lstatSync(resolve(directory)).isSymbolicLink()) fail('BabelDOC directory must not be a symlink')
+  } catch (error) { if (error.code !== 'ENOENT') throw error }
+  const root = canonicalPath(directory)
   const client = ctx.get('ivoraige.sidecarFactory').create({ timeoutMs: 600_000, ...transport })
-  const runtime = new PdfRuntime({ directory, storePath, client })
+  const runtime = new PdfRuntime({ directory: root, storePath, client })
   ctx.effect(() => () => runtime.client.close())
   ctx.effect(() => ctx.get('ivoraige.parse').register({
     id: 'babeldoc',

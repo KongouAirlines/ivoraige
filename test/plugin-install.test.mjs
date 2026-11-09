@@ -4,13 +4,17 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile, symlink, chmod } from 'nod
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { managePlugins, pluginRuntime } from '../src/plugin-install.mjs'
+import { fileURLToPath } from 'node:url'
+import { managePlugins, pluginRuntime, pluginDiagnostic } from '../src/plugin-install.mjs'
 import { bootModelSettings } from '../src/model-settings.mjs'
 import { acquireProfile, snapshotProfile, acquireProbe } from '../src/plugin-profile.mjs'
 
-async function setup(t) {
+async function setup(t, beforeCleanup) {
   const root = await mkdtemp(join(tmpdir(), 'ivoraige-delivery-'))
-  t.after(() => rm(root, { recursive: true, force: true }))
+  t.after(async () => {
+    await beforeCleanup?.()
+    await rm(root, { recursive: true, force: true })
+  })
   const directory = join(root, 'profile'), source = join(root, 'package')
   await mkdir(source)
   const manifest = { name: '@ivoraige/delivery-probe', version: '0.1.0', type: 'module', exports: './index.mjs',
@@ -235,9 +239,32 @@ test('nested missing-service and disabled contributions cannot pass installation
 })
 
 
-test('cancelled live validation blocks package restore until its probe lease is released', async t => {
-  const { root, source, directory } = await setup(t)
-  const marker = join(root, 'validator-pid')
+test('cancelled validation respects platform termination and releases ownership before cleanup', async t => {
+  const abort = new AbortController()
+  let pid, outcome, root, source, directory, marker
+  const stopValidator = async () => {
+    abort.abort()
+    if (outcome) await outcome
+    if (!directory) return
+    let lease
+    const stopped = Date.now() + 5000
+    while (!lease && Date.now() < stopped) {
+      if (!pid && marker) {
+        try { pid = Number(await readFile(marker, 'utf8')) } catch (error) { if (error.code !== 'ENOENT') throw error }
+      }
+      if (pid) {
+        try { process.kill(pid, 'SIGKILL') } catch (error) { if (error.code !== 'ESRCH') throw error }
+        pid = undefined
+        marker = undefined // Never address an already reaped PID during later cleanup.
+      }
+      try { lease = await acquireProbe(directory) } catch (error) { if (error.code !== 'CONFLICT') throw error }
+      if (!lease) await new Promise(resolve => setTimeout(resolve, 15))
+    }
+    assert.ok(lease, 'Validator retained its lease after termination')
+    lease.release()
+  }
+  ;({ root, source, directory } = await setup(t, stopValidator))
+  marker = join(root, 'validator-pid')
   await writeFile(join(source, 'index.mjs'), `import { writeFile } from 'node:fs/promises';
     export default async function() {
       process.on('SIGTERM', () => {});
@@ -245,12 +272,8 @@ test('cancelled live validation blocks package restore until its probe lease is 
       await writeFile(${JSON.stringify(marker)}, String(process.pid));
       await new Promise(() => {});
     }`)
-  const abort = new AbortController()
   const operation = managePlugins({ directory, action: 'install', packageDirectory: source, signal: abort.signal })
-  // Observe rejection immediately while waiting for the explicit child barrier.
-  const outcome = operation.then(value => ({value}), error => ({error}))
-  let pid
-  t.after(() => { if (pid) { try { process.kill(pid, 'SIGKILL') } catch {} } })
+  outcome = operation.then(value => ({value}), error => ({error}))
   const deadline = Date.now() + 30000
   while (!pid && Date.now() < deadline) {
     try { pid = Number(await readFile(marker, 'utf8')) } catch (error) { if (error.code !== 'ENOENT') throw error }
@@ -259,22 +282,104 @@ test('cancelled live validation blocks package restore until its probe lease is 
   assert.ok(pid, 'Validator did not reach its explicit activation barrier')
   abort.abort()
   const result = await outcome
-  assert.equal(result.error?.code, 'CONFLICT')
-  assert.equal(result.error?.details?.recoveryPending, true)
-  assert.ok(JSON.parse(await readFile(join(directory, 'package.json'), 'utf8')).dependencies['@ivoraige/delivery-probe'])
-  assert.ok(await readFile(join(directory, '.plugin-transaction', 'ready')))
-  await assert.rejects(managePlugins({ directory, action: 'recover' }), {code:'CONFLICT'})
-  process.kill(pid, 'SIGKILL')
-  pid = undefined
-  let lease
-  const stopped = Date.now() + 5000
-  while (!lease && Date.now() < stopped) {
-    try { lease = await acquireProbe(directory) } catch (error) { if (error.code !== 'CONFLICT') throw error }
-    if (!lease) await new Promise(resolve => setTimeout(resolve, 15))
+  const pending = result.error?.details?.recoveryPending === true
+  // POSIX ignores SIGTERM here; Windows forcibly terminates the target and may
+  // already release its lease before the installer attempts rollback.
+  if (process.platform !== 'win32') assert.equal(pending, true)
+  if (pending) {
+    assert.equal(result.error.code, 'CONFLICT')
+    assert.ok(JSON.parse(await readFile(join(directory, 'package.json'), 'utf8')).dependencies['@ivoraige/delivery-probe'])
+    assert.ok(await readFile(join(directory, '.plugin-transaction', 'ready')))
+    if (process.platform !== 'win32')
+      await assert.rejects(managePlugins({ directory, action: 'recover' }), {code:'CONFLICT'})
+  } else {
+    assert.equal(result.error?.code, 'PRECONDITION_FAILED')
+    assert.deepEqual(JSON.parse(await readFile(join(directory, 'package.json'), 'utf8')).dependencies, {})
   }
-  assert.ok(lease, 'Validator retained its lease after SIGKILL')
-  lease.release()
+  await stopValidator()
   const recovered = await managePlugins({ directory, action: 'recover' })
-  assert.equal(recovered.recovered, true)
+  assert.equal(recovered.recovered, pending)
   assert.equal(recovered.plugins.length, 0)
+})
+
+
+test('plugin CLI runs through directory aliases and stays inert when imported', async t => {
+  const { root } = await setup(t)
+  const checkout = fileURLToPath(new URL('../', import.meta.url))
+  const alias = join(root, 'checkout-alias')
+  await symlink(checkout, alias, 'junction')
+  for (const [index, entry] of [join(checkout, 'src/plugin-install.mjs'), join(alias, 'src/plugin-install.mjs')].entries()) {
+    const result = spawnSync(process.execPath, [entry, 'list', join(root, `cli-profile-${index}`)], { encoding: 'utf8' })
+    assert.equal(result.status, 0, result.stderr)
+    assert.notEqual(result.stdout.trim(), '', 'CLI alias must not silently skip dispatch')
+    assert.deepEqual(JSON.parse(result.stdout).plugins, [])
+  }
+  const imported = spawnSync(process.execPath, ['--input-type=module', '-e',
+    `await import(${JSON.stringify(new URL('../src/plugin-install.mjs', import.meta.url).href)})`], { encoding: 'utf8' })
+  assert.equal(imported.status, 0, imported.stderr)
+  assert.equal(imported.stdout, '')
+})
+
+
+test('borrowed profile lease accepts a canonical alias and recovers before boot', async t => {
+  let lease
+  const { root, directory } = await setup(t, () => lease?.release())
+  await managePlugins({ directory, action: 'list' })
+  lease = await acquireProfile(directory)
+  const alias = join(root, 'borrowed-profile-alias')
+  await symlink(directory, alias, 'junction')
+  await snapshotProfile(directory)
+  await writeFile(join(directory, 'package.json'), 'interrupted')
+  const app = await bootModelSettings({ directory: alias, profileLease: lease })
+  assert.ok(app.settings)
+  await app.dispose()
+  // Disposal must not release ownership borrowed from the embedding caller.
+  await assert.rejects(managePlugins({ directory, action: 'list' }), { code: 'CONFLICT' })
+  lease.release()
+  assert.equal((await managePlugins({ directory, action: 'list' })).plugins.length, 0)
+})
+
+test('CLI diagnostic retains only safe recovery fields', () => {
+  const diagnostic = pluginDiagnostic({ code:'CONFLICT', message:'Recovery pending',
+    details:{recoveryPending:true,validationPid:12345,credential:'secret'}, cause:new Error('private') })
+  assert.deepEqual(diagnostic, {code:'CONFLICT',message:'Recovery pending',
+    details:{recoveryPending:true,validationPid:12345}})
+  assert.deepEqual(pluginDiagnostic({message:'Failure',details:{validationPid:-1,recoveryPending:'yes'}}),
+    {code:'UPSTREAM_FAILURE',message:'Failure'})
+})
+
+test('death between commit renames preserves the previous complete rollback point', async t => {
+  const { source, directory, manifest } = await setup(t)
+  await managePlugins({ directory, action: 'install', packageDirectory: source })
+  await writeFile(join(source, 'package.json'), JSON.stringify({...manifest,version:'0.1.1'}))
+  await managePlugins({ directory, action: 'install', packageDirectory: source })
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', `
+    import { acquireProfile, snapshotProfile } from ${JSON.stringify(new URL('../src/plugin-profile.mjs', import.meta.url).href)};
+    import { writeFile, rename } from 'node:fs/promises';
+    import { join } from 'node:path';
+    const directory = ${JSON.stringify(directory)};
+    await acquireProfile(directory);
+    await snapshotProfile(directory);
+    await writeFile(join(directory, 'package.json'), 'interrupted');
+    await rename(join(directory, '.plugin-previous'), join(directory, '.plugin-obsolete'));
+    process.kill(process.pid, 'SIGKILL');
+  `], {encoding:'utf8'})
+  assert.ok(child.signal || child.status !== 0, child.stderr)
+  assert.equal((await managePlugins({directory,action:'recover'})).recovered, true)
+  const installed = join(directory, 'node_modules', manifest.name, 'package.json')
+  assert.equal(JSON.parse(await readFile(installed, 'utf8')).version, '0.1.1')
+  await managePlugins({directory,action:'rollback'})
+  assert.equal(JSON.parse(await readFile(installed, 'utf8')).version, '0.1.0')
+})
+
+
+test('explicit rollback never promotes partially removed obsolete bytes', async t => {
+  const { source, directory } = await setup(t)
+  await managePlugins({ directory, action: 'install', packageDirectory: source })
+  const obsolete = join(directory, '.plugin-obsolete')
+  await mkdir(obsolete)
+  await writeFile(join(obsolete, 'ready'), JSON.stringify(['node_modules']))
+  await managePlugins({ directory, action: 'rollback' })
+  assert.equal((await managePlugins({ directory, action: 'list' })).plugins.length, 0)
+  await assert.rejects(managePlugins({ directory, action: 'rollback' }), /No previous complete/)
 })

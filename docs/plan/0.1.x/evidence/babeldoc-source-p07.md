@@ -8,15 +8,27 @@ native distribution, P10 cross-engine mapping, or arbitrary future plugins.
 
 ## Frozen host boundary
 
-The final host baseline is **6e2b0e37019cd80963768671f5bcc9aa1b2557e7** (P05 transaction corrections plus
-MinerU source/replay review corrections). Against this baseline, this change
-adds only `plugins/babeldoc/`, tests, and documentation. No changes to `src/`,
-translation services, operation entries, or frontend engine-name lists are
-needed. The recorded diff is `evaluation/runs/p07/frozen-boundary.txt`.
+The final host baseline is **75e7ef967c2d6ac9e8aa39f4a6860f987b35ba70**,
+tree `dcf96f6c69a0370354f4a5f0258d824a11afe29b`. Its published counterpart
+`8ad5329cbf8ed6b640092fafbbd6abe7aeaeeca7` was verified to have this same
+tree; local and remote commit identities differ, but host files do not. It includes the final
+MinerU renderer `122a0e5` and P05 recovery, lease, CLI alias and lifecycle
+corrections. It was incorporated by an ordinary merge, preserving the tested
+P07 package history through `f8f99bd`; the merge changes no BabelDOC package
+files. Against this new frozen baseline, P07 adds only `plugins/babeldoc/`,
+tests, and documentation. Host `src/`, scripts, CI and dependency manifests
+remain byte-identical to the baseline. The recorded comparison is
+`evaluation/runs/p07/frozen-boundary.txt`.
+
+The earlier local baseline `6e2b0e37019cd80963768671f5bcc9aa1b2557e7`
+corresponded to published base `b5cbdda966b36dcb29135f38e1ae8ee894ec978d`;
+publishing verified their identical tree
+`c1d83f47089f1e091a118456bc08819ec1eb9b43`. That historical SHA difference
+was provenance, not a code difference; it is not the final baseline above.
 
 Earlier preparation on `e5ce127` and the direct-mount run
 `evaluation/runs/p07/dual-pre-freeze-2/` are not the final V06 evidence. The
-committed acceptance script is rerun after replay onto the final baseline.
+committed acceptance script is rerun after integration of the final host.
 
 The contract stays host API 1, pinned DSH
 `639ed015397290b3745d163aafe02ffee4aa3f84`, Cordis 4.0.4, sidecar protocol 1,
@@ -81,7 +93,7 @@ matrix run inside `test/babeldoc-offline-exec.py`, which denies `connect`,
 returns EACCES (`network-denial-proof.log`). This is a test constraint, not a
 claim of a security sandbox for installed plugins.
 
-- `test/babeldoc-plugin.test.mjs`: 14 tests including subtests. Covers frozen
+- `test/babeldoc-plugin.test.mjs`: 22 tests including subtests. Covers frozen
   PDF/MD/JSON, reopen, missing runtime, source export while runtime is missing,
   TXT isolation, local-only imports, store mismatch, both duplicate-registration
   orders, 0.6.4/cross-engine rejection without sidecar access, data-only output,
@@ -91,7 +103,7 @@ claim of a security sandbox for installed plugins.
   or the removal attempt, and the first cleanup error is preserved. Two focused
   regressions cover that ordering/error behavior. This avoids removing a live
   SQLite store on Windows; the rerun here is Linux, not native Windows evidence.
-- `test/babeldoc-live.mjs`: final report at `evaluation/runs/p07/installed-live-final/report.json`.
+- `test/babeldoc-live.mjs`: final report at `evaluation/runs/p07/installed-live-final-host/report.json`.
   Actual offline P05 install of both packages and AppBoot/Loader activation;
   explicit source selection in one store; two manually accepted Chinese
   title/Abstract revisions per engine with remaining translatable units skipped;
@@ -100,7 +112,7 @@ claim of a security sandbox for installed plugins.
   disable/enable and restart; missing-other-runtime isolation; removal and
   retained records/resources; TXT remains usable. Every close verifies no child
   process remains. Translation task count is zero.
-- `npm test`: 609 tests / 607 passed / 2 platform skips / 0 failed; `evaluation/runs/p07/npm-test-cleanup.log`. npm runs
+- `npm test`: 627 tests / 625 passed / 2 platform skips / 0 failed; `evaluation/runs/p07/final-host-full.log`. npm runs
   with `offline=true`, `update_notifier=false`, `audit=false`, `fund=false` and a
   writable local cache. The complete host suite includes loopback HTTP tests;
   the strict child network-denial wrapper applies to the above real-engine and
@@ -123,6 +135,11 @@ The original mixed synthetic input SHA-256 is
 It yields 26 BabelDOC units and 13 MinerU units. Different segmentation is
 retained. Reopened MinerU frozen replay is byte-identical; BabelDOC PDF metadata
 can change bytes, so replay compares first-page rendered pixels instead.
+
+The live verifier requires an existing Poppler `pdftoppm` on PATH; rendered-page
+checks used version 26.05.0. Separate output-text inspection used `pdftotext`
+25.03.0. These external verification tools are not plugin dependencies, are not
+bundled, and are not installed by the verifier.
 
 Run the installed-runtime proof with already prepared paths:
 
@@ -153,3 +170,64 @@ Windows/macOS native-runtime behavior, binary/asset distribution, broader
 samples, full-page quality acceptance and cross-engine mapping remain outside
 this branch. P07/V06 branch evidence remains pending integration into the target
 branch; this document does not close #14 as a whole.
+
+## DSH review corrections and contract checks
+
+The pinned Python server's `capture_config` preserves each Chinese source tag
+exactly and omits `sourceLanguage` for English. Its replay path compares this
+same configuration strictly. The two pinned Python language tests pass in
+`evaluation/runs/p07/pinned-language-contract-final.log`; the JS regression
+accepts matching tags and rejects changed tags or explicit English metadata.
+The proposed language-normalization relaxation was therefore not applied.
+
+Cleanup could previously mask a parse/import/rebuild or publication failure
+when a subsequent `rm` failed. Package-local cleanup now preserves the original
+error object/code/details, retains secondary errors in a non-enumerable
+`cleanupErrors` property, and still rejects cleanup failures after successful
+operations. Six actual adapter-path regressions inject filesystem EPERM/EBUSY
+at capture cleanup, persistence rollback, rebuild, new-source publication,
+repair rename and cleanup-only success. They do not claim native Windows runs.
+
+A reproduced ancestor-alias failure was corrected inside the package: root
+resolution canonicalizes existing ancestors and optional store-path assertions,
+while rejecting a symlink root and preserving managed-source escape/digest
+checks. The pre-fix reproduction is `evaluation/runs/p07/directory-alias-before.log`;
+the ancestor-alias/root-symlink regression passes in `dsh-review-unit.log`.
+
+Other conditional review concerns did not establish new defects in the pinned
+contract. Importer supplies synchronous `Records.referencesSourcePath`; a
+speculative asynchronous callback is not the deployed interface. A duplicate
+mount creates only a lazy client, not a process; both registration orders and
+close/reopen are covered. Saved-name fallback preserves documented legacy and
+store-relocation reads under the verified current source root; new-file cleanup
+still targets only this store's owned name. Missing install configuration does
+not satisfy the plugin's required directory/transport validation. None of these
+checks introduces a host engine-name branch or changes upstream CJK behavior.
+
+Post-review verification passes all 22 plugin tests and the complete 615-pass /
+2-skip host suite. The real installed-runtime six-phase rerun is
+`evaluation/runs/p07/installed-live-dsh-review/report.json`, again with no child
+processes after all six closes and zero translation tasks. Root package smoke
+passes in `dsh-review-package-smoke-final.log` using the pre-existing warmed
+cache in explicit offline mode; an earlier empty-cache attempt failed with
+ENOTCACHED, not a downloaded dependency. Independent plugin packing remains
+seven source/metadata/license/documentation files with no bundled dependencies
+(`dsh-review-plugin-pack.json`).
+
+
+## Final merged-host verification
+
+After the ordinary merge of the final host baseline `75e7ef9`, no BabelDOC
+package or plugin-test file changed relative to `f8f99bd`. Rebuilt tests pass:
+627 total / 625 passed / 2 platform skips / 0 failures
+(`evaluation/runs/p07/final-host-full.log`), with all 22 independent-plugin
+checks also passing under child network denial (`final-host-unit.log`).
+Offline root package smoke passes with 87 files (`final-host-package.log`).
+
+The complete real installation/disable/enable/missing-runtime/removal sequence
+was repeated on this merged host under child network denial. Its report is
+`evaluation/runs/p07/installed-live-final-host/report.json`: all six phases
+pass, every close leaves no child processes, and translation task count is zero.
+BabelDOC rendered-pixel and MinerU PDF-byte hashes match the prior post-review
+run, preserving the documented quality limitations rather than claiming a
+quality fix from host integration.

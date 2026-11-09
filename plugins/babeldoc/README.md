@@ -27,7 +27,9 @@ The profile is loaded through the existing `settingsDir` option on `createApp`.
 Both `install` and `enable` must receive the same top-level `storePath` as the
 host will use at activation. The installer does not infer a database from saved
 plugin configuration. `directory` is the managed PDF resource root; preserve it with the database when backing up or
-moving a store. Runtime caches must be writable in the chosen environment.
+moving a store. Runtime caches must be writable in the chosen environment. Existing parent-path
+aliases (such as macOS `/var`) are canonicalized. The managed root itself and
+its `sources` directory/files must not be symlink escape routes.
 Do not put a different `storePath` in plugin configuration: the host's canonical
 store path is authoritative. The package does not download anything or prepare
 native dependencies. A missing executable/assets is reported when selected;
@@ -56,7 +58,10 @@ store or managed PDF resources. Keep those resources for saved documents.
   source export can still verify/read a preserved older managed PDF.
 - The unchanged protocol is NDJSON JSON-RPC 2.0, protocol 1. Imports need no
   target language or translation provider. English and Chinese source-language
-  constraints and placeholder validation retain their previous semantics.
+  constraints and placeholder validation retain their previous semantics. The
+  server omits `captureConfig.sourceLanguage` for English and preserves the exact
+  `zh`, `zh-CN` or `zh-Hans` value for Chinese; internal engine routing does not
+  change this stored identity.
 - MD/JSON use the source's readable projection. PDF output consumes frozen
   revisions and only its own source binding. No MinerU-to-BabelDOC mapping is
   supported. Two engines can share one store with explicit adapter selection.
@@ -77,3 +82,13 @@ ID 为 `pdf`，binding schema 与 sidecar protocol 均保持 1。通过宿主的
 二选一；同时挂载会明确拒绝重复注册。禁用/移除只更改插件，保留数据库与受管
 PDF。导出只消费冻结快照，不调用翻译模型；跨引擎 PDF 重建仍不支持。该包的
 接线与生命周期验证不代表宽泛的 PDF 质量或跨平台二进制分发验收。
+
+## Live verification tools
+
+The opt-in `test/babeldoc-live.mjs` verifier also requires an already installed
+Poppler `pdftoppm` executable on PATH for same-snapshot rendered-page comparison.
+The separate output-text inspection uses `pdftotext`. This Linux evidence used
+`pdftoppm` 26.05.0 and `pdftotext` 25.03.0. These are verification prerequisites,
+not bundled plugin dependencies; the test does not install them. See the repository evidence record at
+`docs/plan/0.1.x/evidence/babeldoc-source-p07.md` for the network-denial wrapper,
+runtime paths and remaining quality failures.
