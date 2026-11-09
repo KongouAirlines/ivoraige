@@ -94,12 +94,17 @@ export function projectStructured(middle, structured, bundle, files, { projectio
           .map((child, childOrder) => ({ child, childOrder }))
           .filter(({ child }) => typeof child?.type === 'string' &&
             (child.type === part || child.type.endsWith(`_${part}`)))
+          // DocVortex structured_content sorts annotations by source index,
+          // with absent indexes last and physical position as the tie-breaker.
+          .sort((left, right) => {
+            const a = left.child.index, b = right.child.index
+            if (a == null) return b == null ? left.childOrder - right.childOrder : 1
+            if (b == null) return -1
+            return a - b || left.childOrder - right.childOrder
+          })
         return entries.map((entry, itemIndex) => {
           const { child, childOrder } = children[itemIndex] ?? {}
-          const singleText = Array.isArray(child?.content) && child.content.length === 1 &&
-            child.content[0]?.type === 'text' ? child.content[0].content : undefined
           if (!child || typeof entry?.content !== 'string' ||
-              (singleText !== undefined && singleText !== entry.content) ||
               (Array.isArray(child.bbox) && Array.isArray(entry.bbox) &&
                 JSON.stringify(child.bbox) !== JSON.stringify(entry.bbox)))
             fail('UPSTREAM_FAILURE', 'MinerU annotation does not align with MiddleJson')

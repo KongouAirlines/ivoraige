@@ -303,6 +303,22 @@ test('structured projection follows real MinerU ordered type/bbox identity witho
     '/bundle', []), { code: 'UPSTREAM_FAILURE' })
 })
 
+test('MinerU annotation projection follows upstream index order and retains rendered Markdown', () => {
+  const bbox = [0.1, 0.1, 0.9, 0.9]
+  const middle = { schema: 'docvortex.middle', schema_version: '2.0', pages: [{ page_idx: 0,
+    blocks: [{ type: 'table', index: 9, bbox, content: [
+      { type: 'table_caption', index: 10, content: [{ type: 'text', content: 'Later' }] },
+      { type: 'table_caption', index: 8, content: [{ type: 'text', content: 'A*B' }] },
+      { type: 'table_body', index: 9, content: '<table/>' },
+    ] }] }] }
+  const structured = { pages: [{ page_idx: 0, blocks: [{ type: 'table', bbox,
+    content: 'Table body', captions: [{ content: 'A\\*B' }, { content: 'Later' }], footnotes: [] }] }] }
+  const units = projectStructured(middle, structured, '/bundle', []).units
+  assert.deepEqual(units.map(unit => unit.sourceText), ['A\\*B', 'Later', 'Table body'])
+  assert.deepEqual(units.slice(0, 2).map(unit => unit.locator.childOrder), [1, 0])
+  assert.deepEqual(units.slice(0, 2).map(unit => unit.locator.itemIndex), [0, 1])
+})
+
 test('Python runner handshakes before recognizing MinerU and never emits a raw traceback as a message', t => {
   const python = process.platform === 'win32' ? 'python' : 'python3'
   const probe = spawnSync(python, ['--version'], { encoding: 'utf8' })
