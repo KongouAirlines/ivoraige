@@ -10,6 +10,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 PIN = "4.0.10"
+DOCVORTEX_PIN = "0.6.21"
 PROTOCOL = 1
 CONFIGURED = False
 HANDSHAKEN = False
@@ -23,7 +24,7 @@ class SidecarError(Exception):
 
 
 def offline(*_args, **_kwargs):
-    raise RuntimeError("MinerU network access is disabled; prepare local models")
+    raise RuntimeError("Python socket connection blocked; prepare local models")
 
 
 def configure(params):
@@ -36,6 +37,12 @@ def configure(params):
         raise SidecarError(-32002, "MinerU 4.0.10 is not installed") from exc
     if installed != PIN:
         raise SidecarError(-32002, "MinerU 4.0.10 is required")
+    try:
+        docvortex_version = version("docvortex")
+    except PackageNotFoundError as exc:
+        raise SidecarError(-32002, "DocVortex 0.6.21 is not installed") from exc
+    if docvortex_version != DOCVORTEX_PIN:
+        raise SidecarError(-32002, "DocVortex 0.6.21 is required")
     os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["TRANSFORMERS_OFFLINE"] = "1"
     socket.socket.connect = offline

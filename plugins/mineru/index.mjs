@@ -3,7 +3,7 @@
 
 import { createHash } from 'node:crypto'
 import { lstatSync, realpathSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -92,8 +92,8 @@ export function projectStructured(middle, structured, bundle, files, { projectio
           fail('UPSTREAM_FAILURE', 'MinerU annotation structure is invalid')
         const children = (Array.isArray(block.content) ? block.content : [])
           .map((child, childOrder) => ({ child, childOrder }))
-          .filter(({ child }) => typeof child?.type === 'string' &&
-            (child.type === part || child.type.endsWith(`_${part}`)))
+          .filter(({ child }) => ['image', 'table', 'chart', 'code']
+            .some(visual => child?.type === `${visual}_${part}`))
           // DocVortex structured_content sorts annotations by source index,
           // with absent indexes last and physical position as the tie-breaker.
           .sort((left, right) => {
@@ -102,6 +102,10 @@ export function projectStructured(middle, structured, bundle, files, { projectio
             if (b == null) return -1
             return a - b || left.childOrder - right.childOrder
           })
+        // The pinned structured renderer emits one entry per annotation,
+        // including empty text. A missing entry must not silently drop source.
+        if (children.length !== entries.length)
+          fail('UPSTREAM_FAILURE', 'MinerU annotations are missing from structured content')
         return entries.map((entry, itemIndex) => {
           const { child, childOrder } = children[itemIndex] ?? {}
           if (!child || typeof entry?.content !== 'string' ||
@@ -244,7 +248,8 @@ export function MinerUSource(ctx, config = {}) {
       let created = false
       try { await rename(saved, bundlePath); created = true }
       catch (error) {
-        if (error.code !== 'EEXIST' && error.code !== 'ENOTEMPTY') throw error
+        if (!['EEXIST', 'ENOTEMPTY', 'EACCES', 'EPERM'].includes(error.code) ||
+            !(await lstat(bundlePath).then(stat => stat.isDirectory(), () => false))) throw error
         await verifyMineruBundle({ ...result.sourceBinding, files }, { directory: root, storePath })
       }
       status.state = 'ready'; status.message = 'MinerU parse completed'
@@ -256,25 +261,32 @@ export function MinerUSource(ctx, config = {}) {
         if (created && !isReferenced(result.sourceBinding.sourcePath) &&
             await realpath(dirname(bundlePath)).catch(() => null) === dirname(bundlePath) &&
             await realpath(bundlePath).catch(() => null) === bundlePath)
-          await rm(bundlePath, { recursive: true, force: true })
+          try { await rm(bundlePath, { recursive: true, force: true }) }
+          catch (cleanupError) { console.error('MinerU bundle cleanup failed', cleanupError) }
         throw error
       }
     } catch (error) {
       retainTemporary = error.details?.terminationFailed === true
       const absent = error.code === 'COMPONENT_MISSING'
-      if (absent) status.state = 'unavailable'
+      status.state = absent ? 'unavailable' : 'unchecked'
       status.message = absent ? 'MinerU 4.0.10 or its local assets are unavailable' :
         'Last MinerU import failed; retry or inspect local diagnostics'
       if (error instanceof KernelError) throw error
       const publicError = new KernelError(absent ? 'COMPONENT_MISSING' : 'UPSTREAM_FAILURE',
         absent ? 'MinerU 4.0.10 or its local assets are unavailable' : 'MinerU import failed',
-        { ...(error.details?.canceled ? { canceled: true } : {}),
+        { ...(error.details?.canceled || error.name === 'AbortError' || file.signal?.aborted ? { canceled: true } : {}),
           ...(error.details?.terminationFailed ? { terminationFailed: true } : {}) }, { cause: error })
       throw publicError
     } finally {
       if (!retainTemporary && await realpath(work).catch(() => null) === work &&
           await realpath(temporary).catch(() => null) === temporary)
-        await rm(temporary, { recursive: true, force: true })
+        try { await rm(temporary, { recursive: true, force: true }) }
+        catch (cleanupError) {
+          // Cleanup must not turn an already committed import into failure or
+          // hide the original import error. The local log retains diagnostics.
+          if (status.state === 'ready') status.message = 'MinerU parse completed; temporary cleanup failed'
+          console.error('MinerU temporary cleanup failed', cleanupError)
+        }
     }
   }
   ctx.effect(() => ctx.get('ivoraige.parse').register({
