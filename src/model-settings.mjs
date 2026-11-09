@@ -12,6 +12,7 @@ import { ComponentsSettings } from './component-settings.mjs'
 import { Outputs } from './outputs.mjs'
 import { Parse } from './parse.mjs'
 import { SidecarFactory } from './sidecar-factory.mjs'
+import { acquireProfile, ownsProfile, recoverProfile } from './plugin-profile.mjs'
 
 const MODEL_NS = 'ivoraige-model'
 const ROUTES_NS = 'llm-pi-ai'
@@ -335,7 +336,7 @@ export class ModelSettings extends Service {
 
 // Profile scaffolding is a static DSH composition. User edits go exclusively
 // through DSH config-editor/settings and credentials-local after boot.
-async function ensureProfile(directory) {
+export async function ensureProfile(directory) {
   const profileDir = resolve(directory)
   const bundleDir = join(profileDir, 'node_modules', PROFILE_BUNDLE)
   const manifestPath = join(profileDir, 'package.json')
@@ -377,7 +378,24 @@ async function ensureProfile(directory) {
   return { profileDir, configPath, patchPath: join(profileDir, 'cordis.patch.yml') }
 }
 
-export async function bootModelSettings({ directory, storePath } = {}) {
+export async function bootModelSettings({ directory, storePath, profileLease } = {}) {
+  directory = nonempty(directory, 'directory')
+  const ownLease = !ownsProfile(profileLease, directory)
+  const lease = ownLease ? await acquireProfile(directory) : profileLease
+  directory = lease.directory
+  try {
+    if (ownLease) await recoverProfile(directory)
+    const result = await bootProfile({ directory, storePath })
+    if (ownLease) result.ctx.effect(() => () => lease.release())
+    return result
+  } catch (error) {
+    if (ownLease) lease.release()
+    throw error
+  }
+}
+
+// Internal startup primitive for the isolated installation probe; caller owns the profile lease.
+export async function bootProfile({ directory, storePath } = {}) {
   directory = nonempty(directory, 'directory')
   const { profileDir, configPath, patchPath } = await ensureProfile(directory)
   const profile = {

@@ -20,7 +20,8 @@ The following project-owned modules are licensed under the MIT License:
   plugins/mineru/runner.py
 
 These modules implement translation, document records, frozen exports and
-format adapters. They currently ship in the main package. Shared registries,
+format adapters. The src/ modules ship in the main package; plugins/mineru/ is an independent
+source package. Shared registries,
 protocols, entry points and other core files retain LGPL-3.0-or-later.
 Future independent plugins declare their own license (for example GPL or MIT);
 this is not a choice of license for files already covered by this notice.

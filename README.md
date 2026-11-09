@@ -127,3 +127,8 @@ Operations may mount before Records and Tasks. After those services finish mount
 ### MCP request cancellation
 
 Disconnecting an MCP HTTP task poll releases its subscription and leaves the persistent task running. Concurrent polls remain independent; closing the endpoint stops its outstanding requests.
+
+Independent local source plugins use the stopped-host `ivoraige-plugins` recovery
+entry. The MinerU MIT bridge is packed separately from the core; native runtimes
+and models are not included. See [offline plugin installation](docs/plan/0.1.0/installation-guide.md#offline-independent-source-plugins)
+and the [P05 development notes](docs/plan/0.1.x/plugin-delivery-development.md).

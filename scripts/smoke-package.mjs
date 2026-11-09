@@ -1,6 +1,7 @@
 import { cp, mkdir, mkdtemp, readdir, rm, writeFile, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
+import { x as extractTar } from 'tar'
 import { fileURLToPath } from 'node:url'
 import { spawn, spawnSync } from 'node:child_process'
 import assert from 'node:assert/strict'
@@ -110,6 +111,14 @@ try {
     }
   }
 
+  assert.ok(![...files].some(path => path.startsWith('plugins/mineru/')), 'Core must not embed MinerU source package')
+  const pluginPack = JSON.parse(run(process.execPath, [npmCli, 'pack', '--json', '--ignore-scripts',
+    '--pack-destination', work], join(root, 'plugins/mineru')))[0]
+  assert.deepEqual(pluginPack.files.map(file => file.path).sort(),
+    ['LICENSE', 'cordis.patch.yml', 'index.mjs', 'package.json', 'runner.py'])
+  const pluginSource = join(work, 'independent-plugin')
+  await mkdir(pluginSource)
+  await extractTar({ file: join(work, pluginPack.filename), cwd: pluginSource, strip: 1 })
   const tarball = join(work, packed[0].filename)
   await writeFile(join(work, 'package.json'), JSON.stringify({ private: true, type: 'module' }))
   run(process.execPath, [npmCli, 'install', '--ignore-scripts', '--omit=dev', '--no-audit', '--no-fund', tarball], work)
@@ -149,6 +158,15 @@ try {
     finally { await reopened.dispose() }
   `)
   run(process.execPath, [probe], work)
+  const pluginCli = join(work, 'node_modules', packed[0].name, 'src', 'plugin-install.mjs')
+  const pluginProfile = join(work, 'independent-profile')
+  const pluginOptions = JSON.stringify({ storePath: join(work, 'independent.sqlite'),
+    config: { directory: join(work, 'mineru-data') } })
+  assert.equal(JSON.parse(run(process.execPath, [pluginCli, 'install', pluginProfile, pluginSource, pluginOptions], work)).application,
+    'restart-required')
+  assert.equal(JSON.parse(run(process.execPath, [pluginCli, 'list', pluginProfile], work)).plugins[0].enabled, true)
+  run(process.execPath, [pluginCli, 'disable', pluginProfile, '@ivoraige/mineru-source'], work)
+  run(process.execPath, [pluginCli, 'remove', pluginProfile, '@ivoraige/mineru-source'], work)
   const cli = join(work, 'node_modules', packed[0].name, 'src', 'cli.mjs')
   assert.match(run(process.execPath, [cli, 'help'], work), /Commands: import, documents/)
   const dataDir = join(work, 'user-data')

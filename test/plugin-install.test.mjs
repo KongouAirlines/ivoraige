@@ -1,0 +1,280 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile, symlink, chmod } from 'node:fs/promises'
+import { spawnSync } from 'node:child_process'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { managePlugins, pluginRuntime } from '../src/plugin-install.mjs'
+import { bootModelSettings } from '../src/model-settings.mjs'
+import { acquireProfile, snapshotProfile, acquireProbe } from '../src/plugin-profile.mjs'
+
+async function setup(t) {
+  const root = await mkdtemp(join(tmpdir(), 'ivoraige-delivery-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const directory = join(root, 'profile'), source = join(root, 'package')
+  await mkdir(source)
+  const manifest = { name: '@ivoraige/delivery-probe', version: '0.1.0', type: 'module', exports: './index.mjs',
+    peerDependencies: { '@deepseek-ai/dsh-app-boot': pluginRuntime.dshVersion },
+    peerDependenciesMeta: { '@deepseek-ai/dsh-app-boot': { optional: true } },
+    ivoraige: { hostApi: 1, dshCommit: pluginRuntime.dshCommit }, dsh: { bundle: { patch: 'cordis.patch.yml' } } }
+  await writeFile(join(source, 'package.json'), JSON.stringify(manifest))
+  await writeFile(join(source, 'cordis.patch.yml'), JSON.stringify([{ insert: [{ id: 'delivery-probe', name: './index.mjs' }] }]))
+  await writeFile(join(source, 'index.mjs'), 'export default function(ctx) { ctx.provide("deliveryProbe", { value: 1 }) }')
+  return { root, source, directory, manifest }
+}
+
+test('real offline pnpm install, shared AppBoot, disable/restart, enable, uninstall retain data', async t => {
+  const { source, directory, manifest } = await setup(t)
+  assert.equal((await managePlugins({ directory, action: 'list' })).plugins.length, 0)
+  await writeFile(join(directory, 'user-data.txt'), 'keep')
+  const installed = await managePlugins({ directory, action: 'install', packageDirectory: source })
+  assert.equal(installed.application, 'restart-required')
+  let app = await bootModelSettings({ directory })
+  assert.equal(app.ctx.get('deliveryProbe').value, 1)
+  await assert.rejects(managePlugins({ directory, action: 'disable', name: manifest.name }), { code: 'CONFLICT' })
+  await app.dispose()
+  await managePlugins({ directory, action: 'disable', name: manifest.name })
+  app = await bootModelSettings({ directory })
+  assert.equal(app.ctx.get('deliveryProbe'), undefined)
+  assert.ok(app.settings)
+  await app.dispose()
+  await managePlugins({ directory, action: 'enable', name: manifest.name })
+  await managePlugins({ directory, action: 'remove', name: manifest.name })
+  assert.equal((await managePlugins({ directory, action: 'list' })).plugins.length, 0)
+  assert.equal(await readFile(join(directory, 'user-data.txt'), 'utf8'), 'keep')
+})
+
+test('incompatibility and missing dependencies are diagnosed before mutation', async t => {
+  const { source, directory, manifest } = await setup(t)
+  await managePlugins({ directory, action: 'list' })
+  const before = await readFile(join(directory, 'package.json'), 'utf8')
+  for (const [change, code] of [[{ dependencies: { missing: '1.0.0' } }, 'COMPONENT_MISSING'],
+    [{ ivoraige: { hostApi: 2 } }, 'PRECONDITION_FAILED'],
+    [{ peerDependencies: { '@deepseek-ai/dsh-app-boot': '99.0.0' } }, 'PRECONDITION_FAILED']]) {
+    await writeFile(join(source, 'package.json'), JSON.stringify({ ...manifest, ...change }))
+    await assert.rejects(managePlugins({ directory, action: 'install', packageDirectory: source }), { code })
+    assert.equal(await readFile(join(directory, 'package.json'), 'utf8'), before)
+  }
+})
+
+test('activation failure restores previous package contents and manifest', async t => {
+  const { source, directory, manifest } = await setup(t)
+  await managePlugins({ directory, action: 'install', packageDirectory: source })
+  const before = await readFile(join(directory, 'package.json'), 'utf8')
+  await writeFile(join(source, 'package.json'), JSON.stringify({ ...manifest, version: '0.1.1' }))
+  await writeFile(join(source, 'index.mjs'), 'throw new Error("activation-injected")')
+  await assert.rejects(managePlugins({ directory, action: 'install', packageDirectory: source }))
+  assert.equal(await readFile(join(directory, 'package.json'), 'utf8'), before)
+  const app = await bootModelSettings({ directory })
+  assert.equal(app.ctx.get('deliveryProbe').value, 1)
+  await app.dispose()
+})
+
+test('durable interrupted transaction recovers on boot; rollback retains complete previous version', async t => {
+  const { source, directory, manifest } = await setup(t)
+  await managePlugins({ directory, action: 'install', packageDirectory: source })
+  const lease = await acquireProfile(directory)
+  await snapshotProfile(directory)
+  await writeFile(join(directory, 'package.json'), 'interrupted')
+  await rm(join(directory, 'node_modules'), { recursive: true })
+  lease.release()
+  let app = await bootModelSettings({ directory })
+  assert.equal(app.ctx.get('deliveryProbe').value, 1)
+  await app.dispose()
+  await writeFile(join(source, 'package.json'), JSON.stringify({ ...manifest, version: '0.1.2' }))
+  await writeFile(join(source, 'index.mjs'), 'export default function(ctx) { ctx.provide("deliveryProbe", { value: 2 }) }')
+  await managePlugins({ directory, action: 'install', packageDirectory: source })
+  await managePlugins({ directory, action: 'rollback' })
+  app = await bootModelSettings({ directory })
+  assert.equal(app.ctx.get('deliveryProbe').value, 1)
+  await app.dispose()
+})
+
+test('MinerU is a complete independent source package, installed without native assets', async t => {
+  const { root, directory } = await setup(t)
+  const source = join(root, 'mineru-package')
+  await cp(new URL('../plugins/mineru/', import.meta.url), source, { recursive: true })
+  const storePath = join(root, 'records.sqlite')
+  await managePlugins({ directory, action: 'install', packageDirectory: source, storePath,
+    config: { directory: join(root, 'mineru-data') } })
+  const app = await bootModelSettings({ directory, storePath })
+  assert.ok(app.ctx.get('ivoraige.parse'))
+  assert.equal((await managePlugins({ directory: join(root, 'other-profile'), action: 'list' })).plugins.length, 0)
+  await app.dispose()
+})
+
+test('legacy PDF and a profile-owned same-id source conflict explicitly and release the host', async t => {
+  const { source, directory, root } = await setup(t)
+  await writeFile(join(source, 'index.mjs'), `export default function(ctx) {
+    ctx.effect(() => ctx.get('ivoraige.parse').register({ id:'babeldoc', formats:['pdf'],
+      match:()=>1, parse:()=>({units:[]}) }))
+  }`)
+  const { createApp } = await import('../src/app.mjs')
+  const store = join(root, 'records.sqlite')
+  await managePlugins({ directory, action: 'install', packageDirectory: source, storePath: store })
+  let app = await createApp({ store, settingsDir: directory })
+  assert.ok(app.parse.adapters.has('babeldoc'))
+  await app.dispose()
+  await assert.rejects(createApp({ store, settingsDir: directory, pdf: { command: 'unused' } }),
+    error => /Source adapter already registered: babeldoc/.test(error.message))
+  app = await createApp({ store, settingsDir: directory })
+  assert.ok(app.parse.adapters.has('babeldoc'))
+  await app.dispose()
+})
+
+test('package command failure and pre-cancellation leave the previous complete profile', async t => {
+  const { source, directory } = await setup(t)
+  await managePlugins({ directory, action: 'list' })
+  const before = await readFile(join(directory, 'package.json'), 'utf8')
+  await assert.rejects(managePlugins({ directory, action: 'install', packageDirectory: source,
+    pnpmCommand: join(directory, 'missing-package-manager') }))
+  assert.equal(await readFile(join(directory, 'package.json'), 'utf8'), before)
+  await assert.rejects(managePlugins({ directory, action: 'install', packageDirectory: source,
+    signal: AbortSignal.abort() }))
+  assert.equal(await readFile(join(directory, 'package.json'), 'utf8'), before)
+  assert.ok((await managePlugins({ directory, action: 'list' })).plugins.length === 0)
+})
+
+test('process death after durable journal publication restores packages at next boot', async t => {
+  const { source, directory } = await setup(t)
+  await managePlugins({ directory, action: 'install', packageDirectory: source })
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', `
+    import { acquireProfile, snapshotProfile, acquireProbe } from ${JSON.stringify(new URL('../src/plugin-profile.mjs', import.meta.url).href)};
+    import { writeFile, rm } from 'node:fs/promises';
+    import { join } from 'node:path';
+    const directory = ${JSON.stringify(directory)};
+    await acquireProfile(directory);
+    await snapshotProfile(directory);
+    await writeFile(join(directory, 'package.json'), 'interrupted');
+    await rm(join(directory, 'node_modules'), {recursive:true});
+    process.kill(process.pid, 'SIGKILL');
+  `], { encoding: 'utf8' })
+  assert.ok(child.signal || child.status !== 0, child.stderr)
+  const app = await bootModelSettings({ directory })
+  assert.equal(app.ctx.get('deliveryProbe').value, 1)
+  await app.dispose()
+})
+
+test('missing runtime injection rolls back without preventing the recovery entry', async t => {
+  const { source, directory } = await setup(t)
+  await writeFile(join(source, 'index.mjs'), `function probe() {}
+    probe.inject = ['missingRequiredService']; export default probe`)
+  await assert.rejects(managePlugins({ directory, action: 'install', packageDirectory: source }),
+    error => error.code === 'PRECONDITION_FAILED' && /missingRequiredService/.test(error.message))
+  assert.equal((await managePlugins({ directory, action: 'list' })).plugins.length, 0)
+  const app = await bootModelSettings({ directory })
+  assert.ok(app.settings)
+  await app.dispose()
+})
+
+
+test('canonical profile aliases cannot bypass source/profile overlap rejection', async t => {
+  const { root, source, directory } = await setup(t)
+  await mkdir(directory)
+  const alias = join(root, 'profile-alias')
+  await symlink(directory, alias, 'junction')
+  const nested = join(directory, 'source-package')
+  await cp(source, nested, { recursive: true })
+  await assert.rejects(managePlugins({ directory: alias, action: 'install', packageDirectory: nested }),
+    error => error.code === 'INVALID_ARGUMENT' && /outside its profile/.test(error.message))
+  const app = await bootModelSettings({ directory: alias })
+  await assert.rejects(managePlugins({ directory, action: 'list' }), { code: 'CONFLICT' })
+  await app.dispose()
+  assert.equal((await managePlugins({ directory, action: 'list' })).plugins.length, 0)
+})
+
+
+test('native compatibility repair inherits every offline package restriction', { skip: process.platform === 'win32' }, async t => {
+  const { root, source, directory } = await setup(t)
+  const stub = join(root, 'pnpm-stub')
+  const calls = join(root, 'calls.jsonl')
+  await writeFile(stub, `#!${process.execPath}
+import { readFile, writeFile, mkdir, appendFile } from 'node:fs/promises';
+import { join } from 'node:path';
+const args = process.argv.slice(2);
+await appendFile(${JSON.stringify(calls)}, JSON.stringify(args)+'\\n');
+if (args.includes('add')) {
+  const path = join(process.cwd(), 'package.json');
+  const manifest = JSON.parse(await readFile(path, 'utf8'));
+  manifest.dependencies = { ...manifest.dependencies, 'delivery-probe': 'file:fixture' };
+  await writeFile(path, JSON.stringify(manifest));
+  const installed = join(process.cwd(), 'node_modules', 'delivery-probe');
+  await mkdir(installed, {recursive:true});
+  await writeFile(join(installed, 'package.json'), JSON.stringify({name:'delivery-probe',version:'1.0.0',
+    peerDependencies:{'@deepseek-ai/dsh-app-boot':'99.0.0'}}));
+}
+`)
+  await chmod(stub, 0o755)
+  await assert.rejects(managePlugins({ directory, action: 'install', packageDirectory: source, pnpmCommand: stub }),
+    { code: 'UPSTREAM_FAILURE' })
+  const argv = (await readFile(calls, 'utf8')).trim().split('\n').map(line => JSON.parse(line))
+  assert.equal(argv.length, 2)
+  assert.ok(argv[0].includes('add'))
+  assert.ok(argv[1].includes('install'))
+  for (const args of argv) {
+    for (const flag of ['--config.offline=true', '--config.ignore-scripts=true',
+      '--config.auto-install-peers=false', '--config.dedupe-peer-dependents=false', '--package-import-method=copy'])
+      assert.ok(args.includes(flag), `Missing ${flag} in ${JSON.stringify(args)}`)
+    assert.ok(args.some(flag => flag.startsWith('--store-dir=')))
+  }
+  assert.equal((await managePlugins({ directory, action: 'list' })).plugins.length, 0)
+})
+
+test('nested missing-service and disabled contributions cannot pass installation validation', async t => {
+  const { source, directory } = await setup(t)
+  await writeFile(join(source, 'index.mjs'), `function probe() {}
+    probe.inject = ['missingGroupService']; export default probe`)
+  for (const disabled of [false, true]) {
+    await writeFile(join(source, 'cordis.patch.yml'), JSON.stringify([{ insert: [{ id: 'outer-group',
+      name: 'cordis:group', group: true, config: [{ id: 'inner-probe', name: './index.mjs', disabled }] }] }]))
+    await assert.rejects(managePlugins({ directory, action: 'install', packageDirectory: source }),
+      error => error.code === 'PRECONDITION_FAILED' &&
+        (disabled ? /absent, disabled or inactive: inner-probe/.test(error.message) : /missingGroupService/.test(error.message)))
+    assert.equal((await managePlugins({ directory, action: 'list' })).plugins.length, 0)
+  }
+})
+
+
+test('cancelled live validation blocks package restore until its probe lease is released', async t => {
+  const { root, source, directory } = await setup(t)
+  const marker = join(root, 'validator-pid')
+  await writeFile(join(source, 'index.mjs'), `import { writeFile } from 'node:fs/promises';
+    export default async function() {
+      process.on('SIGTERM', () => {});
+      setInterval(() => {}, 1000);
+      await writeFile(${JSON.stringify(marker)}, String(process.pid));
+      await new Promise(() => {});
+    }`)
+  const abort = new AbortController()
+  const operation = managePlugins({ directory, action: 'install', packageDirectory: source, signal: abort.signal })
+  // Observe rejection immediately while waiting for the explicit child barrier.
+  const outcome = operation.then(value => ({value}), error => ({error}))
+  let pid
+  t.after(() => { if (pid) { try { process.kill(pid, 'SIGKILL') } catch {} } })
+  const deadline = Date.now() + 30000
+  while (!pid && Date.now() < deadline) {
+    try { pid = Number(await readFile(marker, 'utf8')) } catch (error) { if (error.code !== 'ENOENT') throw error }
+    if (!pid) await new Promise(resolve => setTimeout(resolve, 15))
+  }
+  assert.ok(pid, 'Validator did not reach its explicit activation barrier')
+  abort.abort()
+  const result = await outcome
+  assert.equal(result.error?.code, 'CONFLICT')
+  assert.equal(result.error?.details?.recoveryPending, true)
+  assert.ok(JSON.parse(await readFile(join(directory, 'package.json'), 'utf8')).dependencies['@ivoraige/delivery-probe'])
+  assert.ok(await readFile(join(directory, '.plugin-transaction', 'ready')))
+  await assert.rejects(managePlugins({ directory, action: 'recover' }), {code:'CONFLICT'})
+  process.kill(pid, 'SIGKILL')
+  pid = undefined
+  let lease
+  const stopped = Date.now() + 5000
+  while (!lease && Date.now() < stopped) {
+    try { lease = await acquireProbe(directory) } catch (error) { if (error.code !== 'CONFLICT') throw error }
+    if (!lease) await new Promise(resolve => setTimeout(resolve, 15))
+  }
+  assert.ok(lease, 'Validator retained its lease after SIGKILL')
+  lease.release()
+  const recovered = await managePlugins({ directory, action: 'recover' })
+  assert.equal(recovered.recovered, true)
+  assert.equal(recovered.plugins.length, 0)
+})

@@ -75,3 +75,6 @@ W01 的前置是 P02/P03/P04，P05 只承接独立插件证据；W02 紧接可�
 | [#21](https://github.com/KongouAirlines/ivoraige/issues/21)、[#22](https://github.com/KongouAirlines/ivoraige/issues/22)、[#23](https://github.com/KongouAirlines/ivoraige/issues/23) | 远期；接口留实际扩展点 | 风格/漫画/超分/完整服务配置不阻塞首轮；不预定 schema 或默认引擎 |
 
 完整报告复核已进入 [审计映射](audit/README.md)。若实现时发现阻塞本轮验收的正确性缺陷，先拆小修复 PR，不能借“架构重构以后处理”跳过；表外低优先主题按原事项触发条件处理。
+
+P05 controlled offline package delivery implementation and its remaining V04a/P08
+limits are described in [the development record](plugin-delivery-development.md).

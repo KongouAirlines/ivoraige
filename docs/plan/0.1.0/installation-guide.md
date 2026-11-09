@@ -41,3 +41,61 @@ node node_modules/ivoraige/src/launch.mjs
 正常退出后备份完整数据目录，包括数据库、PDF 原件、修订、快照、设置、凭据和组件。更新程序时使用新目录，再指向原数据目录，不要用程序文件覆盖数据。Windows 便携包内的 `runtime/node.exe` 独立于系统 Node；仅升级系统 Node 不会更新旧程序目录中的运行时。替换旧程序目录时先确认外置数据目录的位置并保留其全部内容，不要把外置用户数据当作程序文件删除。
 
 已有验收覆盖旧 Windows 包及 `0.1.0` macOS npm 包的同版本替换；跨版本迁移需单独验证。组件按版本保存，不自动更新或清理旧版本。删除 Release 不会删除本机组件和用户数据。
+
+## Offline independent source plugins
+
+The core npm archive no longer contains `plugins/mineru/`. The same-repository
+`@ivoraige/mineru-source` package contains the MIT JavaScript/Python bridge,
+DSH declaration patch and its license, not MinerU, Python, native libraries or
+model weights. Pack it with `npm pack ./plugins/mineru --ignore-scripts`, then
+extract the resulting archive to a local directory. This is source delivery,
+not a ready-to-run PDF runtime or completion of the P08 license/resource audit.
+
+Close every host using the settings directory before changing packages. Install
+`pnpm` (tested version 11.25.0) from its official distribution if it is not already available; package
+operations require its executable on PATH. From a source checkout after build:
+
+```sh
+node src/plugin-install.mjs list /absolute/settings
+node src/plugin-install.mjs install /absolute/settings /absolute/extracted-plugin '{"storePath":"/absolute/records.sqlite","config":{"directory":"/absolute/mineru-data","command":"/absolute/python"}}'
+node src/plugin-install.mjs disable /absolute/settings @ivoraige/mineru-source
+node src/plugin-install.mjs enable /absolute/settings @ivoraige/mineru-source '{"storePath":"/absolute/records.sqlite"}'
+node src/plugin-install.mjs remove /absolute/settings @ivoraige/mineru-source
+node src/plugin-install.mjs recover /absolute/settings
+node src/plugin-install.mjs rollback /absolute/settings
+```
+
+The installed npm package also exposes `ivoraige-plugins` with these arguments.
+Quote JSON according to your shell. `storePath` must be the same store used at
+host launch. Installation checks plugin activation without invoking a parser,
+translation model or downloading resources. Native runtime availability is
+checked by the adapter on use; an installed bridge is not evidence of working OCR.
+
+Changes take effect on restart. An open host rejects changes. Failed installation
+restores the complete prior package set and profile configuration. Interrupted
+transactions recover before AppBoot; `recover` and `disable` work without a UI or
+loading optional plugins. `rollback` restores the last successful operation's
+previous package set and its configuration: later profile edits may be replaced.
+Records, snapshots, source data and credentials are not removed on uninstall.
+Keep them outside the profile's `node_modules` package directory. Immutable local
+package sources and the previous package snapshot are retained for recovery.
+
+Only self-contained local packages for the exact pinned DSH commit and host API
+are supported. There is no registry marketplace, background update, dependency
+downloader, package-script execution or hot unload. The plugin uses host services;
+it must not ship its own DSH/Cordis runtime. Local-disk SQLite ownership and
+same-filesystem rename are required; network filesystems and physical power-loss
+durability are not validated. A surviving DSH package process blocks recovery
+until it exits. Older host binaries do not understand the profile lease: keep
+all hosts closed when using this entry.
+
+A future independent BabelDOC package retaining source id `babeldoc` and output
+id `pdf` must not also enable the legacy `pdf` option or component auto-discovery.
+Duplicate ownership is an explicit startup error; the partial context and store
+lease are released. Existing legacy-only PDF configuration remains supported.
+
+If cancellation reports `recoveryPending`, a validation process has not exited.
+The diagnostic includes its PID. Let it exit or stop that specific process, then
+run `recover`; do not delete the transaction directory or launch an older host to
+bypass ownership. Nested plugin contributions must all activate successfully;
+disable the whole bundle rather than declaring dormant child entries.
