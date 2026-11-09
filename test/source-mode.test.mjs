@@ -55,17 +55,25 @@ test('accepted export requires targetLang at the entry boundary', () => {
 test('CLI accepts source content mode without a target language', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-source-cli-'))
   const store = join(directory, 'records.sqlite')
-  t.after(() => rm(directory, { recursive: true, force: true }))
-  const app = await createApp({ store })
+  let app
+  t.after(async () => {
+    try { await app?.dispose() }
+    finally { await rm(directory, { recursive: true, force: true }) }
+  })
+  app = await createApp({ store })
   const { document } = await app.records.importDocument({ format: 'txt', content: 'Original source.' },
     { sourceId: 'cli:source', language: 'en' })
-  t.after(() => app.dispose())
   let out = '', err = ''
   const code = await runCli(['export', document.id, '--format', 'json',
     '--content-mode', 'source'],
   { app, stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
   assert.equal(code, 0, err)
   assert.ok(JSON.parse(out).snapshotId)
+  await assert.rejects(createApp({ store }), { code: 'CONFLICT' },
+    'runCli must leave a supplied host owned by its caller')
+  await app.dispose()
+  app = await createApp({ store })
+  assert.equal(app.records.record(document.id).document.id, document.id)
 })
 
 test('version-one record remains readable and restores from a consistent backup', async t => {

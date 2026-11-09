@@ -40,7 +40,7 @@ switch and forced-off override do not claim a persisted EntryControl policy.
 
 Linux / Node 24.22.1 compatibility runtime:
 
-- Complete `npm test`, including build: 612 tests, 598 passed, 14 conditional
+- Complete `npm test`, including build, at the source tree published as `044aeea3`: 630 tests, 604 passed, 26 conditional
   skips, zero failed/cancelled. Independent test workers use private temporary
   registries and subprocesses inherit their worker's selection.
 - Lifecycle/disposal regressions cover dependent-consumer ordering, retained
@@ -57,6 +57,11 @@ Linux / Node 24.22.1 compatibility runtime:
 - Native socket-dependent tests skip only after an actual local bind denial and
   never skip that denial in CI. These skipped tests are not claimed as passing.
 
+The first local full run of the latest source tree hit the existing provider
+40 ms deadline before its request counter advanced under load. Its isolated
+12-test suite and a subsequent complete run passed without changing the provider
+or its assertions. This is a timing-sensitive test, not a hidden passing result.
+
 Native Linux / Node 26.13.0, published head `e0eae6f`:
 
 - Complete `npm test`: 611 tests, 606 passed, 5 platform skips, zero failures.
@@ -66,11 +71,23 @@ Native Linux / Node 26.13.0, published head `e0eae6f`:
 - [Native CI evidence](https://github.com/KongouAirlines/ivoraige/actions/runs/42557174845/job/128965406382).
   This result does not establish other platforms or later heads.
 
+Native Windows / Node 26.13.0 at `044aeea3` completed 630 tests in 159 seconds:
+626 passed, 3 platform skips, one failure and no cancellations. The failure was
+fixture teardown deleting an open SQLite store before its caller-owned app was
+disposed. The fixture now closes before removal and explicitly proves that CLI
+does not dispose a supplied host, then verifies the store reopens with its data.
+This correction still requires a new native run; installed-owner package smoke
+was not reached by that failed job.
+
 ## Remaining acceptance gates
 
-The Windows named-pipe implementation uses a capability stored in a verified
-current-user ACL file. Native pipe DACL and peer identity have not been established;
-functional CI cannot establish this security requirement. Three-platform Node
+The Windows named-pipe implementation enforces a current-SID native DACL and
+verifies actual connected peer identities, with the private generation capability
+as an additional check. Nine native security/lifecycle probes passed at foundation
+head `7569ca96`; the complete run still failed two filesystem/policy compatibility
+gates, corrected by the following source changes. Final-head native checks, an
+installed A3 owner, separate ordinary accounts and fully unelevated tokens remain
+required. See [the Windows evidence](host-windows-pipe.md). Three-platform Node
 26.13.0 results are tracked per published head and remain a merge gate.
 
 Trusted process-exit observation, force-exit ownership/challenges, full migration

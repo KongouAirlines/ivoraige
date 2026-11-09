@@ -13,9 +13,11 @@
 
 ## 实际验证
 
-在 Node 24.22.1 本地兼容环境运行 `node --test test/host-control.test.mjs`：14/14 通过。覆盖同步关门、跨 preflight 的 admission、运行中 handler 的中止与汇合、同 ID 重试和升级、未完成阶段不提前释锁、释锁后清理重试、单调预算及 owner-only P04 内部投影。`git diff --check` 对本切片文件通过。
+在 Node 24.22.1 本地兼容环境运行 `node --test test/host-control.test.mjs`：15/15 通过。覆盖同步关门、跨 preflight 的 admission、运行中 handler 的中止与汇合、同 ID 重试和升级、未完成阶段不提前释锁、释锁后清理重试、单调预算及 owner-only P04 内部投影。`git diff --check` 对本切片文件通过。
 
-在仅含本切片与 A1 修复的独立工作树运行完整 `npm test`（含构建）：600 项中 594 通过、6 条件跳过、0 失败。跳过包括本机不允许 Unix socket 的探针及平台限定测试。隔离 npm 包 smoke 通过，90 个文件，覆盖解析、成套备份后重装、冻结快照/原文导出与 MCP。Node 26.13.0 原生 CI 仍单独核验。
+在仅含本切片与 A1 修复的独立工作树运行完整 `npm test`（含构建）：在 `c78d3c3c` 对应源码树得到 618 项中 600 通过、18 条件/平台跳过、0 失败。跳过包括本机不允许 Unix socket 的探针及平台限定测试。较早、尚未纳入原生 Windows helper 的隔离 npm 包 smoke 通过，90 个文件，覆盖解析、成套备份后重装、冻结快照/原文导出与 MCP。Node 26.13.0 原生 CI 仍单独核验。
+
+新增确定性测试让发现清理完成时共同 deadline 已过期，证明当次不再调用 `closeControl`，显式重试沿用原 operation 并完成关闭，不重复 store release 或发现清理。Windows helper 的退出观察与注册表锁保留由 A1 提供，本切片保留该边界。
 
 ## 未覆盖与后续
 
