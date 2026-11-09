@@ -135,14 +135,21 @@ export async function managePlugins({ directory, action, packageDirectory, name,
         const ids = bundleRows(join(directory, 'node_modules', name), installed).map(row => row.id)
         // Fresh process: ESM caches must not validate a previous installed version.
         lease.releaseProbe()
+        let validationFailure
         try {
           const validation = promisify(execFile)(process.execPath, [fileURLToPath(new URL('./plugin-validate.mjs', import.meta.url)),
           JSON.stringify({ directory, storePath, ids })], { timeout: 30000, maxBuffer: 32768, signal })
           validationPid = validation.child.pid
           await validation
         }
-        catch (error) { throw new KernelError('PRECONDITION_FAILED', `Plugin activation failed: ${error.stderr || error.message}`, {}, { cause: error }) }
-        finally { await lease.reacquireProbe() }
+        catch (error) { validationFailure = new KernelError('PRECONDITION_FAILED',
+          `Plugin activation failed: ${error.stderr || error.message}`, {}, { cause: error }) }
+        // A child may release its lease between this attempt and the outer
+        // recovery retry. Do not replace its activation failure with a transient
+        // ownership error when the retry can safely complete recovery.
+        try { await lease.reacquireProbe() }
+        catch (error) { throw validationFailure ?? error }
+        if (validationFailure) throw validationFailure
       }
       await commitProfile(directory)
       return { name, application: 'restart-required', runtime: pluginRuntime }
