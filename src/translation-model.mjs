@@ -111,6 +111,10 @@ export class TranslationModel extends Service {
     }
     if (signal?.aborted) throw upstreamFailure(true, 'Model translation canceled')
 
+    return this.resolvePromptSelection({ docId, promptTemplateId, pinned })
+  }
+
+  async resolvePromptSelection({ docId, promptTemplateId, pinned } = {}) {
     const selection = this.configuration()
     if (!selection) throw new KernelError('COMPONENT_MISSING', 'No translation model configured')
     const { provider, model, timeoutMs, configurationId } = selection

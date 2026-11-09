@@ -435,13 +435,14 @@ export class Tasks extends Service {
         const baseRevisionId = view.draft?.id ?? view.accepted?.id ?? null
         const expectedAcceptedRevisionId = view.accepted?.id ?? null
         const model = this.ctx.get('ivoraige.translationModel')
-        if ((task.promptTemplateId || task.promptSelection) && !model?.preflight)
+        if ((task.promptTemplateId || task.promptSelection) && !model?.resolvePromptSelection)
           throw new KernelError('COMPONENT_MISSING', 'Selected translation model cannot resolve the prompt template')
         let selection = task.promptSelection
         const noConfiguredModel = !task.promptTemplateId && !task.promptSelection &&
           model?.configuration?.() === null
-        if (model?.preflight && !noConfiguredModel) {
-          selection = await model.preflight({ basis, signal: controller.signal, docId: task.docId,
+        // Resolve the selected prompt before reuse; basis preflight is only for an actual model call.
+        if (model?.resolvePromptSelection && !noConfiguredModel) {
+          selection = await model.resolvePromptSelection({ docId: task.docId,
             promptTemplateId: task.promptTemplateId, pinned: selection })
           if (!task.promptSelection && selection?.promptTrace) {
             task = await this.records.updateTask(taskId, current => ({ ...current, promptSelection: selection }))
@@ -459,7 +460,8 @@ export class Tasks extends Service {
           // Optional capabilities are resolved per unit so later plugin mounts
           // and replacements take effect without restarting the task service.
           if (!model) throw new KernelError('COMPONENT_MISSING', 'Configure a translation model before translating')
-          if (noConfiguredModel) await model.preflight({ basis, signal: controller.signal, docId: task.docId })
+          if (model.preflight) await model.preflight({ basis, signal: controller.signal, docId: task.docId,
+            promptTemplateId: task.promptTemplateId, pinned: selection?.prompt ? selection : undefined })
           await this.records.incrementTaskCall(taskId)
           if (this.tearingDown) return
           const result = await model.translate({ basis, signal: controller.signal, docId: task.docId,

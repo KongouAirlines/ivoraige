@@ -482,3 +482,63 @@ test('accepted manual and machine revisions reuse without a model, but explicit 
   }
   assert.equal(f.requests.length, 1)
 })
+
+test('configured model reuses an applicable manual revision before term assembly, but still validates prompts', async t => {
+  const f = await fixture(t, [])
+  const app = await createApp({ store: join(f.directory, 'term-reuse.sqlite'), translation: f.translation })
+  f.closeWithFixture(() => app.dispose())
+  const { document } = await app.records.importDocument({ format: 'txt', content: basis.sourceText },
+    { sourceId: 'local:term-reuse', language: 'en' })
+  const unit = app.records.listUnits(document.id, { targetLang: 'zh-CN' })[0]
+  const original = app.records.getBasis(unit.id, { targetLang: 'zh-CN' })
+  await app.records.setConstraints(unit.id, { targetLang: 'zh-CN',
+    effectiveContext: original.effectiveContext, effectiveTarget: original.effectiveTarget,
+    termConstraintSetId: 'terms:reviewed-v1' })
+  const revision = await app.records.writeRevision(unit.id, { targetLang: 'zh-CN', text: '人工译文。',
+    baseRevisionId: null, origin: 'human' })
+  await app.records.acceptRevision(revision.id, { expectedAcceptedRevisionId: null })
+  assert.equal(app.records.findReusable(unit.id, { targetLang: 'zh-CN' })?.id, revision.id)
+
+  const first = await app.tasks.submit(document.id, { targetLang: 'zh-CN' })
+  const reused = await app.tasks.wait(first.taskId)
+  assert.equal(reused.state, 'succeeded', JSON.stringify(reused.error))
+  assert.equal(reused.stats.reusedUnits, 1)
+  assert.equal(reused.stats.llmCalls, 0)
+  assert.equal(f.requests.length, 0)
+
+  const chosen = await app.tasks.submit(document.id, { targetLang: 'zh-CN',
+    promptTemplateId: DEFAULT_TEMPLATE.id })
+  const chosenTask = await app.tasks.wait(chosen.taskId)
+  assert.equal(chosenTask.state, 'succeeded', JSON.stringify(chosenTask.error))
+  assert.equal(chosenTask.stats.reusedUnits, 1)
+  assert.equal(chosenTask.stats.llmCalls, 0)
+
+  const missing = await app.tasks.submit(document.id, { targetLang: 'zh-CN', promptTemplateId: 'missing' })
+  const missingTask = await app.tasks.wait(missing.taskId)
+  assert.equal(missingTask.state, 'failed')
+  assert.match(missingTask.error.message, /template or version is missing/)
+  assert.equal(missingTask.stats.llmCalls, 0)
+  const review = { pluginId: 'example.review', featureId: 'review', variables: ['sourceText'], output: 'review-notes' }
+  app.prompts.register(review, { ...review, id: 'builtin:review', version: '1', name: 'Review', style: '' })
+  const incompatible = await app.prompts.copyTemplate({ sourceId: 'builtin:review' })
+  const selected = await app.tasks.submit(document.id, { targetLang: 'zh-CN', promptTemplateId: incompatible.id })
+  const rejected = await app.tasks.wait(selected.taskId)
+  assert.equal(rejected.state, 'failed')
+  assert.match(rejected.error.message, /incompatible with feature/)
+  assert.equal(rejected.stats.llmCalls, 0)
+
+  const { document: newDocument } = await app.records.importDocument({ format: 'txt', content: 'Untranslated unit.' },
+    { sourceId: 'local:term-miss', language: 'en' })
+  const newUnit = app.records.listUnits(newDocument.id, { targetLang: 'zh-CN' })[0]
+  const newBasis = app.records.getBasis(newUnit.id, { targetLang: 'zh-CN' })
+  await app.records.setConstraints(newUnit.id, { targetLang: 'zh-CN',
+    effectiveContext: newBasis.effectiveContext, effectiveTarget: newBasis.effectiveTarget,
+    termConstraintSetId: 'terms:reviewed-v1' })
+  const miss = await app.tasks.submit(newDocument.id, { targetLang: 'zh-CN' })
+  const failed = await app.tasks.wait(miss.taskId)
+  assert.equal(failed.state, 'failed')
+  assert.match(failed.error.message, /Term constraint assembly is not available/)
+  assert.equal(failed.stats.reusedUnits, 0)
+  assert.equal(failed.stats.llmCalls, 0)
+  assert.equal(f.requests.length, 0)
+})
