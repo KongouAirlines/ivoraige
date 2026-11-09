@@ -22,7 +22,7 @@
 | P04 | 操作注册、跨域事件及入口收口 | P03；删除入口依赖 Q02 | 分支验证通过、待集成；[分支](https://github.com/KongouAirlines/ivoraige/tree/codex/0.1.x-operation-entries)、[证据](evidence/foundation-p04.md#indexed-resource-ownership-and-review-corrections-2026-10-31) |  [基础契约与正确性](packages/foundation.md#p04) |
 | P05 | 独立官方插件包与安装恢复 | P04；兼容范围定案前完成运行时基线复评（不要求升级） | 分支局部实现，安装事务/归档待验 | [基础契约与正确性](packages/foundation.md#p05)；[局部证据](evidence/mineru-source-p05-p06.md) |
 | P06 | MinerU 纯解析插件 | P05、验证 V01–V04 | Linux CPU/flash 原创两样本实测导入/来源导出；质量、安装闭包待验 | [PDF 与独立分发](packages/pdf.md#p06)；[局部证据](evidence/mineru-source-p05-p06.md) |
-| P07 | 第二同类插件与主体稳定性证明 | P06 后冻结的契约 | 分支冻结后独立安装/双来源同链通过，待集成；[证据](evidence/babeldoc-source-p07.md)；PDF质量仍分项待验 | [PDF 与独立分发](packages/pdf.md#p07) |
+| P07 | 第二同类插件与主体稳定性证明 | P06 后冻结的契约 | 分支冻结后独立安装/双来源同链通过，待集成；[.1历史证据](evidence/babeldoc-source-p07.md)、[.2兼容同步](evidence/babeldoc-source-p07-ivoraige2.md)；PDF质量仍分项待验 | [PDF 与独立分发](packages/pdf.md#p07) |
 | P08 | PDF 依赖闭包与独立分发 | 清单核对可并行；成包依赖 P05 | 草案 | [PDF 与独立分发](packages/pdf.md#p08) |
 | P09 | MinerU 自身重建及同译文 PDF 对照 | P06；受影响包依赖 P08 | 实验性同引擎冻结回放在 Linux 合成样本实测；BabelDOC 同译文对照和质量/成本验收未完成 | [PDF 与独立分发](packages/pdf.md#p09)；[局部证据](evidence/mineru-renderer-p09.md) |
 | P10 | 跨引擎来源映射与 PDF 重建 | P07、P09；单独批准实验范围 | 草案 | [PDF 与独立分发](packages/pdf.md#p10) |

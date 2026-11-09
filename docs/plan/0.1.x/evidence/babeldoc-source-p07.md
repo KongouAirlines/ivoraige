@@ -1,5 +1,10 @@
 # P07: independently installed BabelDOC source
 
+This record retains the historical `0.7.1+ivoraige.1` runs. The existing #98
+plugin subsequently synchronized to `.2`; see the [separate compatibility and
+verification record](babeldoc-source-p07-ivoraige2.md). Results below are not
+relabeled as `.2` evidence.
+
 This implements the second independently selectable PDF source/output package,
 using BabelDOC `0.7.1+ivoraige.1` alongside MinerU `4.0.10`. The proof concerns
 package integration and frozen-data routing on one original synthetic PDF. It

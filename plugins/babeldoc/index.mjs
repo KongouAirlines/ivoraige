@@ -42,12 +42,20 @@ async function cleanupPath(path, options, primary) {
     recordCleanupError(primary, error)
   }
 }
+const ENGINE_VERSION = '0.7.1+ivoraige.2'
+const UNDERSCORE_LINE_POLICY = 'ascii-alnum-base-v1'
+const compatibleBinding = binding => binding?.engineVersion === ENGINE_VERSION &&
+  binding.captureConfig?.babeldoc === ENGINE_VERSION &&
+  binding.captureConfig?.underscoreLinePolicy === UNDERSCORE_LINE_POLICY
 const chinese = new Set(['zh', 'zh-CN', 'zh-Hans'])
 const validateSourceLanguage = language => {
   if (language !== 'en' && !chinese.has(language)) fail('PDF source capture supports only en, zh, zh-CN or zh-Hans')
 }
 const validatePdfExport = ({ contentMode, targetLang, provenance, binding }) => {
   if (contentMode === 'source') return
+  if (!compatibleBinding(binding)) {
+    fail(`BabelDOC translated replay requires ${ENGINE_VERSION} source bindings with ${UNDERSCORE_LINE_POLICY}; reimport with the matching runtime and explicitly reconcile revisions`)
+  }
   const source = provenance?.language
   validateSourceLanguage(source)
   if (binding?.captureConfig?.sourceLanguage !== (source === 'en' ? undefined : source)) {
@@ -155,7 +163,7 @@ class PdfRuntime {
     const { doc } = await this.request('parse', { path: temporary,
       options: { language: file.language ?? 'en' } }, { signal: file.signal, onProgress: file.onProgress })
     if (doc?.format !== 'pdf' || doc.sourceBinding?.adapterId !== 'babeldoc' ||
-        doc.sourceBinding.engineVersion !== '0.7.1+ivoraige.1' ||
+        !compatibleBinding(doc.sourceBinding) ||
         !Array.isArray(doc.sourceBinding.records) || !Array.isArray(doc.units) || !doc.units.length) {
       throw new KernelError('UPSTREAM_FAILURE', 'PDF component returned invalid source bindings')
     }
@@ -275,9 +283,6 @@ class PdfRuntime {
       if (hash(content) !== sourceBinding.sourceDigest) fail('Managed PDF source changed; import the original again')
       signal?.throwIfAborted()
       return { content }
-    }
-    if (sourceBinding.engineVersion !== '0.7.1+ivoraige.1') {
-      fail('BabelDOC translated replay requires 0.7.1+ivoraige.1 source bindings; reimport with the matching runtime')
     }
     for (const item of frozen.units) validatePdfTranslation(sourceBinding, item.unit, item.text)
     const sourcePath = await this.exportSource(sourceBinding)

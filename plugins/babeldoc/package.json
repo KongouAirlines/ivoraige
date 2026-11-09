@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Optional BabelDOC 0.7.1+ivoraige.1 PDF source and frozen output adapter",
+  "description": "Optional BabelDOC 0.7.1+ivoraige.2 PDF source and frozen output adapter",
   "peerDependencies": {
     "@deepseek-ai/dsh-app-boot": "0.2.0-rc.2"
   },

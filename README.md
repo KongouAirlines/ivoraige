@@ -133,4 +133,4 @@ entry. The MinerU MIT bridge is packed separately from the core; native runtimes
 and models are not included. See [offline plugin installation](docs/plan/0.1.0/installation-guide.md#offline-independent-source-plugins)
 and the [P05 development notes](docs/plan/0.1.x/plugin-delivery-development.md).
 
-Optional independent BabelDOC source/output package: [setup and compatibility](plugins/babeldoc/README.md). Runtime preparation and PDF quality limits remain separate.
+Optional independent BabelDOC `0.7.1+ivoraige.2` source/output package: [setup and compatibility](plugins/babeldoc/README.md). Runtime preparation and PDF quality limits remain separate.
