@@ -1,0 +1,36 @@
+# DESIGN TEMPLATE ONLY. Do not install under .github/workflows until the exact
+# source commit, unique branch and one-time trigger have been approved/reviewed.
+name: One-time standard-user pipe acceptance
+on:
+  push:
+    branches: ['acceptance/0.1.x-windows-users-REPLACE-WITH-APPROVED-NONCE']
+permissions:
+  contents: read
+concurrency:
+  group: one-time-standard-users-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  standard-users:
+    if: github.run_attempt == 1 && github.event.created == true && github.event.before == '0000000000000000000000000000000000000000'
+    runs-on: windows-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '26.13.0'
+      - name: Compile, preflight, provision once, accept, and clean up
+        shell: powershell
+        env:
+          IVORAIGE_ACCOUNT_ACCEPTANCE: approved-two-users-one-run
+        run: |
+          $node = (& node -p 'process.execPath').Trim()
+          & ./scripts/acceptance/0.1.x/windows-standard-users.ps1 `
+            -SourceRoot $env:GITHUB_WORKSPACE -NodePath $node `
+            -ExpectedCommit '${{ github.sha }}' `
+            -ProductCommit 'REPLACE-WITH-REVIEWED-INTEGRATED-A3-FULL-SHA' `
+            -ExpectedRef 'refs/heads/acceptance/0.1.x-windows-users-REPLACE-WITH-APPROVED-NONCE' `
+            -ProvisionStandardAccounts
