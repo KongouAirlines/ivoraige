@@ -41,3 +41,7 @@ Linux、Node 24.22.1、Python 3.12.14 下，定向测试 11/11，完整 `npm tes
 再次复核发现外部 CLI 测试只查找 `python`，在只有 `python3` 的环境会误跳过；Git 元数据子进程继承 `GIT_CONFIG_GLOBAL`/`GIT_CONFIG_SYSTEM` 时，全局 `core.excludesFile` 可使真实未跟踪文件被误记为干净。新增回归模拟 `python` 不合格而 `python3` 合格，并在临时真实仓库注入系统/全局排除规则，仍要求记录未跟踪变更。元数据调用现在隔离系统/全局配置，保留仓库本地配置；不改用户配置，Git 状态仍只是采样元数据而非源码哈希。
 
 Linux、Node 24.22.1、Python 3.12.14 下，定向测试 12/12；显式离线 `npm test`（含构建）573 通过、2 条件跳过、0 失败。相同材料化源码的新合成 smoke 输出在 `evaluation/runs/first-tier-0.1.x/frozen-contract-dsh-fix-5-0.1.x`，退出 0，内核与 samplelib 冻结重放通过；实际包和 CLI 路径仍来自给定源码，前后 Git 归属均为 `unknown: nested_source_tree`。此本地结果不替代 Windows/macOS CI，也不扩大到私有语料或翻译质量验证。
+
+[PR #89 CI 42565164488](https://github.com/KongouAirlines/ivoraige/actions/runs/42565164488) 的 Linux 和 macOS 成功，Windows 在三项 checkout 来源测试失败。Git for Windows 2.56.0 不接受 Node `os.devNull` 提供的 Windows 设备路径作为配置文件，报 `fatal: unable to access ... Invalid argument`；这是隔离配置的跨平台实现问题，而非 Python 选择或样本模块问题。现每次 Git 元数据采样创建真实临时空配置文件供系统/全局配置路径使用，并在 `finally` 清理；跨平台回归确认子进程得到普通文件、两配置变量指向同一文件且采样后删除。原有真实仓库干净/有改动和全局排除规则污染回归继续通过。
+
+Linux、Node 24.22.1、Python 3.12.14 下定向测试 13/13；显式离线 `npm test`（含构建）574 通过、2 条件跳过、0 失败。相同材料化源码的新合成 smoke 输出在 `evaluation/runs/first-tier-0.1.x/frozen-contract-windows-config-fix-6-0.1.x`，退出 0、零模型调用、冻结重放逐字节一致。修复后的 Windows CI 尚待重跑；其他合成材料、Git 元数据及质量边界不变。

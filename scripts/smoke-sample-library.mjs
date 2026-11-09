@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
-import { realpathSync } from 'node:fs'
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
-import { devNull } from 'node:os'
+import { tmpdir } from 'node:os'
 import { createApp } from '../src/app.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -15,9 +15,9 @@ const gitFailure = (step, result) => ({ commit: null, workingTreeChanges: null, 
     : result.signal ? 'git_signal' : 'git_command_failed', step,
   detail: result.error?.message ?? result.stderr?.trim() ?? `exit ${result.status}` })
 
-function gitMetadataEnvironment() {
+function gitMetadataEnvironment(configFile) {
   const env = { ...process.env, LC_ALL: 'C', GIT_CONFIG_NOSYSTEM: '1',
-    GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull }
+    GIT_CONFIG_GLOBAL: configFile, GIT_CONFIG_SYSTEM: configFile }
   // These variables can redirect repository discovery, HEAD, or index status away
   // from the explicit -C directory. Global/system Git config can also change
   // status (for example, core.excludesFile). Preserve repository-local config.
@@ -31,9 +31,19 @@ function gitMetadataEnvironment() {
 
 // The runner boundary permits deterministic spawn and timeout regressions without changing Git.
 export function checkout(directory, { runner = spawnSync } = {}) {
+  // Git for Windows cannot open Node's os.devNull (\\.\nul) as a config file.
+  const configDir = mkdtempSync(join(tmpdir(), 'ivoraige-git-config-'))
+  try {
+    const configFile = join(configDir, 'empty.gitconfig')
+    writeFileSync(configFile, '')
+    return checkoutWithConfig(directory, runner, gitMetadataEnvironment(configFile))
+  } finally { rmSync(configDir, { recursive: true, force: true }) }
+}
+
+function checkoutWithConfig(directory, runner, env) {
   const run = (step, args) => runner('git', ['-C', directory, ...args],
     { encoding: 'utf8', timeout: 5_000, maxBuffer: 1024 * 1024,
-      env: gitMetadataEnvironment() })
+      env })
   const top = run('top', ['rev-parse', '--show-toplevel'])
   if (top.error || top.signal) return gitFailure('top', top)
   if (top.status !== 0) {

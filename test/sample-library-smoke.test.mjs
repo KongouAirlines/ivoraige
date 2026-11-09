@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { realpathSync } from 'node:fs'
+import { readFileSync, realpathSync, statSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { createFrozenFixture, parseArguments, smokeSampleLibrary, checkout } from '../scripts/smoke-sample-library.mjs'
 
@@ -244,4 +244,18 @@ test('Git spawn errors and timeouts retain their cause rather than becoming unkn
   assert.equal(timedOut.kind, 'error')
   assert.equal(timedOut.reason, 'git_timeout')
   assert.match(timedOut.detail, /timed out/)
+})
+
+test('checkout isolates host Git configuration with a cleaned-up regular file', () => {
+  let configFile
+  const result = checkout('/unused', { runner: (_command, _args, { env }) => {
+    configFile = env.GIT_CONFIG_GLOBAL
+    assert.equal(env.GIT_CONFIG_SYSTEM, configFile)
+    assert.equal(env.GIT_CONFIG_NOSYSTEM, '1')
+    assert.equal(statSync(configFile).isFile(), true)
+    assert.equal(readFileSync(configFile, 'utf8'), '')
+    return { status: 128, stderr: 'fatal: not a git repository' }
+  } })
+  assert.equal(result.reason, 'not_repository')
+  assert.throws(() => statSync(configFile), { code: 'ENOENT' })
 })
