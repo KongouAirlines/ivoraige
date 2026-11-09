@@ -24,7 +24,7 @@
 - 特别核对短表格标签与有前后文的段落：译文应只对应当前单元，不应包含内部请求字段或重复相邻正文。新请求的提示词已明确这条边界；旧的接受译文及冻结产物不会自动修复，需要人工修订后重新导出。
 - 公式等不可译内容通常保留原文。编辑时保留占位符及原有顺序；BabelDOC 的解析、字体或排版限制可能导致不完美的显示。
 - 默认要求可译单元均有接受译文。CLI/API 的显式 skip 允许缺失部分保留原文，所有格式共享同一决定，不临时补译。
-- 扫描件 OCR、双语 PDF、MinerU 跨引擎映射仍未提供；当前独立组件验收范围为 Windows x64。
+- BabelDOC 路径不提供扫描件 OCR；双语 PDF 与跨引擎映射仍未提供。可选 MinerU 路径有实验性 OCR 和同引擎回放，但未完成独立组件分发验收。
 
 ## 继续工作与恢复
 
@@ -34,9 +34,9 @@
 
 更多范围见[能力与限制](capabilities.md)。维护者的来源绑定、目录清理和真实样本证据保存在源码中的 [PDF 实施记录](pdf.md)。
 
-## 可选 MinerU 纯解析源码插件（实验）
+## 可选 MinerU 解析与同引擎回放源码插件（实验）
 
-本源码还包含独立的 `plugins/mineru/` 来源插件，使用 MinerU **4.0.10 SDK**。它只导入 PDF 并保存原件、完整 MiddleJson、结构化视图、Markdown 和图片资源；可通过通用原文模式导出 MD/JSON。它不提供 PDF 译文重建，不借用 BabelDOC renderer，也不需要翻译模型。Linux CPU/flash 已用原创原生与纯图片扫描样本完成真实解析、重启和来源导出；这不代表任意 PDF 或 OCR 质量验收，也没有可下载的独立 MinerU 安装包。实测环境、样本与局限见 [MinerU 实施证据](../0.1.x/evidence/mineru-source-p05-p06.md)。
+本源码还包含独立的 `plugins/mineru/` 包，使用 MinerU **4.0.10 SDK**。它导入 PDF 并保存原件、完整 MiddleJson、结构化视图、Markdown 和图片资源；通用原文模式导出 MD/JSON，原件 PDF 逐字节返回。实验性 `mineru-pdf` 输出适配器用本地 **DocVortex 0.6.21** 从同一份已保存 MiddleJson 和冻结的人工接受修订重建 PDF。它不借用 BabelDOC renderer，也不需要翻译模型。Linux CPU/flash 已用原创原生与纯图片扫描样本完成实际解析、重启、来源导出和 PDF 回放；这不代表任意 PDF/OCR/排版质量验收，也没有可下载的独立 MinerU 安装包。实测环境、样本与局限见 [来源实施证据](../0.1.x/evidence/mineru-source-p05-p06.md)和[回放实施证据](../0.1.x/evidence/mineru-renderer-p09.md)。
 
 已自行准备本地 MinerU 4.0.10 Python 环境及所需模型资源的开发者，可以关闭程序后，将 `plugins/mineru/` 复制到本数据目录的 `settings/node_modules/@ivoraige/mineru-source/`（保留 `index.mjs`、`runner.py` 和 `package.json`）。在 `settings/cordis.patch.yml` 的现有补丁列表中加入一项，不要覆盖其他补丁：
 
@@ -51,8 +51,8 @@
         ocrMode: auto
 ```
 
-Windows 的 `command` 指向该环境的 `python.exe`。宿主把已锁定的 SQLite 路径传给插件作为资源归属身份，不需要在 profile 重复填写。重启后用 `ivoraige import FILE.pdf --format pdf --adapter mineru --source-lang en` 显式选择来源，再用 `ivoraige export DOC_ID --format md,json --content-mode source` 导出。若 BabelDOC 也在场，不指定 adapter 可能发生同分冲突，程序不会暗选。停用时将该 DSH profile 行设为 `disabled: true` 并重启；TXT/Markdown 与已有只读记录继续可用，MinerU 私有修订校验在插件缺席时不可用。
+Windows 的 `command` 指向该环境的 `python.exe`。宿主把已锁定的 SQLite 路径传给插件作为资源归属身份，不需要在 profile 重复填写。重启后用 `ivoraige import FILE.pdf --format pdf --adapter mineru --source-lang en` 显式选择来源，再用 `ivoraige export DOC_ID --format pdf,md,json --content-mode source` 导出原件与来源文本。逐个检查并接受目标语言的译文后，用 `ivoraige export DOC_ID --format pdf,md,json --target-lang zh` 将三种格式绑定到同一冻结快照；缺失接受译文默认拒绝，API 可显式选择 `onMissingAccepted: skip` 保留原文。已保存的旧快照不会随当前修订改变。若 BabelDOC 也在场，不指定导入 adapter 可能发生同分冲突，程序不会暗选。停用时将该 DSH profile 行设为 `disabled: true` 并重启；TXT/Markdown 与已有只读记录继续可用，MinerU 私有修订校验在插件缺席时不可用。
 
-sidecar 在握手后核对 MinerU 精确版本，并关闭当前 Python 进程的网络 socket 及 Hugging Face/Transformers 在线模式；这不是操作系统沙箱，使用前仍应自行准备隔离的本地模型环境。缺少本地运行时/资源会失败，不会由插件自动安装或下载。两个原创合成 PDF 的真实解析证明了窄范围 OCR 路径；图表块已捕获的 caption/footnote 会作为独立可读单元保留，但表格表头可能并入 caption，公式文本与 Markdown 标题格式仍有缺口，需逐页检查；未对任意扫描件证明质量。备份时需连同 SQLite 库与受管 `mineru/` 目录一起复制；目前不支持单独移动库或目录。完整资源仍在绑定对应目录中，MD/JSON 文本导出不等于 PDF 版面回放。MinerU 本体有附加许可条款，独立分发前需核对实际 Python、模型、字体与原生库闭包。
+sidecar 在握手后核对 MinerU 精确版本，并关闭当前 Python 进程的网络 socket 及 Hugging Face/Transformers 在线模式；这不是操作系统沙箱，使用前仍应自行准备隔离的本地模型环境。PDF 回放另核对 DocVortex 精确版本；缺少本地运行时/资源会失败，不会由插件自动安装或下载。回放仅替换能与存档块身份对应的**单个纯文本 span**；复杂行内混排或因 Markdown 转义/样式使结构化文本不同于原 span 的单位不会凭模糊文本改写，应人工处理或保留来源。来源 MD/JSON 仍可保留这些文字。资源只从已验证的本库清单读取。两个原创合成 PDF 的实际解析/回放证明了窄范围 OCR 和冻结路径，图表块已捕获的 caption/footnote 会作为独立可读单元保留，但表格表头仍可能并入 caption，公式文本和 PDF 英文字距仍有缺口，需逐页检查；未对任意扫描件证明质量。备份时需连同 SQLite 库与受管 `mineru/` 目录一起复制；目前不支持单独移动库或目录。完整资源仍在绑定对应目录中，MD/JSON 文本导出不等于 PDF 版面正确。MinerU 本体有附加许可条款，独立分发前需核对实际 Python、模型、字体与原生库闭包。
 
 上游 MinerU 4.0.10 要求 Python `>=3.10,<3.15`。官方 [MinerU-4 ONNX 模型仓](https://huggingface.co/opendatalab/MinerU-4_models_onnx/tree/358310b4f64b95f9fefc372ad899356e4111f376)在该修订的文件合计 858,220,651 字节（约 858 MB），这不是完整 Python 安装或所有可能模型的大小。插件桥的 MIT 许可不覆盖 MinerU 本体或模型。上游[许可](https://github.com/opendatalab/MinerU/blob/mineru-4.0.10-released/LICENSE.md)包含商用规模门槛和第三方在线服务显著署名要求；模型及其他资源仍按各自来源许可核对。

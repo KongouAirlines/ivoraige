@@ -45,7 +45,7 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 
 处理 PDF 时，先按 [PDF 开发参考](docs/plan/0.1.0/pdf-development.md)准备 Windows 可选环境，再按 [PDF 指南](docs/plan/0.1.0/pdf-guide.md)操作。默认在线组件源目前没有可下载的 Release。
 
-源码还包含可选的 MinerU 4.0.10 **纯解析**包，可通过 DSH profile 加载本地副本，保存原件、完整 MiddleJson 和图片资源，并且不配置翻译模型也能导出原文 MD/JSON。它不生成译文 PDF，也不借用 BabelDOC renderer。Linux CPU/flash 已用原创原生与纯图片扫描合成 PDF 完成真实导入和 OCR，但表格／公式有文本漏项，不能据此认定任意文档质量或独立分发已验收。使用已自行准备的本地 MinerU 环境前，请先阅读 [PDF 指南](docs/plan/0.1.0/pdf-guide.md)。
+源码还包含可选的 MinerU 4.0.10 包，可通过 DSH profile 加载本地副本，保存原件、完整 MiddleJson 和图片资源，并且不配置翻译模型也能导出原文 MD/JSON 和逐字节原件 PDF。实验性同引擎 renderer 能从冻结快照回放人工接受的文本，无需调用翻译模型，也不借用 BabelDOC renderer。Linux CPU/flash 已用原创原生与纯图片扫描合成 PDF 完成真实导入、OCR 和同引擎回放，但表格／公式有文本漏项，PDF 字距也不理想，不能据此认定任意文档质量或独立分发已验收。使用已自行准备的本地 MinerU 环境前，请先阅读 [PDF 指南](docs/plan/0.1.0/pdf-guide.md)。
 
 新导入的 BabelDOC PDF 会在工作台与冻结 JSON 摘要中显示捕获单位、翻译回调请求、未进入回调但保留的单位、行审计补录及空文本单位。这些是来源清单数量，不能证明原件文字全部捕获或翻译；行审计与空文本单位可能和保留单位重叠。
 

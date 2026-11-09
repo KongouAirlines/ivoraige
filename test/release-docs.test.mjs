@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, writeFile, rm, cp } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, writeFile, rm, cp } from 'node:fs/promises'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
@@ -80,6 +80,28 @@ test('bundled Markdown renders guide structure and keeps heading anchors', () =>
   assert.match(html, /<pre><code class="language-powershell">foo/)
   assert.match(html, /href="#开始前"/)
   assert.doesNotMatch(html, /源码 null/)
+})
+
+test('MinerU staging excludes local Python bytecode from the independent bridge', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'ivoraige-mineru-package-fixture-'))
+  try {
+    await fixture(root)
+    const manifestPath = join(root, 'package.json')
+    const manifest = JSON.parse(await readFile(manifestPath, 'utf8'))
+    manifest.files.push('plugins/mineru/')
+    await writeFile(manifestPath, JSON.stringify(manifest))
+    const plugin = join(root, 'plugins/mineru')
+    await mkdir(join(plugin, '__pycache__'), { recursive: true })
+    for (const name of ['index.mjs', 'runner.py', 'package.json'])
+      await writeFile(join(plugin, name), name)
+    await writeFile(join(plugin, '__pycache__/runner.cpython-312.pyc'), 'local bytecode')
+    await buildWebGuides(root, join(root, 'dist/web'))
+    run(process.execPath, ['scripts/build.mjs'], root)
+    const stage = join(root, 'stage/package')
+    await stageNpmPackage(root, stage)
+    assert.deepEqual((await readdir(join(stage, 'plugins/mineru'))).sort(),
+      ['index.mjs', 'package.json', 'runner.py'])
+  } finally { await rm(root, { recursive: true, force: true }) }
 })
 
 test('npm release validation binds actual tarball files to the clean tagged source', async () => {

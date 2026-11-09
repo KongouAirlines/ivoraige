@@ -24,7 +24,7 @@
 | P06 | MinerU 纯解析插件 | P05、验证 V01–V04 | Linux CPU/flash 原创两样本实测导入/来源导出；质量、安装闭包待验 | [PDF 与独立分发](packages/pdf.md#p06)；[局部证据](evidence/mineru-source-p05-p06.md) |
 | P07 | 第二同类插件与主体稳定性证明 | P06 后冻结的契约 | 草案 | [PDF 与独立分发](packages/pdf.md#p07) |
 | P08 | PDF 依赖闭包与独立分发 | 清单核对可并行；成包依赖 P05 | 草案 | [PDF 与独立分发](packages/pdf.md#p08) |
-| P09 | MinerU 自身重建及同译文 PDF 对照 | P06；受影响包依赖 P08 | 草案 | [PDF 与独立分发](packages/pdf.md#p09) |
+| P09 | MinerU 自身重建及同译文 PDF 对照 | P06；受影响包依赖 P08 | 实验性同引擎冻结回放在 Linux 合成样本实测；BabelDOC 同译文对照和质量/成本验收未完成 | [PDF 与独立分发](packages/pdf.md#p09)；[局部证据](evidence/mineru-renderer-p09.md) |
 | P10 | 跨引擎来源映射与 PDF 重建 | P07、P09；单独批准实验范围 | 草案 | [PDF 与独立分发](packages/pdf.md#p10) |
 | D01 | 桌面 HostSession/任务/worker/退出契约探针 | P01；集成依赖 P04 | 草案 | [桌面生命周期](packages/desktop.md#d01) |
 | D02 | WebUI 草稿日志及恢复 | 可先用 D01 草案做夹具；接线依赖 D01/P04 | 草案 | [桌面生命周期](packages/desktop.md#d02) |
