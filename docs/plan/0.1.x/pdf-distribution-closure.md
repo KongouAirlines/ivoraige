@@ -58,3 +58,35 @@ python3 -m unittest discover -s test -p audit_pdf_closure_test.py
 ```
 
 本轮三项夹具通过，涵盖缺目录失败、RECORD 文件分类/越界/缺失及 tar 路径拒绝和结构候选。真实清单完成；不代表整个产品测试、跨系统安装或二进制合规通过。没有新增/关闭 follow-up ID；推进 P08 证据，F-B/P2 保留。
+
+## 审查后收紧工具边界
+
+基础脚本只生成 `schemaVersion/limitations/installed/assets/archives`，**不生成**已提交历史精简清单的 `inputIdentity`，也不重新生成历史采集时间。该清单是在原始完整输出上人工精简并补充身份核验的证据快照；上面的命令用于重新观察显式输入，不能逐字节重建此历史文件。`distributionCounts/assetCounts/specialLicenseMetadata` 不是该文件的 schema 字段。
+
+本次修正不重写历史清单计数或替换成 P05 新包：
+
+- 未提供任何输入时退出失败且不写输出。
+- 输入根及其祖先、dist-info/METADATA/RECORD 符号链接在读取内容前拒绝；RECORD 路径含绝对路径、`..` 或中间目录链接时只记录为外部/链接，不读取目标。
+- tar 规范化路径重复及所有链接成员拒绝，需要另行人工审查。工具仍不提取/执行 tar，所解决的是清单含义和路径检查缺口，不是已发生的执行风险。
+- 资源链接明确列为未检查，不静默消失；缓存目录仍按约定排除。`.pth` 可为 Python 路径配置或模型，现标为歧义候选，不推测模型用途。
+- PDF 结构候选增加 `src/adapters/pdf*.mjs`、`src/sidecar*.mjs` 及单数 `sidecar/`。新输出的 coreBoundary 对命中使用 requires-pdf-boundary-review 而非自动 blocked；命中不判定 AGPL，也不判定每项必须移出核心，通用 transport 需结合架构合同人工判断。
+- 许可信息保留原 METADATA 路径和 License/License-Expression 原字段，不做推断式 SPDX 规范化。
+
+这些检查针对静态、受信任位置内的离线输入，不提供并发恶意文件替换下的安全快照保证；运行时不要同时修改被审计目录。
+
+### 历史 inputIdentity 的人工复核方法
+
+身份字段的观察时间与身份复查时间不同；重新执行下面步骤仅产生新的复查证据，不能回写或伪造历史时间。原始时间来自完整输出文件的 mtime，历史原始文件不在 Git 中。
+
+1. 对明确的旧 source tar 计算 SHA-256，对比清单 `inputIdentity.sourceTar.sha256` 及同目录 `.build-evidence.json` 的 sha256。使用 `archive()` 重读文件成员，对比历史 `archives.source-pr92.files`，**不**要求后来扩展的候选列表保持一致。
+2. 对明确的 recipe wheel 计算 SHA-256，对比 `inputIdentity.babeldocDerivedWheel.sha256` 及 `recipe/wheels/build-provenance.json` 的 wheelSha256。用 Python `zipfile.ZipFile.read` 仅读取清单 `installedMemberChecks` 的三条成员，逐项计算 SHA-256，并与 `.venv/lib/python3.13/site-packages/` 对应文件摘要及已记录摘要比较。不安装或解压执行 wheel。
+3. 对比 `hf_api_manifest.json` 的 `id/sha` 与清单的模型 repository/revision；这不验证现有模型字节。Node/OS 是身份复查时的 `node --version`、系统/kernel/architecture，不是原包构建平台证明。
+
+在文中指定的同级本地树中，两个归档的独立摘要可这样复核（不需联网）：
+
+```sh
+python3 -c 'import hashlib,pathlib; p=pathlib.Path("../ivoraige-mineru-plugin/evaluation/runs/mineru-package-0.1.x/ivoraige-0.1.0.tgz"); print(hashlib.file_digest(p.open("rb"), "sha256").hexdigest())'
+python3 -c 'import hashlib,pathlib; p=pathlib.Path("../ivoraige-babeldoc-0.7.1/evaluation/runs/babeldoc-0.7.1/recipe/wheels/babeldoc-0.7.1+ivoraige.1-cp310-abi3-manylinux_2_34_x86_64.whl"); print(hashlib.file_digest(p.open("rb"), "sha256").hexdigest())'
+```
+
+审查修正后本地 8 项测试通过，包括空输入、metadata/父目录链接、资源链接、tar alias/链接及候选分类；既有三系统 kernel-smoke workflow 已加入该夹具命令。此处只报告本地通过及 CI 配置接入，未声称远端 CI 已通过。历史实物清单保持原样，未重扫 runtime 或新 P05 包。
