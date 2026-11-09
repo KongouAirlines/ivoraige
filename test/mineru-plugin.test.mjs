@@ -30,9 +30,10 @@ if (request.method === 'shutdown') {send(null);break;}
 const output = request.params.options.outputDir;
 await mkdir(join(output, 'images'), {recursive:true});
 await writeFile(join(output, 'images', 'page_0_image_1.png'), Buffer.from([1,2,3]));
-const pages = [{page_idx:0,blocks:[{type:'title',index:0,content:[{type:'text',content:'A'}],bbox:[1,2,3,4]},{type:'image',index:1,content:[]},{type:'text',index:2,content:[{type:'text',content:'B'}]}]}];
+const blocks = [{type:'doc_title',index:0,content:[{type:'text',content:'A'}]},{type:'image',index:1,content:[]},{type:'text',index:2,content:[{type:'text',content:'B'}]}].map((block,i)=>({...block,bbox:[1,2,3+i,4+i]}));
+const pages = [{page_idx:0,blocks}];
 await writeFile(join(output, 'middle_json.json'), JSON.stringify({schema:'docvortex.middle',schema_version:'2.0',pages,metadata:{producer:{name:'mineru',version:'4.0.10'}}}));
-await writeFile(join(output, 'structured_content.json'), JSON.stringify({pages:[{page_idx:0,blocks:[{type:'title',index:0,content:'A'},{type:'image',index:1,content:{image_path:'images/page_0_image_1.png'}},{type:'text',index:2,content:'B'}]}]}));
+await writeFile(join(output, 'structured_content.json'), JSON.stringify({pages:[{page_idx:0,blocks:blocks.map((block,i)=>({type:block.type,bbox:block.bbox,content:i===0?'A':i===1?{image_path:'images/page_0_image_1.png'}:'B'}))}]}));
 await writeFile(join(output, 'markdown.md'), '# A\\n\\nB\\n');
 send({doc:{engineVersion:'4.0.10',schema:'docvortex.middle',schemaVersion:'2.0'}});
 }
@@ -193,11 +194,20 @@ for await (const line of createInterface({input:process.stdin})) {
   await app.dispose()
 })
 
-test('structured projection refuses a changed block identity rather than misbinding text', () => {
+test('structured projection follows real MinerU ordered type/bbox identity without a structured index', () => {
+  const middle = { schema: 'docvortex.middle', schema_version: '2.0', pages: [{ page_idx: 0,
+    blocks: [{ type: 'doc_title', index: 0, bbox: [1, 2, 3, 4], content: [{ type: 'text', content: 'Title' }] },
+      { type: 'paragraph_title', index: 2, bbox: [1, 5, 3, 6], content: [{ type: 'text', content: 'Section' }] }] }] }
+  const structured = { pages: [{ page_idx: 0, blocks: [
+    { type: 'doc_title', bbox: [1, 2, 3, 4], content: 'Title' },
+    { type: 'paragraph_title', bbox: [1, 5, 3, 6], content: 'Section' }] }] }
+  const projected = projectStructured(middle, structured, '/bundle', [])
+  assert.deepEqual(projected.units.map(unit => [unit.kind, unit.translatable, unit.locator.index]),
+    [['heading', true, 0], ['heading', true, 2]])
   assert.throws(() => projectStructured(
     { schema: 'docvortex.middle', schema_version: '2.0', pages: [{ page_idx: 0,
-      blocks: [{ type: 'text', index: 1 }] }] },
-    { pages: [{ page_idx: 0, blocks: [{ type: 'text', index: 2, content: 'wrong' }] }] },
+      blocks: [{ type: 'text', index: 1, bbox: [1, 2, 3, 4] }] }] },
+    { pages: [{ page_idx: 0, blocks: [{ type: 'text', bbox: [1, 2, 3, 5], content: 'wrong' }] }] },
     '/bundle', []), { code: 'UPSTREAM_FAILURE' })
 })
 

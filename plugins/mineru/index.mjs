@@ -23,9 +23,10 @@ const bundleOf = (root, storePath, sourceDigest, parseOptions) =>
   join(root, 'sources', `${ownerOf(storePath)}-${sha256(JSON.stringify({ sourceDigest,
     ...parseOptions, engineVersion: ENGINE_VERSION }))}`)
 const fail = (code, message) => { throw new KernelError(code, message) }
-const natural = new Set(['text', 'title', 'paragraph', 'caption', 'list_item', 'list-item', 'footnote'])
+const natural = new Set(['text', 'doc_title', 'paragraph_title', 'title', 'paragraph', 'caption',
+  'list_item', 'list-item', 'footnote'])
 function unitKind(type) {
-  if (type === 'title' || type === 'heading') return 'heading'
+  if (type === 'title' || type === 'heading' || type === 'doc_title' || type === 'paragraph_title') return 'heading'
   if (type === 'caption') return 'caption'
   if (type === 'formula' || type === 'equation') return 'formula'
   if (type === 'code') return 'code'
@@ -51,7 +52,11 @@ export function projectStructured(middle, structured, bundle, files) {
     for (let blockIndex = 0; blockIndex < page.blocks.length; blockIndex++) {
       const block = page.blocks[blockIndex]
       const rendered = view.blocks[blockIndex]
-      if (block?.type !== rendered?.type || block.index !== rendered.index)
+      // MinerU 4.0.10 structured content deliberately omits MiddleJson's
+      // index (which may have gaps). Its stable alignment here is page,
+      // ordered position, type and bbox, not a fabricated structured index.
+      if (block?.type !== rendered?.type || !Array.isArray(block.bbox) ||
+          JSON.stringify(block.bbox) !== JSON.stringify(rendered.bbox))
         fail('UPSTREAM_FAILURE', 'MinerU structured block identity differs from MiddleJson')
       const content = rendered.content
       const text = typeof content === 'string' ? content :
