@@ -37,3 +37,7 @@
 脚本直连入口改用原生真实路径比较，避免软链接或 Windows 路径别名使程序静默退出。Git 元数据调用只从子进程环境移除可覆盖仓库、HEAD 或索引来源的 `GIT_*` 变量，不改调用者环境。`ivoraige` 和 `samplelib` Git 状态在创建运行目录前采集，成功摘要另记执行后的 `samplelibAfter`；这两个时点不是源码文件哈希或执行全程不变的证明。临时 Git 测试仓库隔离全局配置和模板，提交禁用签名与钩子。缺少 Python 3.9+ 时，普通 `npm test` 条件跳过外部合成 CLI 测试；显式运行脚本仍失败并留下诊断。
 
 Linux、Node 24.22.1、Python 3.12.14 下，定向测试 11/11，完整 `npm test`（含构建）572 通过、2 条件跳过、0 失败。用同一份仅含源码的忽略目录执行真实 `ivoraige-exports`，最终新输出为 `evaluation/runs/first-tier-0.1.x/frozen-contract-dsh-fix-4-0.1.x`，退出 0，库存及冻结重放通过；包与 CLI 路径仍绑定所给源码，前后 Git 归属均为 `unknown: nested_source_tree`。本地结果不能替代修改后 Windows/macOS CI 的再次运行，也不扩大合成材料的质量结论。
+
+再次复核发现外部 CLI 测试只查找 `python`，在只有 `python3` 的环境会误跳过；Git 元数据子进程继承 `GIT_CONFIG_GLOBAL`/`GIT_CONFIG_SYSTEM` 时，全局 `core.excludesFile` 可使真实未跟踪文件被误记为干净。新增回归模拟 `python` 不合格而 `python3` 合格，并在临时真实仓库注入系统/全局排除规则，仍要求记录未跟踪变更。元数据调用现在隔离系统/全局配置，保留仓库本地配置；不改用户配置，Git 状态仍只是采样元数据而非源码哈希。
+
+Linux、Node 24.22.1、Python 3.12.14 下，定向测试 12/12；显式离线 `npm test`（含构建）573 通过、2 条件跳过、0 失败。相同材料化源码的新合成 smoke 输出在 `evaluation/runs/first-tier-0.1.x/frozen-contract-dsh-fix-5-0.1.x`，退出 0，内核与 samplelib 冻结重放通过；实际包和 CLI 路径仍来自给定源码，前后 Git 归属均为 `unknown: nested_source_tree`。此本地结果不替代 Windows/macOS CI，也不扩大到私有语料或翻译质量验证。

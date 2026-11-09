@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
+import { devNull } from 'node:os'
 import { createApp } from '../src/app.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -15,9 +16,11 @@ const gitFailure = (step, result) => ({ commit: null, workingTreeChanges: null, 
   detail: result.error?.message ?? result.stderr?.trim() ?? `exit ${result.status}` })
 
 function gitMetadataEnvironment() {
-  const env = { ...process.env, LC_ALL: 'C' }
+  const env = { ...process.env, LC_ALL: 'C', GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull }
   // These variables can redirect repository discovery, HEAD, or index status away
-  // from the explicit -C directory. Leave unrelated user Git settings intact.
+  // from the explicit -C directory. Global/system Git config can also change
+  // status (for example, core.excludesFile). Preserve repository-local config.
   for (const key of Object.keys(env)) {
     const name = key.toUpperCase() // Environment keys can be case-insensitive on Windows.
     if (/^GIT_(DIR|WORK_TREE|INDEX_FILE|COMMON_DIR|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|NAMESPACE|PREFIX|CEILING_DIRECTORIES|CONFIG_PARAMETERS)$/.test(name) ||

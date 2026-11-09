@@ -8,9 +8,18 @@ import { realpathSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { createFrozenFixture, parseArguments, smokeSampleLibrary, checkout } from '../scripts/smoke-sample-library.mjs'
 
-const pythonProbe = spawnSync('python', ['-I', '-c', 'import sys; sys.exit(sys.version_info < (3, 9))'],
-  { encoding: 'utf8', timeout: 5_000 })
-const pythonSkip = pythonProbe.status === 0 ? false : 'Python 3.9+ is not available for external CLI tests'
+function selectPython(probe = command => spawnSync(command,
+  ['-I', '-c', 'import sys; sys.exit(sys.version_info < (3, 9))'],
+  { encoding: 'utf8', timeout: 5_000 })) {
+  return ['python', 'python3'].find(command => probe(command).status === 0) ?? null
+}
+const python = selectPython()
+const pythonSkip = python ? false : 'Python 3.9+ is not available for external CLI tests'
+
+test('external CLI tests select an available Python 3.9+ interpreter', () => {
+  assert.equal(selectPython(command => ({ status: command === 'python3' ? 0 : 1 })), 'python3')
+  assert.equal(selectPython(() => ({ status: 1 })), null)
+})
 
 async function fakeSamplelib(root, cli) {
   const packageDir = join(root, 'src', 'samplelib')
@@ -91,7 +100,7 @@ test('a supplied local CLI succeeds even with a conflicting PYTHONPATH, and reco
   process.env.PYTHONPATH = join(decoy, 'src')
   t.after(() => { if (prior === undefined) delete process.env.PYTHONPATH; else process.env.PYTHONPATH = prior })
   const output = join(parent, 'run')
-  const summary = await smokeSampleLibrary({ samplelibRoot, python: 'python', output })
+  const summary = await smokeSampleLibrary({ samplelibRoot, python, output })
   assert.equal(summary.integrity, 'pass')
   assert.equal(summary.samplelib.kind, 'unknown')
   assert.equal(summary.samplelib.reason, 'not_repository')
@@ -113,7 +122,7 @@ test('a missing module in the supplied root cannot borrow a PYTHONPATH installat
   process.env.PYTHONPATH = join(decoy, 'src')
   t.after(() => { if (prior === undefined) delete process.env.PYTHONPATH; else process.env.PYTHONPATH = prior })
   const output = join(parent, 'run')
-  await assert.rejects(smokeSampleLibrary({ samplelibRoot, python: 'python', output }), /failed/)
+  await assert.rejects(smokeSampleLibrary({ samplelibRoot, python, output }), /failed/)
   assert.match(await readFile(join(output, 'samplelib.stderr.log'), 'utf8'), /samplelib.*__init__\.py/)
   assert.notEqual(JSON.parse(await readFile(join(output, 'samplelib-execution.json'), 'utf8')).exitCode, 0)
   await assert.rejects(readFile(join(output, 'summary.json')), { code: 'ENOENT' })
@@ -126,7 +135,7 @@ test('an external CLI failure retains exit, stdout and stderr without a success 
   const samplelibRoot = join(parent, 'source')
   await fakeSamplelib(samplelibRoot, 'import sys\nprint("partial output")\nprint("reason for failure", file=sys.stderr)\nsys.exit(4)\n')
   const output = join(parent, 'run')
-  await assert.rejects(smokeSampleLibrary({ samplelibRoot, python: 'python', output }), /exit 4/)
+  await assert.rejects(smokeSampleLibrary({ samplelibRoot, python, output }), /exit 4/)
   assert.deepEqual(JSON.parse(await readFile(join(output, 'samplelib-execution.json'), 'utf8')),
     { exitCode: 4, signal: null, error: null })
   assert.match(await readFile(join(output, 'samplelib.stdout.log'), 'utf8'), /partial output/)
@@ -147,7 +156,7 @@ test('samplelib Git metadata is sampled before output and again after execution'
   git('-c', `core.hooksPath=${emptyTemplate}`, '-c', 'commit.gpgsign=false',
     '-c', 'user.name=Sample Test', '-c', 'user.email=sample@example.invalid', 'commit', '-qm', 'fixture')
   const output = join(samplelibRoot, 'run')
-  const summary = await smokeSampleLibrary({ samplelibRoot, python: 'python', output })
+  const summary = await smokeSampleLibrary({ samplelibRoot, python, output })
   assert.equal(summary.samplelib.commit, git('rev-parse', 'HEAD'))
   assert.equal(summary.samplelib.workingTreeChanges, false)
   assert.equal(summary.samplelibAfter.commit, summary.samplelib.commit)
@@ -193,18 +202,27 @@ test('checkout distinguishes a clean or dirty root from a nested extraction and 
   const other = join(parent, 'other-repository')
   await mkdir(other)
   gitAt(other, 'init', '-q')
+  const excluded = join(parent, 'global-excludes')
+  const hostConfig = join(parent, 'host-gitconfig')
+  await writeFile(excluded, '*.tmp\n')
+  await writeFile(hostConfig, `[core]\n  excludesFile = ${excluded}\n`)
   const overrides = { GIT_DIR: join(other, '.git'), GIT_WORK_TREE: repository,
-    GIT_INDEX_FILE: join(other, '.git', 'index') }
+    GIT_INDEX_FILE: join(other, '.git', 'index'), GIT_CONFIG_GLOBAL: hostConfig,
+    GIT_CONFIG_SYSTEM: hostConfig }
   const originals = Object.fromEntries(Object.keys(overrides).map(key => [key, process.env[key]]))
   try {
     Object.assign(process.env, overrides)
     assert.deepEqual(checkout(repository), { commit: head, workingTreeChanges: false, kind: 'git' })
     assert.equal(process.env.GIT_DIR, overrides.GIT_DIR)
+    await writeFile(join(repository, 'local.tmp'), 'untracked\n')
+    assert.deepEqual(checkout(repository), { commit: head, workingTreeChanges: true, kind: 'git' })
+    assert.equal(process.env.GIT_CONFIG_GLOBAL, hostConfig)
   } finally {
     for (const [key, value] of Object.entries(originals))
       if (value === undefined) delete process.env[key]
       else process.env[key] = value
   }
+  await rm(join(repository, 'local.tmp'))
   await writeFile(join(repository, 'tracked.txt'), 'dirty\n')
   assert.deepEqual(checkout(repository), { commit: head, workingTreeChanges: true, kind: 'git' })
   const nested = join(repository, 'extracted')
