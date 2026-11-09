@@ -277,7 +277,7 @@ test('PDF Markdown validates complete email candidates without changing recipien
   assert.equal(replay.task.stats.llmCalls, 0)
 })
 
-test('PDF Markdown preserves numeric-dot literals in body and heading units', () => {
+test('PDF Markdown preserves numeric literals in document titles, headings and setext body text', () => {
   const cases = [
     ['mAP 0.95@0.5 on COCO', []],
     ['CPU 2.4@3.0GHz', []],
@@ -287,19 +287,28 @@ test('PDF Markdown preserves numeric-dot literals in body and heading units', ()
     ['  12. item', []],
     ['Line one\n1. item', []],
     ['1.user@example.com', ['mailto:1.user@example.com']],
+    ['123@example.com', ['mailto:123@example.com']],
+    ['1.2@example.com', ['mailto:1.2@example.com']],
   ]
-  for (const kind of ['body', 'heading']) {
+  for (const context of ['body', 'heading', 'document-title', 'setext-body']) {
     for (const [text, hrefs] of cases) {
+      const isTitle = context === 'document-title'
+      const kind = context === 'heading' ? 'heading' : 'body'
+      const source = context === 'setext-body' ? `${text}\n ===` : text
       const md = renderPdfMarkdown({ sourceBinding: { adapterId: 'babeldoc', records: [{}] },
         snapshot: { id: 'numeric-literal', revisionSetHash: 'numeric-literal' },
-        document: { title: 'Numeric literal' }, units: [{ unit: { order: 0, kind }, text }] })
+        document: { title: isTitle ? source : 'Numeric literal' },
+        units: isTitle ? [] : [{ unit: { order: 0, kind }, text: source }] })
       const body = new JSDOM(marked.parse(md)).window.document.body
-      const content = body.querySelector(kind === 'heading' ? 'h2' : 'p')
-      // Captured headings flatten line breaks; body prose keeps them.
-      assert.equal(content.textContent, kind === 'heading' ? text.replace(/\n/g, ' ') : text,
-        `${kind}: ${text}`)
-      assert.deepEqual([...content.querySelectorAll('a')].map(a => a.getAttribute('href')), hrefs)
-      assert.equal(body.querySelector('ol, ul'), null)
+      const content = body.querySelector(isTitle ? 'h1' : kind === 'heading' ? 'h2' : 'p')
+      // Document titles and captured headings flatten line breaks; body prose keeps them.
+      assert.equal(content.textContent, isTitle || kind === 'heading' ? source.replace(/\n/g, ' ') : source,
+        `${context}: ${text}`)
+      assert.deepEqual([...content.querySelectorAll('a')].map(a => a.getAttribute('href')), hrefs,
+        `${context} destinations: ${text}`)
+      assert.equal(body.querySelectorAll('h1').length, 1)
+      assert.equal(body.querySelectorAll('h2,h3,h4,h5,h6').length, kind === 'heading' ? 1 : 0)
+      assert.equal(body.querySelector('ol, ul, pre, code'), null)
     }
   }
 })
