@@ -4,6 +4,8 @@
 Run explicitly with a matching BabelDOC runtime. The regular preflight tests
 remain dependency-free. PyMuPDF's built-in Helvetica supplies real font metrics.
 """
+import importlib.metadata as metadata
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,16 +15,25 @@ from unittest.mock import patch
 from layout_fit import fitted_layout_scope
 
 
+def require_layout_runtime(babeldoc, pymupdf, python):
+    expected = ("0.6.4", "1.26.7", (3, 13))
+    actual = (babeldoc, pymupdf, tuple(python[:2]))
+    if actual != expected:
+        raise RuntimeError(f"Layout regression requires {expected}; found {actual}")
+
+
 class InstalledLayoutTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        # Reject mismatched runtimes before importing the optional engine.
+        require_layout_runtime(metadata.version("babeldoc"), metadata.version("PyMuPDF"), sys.version_info)
         cls.cache = tempfile.TemporaryDirectory(prefix="ivoraige-layout-test-")
         with patch.object(Path, "home", return_value=Path(cls.cache.name)):
             import pymupdf
             from babeldoc import const
             from babeldoc.format.pdf.document_il.il_version_1 import Box, PdfStyle
             from babeldoc.format.pdf.document_il.midend.typesetting import Typesetting, TypesettingUnit
-        assert const.__version__ == "0.6.4"
+        require_layout_runtime(const.__version__, pymupdf.VersionBind, sys.version_info)
         cls.font = pymupdf.Font("helv")
         cls.Box, cls.Style = Box, PdfStyle
         cls.Engine, cls.Unit = Typesetting, TypesettingUnit
