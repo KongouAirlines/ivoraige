@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { copyFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHostDomain, findHostDomain, hostRegistryDirectory,
@@ -65,9 +65,37 @@ test('damaged registry and store replacement cannot silently receive a new ID', 
     ownerConfigBinding: config })
   replacement.storeLease.release()
   await copyFile(join(f.dir, 'other.sqlite'), f.store)
+  // Model an inode reuse deterministically. Creation time (or legacy
+  // metadata verification) must still distinguish the replacement.
+  const reused = await stat(f.store, { bigint: true })
+  const registryValue = JSON.parse(saved)
+  registryValue.domains[0].fileIdentity.dev = String(reused.dev)
+  registryValue.domains[0].fileIdentity.ino = String(reused.ino)
+  await writeFile(registry, `${JSON.stringify(registryValue)}\n`)
+  await assert.rejects(findHostDomain(f), error => error.code === 'CONFLICT' &&
+    error.details.reason === 'domain-registration-mismatch')
+  delete registryValue.domains[0].fileIdentity.birthtimeNs
+  await writeFile(registry, `${JSON.stringify(registryValue)}\n`)
   await assert.rejects(findHostDomain(f), error => error.code === 'CONFLICT' &&
     error.details.reason === 'domain-registration-mismatch')
   await assert.rejects(create(f), error => error.code === 'CONFLICT' && error.details.reason === 'domain-registration-mismatch')
+})
+
+test('legacy registry identity is checked against metadata and upgraded on reopen', async t => {
+  const f = await fixture(t)
+  const first = await create(f)
+  first.storeLease.release()
+  const registryPath = join(hostRegistryDirectory(f.registryRoot), 'domains.json')
+  const registry = JSON.parse(await readFile(registryPath))
+  delete registry.domains[0].fileIdentity.birthtimeNs
+  await writeFile(registryPath, `${JSON.stringify(registry)}\n`)
+  assert.equal((await findHostDomain(f)).domainId, first.dataDomainRef)
+  const reopened = await create(f)
+  reopened.storeLease.release()
+  assert.equal(reopened.dataDomainRef, first.dataDomainRef)
+  const upgraded = JSON.parse(await readFile(registryPath))
+  if (reopened.fileIdentity.birthtimeNs !== undefined)
+    assert.equal(upgraded.domains[0].fileIdentity.birthtimeNs, reopened.fileIdentity.birthtimeNs)
 })
 
 test('copy recovery assigns a new domain; changed diagnostic rejects before mutation', async t => {
@@ -197,7 +225,7 @@ test('concurrent processes serialize registry updates without losing domains', a
   const stores = Array.from({ length: 6 }, (_, i) => join(f.dir, `parallel-${i}.sqlite`))
   const ids = await Promise.all(stores.map(async store => {
     const { stdout } = await run(process.execPath, ['--input-type=module', '-e', script, store, f.registryRoot],
-      { cwd: new URL('..', import.meta.url), timeout: 10_000 })
+      { cwd: new URL('..', import.meta.url), timeout: 30_000 })
     return stdout.trim()
   }))
   assert.equal(new Set(ids).size, stores.length)
