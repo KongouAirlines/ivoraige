@@ -12,6 +12,7 @@
   },
   "files": [
     "src/",
+    "plugins/mineru/",
     "dist/dsh.mjs",
     "dist/web/",
     "dist/DSH-LICENSE.txt",
