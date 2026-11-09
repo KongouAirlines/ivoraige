@@ -31,3 +31,9 @@
 本地定向测试 9/9：除原有冻结重放及失败路径，还覆盖真实临时 Git 仓库的干净/有改动状态、非仓库、嵌套提取目录、注入的 Git 启动失败及超时、带冲突 `PYTHONPATH` 的指定 CLI 成功、错误根目录拒绝借用其他包，以及外部 CLI 失败的退出码和两路输出。最终完整 `npm test`（含构建）570 通过、2 条件跳过、0 失败；运行环境为 Linux、Node 24.22.1、Python 3.12.14。
 
 使用已有的忽略目录 `evaluation/runs/first-tier-0.1.x/samplelib-source-0473e60`（只含已读取固定提交的模块，无语料）执行真实 `ivoraige-exports`，最终新输出目录 `evaluation/runs/first-tier-0.1.x/frozen-contract-dsh-fix-2-0.1.x`。运行退出 0，冻结导出库存及逐字节重放通过。模块记录指向所给源码的 `src/samplelib/cli.py`；由于它是 ivoraige 仓库下的材料化目录而非自身 Git 根目录，Git 归属为 `unknown: nested_source_tree`，不能将父仓库提交归给样本库。运行时 ivoraige 工作区有本次未提交改动，因此其 Git 标记为有改动。这些结果不扩大上节所述合成输入、质量及完整私库测试的验证范围。
+
+### 后续审查修正
+
+脚本直连入口改用原生真实路径比较，避免软链接或 Windows 路径别名使程序静默退出。Git 元数据调用只从子进程环境移除可覆盖仓库、HEAD 或索引来源的 `GIT_*` 变量，不改调用者环境。`ivoraige` 和 `samplelib` Git 状态在创建运行目录前采集，成功摘要另记执行后的 `samplelibAfter`；这两个时点不是源码文件哈希或执行全程不变的证明。临时 Git 测试仓库隔离全局配置和模板，提交禁用签名与钩子。缺少 Python 3.9+ 时，普通 `npm test` 条件跳过外部合成 CLI 测试；显式运行脚本仍失败并留下诊断。
+
+Linux、Node 24.22.1、Python 3.12.14 下，定向测试 11/11，完整 `npm test`（含构建）572 通过、2 条件跳过、0 失败。用同一份仅含源码的忽略目录执行真实 `ivoraige-exports`，最终新输出为 `evaluation/runs/first-tier-0.1.x/frozen-contract-dsh-fix-4-0.1.x`，退出 0，库存及冻结重放通过；包与 CLI 路径仍绑定所给源码，前后 Git 归属均为 `unknown: nested_source_tree`。本地结果不能替代修改后 Windows/macOS CI 的再次运行，也不扩大合成材料的质量结论。

@@ -14,11 +14,23 @@ const gitFailure = (step, result) => ({ commit: null, workingTreeChanges: null, 
     : result.signal ? 'git_signal' : 'git_command_failed', step,
   detail: result.error?.message ?? result.stderr?.trim() ?? `exit ${result.status}` })
 
+function gitMetadataEnvironment() {
+  const env = { ...process.env, LC_ALL: 'C' }
+  // These variables can redirect repository discovery, HEAD, or index status away
+  // from the explicit -C directory. Leave unrelated user Git settings intact.
+  for (const key of Object.keys(env)) {
+    const name = key.toUpperCase() // Environment keys can be case-insensitive on Windows.
+    if (/^GIT_(DIR|WORK_TREE|INDEX_FILE|COMMON_DIR|OBJECT_DIRECTORY|ALTERNATE_OBJECT_DIRECTORIES|NAMESPACE|PREFIX|CEILING_DIRECTORIES|CONFIG_PARAMETERS)$/.test(name) ||
+        /^GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+)$/.test(name)) delete env[key]
+  }
+  return env
+}
+
 // The runner boundary permits deterministic spawn and timeout regressions without changing Git.
 export function checkout(directory, { runner = spawnSync } = {}) {
   const run = (step, args) => runner('git', ['-C', directory, ...args],
     { encoding: 'utf8', timeout: 5_000, maxBuffer: 1024 * 1024,
-      env: { ...process.env, LC_ALL: 'C' } })
+      env: gitMetadataEnvironment() })
   const top = run('top', ['rev-parse', '--show-toplevel'])
   if (top.error || top.signal) return gitFailure('top', top)
   if (top.status !== 0) {
@@ -72,6 +84,7 @@ runpy.run_module('samplelib.cli', run_name='__main__')
 // It deliberately uses a real temporary store, manual revisions, task exports and restart.
 export async function createFrozenFixture(directory) {
   directory = resolve(directory)
+  const ivoraige = checkout(root)
   await mkdir(dirname(directory), { recursive: true })
   // A prior run must never be mistaken for this run or overwritten.
   await mkdir(directory)
@@ -113,7 +126,7 @@ export async function createFrozenFixture(directory) {
       { targetLang: 'zh-CN', snapshotId: translated.snapshotId })
     assert.deepEqual(sourceReplay.bytes, source.bytes)
     assert.deepEqual(translatedReplay.bytes, translated.bytes)
-    const summary = { ivoraige: checkout(root), node: process.version,
+    const summary = { ivoraige, node: process.version,
       input: 'original synthetic Markdown', units: 3,
       decisions: { revision: 1, skip: 1, keepOriginal: 1 },
       llmCalls: 0, restartReplay: 'byte-identical', pdf: 'not_run', ocr: 'not_run',
@@ -141,6 +154,7 @@ export function parseArguments(args) {
 export async function smokeSampleLibrary({ samplelibRoot, python, output }) {
   samplelibRoot = resolve(samplelibRoot)
   output = resolve(output)
+  const samplelib = checkout(samplelibRoot)
   const summary = await createFrozenFixture(output)
   const reportPath = join(output, 'samplelib-report.json')
   const result = spawnSync(python, ['-I', '-B', '-c', boundSamplelib, samplelibRoot,
@@ -161,14 +175,15 @@ export async function smokeSampleLibrary({ samplelibRoot, python, output }) {
   assert.equal(report.explicit_skips, true)
   assert.equal(report.counts?.source_units, 3)
   assert.deepEqual(report.counts?.decisions, summary.decisions)
-  const complete = { ...summary, samplelib: checkout(samplelibRoot),
+  const complete = { ...summary, samplelib, samplelibAfter: checkout(samplelibRoot),
     samplelibModule: JSON.parse(await readFile(join(output, 'samplelib-module.json'), 'utf8')),
     integrity: 'pass' }
   await writeFile(join(output, 'summary.json'), JSON.stringify(complete, null, 2) + '\n', { flag: 'wx' })
   return complete
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && realpathSync.native(resolve(process.argv[1])) ===
+    realpathSync.native(fileURLToPath(import.meta.url))) {
   try { console.log(JSON.stringify(await smokeSampleLibrary(parseArguments(process.argv.slice(2))), null, 2)) }
   catch (error) { console.error(error.message); process.exitCode = 1 }
 }

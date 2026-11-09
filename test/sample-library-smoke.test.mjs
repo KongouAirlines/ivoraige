@@ -1,17 +1,36 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { realpathSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { createFrozenFixture, parseArguments, smokeSampleLibrary, checkout } from '../scripts/smoke-sample-library.mjs'
+
+const pythonProbe = spawnSync('python', ['-I', '-c', 'import sys; sys.exit(sys.version_info < (3, 9))'],
+  { encoding: 'utf8', timeout: 5_000 })
+const pythonSkip = pythonProbe.status === 0 ? false : 'Python 3.9+ is not available for external CLI tests'
 
 async function fakeSamplelib(root, cli) {
   const packageDir = join(root, 'src', 'samplelib')
   await mkdir(packageDir, { recursive: true })
   await writeFile(join(packageDir, '__init__.py'), '')
   await writeFile(join(packageDir, 'cli.py'), cli)
+}
+
+async function isolatedGit(parent) {
+  const emptyTemplate = join(parent, 'empty-template')
+  await mkdir(emptyTemplate)
+  const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
+  Object.assign(env, { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: join(parent, 'no-global-config'),
+    GIT_TEMPLATE_DIR: emptyTemplate })
+  function gitAt(path, ...args) {
+    const result = spawnSync('git', ['-C', path, ...args], { encoding: 'utf8', env })
+    assert.equal(result.status, 0, result.stderr)
+    return result.stdout.trim()
+  }
+  return { gitAt, emptyTemplate }
 }
 
 const passingCli = `import json, sys
@@ -60,7 +79,8 @@ test('missing Python leaves diagnostic artifacts without creating a passed combi
   assert.equal(await readFile(join(output, 'samplelib.stdout.log'), 'utf8'), '')
 })
 
-test('a supplied local CLI succeeds even with a conflicting PYTHONPATH, and records its module file', async t => {
+test('a supplied local CLI succeeds even with a conflicting PYTHONPATH, and records its module file',
+  { skip: pythonSkip }, async t => {
   const parent = await mkdtemp(join(tmpdir(), 'ivoraige-samplelib-module-'))
   t.after(() => rm(parent, { recursive: true, force: true }))
   const samplelibRoot = join(parent, 'chosen')
@@ -81,7 +101,8 @@ test('a supplied local CLI succeeds even with a conflicting PYTHONPATH, and reco
   assert.match(await readFile(join(output, 'samplelib.stdout.log'), 'utf8'), /samplelib passed/)
 })
 
-test('a missing module in the supplied root cannot borrow a PYTHONPATH installation', async t => {
+test('a missing module in the supplied root cannot borrow a PYTHONPATH installation',
+  { skip: pythonSkip }, async t => {
   const parent = await mkdtemp(join(tmpdir(), 'ivoraige-samplelib-wrong-root-'))
   t.after(() => rm(parent, { recursive: true, force: true }))
   const samplelibRoot = join(parent, 'wrong')
@@ -98,7 +119,8 @@ test('a missing module in the supplied root cannot borrow a PYTHONPATH installat
   await assert.rejects(readFile(join(output, 'summary.json')), { code: 'ENOENT' })
 })
 
-test('an external CLI failure retains exit, stdout and stderr without a success summary', async t => {
+test('an external CLI failure retains exit, stdout and stderr without a success summary',
+  { skip: pythonSkip }, async t => {
   const parent = await mkdtemp(join(tmpdir(), 'ivoraige-samplelib-exit-'))
   t.after(() => rm(parent, { recursive: true, force: true }))
   const samplelibRoot = join(parent, 'source')
@@ -112,6 +134,26 @@ test('an external CLI failure retains exit, stdout and stderr without a success 
   await assert.rejects(readFile(join(output, 'summary.json')), { code: 'ENOENT' })
 })
 
+test('samplelib Git metadata is sampled before output and again after execution',
+  { skip: pythonSkip }, async t => {
+  const parent = await mkdtemp(join(tmpdir(), 'ivoraige-samplelib-provenance-'))
+  t.after(() => rm(parent, { recursive: true, force: true }))
+  const samplelibRoot = join(parent, 'source')
+  await fakeSamplelib(samplelibRoot, passingCli)
+  const { gitAt, emptyTemplate } = await isolatedGit(parent)
+  const git = (...args) => gitAt(samplelibRoot, ...args)
+  git('init', '-q')
+  git('add', 'src')
+  git('-c', `core.hooksPath=${emptyTemplate}`, '-c', 'commit.gpgsign=false',
+    '-c', 'user.name=Sample Test', '-c', 'user.email=sample@example.invalid', 'commit', '-qm', 'fixture')
+  const output = join(samplelibRoot, 'run')
+  const summary = await smokeSampleLibrary({ samplelibRoot, python: 'python', output })
+  assert.equal(summary.samplelib.commit, git('rev-parse', 'HEAD'))
+  assert.equal(summary.samplelib.workingTreeChanges, false)
+  assert.equal(summary.samplelibAfter.commit, summary.samplelib.commit)
+  assert.equal(summary.samplelibAfter.workingTreeChanges, true)
+})
+
 test('sample-library arguments require explicit tool, checkout and new output directory', () => {
   for (const args of [[], ['--python', 'python'], ['--samplelib-root', '.', '--python', 'python', '--output'],
     ['--samplelib-root', '.', '--python', 'python', '--output', 'out', '--output', 'other'],
@@ -120,22 +162,49 @@ test('sample-library arguments require explicit tool, checkout and new output di
   assert.equal(parseArguments(['--python', 'python', '--output', 'out', '--samplelib-root', '.']).python, 'python')
 })
 
+test('a symlinked script entry still runs its argument validation', async t => {
+  const parent = await mkdtemp(join(tmpdir(), 'ivoraige-samplelib-alias-'))
+  t.after(() => rm(parent, { recursive: true, force: true }))
+  const alias = join(parent, 'smoke.mjs')
+  try { await symlink(fileURLToPath(new URL('../scripts/smoke-sample-library.mjs', import.meta.url)), alias) }
+  catch (error) {
+    if (['EPERM', 'EACCES', 'ENOTSUP'].includes(error.code)) return t.skip('symlinks unavailable')
+    throw error
+  }
+  const result = spawnSync(process.execPath, [alias], { encoding: 'utf8' })
+  assert.equal(result.status, 1, result.stderr)
+  assert.match(result.stderr, /Expected --samplelib-root/)
+})
+
 test('checkout distinguishes a clean or dirty root from a nested extraction and a non-repository', async t => {
   const parent = await mkdtemp(join(tmpdir(), 'ivoraige-samplelib-git-'))
   t.after(() => rm(parent, { recursive: true, force: true }))
   const repository = join(parent, 'repository')
   await mkdir(repository)
-  function git(...args) {
-    const result = spawnSync('git', ['-C', repository, ...args], { encoding: 'utf8' })
-    assert.equal(result.status, 0, result.stderr)
-    return result.stdout.trim()
-  }
+  const { gitAt, emptyTemplate } = await isolatedGit(parent)
+  const git = (...args) => gitAt(repository, ...args)
   git('init', '-q')
   await writeFile(join(repository, 'tracked.txt'), 'clean\n')
   git('add', 'tracked.txt')
-  git('-c', 'user.name=Sample Test', '-c', 'user.email=sample@example.invalid', 'commit', '-qm', 'fixture')
+  git('-c', `core.hooksPath=${emptyTemplate}`, '-c', 'commit.gpgsign=false',
+    '-c', 'user.name=Sample Test', '-c', 'user.email=sample@example.invalid', 'commit', '-qm', 'fixture')
   const head = git('rev-parse', 'HEAD')
   assert.deepEqual(checkout(repository), { commit: head, workingTreeChanges: false, kind: 'git' })
+  const other = join(parent, 'other-repository')
+  await mkdir(other)
+  gitAt(other, 'init', '-q')
+  const overrides = { GIT_DIR: join(other, '.git'), GIT_WORK_TREE: repository,
+    GIT_INDEX_FILE: join(other, '.git', 'index') }
+  const originals = Object.fromEntries(Object.keys(overrides).map(key => [key, process.env[key]]))
+  try {
+    Object.assign(process.env, overrides)
+    assert.deepEqual(checkout(repository), { commit: head, workingTreeChanges: false, kind: 'git' })
+    assert.equal(process.env.GIT_DIR, overrides.GIT_DIR)
+  } finally {
+    for (const [key, value] of Object.entries(originals))
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+  }
   await writeFile(join(repository, 'tracked.txt'), 'dirty\n')
   assert.deepEqual(checkout(repository), { commit: head, workingTreeChanges: true, kind: 'git' })
   const nested = join(repository, 'extracted')
