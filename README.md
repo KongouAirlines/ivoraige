@@ -94,6 +94,8 @@ Maintainers can use [Codex issue triage (中文)](docs/plan/0.1.x/issue-triage.m
 
 Sample-library development lives in the access-restricted private repository [translate-source-lib](https://github.com/KongouAirlines/translate-source-lib). See [repository responsibilities and verification guidance (中文)](docs/plan/0.1.x/sample-library.md) for its merged baseline, authorized sample use, and the distinction between sample checks and actual ivoraige execution. External contributors can first describe the problem, public source and license in an issue; do not upload private document text.
 
+Developers with an authorized sample-library checkout can run the documented offline integration smoke. It creates original Markdown, manual revisions and frozen JSON exports, verifies restart replay, and checks the exports with samplelib. It does not run a translation model, PDF engine or OCR.
+
 See [contribution guidance](CONTRIBUTING.md) and [security reporting](SECURITY.md). The core uses **LGPL-3.0-or-later**; the business modules listed in [LICENSE](LICENSE) use **MIT**. The optional BabelDOC Python plugin uses **AGPL-3.0-only** and is packaged separately. Contributions require DCO sign-off.
 
 Built with Cordis and DSH, with optional BabelDOC support. See [third-party acknowledgements](THIRD_PARTY.md).
