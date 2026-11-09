@@ -75,8 +75,8 @@ test('a supplied local CLI succeeds even with a conflicting PYTHONPATH, and reco
   assert.equal(summary.integrity, 'pass')
   assert.equal(summary.samplelib.kind, 'unknown')
   assert.equal(summary.samplelib.reason, 'not_repository')
-  assert.equal(realpathSync(summary.samplelibModule.moduleFile),
-    realpathSync(join(samplelibRoot, 'src', 'samplelib', 'cli.py')))
+  assert.equal(realpathSync.native(summary.samplelibModule.moduleFile),
+    realpathSync.native(join(samplelibRoot, 'src', 'samplelib', 'cli.py')))
   assert.equal(JSON.parse(await readFile(join(output, 'samplelib-execution.json'), 'utf8')).exitCode, 0)
   assert.match(await readFile(join(output, 'samplelib.stdout.log'), 'utf8'), /samplelib passed/)
 })

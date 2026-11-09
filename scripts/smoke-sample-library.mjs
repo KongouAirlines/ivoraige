@@ -28,7 +28,9 @@ export function checkout(directory, { runner = spawnSync } = {}) {
   }
   if (!top.stdout?.trim()) return gitFailure('top', { ...top, stderr: 'empty Git top-level path' })
   // An extracted source tree inside another repository does not inherit its commit.
-  if (realpathSync(top.stdout.trim()) !== realpathSync(directory)) return unknownCheckout('nested_source_tree')
+  // Native canonicalization also resolves Windows short-name aliases (RUNNER~1).
+  if (realpathSync.native(top.stdout.trim()) !== realpathSync.native(directory))
+    return unknownCheckout('nested_source_tree')
   const head = run('head', ['rev-parse', 'HEAD'])
   if (head.error || head.signal) return gitFailure('head', head)
   if (head.status !== 0) return gitFailure('head', head)
