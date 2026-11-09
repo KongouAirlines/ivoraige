@@ -145,3 +145,5 @@ MCP HTTP 任务轮询断连会释放该请求的订阅，不取消持久任务�
 MinerU 的 MIT 桥接包与主体分开打包，不包含原生运行时或模型。
 参见[离线插件安装](docs/plan/0.1.0/installation-guide.md#offline-independent-source-plugins)
 和 [P05 开发说明](docs/plan/0.1.x/plugin-delivery-development.md)。
+
+可选独立 BabelDOC 来源/输出包：[安装与兼容边界](plugins/babeldoc/README.md)。运行时准备及 PDF 质量仍需分别验证。
