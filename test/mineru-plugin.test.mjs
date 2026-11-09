@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { createApp } from '../src/app.mjs'
 import { AppBoot } from '../dist/dsh.mjs'
@@ -140,6 +141,56 @@ test('a second store cannot claim the first store\'s saved bundle', async t => {
   assert.equal(await verifyMineruBundle(bindings[1], { directory: root, storePath: join(dir, 'second.sqlite') }), true)
 })
 
+test('case-distinct store files never share a MinerU bundle on a case-sensitive directory', async t => {
+  const dir = await fixture(t)
+  const stores = [join(dir, 'A.sqlite'), join(dir, 'a.sqlite')]
+  for (const store of stores) await writeFile(store, '')
+  const names = await readdir(dir)
+  if (!names.includes('A.sqlite') || !names.includes('a.sqlite'))
+    return t.skip('filesystem does not distinguish store filename case')
+  const runner = await fakeRunner(dir)
+  const root = join(dir, 'shared-mineru-data')
+  const bindings = []
+  for (const store of stores) {
+    const app = await createApp({ store })
+    await app.ctx.plugin(MinerUSource, { directory: root, storePath: store,
+      command: process.execPath, runner })
+    const admitted = await app.operations.invoke('importDocument', { format: 'pdf', adapterId: 'mineru',
+      contentBase64: pdf.toString('base64'), language: 'en', sourceId: 'synthetic' })
+    const task = await app.tasks.wait(admitted.taskId)
+    assert.equal(task.state, 'succeeded')
+    bindings.push(app.records.record(task.result.document.id).sourceBinding)
+    await app.dispose()
+  }
+  assert.notEqual(bindings[0].bundlePath, bindings[1].bundlePath)
+  await assert.rejects(verifyMineruBundle(bindings[0], { directory: root, storePath: stores[1] }),
+    { code: 'PRECONDITION_FAILED' })
+  assert.equal(await verifyMineruBundle(bindings[1], { directory: root, storePath: stores[1] }), true)
+})
+
+test('physical store identity survives an aliased parent but rejects another owner', async t => {
+  if (process.platform === 'win32') return t.skip('directory symlink permissions vary on Windows')
+  const dir = await fixture(t)
+  const physical = join(dir, 'physical')
+  const alias = join(dir, 'alias')
+  await mkdir(physical)
+  await symlink(physical, alias, 'dir')
+  const store = join(alias, 'db.sqlite')
+  const root = join(alias, 'mineru-data')
+  const runner = await fakeRunner(dir)
+  const app = await createApp({ store })
+  await app.ctx.plugin(MinerUSource, { directory: root, storePath: store,
+    command: process.execPath, runner })
+  const admitted = await app.operations.invoke('importDocument', { format: 'pdf', adapterId: 'mineru',
+    contentBase64: pdf.toString('base64'), language: 'en', sourceId: 'synthetic' })
+  assert.equal((await app.tasks.wait(admitted.taskId)).state, 'succeeded')
+  const binding = app.records.record(app.records.listDocuments()[0].id).sourceBinding
+  assert.equal(await verifyMineruBundle(binding, { directory: root, storePath: store }), true)
+  await assert.rejects(verifyMineruBundle(binding, { directory: root, storePath: join(dir, 'other.sqlite') }),
+    { code: 'PRECONDITION_FAILED' })
+  await app.dispose()
+})
+
 test('managed work and sources symlinks cannot write outside the bundle root', async t => {
   if (process.platform === 'win32') return t.skip('symlink permissions vary on Windows')
   const dir = await fixture(t)
@@ -222,7 +273,7 @@ test('Python runner handshakes before recognizing MinerU and never emits a raw t
     { jsonrpc: '2.0', id: 3, method: 'parse', params: { path: '/missing.pdf' } },
     { jsonrpc: '2.0', id: 4, method: 'shutdown', params: {} },
   ].map(value => JSON.stringify(value)).join('\n') + '\n'
-  const result = spawnSync(python, [runner.pathname], { input, encoding: 'utf8' })
+  const result = spawnSync(python, [fileURLToPath(runner)], { input, encoding: 'utf8' })
   assert.equal(result.status, 0)
   const messages = result.stdout.trim().split('\n').map(JSON.parse)
   assert.equal(messages.length, 4)

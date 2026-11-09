@@ -2,6 +2,7 @@
 // Copyright (c) 2026 ivoraige contributors; see LICENSE for the full notice.
 
 import { createHash } from 'node:crypto'
+import { lstatSync, realpathSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -18,7 +19,24 @@ const ENGINE_VERSION = '4.0.10'
 const BINDING_VERSION = 1
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex')
 const runner = fileURLToPath(new URL('./runner.py', import.meta.url))
-const ownerOf = storePath => sha256(resolve(storePath))
+// Resolve aliases in existing ancestors too: the store may not exist when a
+// DSH profile activates, and macOS /var or Windows short/cased names differ
+// from the physical store path supplied by the host lock.
+function canonicalPath(value) {
+  let path = resolve(value)
+  const suffix = []
+  for (;;) {
+    try { return resolve(realpathSync.native(path), ...suffix) }
+    catch (error) {
+      if (error.code !== 'ENOENT' || dirname(path) === path) throw error
+      suffix.unshift(basename(path))
+      path = dirname(path)
+    }
+  }
+}
+// Preserve the physical path's case: NTFS directories can opt into
+// case-sensitive names, where A.sqlite and a.sqlite are different stores.
+const ownerOf = storePath => sha256(canonicalPath(storePath))
 const bundleOf = (root, storePath, sourceDigest, parseOptions) =>
   join(root, 'sources', `${ownerOf(storePath)}-${sha256(JSON.stringify({ sourceDigest,
     ...parseOptions, engineVersion: ENGINE_VERSION }))}`)
@@ -84,13 +102,14 @@ export async function verifyMineruBundle(binding, { directory, storePath }) {
       typeof storePath !== 'string' || typeof binding.bundlePath !== 'string' ||
       !/^[a-f0-9]{64}$/.test(binding.sourceDigest ?? '') ||
       !Array.isArray(binding.files)) fail('PRECONDITION_FAILED', 'MinerU source binding is incompatible')
-  const expected = bundleOf(resolve(directory), storePath, binding.sourceDigest, binding.parseOptions)
+  const root = canonicalPath(directory)
+  const expected = bundleOf(root, storePath, binding.sourceDigest, binding.parseOptions)
   if (binding.bundlePath !== expected || binding.sourcePath !== join(expected, 'source.pdf'))
     fail('PRECONDITION_FAILED', 'MinerU source binding is outside its owning store')
   let files
   try {
-    if (await realpath(resolve(directory)) !== resolve(directory) ||
-        await realpath(join(resolve(directory), 'sources')) !== join(resolve(directory), 'sources') ||
+    if (await realpath(root) !== root ||
+        await realpath(join(root, 'sources')) !== join(root, 'sources') ||
         await realpath(expected) !== expected)
       fail('PRECONDITION_FAILED', 'MinerU source resources escape their managed directory')
     files = await inventory(expected)
@@ -126,13 +145,19 @@ export function MinerUSource(ctx, config = {}) {
     runner: selectedRunner = runner } = config
   const storePath = ctx.get('ivoraige.storePath')
   if (typeof directory !== 'string' || !directory || typeof storePath !== 'string' || !storePath ||
-      (config.storePath !== undefined && resolve(config.storePath) !== storePath) ||
+      (config.storePath !== undefined && (typeof config.storePath !== 'string' || !config.storePath ||
+        canonicalPath(config.storePath) !== canonicalPath(storePath))) ||
       typeof command !== 'string' || !command ||
       typeof selectedRunner !== 'string' || !selectedRunner ||
       !['flash', 'standard'].includes(tier) || !['auto', 'txt', 'ocr'].includes(ocrMode) ||
       !Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)
     fail('INVALID_ARGUMENT', 'MinerU requires directory, storePath, Python command and supported parse options')
-  const root = resolve(directory)
+  const requestedRoot = resolve(directory)
+  try {
+    if (lstatSync(requestedRoot).isSymbolicLink())
+      fail('PRECONDITION_FAILED', 'MinerU directory must not be a symlink')
+  } catch (error) { if (error.code !== 'ENOENT') throw error }
+  const root = canonicalPath(directory)
   const status = { state: 'unchecked', message: 'MinerU is checked on first import' }
   const client = ctx.get('ivoraige.sidecarFactory').create({ command, args: [selectedRunner], timeoutMs })
   ctx.effect(() => () => client.close())
