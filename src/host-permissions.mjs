@@ -1,0 +1,130 @@
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+import { chmod, lstat, mkdir, open, realpath } from 'node:fs/promises'
+import { dirname, resolve } from 'node:path'
+import { KernelError } from './errors.mjs'
+
+const execFileAsync = promisify(execFile)
+const denied = () => new KernelError('PRECONDITION_FAILED',
+  'The host control directory or file is not private to this OS user', { reason: 'owner-permissions-unverified' })
+
+function quotePowerShell(value) { return `'${value.replaceAll("'", "''")}'` }
+
+async function windowsAcl(path, { initialize = false, directory = false } = {}) {
+  // Node's mode bits do not express Windows DACLs. Use the OS ACL API and
+  // refuse to proceed if PowerShell or the ACL probe cannot establish access.
+  const script = `
+$ErrorActionPreference = 'Stop'
+$path = ${quotePowerShell(path)}
+$sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+$system = New-Object System.Security.Principal.SecurityIdentifier 'S-1-5-18'
+if (${directory ? '$true' : '$false'}) {
+  $parentPath = [System.IO.Path]::GetDirectoryName($path)
+  $parentAcl = Get-Acl -LiteralPath $parentPath
+  $parentOwner = $parentAcl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+  if ($parentOwner -ne $sid.Value -and $parentOwner -ne $system.Value -and $parentOwner -ne 'S-1-5-32-544') { throw 'untrusted parent owner' }
+  $writeMask = [System.Security.AccessControl.FileSystemRights]::WriteData -bor [System.Security.AccessControl.FileSystemRights]::AppendData -bor [System.Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor [System.Security.AccessControl.FileSystemRights]::Delete -bor [System.Security.AccessControl.FileSystemRights]::ChangePermissions -bor [System.Security.AccessControl.FileSystemRights]::TakeOwnership
+  foreach ($rule in $parentAcl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier])) {
+    $id = $rule.IdentityReference.Value
+    if ($id -ne $sid.Value -and $id -ne $system.Value -and $id -ne 'S-1-5-32-544' -and $id -ne 'S-1-3-0' -and $id -ne 'S-1-3-4' -and $rule.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow -and (($rule.FileSystemRights -band $writeMask) -ne 0)) { throw 'writable parent' }
+  }
+}
+if (${initialize ? '$true' : '$false'}) {
+  $acl = Get-Acl -LiteralPath $path
+  if ($acl.Owner -ne $sid.Value -and $acl.Owner -ne $sid.Translate([System.Security.Principal.NTAccount]).Value) { throw 'wrong owner' }
+  $acl.SetAccessRuleProtection($true, $false)
+  foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRuleAll($rule) }
+  $inherit = if (${directory ? '$true' : '$false'}) { [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit } else { [System.Security.AccessControl.InheritanceFlags]::None }
+  $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($sid, [System.Security.AccessControl.FileSystemRights]::FullControl, $inherit, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)
+  [void]$acl.AddAccessRule($rule)
+  Set-Acl -LiteralPath $path -AclObject $acl
+}
+$acl = Get-Acl -LiteralPath $path
+if (-not $acl.AreAccessRulesProtected) { throw 'inherited ACL' }
+$owner = $acl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value
+if ($owner -ne $sid.Value) { throw 'wrong owner' }
+$mine = $false
+foreach ($rule in $acl.GetAccessRules($true, $false, [System.Security.Principal.SecurityIdentifier])) {
+  $id = $rule.IdentityReference.Value
+  if ($id -ne $sid.Value -and $id -ne $system.Value) { throw 'foreign ACE' }
+  if ($rule.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow) { throw 'unexpected deny ACE' }
+  if ($id -eq $sid.Value -and (($rule.FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::ReadData) -ne 0)) { $mine = $true }
+}
+if (-not $mine) { throw 'owner has no access' }
+`
+  try { await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script],
+    { windowsHide: true, timeout: 10_000, maxBuffer: 16_384 }) }
+  catch { throw denied() }
+}
+
+async function unixCheck(path, kind, mode) {
+  const info = await lstat(path)
+  if ((kind === 'directory' ? !info.isDirectory() : !info.isFile()) ||
+    info.isSymbolicLink() || info.uid !== process.getuid() || (info.mode & 0o777) !== mode) throw denied()
+  return info
+}
+
+export async function assertPrivateDirectory(path) {
+  path = resolve(path)
+  if (process.platform === 'win32') {
+    const info = await lstat(path)
+    if (!info.isDirectory() || info.isSymbolicLink()) throw denied()
+    await windowsAcl(path, { directory: true })
+  } else {
+    await unixCheck(path, 'directory', 0o700)
+    // A writable ancestor can replace a private descendant. Sticky parents
+    // (e.g. /tmp) preserve a child entry owned by this user.
+    for (let parentPath = dirname(path);;) {
+      const parent = await lstat(parentPath)
+      if (!parent.isDirectory() || parent.isSymbolicLink() ||
+        (parent.uid !== process.getuid() && parent.uid !== 0) ||
+        ((parent.mode & 0o022) && !(parent.mode & 0o1000))) throw denied()
+      const next = dirname(parentPath)
+      if (next === parentPath) break
+      parentPath = next
+    }
+  }
+  const canonical = await realpath(path)
+  if (process.platform === 'win32' ? canonical.toLowerCase() !== path.toLowerCase() : canonical !== path) throw denied()
+  return path
+}
+
+export async function ensurePrivateDirectory(path) {
+  path = resolve(path)
+  let created = false
+  try { await lstat(path) }
+  catch (error) {
+    if (error.code !== 'ENOENT') throw error
+    await mkdir(path, { mode: 0o700 })
+    created = true
+  }
+  if (created) {
+    if (process.platform === 'win32') await windowsAcl(path, { initialize: true, directory: true })
+    else await chmod(path, 0o700)
+  }
+  return assertPrivateDirectory(path)
+}
+
+export async function assertPrivateFile(path) {
+  path = resolve(path)
+  if (process.platform === 'win32') {
+    const info = await lstat(path)
+    if (!info.isFile() || info.isSymbolicLink()) throw denied()
+    await windowsAcl(path)
+  } else await unixCheck(path, 'file', 0o600)
+  return path
+}
+
+export async function createPrivateFile(path, contents) {
+  path = resolve(path)
+  await assertPrivateDirectory(dirname(path))
+  const file = await open(path, 'wx', 0o600)
+  try {
+    await file.writeFile(contents)
+    await file.sync()
+  } finally { await file.close() }
+  if (process.platform === 'win32') await windowsAcl(path, { initialize: true })
+  else await chmod(path, 0o600)
+  await assertPrivateFile(path)
+  return path
+}
