@@ -6,6 +6,8 @@ import { z } from 'zod'
 import { KernelError } from './errors.mjs'
 import { assertPrivateDirectory, assertPrivateFile, createPrivateFile, ensurePrivateDirectory } from './host-permissions.mjs'
 
+import { createWindowsPipeServer, connectWindowsPipe } from './host-windows-pipe.mjs'
+
 import { hostSocketDirectory } from './host-socket-directory.mjs'
 
 export const HOST_INTERFACE_VERSION = 'HostControl@1'
@@ -160,7 +162,8 @@ export function validateHostRequest(value) {
 // A protected owner transport is deliberately separate from HTTP and MCP.
 // The host bootstrap must already own the canonical store lock before start().
 // POSIX uses kernel-enforced private directory/socket DAC; Windows uses a
-// per-generation 256-bit capability in a verified current-SID-only ACL file.
+// current-SID native pipe DACL plus verified server/client token identities.
+// The per-generation 256-bit capability remains a second, generation-bound check.
 // Ephemeral owners publish only a protected marker, never a connectable IPC.
 export function createHostTransport({ directory, dataDomainRef, generation, lifetime,
   getState, handleControl, handleBusiness, session, getSession = () => session,
@@ -269,7 +272,7 @@ export function createHostTransport({ directory, dataDomainRef, generation, life
     record = { dataDomainRef, generation, lifetime, address,
       kind: process.platform === 'win32' ? 'pipe-capability' : 'unix-socket' }
     if (capability) await createPrivateFile(capabilityPath(directory, dataDomainRef, generation), `${capability}\n`)
-    server = createServer(socket => {
+    server = (process.platform === 'win32' ? createWindowsPipeServer : createServer)(socket => {
       if (sockets.size >= MAX_CONNECTIONS) { socket.destroy(); return }
       sockets.add(socket)
       socket.once('close', () => { sockets.delete(socket); finalizedSockets.delete(socket); removeExitWaiter(socket) })
@@ -333,7 +336,7 @@ export function createHostTransport({ directory, dataDomainRef, generation, life
 }
 
 async function exchangeFrame(address, frame) {
-  const socket = createConnection(address)
+  const socket = (process.platform === 'win32' ? connectWindowsPipe : createConnection)(address)
   try {
     await new Promise((resolveConnect, reject) => socket.once('connect', resolveConnect).once('error', reject))
     const response = await frameSocket(socket, frame)
