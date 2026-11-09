@@ -14,7 +14,7 @@ ivoraige translate <document-id> --target-lang zh-CN --prompt <copied-id>
 ivoraige prompts restore --set '{"pluginId":"ivoraige.translationModel","featureId":"translate-unit","configurationId":"<selectedModel.configurationId>"}'
 ```
 
-`prompts` 的 `selectedModel.configurationId` 由提供商、模型 ID、端点／路由和该模型配置计算，不是显示名称；连接改变后旧绑定不会被误用。`bind` 可以另加 `docId` 将选择限定到现有文档。优先级为单次 `--prompt`、文档绑定、全局绑定、兼容内置默认。`restore` 删除对应范围的绑定；若只恢复文档绑定，全局绑定仍适用。复制内置模板后才能编辑；`update` 需要当前 `expectedVersion`，每次保存产生新版本，不覆盖旧版。提示词库与文档记录同存在受管 SQLite 存储中，可跨文档显式复用。
+`prompts` 的 `selectedModel.configurationId` 由提供商、模型 ID、端点／路由和该模型配置计算，不是显示名称；连接改变后旧绑定不会被误用。`bind` 可以另加 `docId` 将选择限定到现有文档。优先级为单次 `--prompt`、文档绑定、全局绑定、兼容内置默认。普通翻译命令无需新增参数；未给 `--prompt` 时仍会采用适用的文档或全局绑定，只有没有自定义绑定时才直接采用内置默认。`restore` 删除对应范围的绑定；若只恢复文档绑定，全局绑定仍适用。复制内置模板后才能编辑；`update` 需要当前 `expectedVersion`，每次保存产生新版本，不覆盖旧版。提示词库与文档记录同存在受管 SQLite 存储中，可跨文档显式复用。
 
 `resolve` 显示实际模板、来源、内容摘要和可用时的回退原因。已绑定模板丢失或不兼容时，仅回退到同一插件功能的兼容内置默认并记录原因；单次显式选择丢失或不兼容会报错。插件功能缺失直接报 `COMPONENT_MISSING`。可调整的 `style` 作为请求 `effectiveTarget` 中的数据传给模型，不能替换翻译功能持有的必要输入／输出协议；正文与上下文仍是数据。当前翻译预设包含 v3 请求边界和完整内部请求回显拒绝规则。模板 `variables` 说明插件提供的输入字段，`output` 描述输出约定；自定义副本不能改动它们。
 

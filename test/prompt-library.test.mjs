@@ -1,10 +1,12 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context, Storage, StorageSqlite, StorageDomain } from '../dist/dsh.mjs'
 import { PromptLibrary, DEFAULT_TEMPLATE, TRANSLATION_FEATURE, modelConfigurationId } from '../src/prompt-library.mjs'
+import { bootModelSettings } from '../src/model-settings.mjs'
+import { createApp } from '../src/app.mjs'
 
 async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), 'ivoraige-prompts-'))
@@ -96,4 +98,40 @@ test('invalid stored prompt content is reported by the prompt service, without l
   await assert.rejects(library.resolve({ ...TRANSLATION_FEATURE, configurationId: 'local' }),
     { code: 'PRECONDITION_FAILED' })
   assert.equal(library.domain.table('library').get('library').templates.length, 1)
+})
+
+test('a real DSH profile prompt plugin waiting at boot activates when the service mounts later', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-profile-prompt-'))
+  const settingsDir = join(directory, 'settings')
+  let boot, app
+  t.after(async () => { await app?.dispose(); await boot?.dispose(); await rm(directory, { recursive: true, force: true }) })
+  boot = await bootModelSettings({ directory: settingsDir })
+  await boot.dispose()
+  boot = undefined
+  await writeFile(join(settingsDir, 'prompt-probe.mjs'), [
+    "export const inject = ['ivoraige.prompts']",
+    'export function apply(ctx) {',
+    "  const prompts = ctx.get('ivoraige.prompts')",
+    "  ctx.effect(() => prompts.register({ pluginId: 'probe.plugin', featureId: 'review',",
+    "    variables: ['sourceText'], output: 'review-notes' },",
+    "    { id: 'builtin:probe', version: '1', name: 'Probe', pluginId: 'probe.plugin',",
+    "      featureId: 'review', variables: ['sourceText'], output: 'review-notes', style: '' }))",
+    "  ctx.provide('probe.activated', true)",
+    '}',
+    '',
+  ].join('\n'))
+  await writeFile(join(settingsDir, 'cordis.patch.yml'), JSON.stringify([
+    { insert: [{ id: 'profile-prompt-probe', name: './prompt-probe.mjs' }] },
+  ]) + '\n')
+  boot = await bootModelSettings({ directory: settingsDir })
+  assert.equal(boot.ctx.get('probe.activated'), undefined, 'the profile entry waits for PromptLibrary')
+  await boot.dispose()
+  boot = undefined
+  app = await createApp({ store: join(directory, 'store.sqlite'), settingsDir })
+  assert.equal(app.ctx.get('probe.activated'), true, 'late provider registration activates the profile entry')
+  assert.ok((await app.prompts.list()).features.some(item => item.pluginId === 'probe.plugin'))
+  const selected = await app.prompts.resolve({ pluginId: 'probe.plugin', featureId: 'review', configurationId: 'local' })
+  assert.equal(selected.template.id, 'builtin:probe')
+  await app.dispose()
+  app = undefined
 })
