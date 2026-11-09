@@ -278,6 +278,40 @@ class BindingTests(unittest.TestCase):
                 self.assertEqual(uncertain, ["literal alignment search limit reached",
                                              "<b1> (payload)", "<b2> (literal token)"])
 
+    def test_alignment_copies_only_a_proven_unique_result(self):
+        class CountedSource(str):
+            def __new__(cls, value):
+                instance = super().__new__(cls, value)
+                instance.slices = []
+                return instance
+
+            def __getitem__(self, key):
+                if isinstance(key, slice):
+                    self.slices.append(key)
+                return super().__getitem__(key)
+
+        # Repeated late anchors used to copy the long prefix on every dead end.
+        # Keep the fixture small and count slices rather than stressing memory.
+        source = CountedSource("x" * 10_000 + "A" * 200 + "Z")
+        mapped = server.display_mapping("<b0>A<b1>MISSING<b2>Z", source)
+        self.assertEqual([item["text"] for item in mapped], ["<b0>", "<b1>", "<b2>"])
+        self.assertEqual(source.slices, [])
+
+        for limit, budget in ((None, None), ("DISPLAY_MAPPING_MAX_CANDIDATES", 1),
+                              ("DISPLAY_MAPPING_MAX_SEARCH_CHARS", 6)):
+            with self.subTest(limit=limit, budget=budget):
+                source = CountedSource("xAyAzZ")
+                scope = patch.object(server, limit, budget) if limit else nullcontext()
+                with scope:
+                    mapped = server.display_mapping("<b0>A<b1>Z", source)
+                self.assertEqual([item["text"] for item in mapped], ["<b0>", "<b1>"])
+                self.assertEqual(source.slices, [])
+
+        source = CountedSource("xAyZ")
+        self.assertEqual(server.display_mapping("<b0>A<b1>Z", source),
+                         [{"token": "<b0>", "text": "x"}, {"token": "<b1>", "text": "y"}])
+        self.assertEqual(source.slices, [slice(0, 1), slice(2, 3)])
+
     def test_completed_callbacks_keep_payloads_by_location(self):
         first = {"key": "p0:first", "preparedInput": "A <b1> B",
                  "placeholderPayloads": [{"type": "formula", "placeholder": "<b1>",

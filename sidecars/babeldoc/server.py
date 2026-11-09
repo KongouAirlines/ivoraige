@@ -148,7 +148,8 @@ def display_mapping(
             if source.endswith(final_anchor) else -1
         )
         # A frame is (token index, source cursor, next anchor search position).
-        # `values` follows the active path, so backtracking does not copy it.
+        # `values` stores source ranges, not copied gaps, along the active path.
+        # Materialize text only after the complete alignment is proven unique.
         cursor = len(pieces[0])
         frames = [(0, cursor, cursor)]
         values = []
@@ -161,7 +162,7 @@ def display_mapping(
                     not anchor or final_position >= cursor
                 ):
                     end = len(source) - len(anchor)
-                    candidate = values + [source[cursor:end]]
+                    candidate = values + [(cursor, end)]
                     if solution is not None:
                         solution = None
                         break
@@ -187,13 +188,13 @@ def display_mapping(
                 exhausted = True
                 break
             frames[-1] = (index, cursor, found + 1)
-            values.append(source[cursor:found])
+            values.append((cursor, found))
             next_cursor = found + len(anchor)
             frames.append((index + 1, next_cursor, next_cursor))
     if solution is not None and not exhausted:
         return [
-            {"token": token, "text": value}
-            for token, value in zip(tokens, solution)
+            {"token": token, "text": source[start:end]}
+            for token, (start, end) in zip(tokens, solution)
         ]
     if exhausted and uncertain is not None:
         uncertain.append("literal alignment search limit reached")
