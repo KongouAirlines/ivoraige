@@ -1,12 +1,13 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { chmod, lstat, mkdir, open, realpath } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import { basename, dirname, resolve } from 'node:path'
 import { KernelError } from './errors.mjs'
 
 const execFileAsync = promisify(execFile)
-const denied = () => new KernelError('PRECONDITION_FAILED',
-  'The host control directory or file is not private to this OS user', { reason: 'owner-permissions-unverified' })
+const denied = (cause) => new KernelError('PRECONDITION_FAILED',
+  'The host control directory or file is not private to this OS user',
+  { reason: 'owner-permissions-unverified' }, cause ? { cause } : {})
 
 function quotePowerShell(value) { return `'${value.replaceAll("'", "''")}'` }
 
@@ -17,7 +18,7 @@ async function windowsAcl(path, { initialize = false, directory = false } = {}) 
 $ErrorActionPreference = 'Stop'
 $path = ${quotePowerShell(path)}
 $sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
-$system = New-Object System.Security.Principal.SecurityIdentifier 'S-1-5-18'
+$system = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-18')
 if (${directory ? '$true' : '$false'}) {
   $parentPath = [System.IO.Path]::GetDirectoryName($path)
   $parentAcl = Get-Acl -LiteralPath $parentPath
@@ -35,7 +36,7 @@ if (${initialize ? '$true' : '$false'}) {
   $acl.SetAccessRuleProtection($true, $false)
   foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRuleAll($rule) }
   $inherit = if (${directory ? '$true' : '$false'}) { [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit } else { [System.Security.AccessControl.InheritanceFlags]::None }
-  $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($sid, [System.Security.AccessControl.FileSystemRights]::FullControl, $inherit, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)
+  $rule = [System.Security.AccessControl.FileSystemAccessRule]::new($sid, [System.Security.AccessControl.FileSystemRights]::FullControl, $inherit, [System.Security.AccessControl.PropagationFlags]::None, [System.Security.AccessControl.AccessControlType]::Allow)
   [void]$acl.AddAccessRule($rule)
   Set-Acl -LiteralPath $path -AclObject $acl
 }
@@ -54,7 +55,20 @@ if (-not $mine) { throw 'owner has no access' }
 `
   try { await execFileAsync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script],
     { windowsHide: true, timeout: 10_000, maxBuffer: 16_384 }) }
-  catch { throw denied() }
+  catch (error) { throw denied(error) }
+}
+
+async function unixAncestors(path, allowRootSymlink) {
+  for (let parentPath = dirname(path);;) {
+    const parent = await lstat(parentPath)
+    const rootAlias = allowRootSymlink && parent.isSymbolicLink() && parent.uid === 0
+    if ((!parent.isDirectory() && !rootAlias) ||
+      (parent.uid !== process.getuid() && parent.uid !== 0) ||
+      (!rootAlias && (parent.mode & 0o022) && !(parent.mode & 0o1000))) throw denied()
+    const next = dirname(parentPath)
+    if (next === parentPath) break
+    parentPath = next
+  }
 }
 
 async function unixCheck(path, kind, mode) {
@@ -72,20 +86,14 @@ export async function assertPrivateDirectory(path) {
     await windowsAcl(path, { directory: true })
   } else {
     await unixCheck(path, 'directory', 0o700)
-    // A writable ancestor can replace a private descendant. Sticky parents
-    // (e.g. /tmp) preserve a child entry owned by this user.
-    for (let parentPath = dirname(path);;) {
-      const parent = await lstat(parentPath)
-      if (!parent.isDirectory() || parent.isSymbolicLink() ||
-        (parent.uid !== process.getuid() && parent.uid !== 0) ||
-        ((parent.mode & 0o022) && !(parent.mode & 0o1000))) throw denied()
-      const next = dirname(parentPath)
-      if (next === parentPath) break
-      parentPath = next
-    }
+    // Root-owned path aliases such as macOS /var -> /private/var are safe
+    // only when both the named path and its resolved ancestry are safe.
+    await unixAncestors(path, true)
   }
   const canonical = await realpath(path)
-  if (process.platform === 'win32' ? canonical.toLowerCase() !== path.toLowerCase() : canonical !== path) throw denied()
+  if (process.platform !== 'win32') await unixAncestors(canonical, false)
+  const expected = resolve(await realpath(dirname(path)), basename(path))
+  if (process.platform === 'win32' ? canonical.toLowerCase() !== expected.toLowerCase() : canonical !== expected) throw denied()
   return path
 }
 
