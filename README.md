@@ -42,6 +42,8 @@ The goal is a shared foundation for people and AI: choose the capabilities you n
 
 Use Node.js **26.13.0** with npm by default (`.node-version`). Node 24 is retained only for compatibility; the supported range remains `>=24.22.1 <25 || >=26.12.1 <27`. Later stable patches within either supported major are suitable for source use; Node 25 and future majors are outside the current supported range. CI validates Node.js 26.13.0 on Linux, macOS and Windows; Node 24 remains supported but no longer has a CI job. The DSH bundle targets Node 26. Windows portable builds require the official fixed Node.js 26.13.0 executable and its matching license.
 
+Windows owner IPC also requires built-in Windows PowerShell 5.1 and .NET Framework with `Add-Type` permitted. It fails closed when native pipe permissions or peer identity cannot be verified; see the [owner control guide](docs/plan/0.1.x/host-control-guide.md).
+
 1. Open the workbench and import a TXT or Markdown file.
 2. Configure a model when you want machine translation, or enter translations yourself.
 3. Review and accept revisions, then export the result.

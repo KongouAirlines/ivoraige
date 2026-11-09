@@ -62,6 +62,21 @@ test('protected transport handshakes generation and rejects stale/unknown action
     const client = await connectHostTransport({ directory, dataDomainRef: 'domain-a' })
     assert.equal(client.attached.generation, 'generation-a')
     assert.equal(client.attached.state.storeOwnership, 'held')
+    if (process.platform === 'win32') {
+      // An older native Node client can still use HostControl framing, but
+      // same-user OS access alone never bypasses the generation capability.
+      const { createConnection } = await import('node:net')
+      const { once } = await import('node:events')
+      const raw = createConnection(host.record.address)
+      try {
+        await once(raw, 'connect')
+        const response = once(raw, 'data')
+        raw.write(`${JSON.stringify({ interfaceVersion: 'HostControl@1', minor: 0,
+          requestId: 'no-capability', action: 'attach',
+          params: { dataDomainRef: 'domain-a', requiredLifetime: 'resident' } })}\n`)
+        assert.equal(JSON.parse((await response)[0].toString()).error.code, 'UNAUTHORIZED')
+      } finally { raw.destroy() }
+    }
     assert.equal((await client.request('state')).action, 'state')
     assert.equal((await client.request('business', { method: 'listDocuments', input: {} })).method, 'listDocuments')
     await assert.rejects(client.request('drain', { budgetMs: 0 }), { code: 'INVALID_ARGUMENT' })

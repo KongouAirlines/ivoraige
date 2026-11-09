@@ -74,6 +74,8 @@ bootstrap 只取得一次 store lease，并将它交给同一长寿命 host 组�
 
 最小传输候选：Unix 使用用户私有目录内的 socket，目录 0700、socket 0600 并核验实际 peer；Windows 使用仅当前用户 SID 可连接的 named pipe，验证 DACL、客户端身份与远程连接拒绝。不能用随机管道名替代权限验证。具体跨平台绑定/API 必须由 A1 原生探针选择，Node API 无法保证时不能宣称已支持，不能退回匿名 loopback。
 
+Windows 实现采用独立原生传输 helper，保留 `HostControl@1` minor 0、generation、capability 与帧语义；权限与双向身份校验由实际 pipe handle/token 提供。实现、依赖、原生探针和仍待验收项目见[Windows pipe 边界](../../plan/0.1.x/evidence/host-windows-pipe.md)，不能用编写了探针代替运行结果。
+
 浏览器候选映射是同源 `POST /api/host-control`，仅允许 state/drain/exit/operation；start/attach/ownerBootstrap/force 动作不经 HTTP 暴露。复用同一请求/响应 DTO，不把 HostControl 管理方法注册成可枚举的公共 MCP 工具或通用 `call` 后门。WebUI/CLI 的业务操作仍调用现有 P04 操作；本节路径和命令均为待实现设计，当前版本不可调用。
 
 ## 5. 状态、P04 投影与退出操作

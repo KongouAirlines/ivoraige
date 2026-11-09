@@ -10,6 +10,8 @@ const MAX_LINE = 2 * MAX_BYTES
 const unavailable = () => new KernelError('PRECONDITION_FAILED',
   'The Windows owner transport could not verify its OS security boundary',
   { reason: 'owner-permissions-unverified' })
+const unreachable = () => new KernelError('CONFLICT', 'Host owner is unreachable',
+  { reason: 'owner-unreachable' })
 let broker
 let sequence = 0
 
@@ -162,7 +164,7 @@ class PipeSocket extends Duplex {
       this.push(null)
       this.resume()
     }
-    else if (message.type === 'error') this.failed()
+    else if (message.type === 'error') this.destroy(message.reason === 'owner-unreachable' ? unreachable() : unavailable())
     else this.owner.fail()
   }
 }
@@ -214,7 +216,7 @@ export function createWindowsPipeServer(onConnection) { return new PipeServer(on
 export function connectWindowsPipe(address) {
   const owner = getBroker()
   const socket = new PipeSocket(owner)
-  socket.connectTimer = setTimeout(() => socket.failed(), 25_000)
+  socket.connectTimer = setTimeout(() => socket.destroy(unreachable()), 25_000)
   owner.send({ type: 'connect', id: socket.id, address })
   return socket
 }

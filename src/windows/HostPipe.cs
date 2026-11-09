@@ -115,7 +115,7 @@ public static class HostPipe {
         if (!ConvertStringSecurityDescriptorToSecurityDescriptor("O:" + Sid + "D:P(A;;FA;;;" + Sid + ")", 1, out descriptor, out size))
             throw new UnauthorizedAccessException();
         try {
-            var security = new SecurityAttributes { Length = Marshal.SizeOf(typeof(SecurityAttributes)), Descriptor = descriptor };
+            var security = new SecurityAttributes { Length = Marshal.SizeOf(typeof(SecurityAttributes)), Descriptor = descriptor, Inherit = 0 };
             // BYTE mode, local connections only; first creation fails if a
             // different process already owns this randomly selected name.
             var handle = CreateNamedPipe(address, 3 | Overlapped | (first ? FirstInstance : 0), 8, 255, 65536, 65536, 5000, ref security);
@@ -219,6 +219,7 @@ public static class HostPipe {
         } catch { }
         finally { peer.Close(); }
     }
+    sealed class Unreachable : IOException { }
     static async void Connect(string id, string address) {
         lock (ConnectGate) Connecting.Add(id);
         try {
@@ -232,7 +233,9 @@ public static class HostPipe {
                 handle = CreateFile(address, 0xc0020000, 0, IntPtr.Zero, 3, Overlapped | 0x00110000, IntPtr.Zero);
                 if (!handle.IsInvalid) break;
                 int error = Marshal.GetLastWin32Error(); handle.Dispose();
-                if (error != 231 || DateTime.UtcNow - started > TimeSpan.FromSeconds(5)) throw new UnauthorizedAccessException();
+                if (error == 2 || error == 3 || error == 109 || error == 121 || error == 232 || error == 233 ||
+                    (error == 231 && DateTime.UtcNow - started > TimeSpan.FromSeconds(5))) throw new Unreachable();
+                if (error != 231) throw new UnauthorizedAccessException();
                 await Task.Run(() => WaitNamedPipe(address, 250));
             }
             NamedPipeClientStream stream;
@@ -249,7 +252,8 @@ public static class HostPipe {
             }
             Send(new { type = "connected", id = id, peerSid = sid });
             Read(peer, false);
-        } catch { Send(new { type = "error", id = id }); }
+        } catch (Unreachable) { Send(new { type = "error", id = id, reason = "owner-unreachable" }); }
+        catch { Send(new { type = "error", id = id }); }
         finally { lock (ConnectGate) Connecting.Remove(id); }
     }
     public static void Run() {
