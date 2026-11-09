@@ -45,7 +45,7 @@ const escapePdfLiteral = value => value.replace(/\r\n?/g, '\n')
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/[\\`*_{}\[\]()#+!|~-]/g, '\\$&')
   .replace(/^( {0,4})(=+)(?=[ \t]*$)/gm, (_, indent, equals) => `${indent}\\${equals}`)
-  .replace(/^(\s{0,3}\d+)\./gm, '$1\\.')
+  .replace(/^(\s{0,3}\d+)\./gm, '$1&#46;')
   .replace(/^[ \t]+/gm, spaces => [...spaces].map(char => char === '\t' ? '&#9;' : '&#32;').join(''))
   // Only the explicit email candidates below may become links. Otherwise GFM
   // can link a shorter address after an escaped suffix (example.com\_x).
