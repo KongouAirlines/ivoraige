@@ -23,6 +23,14 @@ async function listen(onConnection = socket => socket.once('data', () => socket.
   return { server, endpoint, close: () => new Promise(resolve => server.close(resolve)) }
 }
 
+test('Windows helper compiles against built-in .NET Framework assemblies', windows, async () => {
+  const source = fileURLToPath(new URL('../src/windows/HostPipe.cs', import.meta.url))
+  const { stdout } = await promisify(execFile)(ps, ['-NoProfile', '-NonInteractive', '-Command',
+    `$ErrorActionPreference = 'Stop'; Add-Type -Path ${quote(source)} -ReferencedAssemblies System,System.Core,System.Web.Extensions; [Ivoraige.HostPipe].FullName`],
+  { windowsHide: true, timeout: 30_000, maxBuffer: 32_768 })
+  assert.equal(stdout.trim(), 'Ivoraige.HostPipe')
+})
+
 test('Windows pipe has exact native owner DACL and authenticates an actual same-user peer', windows, async () => {
   let peerSid
   const host = await listen(socket => {
@@ -108,6 +116,16 @@ test('Windows preserves multiple frames and fails closed when the helper termina
   } finally { client.destroy(); for (const socket of sockets) socket.destroy(); await host.close() }
 })
 
+test('Windows retired pipe reports owner-unreachable rather than a permission failure', windows, async () => {
+  const host = await listen()
+  await host.close()
+  const client = connectWindowsPipe(host.endpoint)
+  try {
+    await assert.rejects(once(client, 'connect'),
+      { code: 'CONFLICT', details: { reason: 'owner-unreachable' } })
+  } finally { client.destroy() }
+})
+
 test('Windows same-SID native transport does not need SeImpersonatePrivilege', windows, async () => {
   const runner = fileURLToPath(new URL('./fixtures/windows-pipe-unprivileged.mjs', import.meta.url))
   const { stdout } = await execute(`$result = [WindowsPipeProbe]::WithoutImpersonationPrivilege(${quote(process.execPath)}, ${quote(runner)}); if ($result -ne 0) { throw 'Reduced-token exchange failed' }`)
@@ -115,7 +133,7 @@ test('Windows same-SID native transport does not need SeImpersonatePrivilege', w
 })
 
 
-test('Windows helper startup queue is bounded before serializing native traffic', windows, async () => {
+test('Windows helper startup queue is bounded before native traffic', windows, async () => {
   const client = connectWindowsPipe(address())
   const failure = once(client, 'error')
   for (let i = 0; i < 10 && !client.destroyed; i++) client.write(Buffer.alloc(1024 * 1024, 120))
