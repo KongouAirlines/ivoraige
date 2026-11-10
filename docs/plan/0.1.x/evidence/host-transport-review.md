@@ -68,3 +68,22 @@ completed, but the isolated installation could not run because the offline npm
 cache lacked the pi-ai registry response (`ENOTCACHED`); persistence/export/MCP
 package smoke is therefore not established by this run. Unix socket bind still
 returns EPERM in this environment, and native macOS/Windows checks remain needed.
+
+## Follow-up: unavailable browser-session error contract
+
+After integrating the known reason/code constraints from contract commit
+`e68db9d`, actual session failures exposed a runtime mismatch: a revoked or
+released resident owner used `CONFLICT / owner-unavailable`, while the declared
+pair is `PRECONDITION_FAILED / owner-unavailable`. Both `issueBootstrap` and
+`exchange` now use that precondition code; an ephemeral owner still reports
+`CONFLICT / temporary-owner`.
+
+Two new regressions failed before this change and passed afterward. They check
+real session exceptions through `formatHostFailure` and Ajv, plus a revoked
+session reached through `ownerBootstrap` dispatch. The session cases cover both
+issuance and exchange after revocation or ownership loss, and the unchanged
+ephemeral rejection. The final Linux / Node 24.22.1 `npm test` rebuilt the pinned
+DSH bundle and passed 616 of 636 tests with 20 platform/sandbox skips and no
+failures. The focused contract/session/outcome/broker checks passed all 17 tests;
+the Python checker passed all 108 fixtures (55 valid, 53 rejected). The package
+installation and native-platform limits recorded above remain unresolved.

@@ -60,7 +60,8 @@ export function createHostSession({ dataDomainRef, generation, lifetime, origin,
   let revoked = false
 
   function mayIssue() {
-    if (revoked || lifetime !== 'resident' || !isOwnerHeld()) throw new KernelError('CONFLICT',
+    if (revoked || lifetime !== 'resident' || !isOwnerHeld()) throw new KernelError(
+      lifetime === 'ephemeral' ? 'CONFLICT' : 'PRECONDITION_FAILED',
       'This owner cannot issue a browser session', { reason: lifetime === 'ephemeral' ? 'temporary-owner' : 'owner-unavailable' })
   }
 
