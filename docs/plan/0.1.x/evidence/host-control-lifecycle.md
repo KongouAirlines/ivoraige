@@ -109,3 +109,15 @@ These results cover the locally integrated review changes. The green native CI
 for the preceding published heads does not cover these later corrections.
 Windows-native recovery/cancellation, the separate ordinary-account/fully
 unelevated gate and downstream A3 entry wiring remain outside this acceptance.
+
+## Owner-foundation safety integration
+
+Integrated owner-foundation `af661fd` without replacing the lifecycle review
+corrections. The integration includes durable initialization write evidence,
+legacy-writer gates, conservative recovery when store identity disappears,
+post-dispatch response outcome handling and the cross-platform fixtures.
+
+On Linux / Node 24.22.1, a fresh build and complete suite passed with 659 tests:
+639 passed, 20 conditional/platform skips and zero failures. Native platform
+checks for this integration remain separate from these local results; the
+ordinary-account/fully unelevated acceptance is still outstanding.

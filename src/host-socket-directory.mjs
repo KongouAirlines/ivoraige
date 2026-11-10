@@ -1,11 +1,12 @@
 import { createHash } from 'node:crypto'
-import { mkdtemp, realpath } from 'node:fs/promises'
+import { mkdtemp, realpath, rmdir } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { isAbsolute, join, resolve } from 'node:path'
 import { assertPrivateDirectory, ensurePrivateDirectory } from './host-permissions.mjs'
 
 // Leave room for `host-<128-bit nonce>.sock` under the conservative Unix
 // sockaddr limit. Discovery, rather than a deterministic path, locates it.
+const ownedRandomDirectories = new Set()
 const fits = directory => Buffer.byteLength(join(directory, `host-${'x'.repeat(22)}.sock`)) <= 100
 
 export async function hostSocketDirectory(registryDirectory, { runtimeDirectory = process.env.XDG_RUNTIME_DIR,
@@ -37,6 +38,17 @@ export async function hostSocketDirectory(registryDirectory, { runtimeDirectory 
   const prefix = join(root, `ivoraige-${namespace}-`)
   if (!fits(`${prefix}XXXXXX`)) throw new Error('No short private socket directory is available')
   const directory = await mkdtemp(prefix)
-  await assertPrivateDirectory(directory)
+  try { await assertPrivateDirectory(directory) }
+  catch (error) { await rmdir(directory); throw error }
+  ownedRandomDirectories.add(directory)
   return directory
+}
+
+// Only fresh random leaves allocated in this process belong to the transport.
+// Runtime/home directories can be shared by owners and must never be removed.
+export async function releaseHostSocketDirectory(directory) {
+  if (!ownedRandomDirectories.has(directory)) return
+  try { await rmdir(directory) }
+  catch (error) { if (error.code !== 'ENOENT') throw error }
+  ownedRandomDirectories.delete(directory)
 }
