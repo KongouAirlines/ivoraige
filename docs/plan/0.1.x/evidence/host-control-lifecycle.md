@@ -95,3 +95,17 @@ manual recovery. No subsequent pre-release stage starts without a held lease;
 normal releaseStore completion in the stopping phase keeps its existing path.
 Both added cases failed before the correction. The combined focused suites now
 pass 41/41 with no skips.
+
+After integrating the contract and owner-foundation review corrections, a fresh
+Linux / Node 24.22.1 build and complete suite passed: 648 tests, 628 passed,
+20 conditional/platform skips and zero failures. This includes all 100 shared
+schema fixtures and a regression validating actual State/ControlOperation
+projections against the schema through terminal completion. The isolated package
+smoke passed with 93 files, including reinstall, persistence, frozen exports,
+MCP discovery/call and static UI. The DSH pin remains
+`639ed015397290b3745d163aafe02ffee4aa3f84`.
+
+These results cover the locally integrated review changes. The green native CI
+for the preceding published heads does not cover these later corrections.
+Windows-native recovery/cancellation, the separate ordinary-account/fully
+unelevated gate and downstream A3 entry wiring remain outside this acceptance.
