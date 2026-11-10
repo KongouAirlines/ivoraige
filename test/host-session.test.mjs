@@ -102,3 +102,49 @@ test('browser cookies retain two data domains on the same host across different 
     { dataDomainRef: 'domain-b', generation: 'generation-a' })
   assert.notEqual(first.cookieName, make({ dataDomainRef: 'domain-b', origin: first.origin }).cookieName)
 })
+
+test('CSRF refresh requires the complete Origin and does not rotate on a missing or foreign Origin', () => {
+  const session = make()
+  const { credential } = session.issueBootstrap()
+  const browser = session.exchange({ credential, requestOrigin: session.origin, host: '127.0.0.1:4321' })
+  const cookie = browser.setCookie.split(';')[0]
+  for (const requestOrigin of [undefined, 'http://127.0.0.1:4322', 'http://localhost:4321']) {
+    assert.throws(() => session.refreshCsrf({ cookie, host: '127.0.0.1:4321', requestOrigin, method: 'POST' }),
+      { code: 'FORBIDDEN_HOST' })
+    assert.deepEqual(session.authenticate({ cookie, host: '127.0.0.1:4321',
+      requestOrigin: session.origin, method: 'POST', csrfToken: browser.csrfToken }),
+    { dataDomainRef: 'domain-a', generation: 'generation-a' })
+  }
+  assert.throws(() => session.refreshCsrf({ cookie, host: '127.0.0.1:4321',
+    requestOrigin: session.origin, method: 'GET' }), { code: 'FORBIDDEN_HOST' })
+  const next = session.refreshCsrf({ cookie, host: '127.0.0.1:4321', requestOrigin: session.origin,
+    method: 'POST' })
+  assert.notEqual(next.csrfToken, browser.csrfToken)
+  assert.throws(() => session.authenticate({ cookie, host: '127.0.0.1:4321',
+    requestOrigin: session.origin, method: 'POST', csrfToken: browser.csrfToken }), { code: 'FORBIDDEN_HOST' })
+})
+
+test('bootstrap expiry pruning and deterministic admission caps bound resident state', () => {
+  let clock = 1000
+  const session = make({ now: () => clock, bootstrapTtlMs: 10, maxBootstraps: 2, maxSessions: 2 })
+  const first = session.issueBootstrap()
+  const second = session.issueBootstrap()
+  const third = session.issueBootstrap() // evicts first
+  const redeem = credential => session.exchange({ credential, requestOrigin: session.origin, host: '127.0.0.1:4321' })
+  assert.throws(() => redeem(first.credential), { code: 'UNAUTHORIZED' })
+  const oldSession = redeem(second.credential)
+  const middleSession = redeem(third.credential)
+  const fourth = session.issueBootstrap()
+  const newestSession = redeem(fourth.credential) // evicts oldest session
+  const cookie = response => response.setCookie.split(';')[0]
+  assert.throws(() => session.authenticate({ cookie: cookie(oldSession), host: '127.0.0.1:4321' }),
+    { code: 'UNAUTHORIZED' })
+  assert.deepEqual(session.authenticate({ cookie: cookie(middleSession), host: '127.0.0.1:4321' }),
+    { dataDomainRef: 'domain-a', generation: 'generation-a' })
+  assert.deepEqual(session.authenticate({ cookie: cookie(newestSession), host: '127.0.0.1:4321' }),
+    { dataDomainRef: 'domain-a', generation: 'generation-a' })
+  const expiring = session.issueBootstrap()
+  clock += 10
+  session.issueBootstrap() // prunes expired grant before admission
+  assert.throws(() => redeem(expiring.credential), { code: 'UNAUTHORIZED' })
+})
