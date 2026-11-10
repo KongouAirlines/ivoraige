@@ -163,7 +163,7 @@ async function acquireRegistryLock(dir) {
   }
   return db
 }
-async function acquireRegistryLockBounded(dir) {
+export async function acquireRegistryLockBounded(dir) {
   // Prove the file private once. Retrying creation and ACL checks on each
   // SQLite busy result spawns many PowerShell processes under contention.
   const db = await acquireRegistryLock(dir)
