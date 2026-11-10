@@ -163,3 +163,21 @@ retrying ownership. A second schedule keeps both attempts busy and verifies that
 recoveryPending remains explicit, with the new package state and journal untouched
 until exclusive recovery is possible. This is reproduced scheduling evidence,
 not a claim that this race occurred in a Windows CI run.
+
+## Windows CI ownership and fixture follow-up (2026-11-10)
+
+The `b350e2b` Windows run logged three SQLite cleanup `EBUSY` failures and a
+borrowed-profile alias `CONFLICT` before cancellation; package smoke never ran.
+This follow-up closes the applications before deleting their settings trees in
+the affected MCP and settings-only fixtures. It also uses `realpathSync.native`
+for `ownsProfile`, matching the native resolver used by `fs.promises.realpath`
+when the lease is acquired (including Windows short-name aliases), and asserts
+ownership through both the original and alias paths and after release.
+
+On Linux with Node 26.13.0 and the lockfile dependencies, the three affected
+suites passed 48/48; the rebuilt full suite passed 605 with 2 conditional skips
+(607 total). Native Windows/macOS CI remains a separate gate, not inferred from
+these Linux results. No live PDF fidelity, cross-account acceptance or binary
+redistribution claim is added.
+The 87-file isolated package smoke also passed after setting a writable local
+npm cache; its first attempt could not create this executor's default cache.

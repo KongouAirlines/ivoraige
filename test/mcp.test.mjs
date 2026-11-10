@@ -373,9 +373,17 @@ test('SDK HTTP clients share documents, frozen outputs, and durable tasks', asyn
 
 test('MCP component credential clear uses the shared operation', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-mcp-components-'))
+  let f
+  try {
+    f = await fixture(t, { settingsDir: join(directory, 'settings'),
+      components: { directory: join(directory, 'components') } })
+  } catch (error) {
+    await rm(directory, { recursive: true, force: true })
+    throw error
+  }
+  // node:test runs after hooks in registration order. The fixture must close
+  // its clients, server and profile SQLite lease before this external tree.
   t.after(() => rm(directory, { recursive: true, force: true }))
-  const f = await fixture(t, { settingsDir: join(directory, 'settings'),
-    components: { directory: join(directory, 'components') } })
   const connection = await f.connect()
   const names = (await connection.listTools()).tools.map(tool => tool.name)
   assert.ok(names.includes('ivoraige_component_credential_clear'))

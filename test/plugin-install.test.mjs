@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { managePlugins, pluginRuntime, pluginDiagnostic } from '../src/plugin-install.mjs'
 import { bootModelSettings } from '../src/model-settings.mjs'
-import { acquireProfile, snapshotProfile, acquireProbe } from '../src/plugin-profile.mjs'
+import { acquireProfile, snapshotProfile, acquireProbe, ownsProfile } from '../src/plugin-profile.mjs'
 
 async function setup(t, beforeCleanup) {
   const root = await mkdtemp(join(tmpdir(), 'ivoraige-delivery-'))
@@ -329,6 +329,8 @@ test('borrowed profile lease accepts a canonical alias and recovers before boot'
   lease = await acquireProfile(directory)
   const alias = join(root, 'borrowed-profile-alias')
   await symlink(directory, alias, 'junction')
+  assert.equal(ownsProfile(lease, directory), true)
+  assert.equal(ownsProfile(lease, alias), true)
   await snapshotProfile(directory)
   await writeFile(join(directory, 'package.json'), 'interrupted')
   const app = await bootModelSettings({ directory: alias, profileLease: lease })
@@ -337,6 +339,7 @@ test('borrowed profile lease accepts a canonical alias and recovers before boot'
   // Disposal must not release ownership borrowed from the embedding caller.
   await assert.rejects(managePlugins({ directory, action: 'list' }), { code: 'CONFLICT' })
   lease.release()
+  assert.equal(ownsProfile(lease, alias), false)
   assert.equal((await managePlugins({ directory, action: 'list' })).plugins.length, 0)
 })
 

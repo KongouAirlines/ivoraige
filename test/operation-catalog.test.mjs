@@ -67,9 +67,12 @@ test('parse-only composition reports real capabilities without Records or Tasks'
 
 test('settings-only app exposes settings operations without a task service', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-operation-settings-only-'))
-  t.after(() => rm(directory, { recursive: true, force: true }))
-  const app = await createApp({ settingsDir: join(directory, 'settings'), mcp: false })
-  t.after(() => app.dispose())
+  let app
+  t.after(async () => {
+    try { await app?.dispose() }
+    finally { await rm(directory, { recursive: true, force: true }) }
+  })
+  app = await createApp({ settingsDir: join(directory, 'settings'), mcp: false })
   assert.equal(app.tasks, undefined)
   const result = await app.operations.invoke('getSettings')
   assert.ok(result.settings.revisions)
@@ -80,15 +83,18 @@ test('settings-only app exposes settings operations without a task service', asy
 
 test('store-only options are rejected while settings-only composition stays valid', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-option-validation-'))
-  t.after(() => rm(directory, { recursive: true, force: true }))
+  let app
+  t.after(async () => {
+    try { await app?.dispose() }
+    finally { await rm(directory, { recursive: true, force: true }) }
+  })
   const settingsDir = join(directory, 'settings')
   for (const options of [
     { settingsDir, components: { directory: join(directory, 'components') } },
     { settingsDir, exportDir: join(directory, 'exports') },
     { settingsDir, maxArtifactBytes: 1024 },
   ]) await assert.rejects(createApp(options), { code: 'INVALID_ARGUMENT' })
-  const app = await createApp({ settingsDir })
-  t.after(() => app.dispose())
+  app = await createApp({ settingsDir })
   assert.ok((await app.operations.invoke('getSettings')).settings)
 })
 
