@@ -43,9 +43,12 @@ function cookieValue(header, name) {
 // current kernel's wire names are UNAUTHORIZED/FORBIDDEN_HOST (401/403), which
 // represent HostControl's AUTHENTICATION_REQUIRED/PERMISSION_DENIED semantics.
 export function createHostSession({ dataDomainRef, generation, lifetime, origin,
-  now = () => Date.now(), isOwnerHeld = () => true, bootstrapTtlMs = 60_000 } = {}) {
+  now = () => Date.now(), isOwnerHeld = () => true, bootstrapTtlMs = 60_000,
+  maxBootstraps = 64, maxSessions = 64 } = {}) {
   if (!dataDomainRef || !generation || !['resident', 'ephemeral'].includes(lifetime) ||
-    !Number.isInteger(bootstrapTtlMs) || bootstrapTtlMs < 1 || bootstrapTtlMs > 60_000)
+    !Number.isInteger(bootstrapTtlMs) || bootstrapTtlMs < 1 || bootstrapTtlMs > 60_000 ||
+    !Number.isInteger(maxBootstraps) || maxBootstraps < 1 || maxBootstraps > 1024 ||
+    !Number.isInteger(maxSessions) || maxSessions < 1 || maxSessions > 1024)
     throw new KernelError('INVALID_ARGUMENT', 'Invalid owner session configuration')
   const url = validOrigin(origin)
   // Cookie scope ignores ports, so distinct owners on one loopback host need
@@ -63,6 +66,10 @@ export function createHostSession({ dataDomainRef, generation, lifetime, origin,
 
   function issueBootstrap() {
     mayIssue()
+    // A resident owner can run indefinitely. Do not retain unused grants or
+    // sessions for its entire lifetime; Map order makes eviction predictable.
+    for (const [hash, expiry] of bootstraps) if (expiry <= now()) bootstraps.delete(hash)
+    while (bootstraps.size >= maxBootstraps) bootstraps.delete(bootstraps.keys().next().value)
     const credential = secret()
     bootstraps.set(digest(credential).toString('hex'), now() + bootstrapTtlMs)
     return { credential, origin: url.origin, dataDomainRef, generation, expiresInMs: bootstrapTtlMs }
@@ -81,6 +88,7 @@ export function createHostSession({ dataDomainRef, generation, lifetime, origin,
     if (expiry <= now()) throw authError()
     const sessionId = secret()
     const csrfToken = secret()
+    while (sessions.size >= maxSessions) sessions.delete(sessions.keys().next().value)
     sessions.set(digest(sessionId).toString('hex'), { csrfHash: digest(csrfToken), dataDomainRef, generation })
     const attributes = ['Path=/', 'HttpOnly', 'SameSite=Strict']
     if (url.protocol === 'https:') attributes.push('Secure')
@@ -101,7 +109,10 @@ export function createHostSession({ dataDomainRef, generation, lifetime, origin,
     return { dataDomainRef: session.dataDomainRef, generation: session.generation }
   }
 
-  function refreshCsrf({ cookie, requestOrigin, host } = {}) {
+  function refreshCsrf({ cookie, requestOrigin, host, method } = {}) {
+    // Refresh changes server state. A cookie-only GET from another loopback
+    // port must not invalidate the legitimate page's CSRF token.
+    if (method !== 'POST' || requestOrigin !== url.origin) throw forbidden()
     const identity = authenticate({ cookie, requestOrigin, host })
     const id = cookieValue(cookie, name)
     const session = sessions.get(digest(id).toString('hex'))
