@@ -1765,6 +1765,100 @@
           }
         }
       }
+    },
+    {
+      "id": "client-outcome-unknown-wrong-code",
+      "definition": "ErrorResponse",
+      "valid": false,
+      "instance": {
+        "apiVersion": "2.0",
+        "error": {
+          "code": "INVALID_ARGUMENT",
+          "message": "Host response unavailable",
+          "details": {
+            "reason": "outcome-unknown"
+          }
+        }
+      }
+    },
+    {
+      "id": "ipc-outcome-unknown",
+      "definition": "OwnerIPCFrame",
+      "valid": true,
+      "instance": {
+        "ok": false,
+        "apiVersion": "2.0",
+        "error": {
+          "code": "CONFLICT",
+          "message": "Host response unavailable",
+          "details": {
+            "reason": "outcome-unknown"
+          }
+        }
+      }
+    },
+    {
+      "id": "ipc-outcome-unknown-wrong-code",
+      "definition": "OwnerIPCFrame",
+      "valid": false,
+      "instance": {
+        "ok": false,
+        "apiVersion": "2.0",
+        "error": {
+          "code": "INVALID_ARGUMENT",
+          "message": "Host response unavailable",
+          "details": {
+            "reason": "outcome-unknown"
+          }
+        }
+      }
+    },
+    {
+      "id": "client-request-cancelled-wrong-code",
+      "definition": "ErrorResponse",
+      "valid": false,
+      "instance": {
+        "apiVersion": "2.0",
+        "error": {
+          "code": "INVALID_ARGUMENT",
+          "message": "Caller stopped waiting",
+          "details": {
+            "reason": "request-cancelled"
+          }
+        }
+      }
+    },
+    {
+      "id": "ipc-request-cancelled",
+      "definition": "OwnerIPCFrame",
+      "valid": true,
+      "instance": {
+        "ok": false,
+        "apiVersion": "2.0",
+        "error": {
+          "code": "CONFLICT",
+          "message": "Caller stopped waiting",
+          "details": {
+            "reason": "request-cancelled"
+          }
+        }
+      }
+    },
+    {
+      "id": "ipc-request-cancelled-wrong-code",
+      "definition": "OwnerIPCFrame",
+      "valid": false,
+      "instance": {
+        "ok": false,
+        "apiVersion": "2.0",
+        "error": {
+          "code": "INVALID_ARGUMENT",
+          "message": "Caller stopped waiting",
+          "details": {
+            "reason": "request-cancelled"
+          }
+        }
+      }
     }
   ]
 }

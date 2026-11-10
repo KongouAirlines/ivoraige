@@ -10,12 +10,12 @@
 
 - [候选契约](../../../requirements/0.1.x/host-control-contract.md)：9 个管理/启动动作、单 owner/generation、受控本地会话、数据域恢复、重试退出和 A1/A2/A3 实施顺序。
 - [机器 schema](../../../requirements/0.1.x/schemas/host-control-v1.schema.json)：通用请求、独立 OwnerIPC 请求/帧、错误信封、状态/操作投影、启动结果、恢复参数及控制器退出观察/最终收据。
-- [108 个正反例](../../../requirements/0.1.x/fixtures/host-control-v1.cases.json)、[Python 检查器](../../../requirements/0.1.x/fixtures/check-host-control-v1.py)及 [Node 测试](../../../../test/host-contract.test.mjs)：55 个合法、53 个应拒绝形状。
+- [114 个正反例](../../../requirements/0.1.x/fixtures/host-control-v1.cases.json)、[Python 检查器](../../../requirements/0.1.x/fixtures/check-host-control-v1.py)及 [Node 测试](../../../../test/host-contract.test.mjs)：57 个合法、57 个应拒绝形状。
 - D01 工作包导航与设计状态、RFC 后续设计链接、design-v3 处理记录、依据合并事实将 ADR-0003 标为采纳；未标任何运行能力完成。
 
 ## 实际检查
 
-1. Python 3 + jsonschema：`python3 docs/requirements/0.1.x/fixtures/check-host-control-v1.py` 通过。Draft 2020-12 schema 自检及 108 个案例全部符合预期；附加验证 Attached 外层与 state 的域/generation 一致。
+1. Python 3 + jsonschema：`python3 docs/requirements/0.1.x/fixtures/check-host-control-v1.py` 通过。Draft 2020-12 schema 自检及 114 个案例全部符合预期；附加验证 Attached 外层与 state 的域/generation 一致。
 2. Node + Ajv：`node --test test/host-contract.test.mjs` 通过，读取同一 schema 与 fixture。该测试由现有 `npm test` 的 `test/*.test.mjs` 自动纳入，无需修改 package.json。
 3. 原设计检查的 15 个新增本地链接与 2 个已物化锚点检查通过，目标与固定 main 文件清单或本设计文件核对；未扫描所有未改历史文档，也未声称复查全部外链。
 4. `git diff --check` 通过；改动仅文档、JSON 设计例与文档示例检查器，没有生产代码改动。
@@ -40,3 +40,5 @@ schema 的拒绝案例仅证明形状，不证明调用者身份；权限、锁�
 ## 错误类别与已定义 reason 的一致性
 
 同日复核发现原 schema 接受 `INVALID_ARGUMENT/interface-version-unsupported`，与契约表中的 `PRECONDITION_FAILED` 不符；OwnerIPC 失败帧也接受相同组合。现将两个边界的错误对象共用同一 schema，只限制表中已有明确类别的 reason；未知 reason 与仅用于 ControlOperation 的阶段原因不额外绑定 code。新增五个反例和三个正例后，Python jsonschema 与 Node/Ajv 检查 108 例通过，`git diff --check` 通过。此检查不证明运行时错误分类正确；实际 OwnerIPC formatter 对照仍属 A1 实施验证。
+
+补验正文已规定的 `CONFLICT/outcome-unknown` 与 `CONFLICT/request-cancelled`：此前映射已在共用 HostError schema 内，追加 ErrorResponse 与 OwnerIPCFrame 的正反例六项，不修改映射。Python jsonschema 与 Node/Ajv 检查现为 114 例通过。
