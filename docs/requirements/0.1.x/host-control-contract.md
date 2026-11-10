@@ -158,7 +158,7 @@ store 内建议单独使用 DSH StorageDomain 的 `ivoraige_host` v1 元数据�
 
 锁顺序固定为 **OS 用户登记写锁 → 规范路径排序的目标 store 独占锁**。仅在初始化/恢复时短持登记锁，锁忙立即释放已取得锁再有界重试；不拿登记锁等待活跃 host 退出/网络/用户输入。普通 attach 在可验证的活 owner 路径只做受保护登记读取与握手，不另开应用数据库。恢复需要多个本机 store 时按相同排序非阻塞取得，避免倒序死锁。
 
-在受保护登记目录按目标 store 单独写入已刷盘的恢复意图（随机 transactionId、前置登记条件、目标身份、拟写域 ID）→ 通过 DSH 提交 store 元数据 → 原子替换并刷盘登记 → 标记/回收该目标意图。一个目标的 pending intent 不阻塞不相关域；但不能因其他域可用而跳过该目标的核验。每个故障点重启都以精确 store 身份和前置条件核验后续接；不能再生成 ID。意图路径不随数据目录迁移，目标业务闸门在两边一致前一直关闭。fsync/rename 与 Windows 文件替换行为需平台实测，不能用一次 writeFile 当耐崩溃事务。
+在受保护登记目录按目标 store 单独写入已刷盘的恢复意图（随机 transactionId、前置登记条件、目标身份、拟写域 ID）→ 通过 DSH 提交 store 元数据 → 原子替换并刷盘登记 → 标记/回收该目标意图。一个可归属到目标的 pending intent 不阻塞不相关域；但不能因其他域可用而跳过该目标的核验。旧版无可信目标信息的全局意图仍阻塞全部域，直到核实或从可信备份恢复，不能猜测归属。每个故障点重启都以精确 store 身份和前置条件核验后续接；不能再生成 ID。意图路径不随数据目录迁移，目标业务闸门在两边一致前一直关闭。fsync/rename 与 Windows 文件替换行为需平台实测，不能用一次 writeFile 当耐崩溃事务。
 
 无 ID、已知 schema 且登记无冲突的存量 store 静默初始化一次，保留全部文档/修订/task/snapshot ID。元数据不可读、未知版本或登记损坏不等于“无 ID”。已有域 ID 而登记不匹配时，serve/CLI/stdio 及时非零返回，既不读 stdin 等选择，也不自动开浏览器/调用模型。
 
@@ -173,7 +173,7 @@ ivoraige host domain recover --store <本机路径> --mode migrate|copy|refresh-
 
 inspect 不启动业务 host；返回观察条件的 diagnosticRevision、域/位置差异、锁状态与可行恢复模式。它不能把一次锁空闲读当作提交时证明。recover 缺少任何前置条件/confirm 时只报参数错误，不弹交互等待；取得锁后重读条件，变化返回 CONFLICT，绝不抢活库。RecoveryRequest schema 表示本机解析后的命令参数，不允许 HTTP/公共 MCP 调用。
 
-- **migrate**：必须核实旧 owner 已退出、旧位置不再作为活动域；保留 domainId 和幂等历史，转移登记，重新建立本机会话。本机原位置存在时锁定并核实；跨机器/不可访问原位置没有可核实退役依据则拒绝，不能把 `--confirm` 当旧 owner 已退出的证据。
+- **migrate**：必须核实旧 owner 已退出、旧位置不再作为活动域；保留 domainId 和幂等历史，转移登记，重新建立本机会话。本机原位置存在时锁定并核实；跨机器/不可访问原位置没有可核实退役依据则拒绝，不能把 `--confirm` 当旧 owner 已退出的证据。中断的 migrate 不由普通 create 自动续接；须以原 `migrate` 模式、精确 pending diagnostic、确认和新的同步 source-retirement 验证器显式续接。inspect 无该新证据时不宣称 migrate 可用。
 - **copy**：仅确认是不同 store 的副本后分配新 domainId/registrationId；保留内容/task/snapshot 身份与来源，旧幂等仅供历史，清除继承的授权/会话可用性，未完任务不自动恢复。原文件的配置冲突拒绝 copy。
 - **refresh-identity**：只处理相同规范路径上的原地文件替换。须核对 store 中的 domainId、registrationId、binding 与登记记录完全一致，独占目标 store 并重查诊断，再更新文件身份；不借此允许 copy/migrate 或重置不匹配的元数据。
 - **abandon-initialization**：只放弃单目标的未决 initialize intent。必须能核实父目录/卷仍可达、目标不存在或可证明尚无域元数据、无登记记录且目标锁可取得；删除意图前再检查原诊断。父目录/卷不可达或写入结果不明时保持该目标阻塞，不能按超时推断“尚未初始化”。其他域不受该意图连坐。
@@ -212,7 +212,7 @@ inspect 不启动业务 host；返回观察条件的 diagnosticRevision、域/�
 
 认证沿用外部 AUTHENTICATION_REQUIRED/PERMISSION_DENIED 的语义；旧内核线上的 UNAUTHORIZED/FORBIDDEN_HOST 不擅自新增/混用为“owner 不匹配”。首个传输实现须给出明确映射并验证 HTTP 状态、CLI 退出码与旧协议，不能借返回 200 掩盖拒绝。
 
-`deadline-exceeded`、`stage-precondition-failed`、`stage-failed` 是已受理 ControlOperation 的 `status=blocked` 原因，后两者分别为阶段前置条件错误与其他阶段错误缺少更具体 reason 时的保守分类；它们不自行规定外部 ErrorResponse code。已受理操作的超时/阻塞首先由 ControlOperation 的 status/reason 表达，而不是报无操作发生的参数错误。本机 IPC 客户端在已写出请求后超时/断开报告 `CONFLICT/outcome-unknown`，无法从该错误推断动作没有执行；明确的调用者中止报告 `CONFLICT/request-cancelled`，同样不撤销已受理副作用。业务/MCP 转发默认没有一律 5 秒的结果等待上限，drain/exit 响应等待至少覆盖本次 budget；调用者若设置超时，必须接受结果未知并按 generation 查询 state/operation。`requestId` 不保证重放安全，禁止盲目重发强退或恢复写入。CLI 保留既有退出码：输入/认证 2，缺席/冲突/前置 3，上游/内部 4，明确取消 5；stdio stdout 只放 MCP 协议，诊断去 stderr。
+`deadline-exceeded`、`stage-precondition-failed`、`stage-failed` 是已受理 ControlOperation 的 `status=blocked` 原因，后两者分别为阶段前置条件错误与其他阶段错误缺少更具体 reason 时的保守分类；它们不自行规定外部 ErrorResponse code。已受理操作的超时/阻塞首先由 ControlOperation 的 status/reason 表达，而不是报无操作发生的参数错误。本机 IPC 客户端在已写出请求后超时/断开报告 `CONFLICT/outcome-unknown`，无法从该错误推断动作没有执行；明确的调用者中止报告 `CONFLICT/request-cancelled`，只证明客户端停止等待并发出了取消，不证明副作用未发生或已回滚。已发送的业务结果仍可能未知，不能据此自动重试。业务/MCP 转发默认没有一律 5 秒的结果等待上限，drain/exit 响应等待至少覆盖本次 budget；调用者若设置超时，必须接受结果未知并按 generation 查询 state/operation。`requestId` 不保证重放安全，禁止盲目重发强退或恢复写入。CLI 保留既有退出码：输入/认证 2，缺席/冲突/前置 3，上游/内部 4，明确取消 5；stdio stdout 只放 MCP 协议，诊断去 stderr。
 
 `store-replaced-in-place`、`pending-intent` 等 inspect problem 是受保护的本机恢复诊断分类，不是外部 `ErrorResponse.details.reason` 的别名。对该诊断调用 recover 仍须提供精确 `expectedDiagnostic` 与确认，并在取得目标锁后重查；缺少证据时返回上述拒绝 reason，而不自动修复。
 
