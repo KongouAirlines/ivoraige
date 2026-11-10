@@ -57,6 +57,8 @@ PDF 的 Markdown 导出将已捕获的标题统一表示为未分级的小节，
 
 尖括号包围的 URL 保留末尾地址字符。无效的 www 候选和带无效后缀的邮箱形标识符保持纯文本，不链接到另一个地址。邮箱按完整候选校验，支持 ASCII dot-atom 名称和使用 ASCII 句点分隔的 DNS/Unicode/Punycode 域名；域名经 IDNA 规范化，名称中的 URI 分隔符编码为地址数据。无效或不支持的候选不会回退到较短地址。详见 [PDF 指南](docs/plan/0.1.0/pdf-guide.md) 的支持范围与边界规则。
 
+新导入 PDF 的占位符对齐若达到搜索上限，会保留可用的公式 payload 或可见占位符，并记录警告。已有来源绑定不变；这不代表页面排版已经核验。
+
 本分支配套源码 sidecar 可将声明为 `en` 的 PDF 路由到 `zh`／`zh-CN`／`zh-Hans`，将声明为 `zh`／`zh-CN`／`zh-Hans` 的 PDF 路由到 `en`。请选择实际原文语言；程序不会自动识别。中文→英文 PDF 排版尚待真实 BabelDOC 与 Mac 目检；需使用本分支配套 sidecar，已有安装组件可能仍只支持英文来源。原件 PDF 的来源模式导出不需要目标语言。
 
 配置、调试与贡献代码请看[开发指南](docs/plan/0.1.0/development-guide.md)。详细指南目前以中文为主。

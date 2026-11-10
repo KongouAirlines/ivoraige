@@ -223,6 +223,95 @@ class BindingTests(unittest.TestCase):
                          [{"token": "<b1>", "text": "<b1>"},
                           {"token": "<b1>", "text": "<b1>"}])
 
+    def test_many_unique_literal_anchors_do_not_recurse(self):
+        count = 1200
+        request = "START " + "".join(f"<b{i}> K{i} " for i in range(count)) + "END"
+        source = "START " + "".join(f"x K{i} " for i in range(count)) + "END"
+        uncertain = []
+        mapped = server.display_mapping(request, source, uncertain=uncertain)
+        self.assertEqual(mapped, [
+            {"token": f"<b{i}>", "text": "x"} for i in range(count)
+        ])
+        self.assertEqual(uncertain, [])
+
+    def test_repeated_anchors_without_complete_match_have_bounded_fallback(self):
+        request = "A " + "".join(f"<b{i}> a " for i in range(8)) + "END"
+        source = "A " + "x a " * 40 + "missing"
+        payloads = [{"type": "formula", "placeholder": "<b0>",
+                     "formula_chars": "retained formula"}]
+        uncertain = []
+        with patch.object(server, "DISPLAY_MAPPING_MAX_CANDIDATES", 300):
+            mapped = server.display_mapping(request, source, payloads, uncertain)
+        self.assertEqual(mapped[0], {"token": "<b0>", "text": "retained formula"})
+        self.assertEqual(mapped[1], {"token": "<b1>", "text": "<b1>"})
+        self.assertEqual(len(mapped), 8)
+        self.assertIn("literal alignment search limit reached", uncertain)
+        self.assertIn("<b0> (payload)", uncertain)
+        self.assertIn("<b1> (literal token)", uncertain)
+
+    def test_search_character_budget_also_falls_back(self):
+        uncertain = []
+        with patch.object(server, "DISPLAY_MAPPING_MAX_SEARCH_CHARS", 2):
+            mapped = server.display_mapping("A <b1> B <b2> C", "A x B y C",
+                                            uncertain=uncertain)
+        self.assertEqual(mapped, [{"token": "<b1>", "text": "<b1>"},
+                                  {"token": "<b2>", "text": "<b2>"}])
+        self.assertEqual(uncertain, ["literal alignment search limit reached",
+                                     "<b1> (literal token)", "<b2> (literal token)"])
+
+    def test_budget_exhaustion_discards_a_complete_but_unproven_solution(self):
+        request = "A <b1> B <b2> C"
+        source = "A x B y B z C"
+        payloads = [{"type": "formula", "placeholder": "<b1>",
+                     "formula_chars": "retained formula"}]
+        # Both limits allow the first complete alignment, but stop the search
+        # before it can discover the second one and disprove uniqueness.
+        for limit, budget in (("DISPLAY_MAPPING_MAX_CANDIDATES", 1),
+                              ("DISPLAY_MAPPING_MAX_SEARCH_CHARS", len(source) - 2)):
+            with self.subTest(limit=limit), patch.object(server, limit, budget):
+                uncertain = []
+                mapped = server.display_mapping(request, source, payloads, uncertain)
+                self.assertEqual(mapped, [
+                    {"token": "<b1>", "text": "retained formula"},
+                    {"token": "<b2>", "text": "<b2>"},
+                ])
+                self.assertEqual(uncertain, ["literal alignment search limit reached",
+                                             "<b1> (payload)", "<b2> (literal token)"])
+
+    def test_alignment_copies_only_a_proven_unique_result(self):
+        class CountedSource(str):
+            def __new__(cls, value):
+                instance = super().__new__(cls, value)
+                instance.slices = []
+                return instance
+
+            def __getitem__(self, key):
+                if isinstance(key, slice):
+                    self.slices.append(key)
+                return super().__getitem__(key)
+
+        # Repeated late anchors used to copy the long prefix on every dead end.
+        # Keep the fixture small and count slices rather than stressing memory.
+        source = CountedSource("x" * 10_000 + "A" * 200 + "Z")
+        mapped = server.display_mapping("<b0>A<b1>MISSING<b2>Z", source)
+        self.assertEqual([item["text"] for item in mapped], ["<b0>", "<b1>", "<b2>"])
+        self.assertEqual(source.slices, [])
+
+        for limit, budget in ((None, None), ("DISPLAY_MAPPING_MAX_CANDIDATES", 1),
+                              ("DISPLAY_MAPPING_MAX_SEARCH_CHARS", 6)):
+            with self.subTest(limit=limit, budget=budget):
+                source = CountedSource("xAyAzZ")
+                scope = patch.object(server, limit, budget) if limit else nullcontext()
+                with scope:
+                    mapped = server.display_mapping("<b0>A<b1>Z", source)
+                self.assertEqual([item["text"] for item in mapped], ["<b0>", "<b1>"])
+                self.assertEqual(source.slices, [])
+
+        source = CountedSource("xAyZ")
+        self.assertEqual(server.display_mapping("<b0>A<b1>Z", source),
+                         [{"token": "<b0>", "text": "x"}, {"token": "<b1>", "text": "y"}])
+        self.assertEqual(source.slices, [slice(0, 1), slice(2, 3)])
+
     def test_completed_callbacks_keep_payloads_by_location(self):
         first = {"key": "p0:first", "preparedInput": "A <b1> B",
                  "placeholderPayloads": [{"type": "formula", "placeholder": "<b1>",
@@ -266,6 +355,24 @@ class BindingTests(unittest.TestCase):
             self.assertEqual(record["placeholders"],
                              [{"token": "<b1>", "text": "x"}, {"token": "<b2>", "text": "y"}])
             self.assertIn(f"page 1, {key} used fallback", parsed["doc"]["warnings"][0])
+
+    def test_capture_records_alignment_limit_warning(self):
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
+            path = Path(directory) / "formula.pdf"
+            path.write_bytes(b"%PDF-1.7\n")
+            paragraph = {"page": 0, "bbox": [1, 2, 3, 4], "key": "p0:limit",
+                         "sourceUnicode": "A x B y C", "layoutLabel": "plain text"}
+            call = {**paragraph, "requestText": "A <b1> B <b2> C",
+                    "placeholderPayloads": []}
+            with patch.object(server, "DISPLAY_MAPPING_MAX_SEARCH_CHARS", 2), \
+                 patch.object(server, "run_engine", return_value=([call], [paragraph], [])), \
+                 patch.object(server, "unbound_pdf_lines", return_value=[]):
+                parsed = server.parse({"path": str(path), "options": {"language": "en"}})
+            self.assertEqual(parsed["doc"]["sourceBinding"]["records"][0]["placeholders"],
+                             [{"token": "<b1>", "text": "<b1>"},
+                              {"token": "<b2>", "text": "<b2>"}])
+            self.assertTrue(any("p0:limit used fallback: literal alignment search limit reached"
+                                in warning for warning in parsed["doc"]["warnings"]))
 
     def test_rebuild_preflight_rejects_changed_source_and_placeholders(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
