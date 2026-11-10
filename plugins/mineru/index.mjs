@@ -232,8 +232,87 @@ export function MinerUSource(ctx, config = {}) {
   } catch (error) { if (error.code !== 'ENOENT') throw error }
   const root = canonicalPath(directory)
   const status = { state: 'unchecked', message: 'MinerU is checked on first import' }
+  const outputStatus = { state: 'unchecked', message: 'MinerU PDF renderer is checked on first replay' }
   const client = ctx.get('ivoraige.sidecarFactory').create({ command, args: [selectedRunner], timeoutMs })
   ctx.effect(() => () => client.close())
+  const rebuild = async (frozen, { signal } = {}) => {
+    let work, temporary, retainTemporary = false
+    try {
+      const binding = frozen.sourceBinding
+      if (binding?.adapterId !== 'mineru' || binding.middleSchema !== 'docvortex.middle' ||
+          binding.middleSchemaVersion !== '2.0' || frozen.document?.sourceAdapterId !== 'mineru')
+        fail('PRECONDITION_FAILED', 'MinerU frozen source binding is incompatible')
+      await verifyMineruBundle(binding, { directory: root, storePath })
+      const originalPdf = async () => {
+        const bytes = await readFile(binding.sourcePath)
+        if (sha256(bytes) !== binding.sourceDigest)
+          fail('PRECONDITION_FAILED', 'MinerU original PDF changed')
+        return bytes
+      }
+      const projectionVersion = Object.hasOwn(binding, 'projectionVersion') ? binding.projectionVersion : 1
+      if (![1, 2].includes(projectionVersion))
+        fail('PRECONDITION_FAILED', 'MinerU text projection version is unsupported')
+      if (frozen.snapshot.contentMode === 'source') return await originalPdf()
+      if (frozen.snapshot.contentMode !== 'accepted-translation')
+        fail('PRECONDITION_FAILED', 'MinerU snapshot mode is unsupported')
+      const middle = JSON.parse(await readFile(join(binding.bundlePath, 'middle_json.json'), 'utf8'))
+      const structured = JSON.parse(await readFile(join(binding.bundlePath, 'structured_content.json'), 'utf8'))
+      const projected = projectStructured(middle, structured, binding.bundlePath, binding.files,
+        { projectionVersion })
+      if (projected.units.length !== frozen.units.length)
+        fail('PRECONDITION_FAILED', 'MinerU frozen units do not match the saved source')
+      const replacements = []
+      for (let order = 0; order < frozen.units.length; order++) {
+        const { unit, decision, text } = frozen.units[order]
+        const original = projected.units[order]
+        if (unit.order !== order || unit.sourceText !== original.sourceText ||
+            unit.translatable !== original.translatable ||
+            JSON.stringify(unit.locator) !== JSON.stringify(original.locator))
+          fail('PRECONDITION_FAILED', 'MinerU frozen units do not match the saved source')
+        if (decision.type === 'revision') {
+          if (!unit.translatable || typeof text !== 'string' || !text.trim())
+            fail('PRECONDITION_FAILED', 'MinerU accepted text is invalid')
+          replacements.push({ ...original.locator, sourceText: original.sourceText, text })
+        }
+      }
+      if (!replacements.length) return await originalPdf()
+      work = join(root, 'work')
+      await mkdir(work, { recursive: true })
+      if (await realpath(work) !== work) fail('PRECONDITION_FAILED', 'MinerU work directory must not be a symlink')
+      temporary = await mkdtemp(join(work, 'rebuild-'))
+      const outputPath = join(temporary, 'output.pdf')
+      const result = await client.request('rebuild', { bundlePath: binding.bundlePath,
+        files: binding.files, replacements, outputPath, layout: 'original' }, { signal })
+      const bytes = await readFile(outputPath)
+      if (!bytes.subarray(0, 1024).includes(Buffer.from('%PDF-')) ||
+          result?.sha256 !== sha256(bytes) || result.size !== bytes.length)
+        fail('UPSTREAM_FAILURE', 'MinerU PDF renderer returned invalid bytes')
+      outputStatus.state = 'ready'; outputStatus.message = 'MinerU PDF replay completed'
+      return bytes
+    } catch (error) {
+      retainTemporary = error.details?.terminationFailed === true
+      const absent = error.code === 'COMPONENT_MISSING'
+      outputStatus.state = absent ? 'unavailable' : 'unchecked'
+      const publicMessage = absent ? unavailableMessage(error) ?? 'MinerU PDF renderer or its local runtime is unavailable' :
+        'MinerU PDF replay failed'
+      outputStatus.message = absent ? publicMessage : 'Last MinerU PDF replay failed; retry or inspect local diagnostics'
+      if (error instanceof KernelError) {
+        if (signal?.aborted) error.details = { ...error.details, canceled: true }
+        throw error
+      }
+      throw new KernelError(absent ? 'COMPONENT_MISSING' : 'UPSTREAM_FAILURE', publicMessage,
+        { ...(error.details?.canceled || error.name === 'AbortError' || signal?.aborted ? { canceled: true } : {}),
+          ...(error.details?.terminationFailed ? { terminationFailed: true } : {}) }, { cause: error })
+    } finally {
+      if (!retainTemporary && temporary && await realpath(work).catch(() => null) === work &&
+          await realpath(temporary).catch(() => null) === temporary)
+        try { await rm(temporary, { recursive: true, force: true }) }
+        catch (cleanupError) {
+          if (outputStatus.state === 'ready') outputStatus.message = 'MinerU PDF replay completed; temporary cleanup failed'
+          console.error('MinerU PDF temporary cleanup failed', cleanupError)
+        }
+    }
+  }
   const parse = async (file, persist, isReferenced) => {
     const bytes = file.content ?? await readFile(file.path)
     if (!Buffer.isBuffer(bytes) || !bytes.subarray(0, 1024).includes(Buffer.from('%PDF-')))
@@ -337,7 +416,13 @@ export function MinerUSource(ctx, config = {}) {
     import: (file, persist, isReferenced) => parse(file, persist, isReferenced),
     readableText: (_binding, _unit, text) => text,
   }))
+  ctx.effect(() => ctx.get('ivoraige.outputs').register({
+    id: 'mineru-pdf', formats: ['pdf'], version: '0.1.0',
+    status: () => ({ ...outputStatus }), canRunUnavailable: mode => mode === 'source',
+    supports: binding => binding?.adapterId === 'mineru',
+    rebuild,
+  }))
 }
-MinerUSource.inject = ['ivoraige.parse', 'ivoraige.sidecarFactory', 'ivoraige.storePath']
+MinerUSource.inject = ['ivoraige.parse', 'ivoraige.outputs', 'ivoraige.sidecarFactory', 'ivoraige.storePath']
 
 export default MinerUSource

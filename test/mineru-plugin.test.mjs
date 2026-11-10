@@ -38,14 +38,21 @@ async function createFixtureApp(t, options) {
 async function fakeRunner(dir, { nested = false, producerVersion = '4.0.10' } = {}) {
   const path = join(dir, 'fake-runner.mjs')
   await writeFile(path, `import { mkdir, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { createInterface } from 'node:readline';
 import { join } from 'node:path';
 for await (const line of createInterface({input:process.stdin})) {
 const request = JSON.parse(line);
 const send = result => process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:request.id,result})+'\\n');
-if (request.method === 'handshake') {send({protocolVersion:1,capabilities:{parse:['pdf'],rebuild:[]}});continue;}
+if (request.method === 'handshake') {send({protocolVersion:1,capabilities:{parse:['pdf'],rebuild:['pdf']}});continue;}
 if (request.method === 'configure') {send({});continue;}
 if (request.method === 'shutdown') {send(null);break;}
+if (request.method === 'rebuild') {
+ const output=Buffer.from('%PDF-1.4\\n'+request.params.replacements.map(row=>row.text).join('|')+'\\n%%EOF\\n');
+ await writeFile(request.params.outputPath,output,{flag:'wx'});
+ send({sha256:createHash('sha256').update(output).digest('hex'),size:output.length});
+ continue;
+}
 const output = request.params.options.outputDir;
 await mkdir(join(output, 'images'), {recursive:true});
 await writeFile(join(output, 'images', 'page_0_image_1.png'), Buffer.from([1,2,3]));
@@ -148,14 +155,118 @@ test('MinerU nested chart captions and footnotes remain in frozen source MD/JSON
   assert.deepEqual(json.units.map(unit => unit.sourceText), record.units.map(unit => unit.sourceText))
   assert.equal(new Set(exported.artifacts.map(item => item.snapshotId)).size, 1)
   assert.equal(app.records.listTasks().filter(task => task.kind === 'translate').length, 0)
+  for (const [unitIndex, text] of [[3, '图注译文'], [5, '脚注译文']]) {
+    const revision = await app.records.writeRevision(record.units[unitIndex].id,
+      { targetLang: 'zh', text, baseRevisionId: null })
+    await app.records.acceptRevision(revision.id, { expectedAcceptedRevisionId: null })
+  }
+  const accepted = await app.exporter.exportDocument(docId, { targetLang: 'zh',
+    onMissingAccepted: 'skip', outputs: [{ format: 'pdf' }, { format: 'md' }, { format: 'json' }] })
+  assert.match((await readFile(accepted.artifacts.find(item => item.format === 'pdf').path)).toString(),
+    /图注译文\|脚注译文/)
+  assert.equal(new Set(accepted.artifacts.map(item => item.snapshotId)).size, 1)
   const middle = JSON.parse(await readFile(join(record.sourceBinding.bundlePath, 'middle_json.json')))
   const structured = JSON.parse(await readFile(join(record.sourceBinding.bundlePath, 'structured_content.json')))
   assert.deepEqual(projectStructured(middle, structured, record.sourceBinding.bundlePath,
     record.sourceBinding.files, { projectionVersion: 1 }).units.map(unit => unit.sourceText),
   ['A', '[image]', 'B', 'Table body'])
+  const legacy = projectStructured(middle, structured, record.sourceBinding.bundlePath,
+    record.sourceBinding.files, { projectionVersion: 1 })
+  legacy.sourceBinding = structuredClone(record.sourceBinding)
+  delete legacy.sourceBinding.projectionVersion
+  Object.assign(legacy, { sourceAdapterId: 'mineru', sourceAdapterVersion: '0.1.0',
+    bindingSchemaVersion: 1, availableOutputs: ['pdf', 'md', 'json'] })
+  const old = await app.records.persistParsed({ format: 'pdf' },
+    { sourceId: 'nested-before-caption-fix', language: 'en', origin: 'cli' }, legacy)
+  const oldTitle = app.records.listUnits(old.document.id, { targetLang: 'zh' })[0]
+  const oldRevision = await app.records.writeRevision(oldTitle.id,
+    { targetLang: 'zh', text: '旧版标题', baseRevisionId: null })
+  await app.records.acceptRevision(oldRevision.id, { expectedAcceptedRevisionId: null })
+  const oldOutput = await app.exporter.exportDocument(old.document.id, { targetLang: 'zh',
+    onMissingAccepted: 'skip', outputs: [{ format: 'pdf' }] })
+  assert.match((await readFile(oldOutput.artifacts[0].path)).toString(), /旧版标题/)
   middle.pages[0].blocks[3].content.splice(0, 1)
   assert.throws(() => projectStructured(middle, structured, record.sourceBinding.bundlePath,
     record.sourceBinding.files), { code: 'UPSTREAM_FAILURE' })
+})
+
+test('MinerU PDF output replays frozen accepted text without a translation call', async t => {
+  const dir = await fixture(t)
+  const runner = await fakeRunner(dir)
+  const store = join(dir, 'db.sqlite'), directory = join(dir, 'mineru-data')
+  let app = await createFixtureApp(t, { store })
+  await app.ctx.plugin(MinerUSource, { directory, command: process.execPath, runner })
+  const admitted = await app.operations.invoke('importDocument', { format: 'pdf', adapterId: 'mineru',
+    contentBase64: pdf.toString('base64'), language: 'en', sourceId: 'synthetic' })
+  const imported = await app.tasks.wait(admitted.taskId)
+  assert.equal(imported.state, 'succeeded')
+  assert.equal(app.outputs.adapters.get('mineru-pdf').status().state, 'unchecked')
+  const docId = imported.result.document.id
+  const source = await app.exporter.exportDocument(docId, { contentMode: 'source',
+    outputs: [{ format: 'pdf' }] })
+  assert.equal(source.artifacts[0].adapterId, 'mineru-pdf')
+  assert.deepEqual(await readFile(source.artifacts[0].path), pdf)
+  const units = app.records.listUnits(docId, { targetLang: 'zh' }).filter(unit => unit.translatable)
+  const accepted = []
+  for (const [index, unit] of units.entries()) {
+    const revision = await app.records.writeRevision(unit.id, { targetLang: 'zh',
+      text: `译文${index}`, baseRevisionId: null })
+    await app.records.acceptRevision(revision.id, { expectedAcceptedRevisionId: null })
+    accepted.push(revision)
+  }
+  const first = await app.exporter.exportDocument(docId, { targetLang: 'zh',
+    outputs: [{ format: 'pdf' }, { format: 'md' }, { format: 'json' }] })
+  const pdfBytes = await readFile(first.artifacts.find(artifact => artifact.format === 'pdf').path)
+  assert.equal(app.outputs.adapters.get('mineru-pdf').status().state, 'ready')
+  assert.match(pdfBytes.toString(), /译文0\|译文1/)
+  assert.equal(first.artifacts.find(artifact => artifact.format === 'pdf').adapterId, 'mineru-pdf')
+  assert.deepEqual(new Set(first.artifacts.map(artifact => artifact.snapshotId)), new Set([first.snapshotId]))
+  const newer = await app.records.writeRevision(units[0].id, { targetLang: 'zh',
+    text: '新版译文', baseRevisionId: accepted[0].id })
+  await app.records.acceptRevision(newer.id, { expectedAcceptedRevisionId: accepted[0].id })
+  await app.dispose()
+  app = await createFixtureApp(t, { store })
+  await app.ctx.plugin(MinerUSource, { directory, command: process.execPath, runner })
+  const replay = await app.exporter.exportDocument(docId, { targetLang: 'zh', snapshotId: first.snapshotId,
+    outputs: [{ format: 'pdf' }] })
+  assert.deepEqual(await readFile(replay.artifacts[0].path), pdfBytes)
+  const current = await app.exporter.exportDocument(docId, { targetLang: 'zh',
+    outputs: [{ format: 'pdf' }] })
+  assert.match((await readFile(current.artifacts[0].path)).toString(), /新版译文/)
+  assert.equal(app.records.listTasks().filter(task => task.kind === 'translate').length, 0)
+  const frozen = app.records.resolveSnapshot(docId, first.snapshotId)
+  frozen.units[0].unit.locator.bbox[0] += 1
+  await assert.rejects(app.outputs.adapters.get('mineru-pdf').rebuild(frozen),
+    { code: 'PRECONDITION_FAILED' })
+  assert.equal(app.outputs.adapters.get('mineru-pdf').status().state, 'unchecked')
+  const future = app.records.resolveSnapshot(docId, first.snapshotId)
+  future.sourceBinding.projectionVersion = 3
+  await assert.rejects(app.outputs.get('pdf', { binding: future.sourceBinding }).rebuild(future),
+    { code: 'PRECONDITION_FAILED', message: 'MinerU text projection version is unsupported' })
+  future.sourceBinding.projectionVersion = '2'
+  await assert.rejects(app.outputs.get('pdf', { binding: future.sourceBinding }).rebuild(future),
+    { code: 'PRECONDITION_FAILED', message: 'MinerU text projection version is unsupported' })
+  const canceled = new AbortController()
+  canceled.abort()
+  await assert.rejects(app.outputs.get('pdf', { binding: frozen.sourceBinding })
+    .rebuild(frozen, { signal: canceled.signal }), error =>
+    error.code === 'PRECONDITION_FAILED' && error.details?.canceled === true)
+  await app.dispose()
+  app = await createFixtureApp(t, { store })
+  await app.ctx.plugin(MinerUSource, { directory, command: '/missing/mineru/python' })
+  const originalWithoutRuntime = await app.exporter.exportDocument(docId, { contentMode: 'source',
+    outputs: [{ format: 'pdf' }] })
+  assert.deepEqual(await readFile(originalWithoutRuntime.artifacts[0].path), pdf)
+  await assert.rejects(app.exporter.exportDocument(docId, { targetLang: 'zh', snapshotId: first.snapshotId,
+    outputs: [{ format: 'pdf' }] }), { code: 'COMPONENT_MISSING' })
+  assert.equal(app.outputs.adapters.get('mineru-pdf').status().state, 'unavailable')
+  const binding = app.records.record(docId).sourceBinding
+  await rm(join(binding.bundlePath, 'images', 'page_0_image_1.png'))
+  await assert.rejects(app.outputs.adapters.get('mineru-pdf').rebuild(frozen),
+    { code: 'PRECONDITION_FAILED' })
+  assert.equal(app.outputs.adapters.get('mineru-pdf').status().state, 'unchecked')
+  assert.deepEqual(await readFile(originalWithoutRuntime.artifacts[0].path), pdf)
+  await app.dispose()
 })
 
 test('DSH profile loads a locally installed package, and disabling its row preserves other sources', async t => {
@@ -410,6 +521,7 @@ test('MinerU preserves cancellation after a sidecar has returned saved data', as
     'ivoraige.storePath': join(dir, 'db.sqlite'),
     'ivoraige.sidecarFactory': { create: () => client },
     'ivoraige.parse': { register: value => { adapter = value } },
+    'ivoraige.outputs': { register: () => {} },
   })[key], effect: callback => callback() }
   MinerUSource(ctx, { directory: join(dir, 'mineru-data') })
   let persisted = false
@@ -431,6 +543,7 @@ test('MinerU keeps cancellation on a local typed error after sidecar response', 
       return { doc: { engineVersion: 'unexpected', schema: 'docvortex.middle', schemaVersion: '2.0' } }
     } }) },
     'ivoraige.parse': { register: value => { adapter = value } },
+    'ivoraige.outputs': { register: () => {} },
   })[key], effect: callback => callback() }
   MinerUSource(ctx, { directory: join(dir, 'mineru-data') })
   await assert.rejects(adapter.import({ content: pdf, signal: controller.signal },
@@ -455,6 +568,7 @@ test('MinerU reports only fixed component-version diagnostics', async t => {
           details: { sidecarCode: -32002, sidecarData: { component, reason } } })
       } }) },
       'ivoraige.parse': { register: value => { adapter = value } },
+      'ivoraige.outputs': { register: () => {} },
     })[key], effect: callback => callback() }
     MinerUSource(ctx, { directory: join(dir, `mineru-${component}-${reason}`) })
     await assert.rejects(adapter.import({ content: pdf },
@@ -547,6 +661,17 @@ test('Python runner checks the saved MiddleJson producer, not only its response 
     `    else: raise AssertionError('wrong producer was accepted')\n`
   const result = spawnSync(python, ['-c', script, runner], { encoding: 'utf8' })
   assert.equal(result.status, 0, result.stderr)
+})
+
+test('Python replay rejects complex inline text and reads only inventoried assets', t => {
+  const python = process.platform === 'win32' ? 'python' : 'python3'
+  const probe = spawnSync(python, ['--version'], { encoding: 'utf8' })
+  if (probe.error || probe.status !== 0) return t.skip('Python is unavailable')
+  const check = fileURLToPath(new URL('./mineru-runner-rebuild.py', import.meta.url))
+  const runner = fileURLToPath(new URL('../plugins/mineru/runner.py', import.meta.url))
+  const result = spawnSync(python, [check, runner], { encoding: 'utf8' })
+  assert.equal(result.status, 0, result.stderr)
+  assert.match(result.stdout, /frozen span and asset guards passed/)
 })
 
 test('sidecar cancellation waits for a delayed child exit', async t => {
