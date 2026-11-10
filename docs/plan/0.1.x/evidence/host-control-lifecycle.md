@@ -24,3 +24,26 @@
 本切片不包含生产 bootstrap 接管 store lease，也不包含经过认证的本机控制通道、管理 HTTP/WebUI、跨进程退出观察或强退实现。因此它只提供受测协调器与服务接点，不能声称 D01.H06–H08 端到端通过，不能声称 A1/A3、D01 或管理 UI 已交付。真实任务、安装事务、文件 lease 与 DSH storage 的全链路关停、三系统进程/锁竞争及 Node 26 CI 仍须在装配后验证。后续接线必须保持控制通道至最终清理，并由可信 owner 边界决定谁能请求 owner 投影与 drain/exit。
 
 依据：[HostControl@1 契约](../../../requirements/0.1.x/host-control-contract.md) §5、§9；[D01 工作包](../packages/desktop.md#d01)。
+
+
+## Review hardening
+
+An already-expired deadline now attaches a rejection observer to the supplied
+cleanup promise before returning `deadline-exceeded`. The underlying work is
+still retained by its owner and can be joined on retry; a later failure no
+longer becomes an unhandled rejection that terminates Node. A child-process
+regression exercises the default unhandled-rejection behavior.
+
+Translation tasks recheck the synchronous admission gate after preflight and
+after durable call accounting, immediately before model dispatch. If the gate
+closes during accounting, the undelivered call's count, reuse ratio and
+translation-token estimate are restored without replacing unrelated statistics.
+Abrupt teardown retains its existing no-more-record-writes boundary. Held
+preflight and held-accounting regressions verify zero new model calls after
+`stopAccepting`, an unchanged cursor and a paused checkpoint.
+
+All three regressions fail against the original implementation and pass with
+the fixes. On Linux / Node 24.22.1, the focused HostControl, task and task-lifecycle
+suites passed 31 tests with no failures. API 2.0, HostControl@1 and stored record,
+task, snapshot and domain identities are unchanged. These tests do not establish
+Windows pipe or separate ordinary-account acceptance.

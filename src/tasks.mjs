@@ -446,8 +446,22 @@ export class Tasks extends Service {
           const model = this.ctx.get('ivoraige.translationModel')
           if (!model) throw new KernelError('COMPONENT_MISSING', 'Configure a translation model before translating')
           await model.preflight?.({ basis, signal: controller.signal })
+          if (this.tearingDown) return
+          if (live.cancel || controller.signal.aborted || live.pause || this.closing) break
+          const previousStats = this.records.getTask(taskId).stats
           await this.records.incrementTaskCall(taskId)
           if (this.tearingDown) return
+          if (live.cancel || controller.signal.aborted || live.pause || this.closing) {
+            // No model request was dispatched. Undo the provisional call count
+            // before settling the task at its current checkpoint.
+            await this.records.updateTask(taskId, current => {
+              const { translation: _provisional, ...tokens } = current.stats.tokens
+              if (previousStats.tokens.translation !== undefined) tokens.translation = previousStats.tokens.translation
+              return { ...current, stats: { ...current.stats, llmCalls: previousStats.llmCalls,
+                reuseRatio: previousStats.reuseRatio, tokens } }
+            })
+            break
+          }
           const result = await model.translate({ basis, signal: controller.signal })
           if (live.cancel || controller.signal.aborted) break
           outcome = await this.records.commitTaskUnit(taskId, { unitId, expectedBasis: basis,

@@ -24,10 +24,14 @@ export function deadlineExceeded() {
 // retain that promise and join it on retry before starting a dependent stage.
 export async function waitForDeadline(promise, deadline) {
   if (!deadline) return promise
+  // Attach a rejection observer before checking the budget. An already
+  // expired caller still owns and may retry/join the underlying operation.
+  const work = Promise.resolve(promise)
+  work.catch(() => {})
   if (deadline.expired()) throw deadlineExceeded()
   let timer
   try {
-    return await Promise.race([Promise.resolve(promise), new Promise((_, reject) => {
+    return await Promise.race([work, new Promise((_, reject) => {
       timer = setTimeout(() => reject(deadlineExceeded()), deadline.remainingMs())
     })])
   } finally { clearTimeout(timer) }

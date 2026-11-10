@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import { HostControl } from '../src/host-control.mjs'
 import { HostDeadline, waitForDeadline } from '../src/host-deadline.mjs'
 import { Context, z } from '../dist/dsh.mjs'
@@ -146,6 +147,22 @@ test('deadline waits use a monotonic clock and do not cancel underlying work', a
   const deadline = new HostDeadline(10, () => now)
   now = 21
   await assert.rejects(waitForDeadline(new Promise(() => {}), deadline), { details: { reason: 'deadline-exceeded' } })
+})
+
+test('expired deadline observes a later cleanup rejection without terminating Node', () => {
+  const script = `
+    import { HostDeadline, waitForDeadline } from './src/host-deadline.mjs'
+    const deadline = new HostDeadline(1, () => 10)
+    deadline.now = () => 12
+    const cleanup = new Promise((_, reject) => setTimeout(() => reject(new Error('late cleanup')), 5))
+    try { await waitForDeadline(cleanup, deadline); process.exitCode = 2 }
+    catch (error) { if (error.details?.reason !== 'deadline-exceeded') process.exitCode = 3 }
+    await new Promise(resolve => setTimeout(resolve, 20))
+  `
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', script],
+    { cwd: process.cwd(), encoding: 'utf8', timeout: 5000 })
+  assert.equal(child.status, 0, child.stderr)
+  assert.equal(child.signal, null)
 })
 
 test('service gate closes before accept returns, including direct service admissions', () => {
