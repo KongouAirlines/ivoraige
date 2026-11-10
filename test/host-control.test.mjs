@@ -21,6 +21,107 @@ function host(stages = {}) {
 }
 const op = (control, operationId) => control.operation(operationId, { expectedGeneration: generation })
 
+test('failed startup retains the normal ordered exit path and reports state reasons', async () => {
+  const calls = []
+  const stages = Object.fromEntries(['gate', 'admissions', ...Object.keys(defaultStages())]
+    .map(key => [key, () => calls.push(key)]))
+  const control = new HostControl({ dataDomainRef: 'domain-1', generation, stages })
+  assert.throws(() => control.exit({ expectedGeneration: generation, budgetMs: 100 }),
+    { details: { reason: 'host-not-ready' } })
+  control.failStart()
+  assert.throws(() => control.ready(), { details: { reason: 'host-not-ready' } })
+  assert.throws(() => control.failStart(), { details: { reason: 'host-not-ready' } })
+  assert.throws(() => control.drain({ expectedGeneration: generation, budgetMs: 100 }),
+    { details: { reason: 'host-not-ready' } })
+  const accepted = control.exit({ expectedGeneration: generation, budgetMs: 100 })
+  await control.waitForAttempt()
+  assert.deepEqual(calls, ['gate', 'admissions', 'work', 'resources', 'storage', 'releaseStore', 'cleanupDiscovery', 'closeControl'])
+  assert.equal(op(control, accepted.operationId).status, 'completed')
+  assert.equal(op(control, accepted.operationId).safeToExit, true)
+  assert.equal(control.state().storeOwnership, 'released')
+  assert.equal(control.state().state, 'stopping') // Completion is not OS process-exit proof.
+  control.exit({ expectedGeneration: generation, budgetMs: 100 })
+  await control.waitForAttempt()
+  assert.equal(calls.length, 8)
+})
+
+test('a failed owner with unknown or released ownership cannot begin cleanup', () => {
+  for (const [ownership, reason] of [['unknown', 'store-ownership-unknown'], ['released', 'owner-unavailable']]) {
+    const control = host()
+    control.setStoreOwnership(ownership)
+    assert.equal(control.state().state, 'failed')
+    assert.throws(() => control.exit({ expectedGeneration: generation, budgetMs: 100 }), { details: { reason } })
+    assert.equal(control.state().operationId, null)
+  }
+})
+
+test('late release updates recovery to retry and retry only performs final cleanup', async () => {
+  let release
+  const released = new Promise(resolve => { release = resolve })
+  const calls = []
+  const control = host({ releaseStore: deadline => {
+    calls.push('release')
+    deadline.now = () => Number.MAX_SAFE_INTEGER
+    return released
+  }, cleanupDiscovery: () => calls.push('discovery'), closeControl: () => calls.push('close') })
+  const accepted = control.exit({ expectedGeneration: generation, budgetMs: 1000 })
+  await control.waitForAttempt()
+  assert.equal(control.state().storeOwnership, 'unknown')
+  assert.equal(op(control, accepted.operationId).blockers[0].recovery, 'manual-recovery')
+  release()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(control.state().storeOwnership, 'released')
+  assert.equal(op(control, accepted.operationId).blockers[0].recovery, 'retry')
+  control.exit({ expectedGeneration: generation, budgetMs: 1000 })
+  await control.waitForAttempt()
+  assert.deepEqual(calls, ['release', 'discovery', 'close'])
+  assert.equal(op(control, accepted.operationId).status, 'completed')
+})
+
+test('late control closure records completed cleanup without inventing process exit', async () => {
+  let close
+  const closed = new Promise(resolve => { close = resolve })
+  const control = host({ closeControl: deadline => {
+    deadline.now = () => Number.MAX_SAFE_INTEGER
+    return closed
+  } })
+  const accepted = control.exit({ expectedGeneration: generation, budgetMs: 1000 })
+  await control.waitForAttempt()
+  assert.equal(op(control, accepted.operationId).status, 'blocked')
+  close()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(op(control, accepted.operationId).status, 'completed')
+  assert.equal(op(control, accepted.operationId).reason, null)
+  assert.deepEqual(op(control, accepted.operationId).blockers, [])
+  assert.equal(control.state().state, 'stopping')
+})
+
+test('internal deadlines support zero, fractional and longer budgets while request budgets remain bounded', async () => {
+  for (const budget of [0, 0.5, 120_001, Number.MAX_SAFE_INTEGER]) {
+    const deadline = new HostDeadline(budget, () => 0)
+    assert.equal(deadline.remainingMs(), Math.ceil(budget))
+  }
+  const control = host()
+  for (const budgetMs of [0, 0.5, 120_001])
+    assert.throws(() => control.exit({ expectedGeneration: generation, budgetMs }), { details: { reason: 'invalid-request' } })
+  await waitForDeadline(new Promise(resolve => setTimeout(resolve, 10)), new HostDeadline(Number.MAX_SAFE_INTEGER))
+  for (const budget of [-1, NaN, Infinity, '10']) assert.throws(() => new HostDeadline(budget))
+})
+
+test('ordinary service cleanup does not apply the HostControl request range to its config', async t => {
+  for (const budgetMs of [0, 0.5, 120_001]) {
+    const ctx = new Context()
+    t.after(() => ctx.fiber.dispose())
+    await ctx.plugin(OperationCatalog, { drainTimeoutMs: budgetMs })
+    await ctx.get('ivoraige.operationCatalog').close()
+  }
+  for (const budgetMs of [100.5, 120_001]) {
+    const resource = { stopAccepting() {}, pending: new Set(), opened: new Set(), drainTimeoutMs: budgetMs }
+    await ResourceAccess.prototype.close.call(resource)
+    assert.equal(resource.drained, true)
+  }
+})
+
 test('gate atomically closes admission; timed out admission joins the same operation', async () => {
   let gates = 0
   const control = host({ gate: () => { gates++ } })

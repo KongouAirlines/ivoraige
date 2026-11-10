@@ -56,3 +56,33 @@ conditional/platform skips, zero failures. The isolated package smoke passed
 with 93 files, including reinstall, persistence, frozen exports, MCP discovery/call
 and static UI. Native Windows pipe-close stress remains unrun in this environment;
 the separate ordinary-account/fully unelevated gate remains open.
+
+## Lifecycle review corrections
+
+A failed host that still holds its store lease can accept `exit` and run the
+same ordered cleanup stages. It does not skip admissions, work or resources:
+the bootstrap's stage callbacks remain responsible for partially initialized
+objects. `starting` and failed-host `drain` return `host-not-ready`; a new
+cleanup operation with uncertain or released ownership returns
+`store-ownership-unknown` or `owner-unavailable`. Invalid ready/start-failure
+transitions also include a reason.
+
+When a release finishes after its wait budget, ownership and blocker recovery
+change together from unknown/manual-recovery to released/retry. Explicit retry
+then performs only unfinished discovery and control cleanup. Successful control
+closure records `status=completed, phase=release, safeToExit=true`, including
+closure that completes after its waiting attempt timed out. State remains
+`stopping`; this result is not proof that the OS process exited.
+
+The monotonic deadline helper accepts finite nonnegative internal budgets,
+including zero, fractional values and budgets above two minutes. HostControl
+request admission still separately requires integer budgets from 1 to 120000.
+Long internal waits use bounded timer chunks rather than Node's overflowing
+timer behavior.
+
+On Linux / Node 24.22.1, six added regressions failed against the preceding
+implementation and passed after these corrections. The combined HostControl,
+operation-catalog and resource-access suites passed 39/39 with no skips. A fresh
+build from clean DSH pin `639ed015397290b3745d163aafe02ffee4aa3f84` passed.
+These checks do not establish native Windows, cross-account or installed-entry
+acceptance. The contract/schema update is carried by the preceding stack layer.
