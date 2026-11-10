@@ -193,3 +193,9 @@ listen on a Unix socket (`EPERM`) in this execution environment, including an
 approved expanded-execution attempt. This is a local verification limitation,
 not a package-smoke pass; the three native CI platforms must establish the
 packaged entry result for this combined commit.
+
+The first native Linux integration run passed the full test suite but found
+one stale package-smoke assertion: it expected the former shared cookie name.
+The smoke now requires the domain/origin-scoped 32-hex cookie suffix and also
+exercises same-origin POST refresh on the installed application. This retains
+the stronger session boundary instead of restoring the old shared cookie.

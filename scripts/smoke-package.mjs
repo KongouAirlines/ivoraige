@@ -84,9 +84,16 @@ async function pairOwner(cli, store, settingsDir, origin) {
     if (!response.ok) throw new Error(`Packaged owner pairing failed (${response.status})`)
     const cookie = response.headers.get('set-cookie')?.split(';')[0]
     const { csrfToken } = await response.json()
-    assert.match(cookie, /^ivoraige_owner=[A-Za-z0-9_-]{43}$/)
+    assert.match(cookie, /^ivoraige_owner_[a-f0-9]{32}=[A-Za-z0-9_-]{43}$/)
     assert.match(csrfToken, /^[A-Za-z0-9_-]{43}$/)
-    return { origin, cookie, csrfToken }
+    const refreshed = await fetch(new URL('/api/host/session/refresh', origin), {
+      method: 'POST', headers: { Origin: origin, Cookie: cookie }, redirect: 'error',
+    })
+    assert.equal(refreshed.status, 200)
+    const nextCsrfToken = (await refreshed.json()).csrfToken
+    assert.match(nextCsrfToken, /^[A-Za-z0-9_-]{43}$/)
+    assert.notEqual(nextCsrfToken, csrfToken)
+    return { origin, cookie, csrfToken: nextCsrfToken }
   } finally { await attached.dispose() }
 }
 
