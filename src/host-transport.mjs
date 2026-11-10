@@ -3,7 +3,7 @@ import { createServer, createConnection } from 'node:net'
 import { chmod, lstat, readFile, rename, rm } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { z } from 'zod'
-import { KernelError } from './errors.mjs'
+import { ERROR_STATUSES, KernelError } from './errors.mjs'
 import { assertPrivateDirectory, assertPrivateFile, createPrivateFile, ensurePrivateDirectory } from './host-permissions.mjs'
 
 import { createWindowsPipeServer, connectWindowsPipe } from './host-windows-pipe.mjs'
@@ -36,10 +36,10 @@ const actions = {
   'mcp.read': shape({ name: id, uri: z.string().min(1).max(2048), variables: z.record(z.string(), z.string().max(2048)) }),
 }
 const requestShape = shape({ interfaceVersion: z.string(), minor: z.number().int(), requestId: id,
-  action: z.string(), expectedGeneration: id, params: z.unknown(), capability: z.string().optional() })
+  action: z.string(), expectedGeneration: id, params: z.unknown(), capability: z.string().min(1).optional() })
 const attachShape = shape({ interfaceVersion: z.string(), minor: z.number().int(), requestId: id,
   action: z.literal('attach'), params: shape({ dataDomainRef: id, requiredLifetime: z.enum(['resident', 'ephemeral']) }),
-  capability: z.string().optional() })
+  capability: z.string().min(1).optional() })
 const fail = (code, reason, message = reason) => new KernelError(code, message, { reason })
 const validVersion = frame => {
   if (frame.interfaceVersion !== HOST_INTERFACE_VERSION || frame.minor !== HOST_INTERFACE_MINOR)
@@ -109,12 +109,14 @@ async function removeOwnedRecord(directory, record) {
 }
 
 export function formatHostFailure(error) {
-  const code = error instanceof KernelError ? error.code : 'INTERNAL'
+  const code = error instanceof KernelError && Object.hasOwn(ERROR_STATUSES, error.code) ? error.code : 'INTERNAL'
+  const reason = code !== 'INTERNAL' && id.safeParse(error.details?.reason).success
+    ? error.details.reason : 'internal-error'
   // Never return raw exception text or a received frame; either could contain
   // a browser bootstrap credential or business secret.
   return { ok: false, apiVersion: '2.0', error: { code, message: 'Host control request failed',
-    details: { reason: error instanceof KernelError ? error.details?.reason ?? 'internal-error' : 'internal-error',
-      ...(error?.details?.supportedMinors ? { supportedMinors: error.details.supportedMinors } : {}) } } }
+    details: { reason, ...(reason === 'interface-version-unsupported'
+      ? { supportedMinors: [HOST_INTERFACE_MINOR] } : {}) } } }
 }
 
 function equalSecret(a, b) {

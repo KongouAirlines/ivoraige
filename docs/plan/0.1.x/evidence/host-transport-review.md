@@ -25,3 +25,10 @@ A system that lacks a usable runtime or persistent home location still uses a sh
 `node --test test/host-contract.test.mjs test/host-transport.test.mjs test/host-session.test.mjs`: 18 tests, 16 passed, 2 skipped, 0 failed on Linux / Node 24.22.1. Socket-free Duplex tests demonstrate a 5.1-second business response, an independent response timeout, connection cancellation, business disconnect during a deferred state lookup, and exit continuation after disconnect. The two real Unix-socket tests were skipped because this sandbox rejects bind with EPERM; no permission change or alternate network transport was used. Native POSIX integration and Windows pipe disconnect/cancellation behavior remain unverified here. The preexisting registry-lease discovery cleanup regression still passes. No HTTP/browser entry, installed CLI owner path, or native Windows evidence is claimed by these tests.
 
 Additional Linux checks of `test/host-permissions.test.mjs`, `test/host-windows-pipe.test.mjs` and `test/host-windows-pipe-broker.test.mjs` reported 23 tests, 7 passed, 16 platform skips, 0 failures. These do not substitute for native Windows pipe verification.
+
+An integration check found that an empty capability was still accepted by Zod
+despite the shared schema's nonempty requirement, and a raw exception could
+copy arbitrary `details.supportedMinors` into the public failure frame. Both
+were reproduced and corrected. Capability validation now agrees with the
+schema; supported minors come only from the local interface definition, and
+unknown/internal errors expose only the fixed internal-error reason.

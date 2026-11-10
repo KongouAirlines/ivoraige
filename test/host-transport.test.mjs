@@ -76,6 +76,16 @@ test('OwnerIPC fixture requests match runtime validation and real error formatte
     assert.ok(frame.error.details.reason)
   }
   assert.deepEqual(version.error.details.supportedMinors, [0])
+  const raw = formatHostFailure(Object.assign(new Error('private provider failure'),
+    { details: { reason: 'private-value', supportedMinors: ['private-value'] } }))
+  assert.deepEqual(raw.error.details, { reason: 'internal-error' })
+  assert.equal(validFrame(raw), true)
+  const frame = { interfaceVersion: 'HostControl@1', minor: 0, requestId: 'r',
+    action: 'state', expectedGeneration: 'g', params: {}, capability: '' }
+  assert.throws(() => validateHostRequest(frame), { details: { reason: 'invalid-request' } })
+  const { expectedGeneration, ...attach } = frame
+  assert.throws(() => validateHostAttach({ ...attach, action: 'attach',
+    params: { dataDomainRef: 'd', requiredLifetime: 'resident' } }), { details: { reason: 'invalid-request' } })
 })
 
 test('socket-free exchange keeps business response unbounded and distinguishes cancellation from uncertain result', async () => {
