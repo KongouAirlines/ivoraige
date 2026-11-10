@@ -1,4 +1,5 @@
 import { createInterface } from 'node:readline'
+import { pdfEmailCases } from './pdf-email-cases.mjs'
 import { readFile, writeFile, access } from 'node:fs/promises'
 
 const [mode = 'normal', marker] = process.argv.slice(2)
@@ -25,6 +26,145 @@ if (mode === 'coverage-summary') {
     locator: { page: 2, bbox: [110, 20, 130, 40], key: 'audit' } })
   records.push({ order: 2, requestText: 'Invented audit line', sourceUnicode: 'Invented audit line',
     page: 2, callback: false, layoutLabel: 'unmapped_pdf_text', placeholders: [] })
+}
+if (mode === 'markdown-structure') {
+  units.splice(0, units.length,
+    { order: 0, kind: 'heading', sourceText: 'Results_2026 <b1>',
+      locator: { page: 1 }, translatable: true },
+    { order: 1, kind: 'body', sourceText: '1. Metric_Total = x\\alpha & 5 < 7; <b2> &lt; 1.',
+      locator: { page: 1 }, translatable: true },
+    { order: 2, kind: 'caption', sourceText: 'Figure_1: *literal* caption.',
+      locator: { page: 2 }, translatable: false },
+    { order: 3, kind: 'formula', sourceText: 'α_<f1> end',
+      locator: { page: 2 }, translatable: false })
+  records.splice(0, records.length,
+    { order: 0, requestText: units[0].sourceText, placeholders: [{ token: '<b1>', text: 'a<b' }] },
+    { order: 1, requestText: units[1].sourceText, placeholders: [] },
+    { order: 2, requestText: units[2].sourceText, placeholders: [] },
+    { order: 3, requestText: units[3].sourceText, placeholderPayloads: [
+      { type: 'formula', placeholder: '<f1>', formula_chars: 'x_1 < y' } ] })
+}
+if (mode === 'markdown-setext') {
+  units.splice(0, units.length, ...[0, 1, 2, 3, 4].map(order => ({
+    order, kind: 'body', sourceText: `Line ${order}\n${' '.repeat(order)}===`,
+    locator: { page: 1 }, translatable: false,
+  })))
+  records.splice(0, records.length, ...units.map(unit => ({
+    order: unit.order, requestText: unit.sourceText, placeholders: [],
+  })))
+}
+if (mode === 'markdown-indent') {
+  const prefixes = [' ', '  ', '   ', '    ', '\t', ' \t', '  \t', '   \t',
+    '\t ', ' \t ', '    \t', '     ', '\t\t', '  \t  ']
+  units.splice(0, units.length, ...prefixes.map((prefix, order) => ({
+    order, kind: 'body', sourceText: `${prefix}Metric_Total <note> &lt;`,
+    locator: { page: 1 }, translatable: false,
+  })))
+  records.splice(0, records.length, ...units.map(unit => ({
+    order: unit.order, requestText: unit.sourceText, placeholders: [],
+  })))
+}
+if (['markdown-url', 'markdown-link-boundaries', 'markdown-email'].includes(mode)) {
+  const sources = mode === 'markdown-email' ? pdfEmailCases.map(([source]) => source)
+    : mode === 'markdown-link-boundaries' ? [
+    '<https://example.com/a!>',
+    '<https://example.com/a?>',
+    '<https://example.com/a;>',
+    '<https://example.com/a.>',
+    '<https://example.com/a:>',
+    '<https://example.com/a,>',
+    '<https://example.com/a)>',
+    '<https://example.com/a]>',
+    '<https://example.com/a?q=why?>',
+    '<ftp://example.com/a;>',
+    '<www.example.com/a!>',
+    'Bare https://example.com/a!',
+    'Bare https://example.com/a?',
+    'Bare https://example.com/a;',
+    'Bare https://example.com/a.',
+    'Bare https://example.com/a:',
+    'www..',
+    'www.!',
+    'www.',
+    'www..example.com/a-b',
+    'WWW.!',
+    'Reference_www..',
+    '<www.!>',
+    'user@example.com_x',
+    'user@example.com_ab-c',
+    'user@example.com_',
+    '<user@example.com_x>',
+    'user_name@example.com',
+    '<user@example.com>',
+    'user@example.com_x and other@example.com',
+    '<www.example.com.>',
+    'www.example.com./a',
+    'www./',
+  ] : [
+    'Source https://example.com/a-b_c?key_name=1&x=2',
+    'Entity https://example.com/a?x=&copy;',
+    'Enclosed (https://example.com/a_(b)).',
+    'Angle <https://example.com/a-b>',
+    'Email user-name_test@example.com',
+    'Web www.example.com/a-b_c',
+    'FTP ftp://example.com/a-b_c',
+    'Quote "https://example.com/a-b"',
+    'Bracket https://example.com/a[b](test)',
+    'Backslash https://example.com/a\\b',
+    'Suffix https://example.com/a_',
+    'Invalid https://[bad',
+    'Spacing\n \thttps://example.com/a-b',
+    'Invalid nested https://[bad:https://example.com',
+    'Invalid nested www https://[badwww.example.com',
+    'Invalid mail https://[bad/user-name@example.com',
+    'Punctuation https://example.com/a-b;',
+    'Reference_https://example.com/a-b',
+    'Referencehttps://example.com/a-b_c?x=1&y=2',
+    '123https://example.com/a-b',
+    "Contact 'help@example.com'.",
+    "Contact 'o'connor@example.com'.",
+    "Contact o'connor@example.com.",
+    'IPv6 https://[2001:db8::1]/a',
+    'IPv6 port https://[::1]:8080/a-b?x=1&y=2',
+    'IPv6 FTP ftp://[2001:db8::1]/a_b',
+    'IPv6 path https://[2001:db8::1]/a[b]',
+    'Adjacent invalid Reference_https://[bad/a-b',
+    'Reference_www.example.com/a-b',
+    'Referencewww.example.com/a-b_c?x=1&y=2',
+    '123www.example.com/a-b',
+    'Reference_WWW.example.com/a-b_c',
+    "Contact 'help@example.com.'",
+    "Contact 'help@example.com,'",
+    "Contact 'help@example.com!'",
+    "Contact 'help@example.com?'",
+    "Contact 'help@example.com:'",
+    "Contact 'help@example.com;'",
+    "Contact 'help@example.com...?!'",
+    "Contact 'o'connor@example.com.'",
+    "Contact 'o'connor@example.com.",
+    "Contact 'help@example.com.",
+    "联系 'help@example.com。'",
+    "联系 'help@example.com，'",
+    "联系 'help@example.com！'",
+    "联系 'help@example.com？'",
+    "联系 'help@example.com；'",
+    "联系 'help@example.com：'",
+    "联系 'help@example.com、'",
+    "联系 'help@example.com……'",
+    "联系 'help@example.com。？！?!'",
+    "联系 'o'connor@example.com。'",
+    "联系 o'connor@example.com。",
+    "联系 'o'connor@example.com。",
+    "联系 'help@example.com。",
+    "联系 'help@example.com。下一句'",
+    "联系 'help@example.com。 '另一项'",
+  ]
+  units.splice(0, units.length, ...sources.map((sourceText, order) => ({
+    order, kind: 'body', sourceText, locator: { page: 1 }, translatable: false,
+  })))
+  records.splice(0, records.length, ...units.map(unit => ({
+    order: unit.order, requestText: unit.sourceText, placeholders: [],
+  })))
 }
 
 for await (const line of createInterface({ input: process.stdin })) {
