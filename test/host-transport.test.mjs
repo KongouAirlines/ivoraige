@@ -1,6 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import fs from 'node:fs'
+import { createHash } from 'node:crypto'
+import { syncBuiltinESMExports } from 'node:module'
+import { DatabaseSync } from 'node:sqlite'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHostTransport, connectHostTransport, validateHostRequest } from '../src/host-transport.mjs'
@@ -103,4 +107,58 @@ test('ephemeral owner publishes only an in-process marker and refuses attach', a
     await assert.rejects(connectHostTransport({ directory, dataDomainRef: 'domain-a' }),
       { code: 'CONFLICT', details: { reason: 'temporary-owner' } })
   } finally { await host.cleanupDiscovery(); await host.close() }
+}))
+
+// Instrument the actual filesystem boundaries rather than relying on timing:
+// every publication and each side of conditional cleanup must hold the same
+// cross-process SQLite lease. The former read/check/unlink implementation
+// allowed a new generation to replace the path after the read.
+test('discovery publication and conditional cleanup share the registry lease', async () => fixture(async directory => {
+  const dataDomainRef = 'domain-cleanup-race'
+  const target = join(directory, `host-${createHash('sha256').update(dataDomainRef).digest('hex').slice(0, 24)}.json`)
+  const lockPath = join(directory, 'domains.owner.sqlite')
+  const original = { readFile: fs.promises.readFile, rename: fs.promises.rename, rm: fs.promises.rm }
+  const boundaries = []
+  function assertLocked(boundary) {
+    const db = new DatabaseSync(lockPath, { timeout: 0 })
+    try {
+      assert.throws(() => db.exec('BEGIN IMMEDIATE'), error =>
+        (error.errcode & 0xff) === 5 || (error.errcode & 0xff) === 6,
+      `${boundary} must hold the publication/cleanup lease`)
+      boundaries.push(boundary)
+    } finally { db.close() }
+  }
+  fs.promises.rename = async (...args) => {
+    if (args[1] === target) assertLocked('publish')
+    return original.rename(...args)
+  }
+  fs.promises.readFile = async (...args) => {
+    if (args[0] === target) assertLocked('read-before-delete')
+    return original.readFile(...args)
+  }
+  fs.promises.rm = async (...args) => {
+    if (args[0] === target) assertLocked('delete')
+    return original.rm(...args)
+  }
+  syncBuiltinESMExports()
+  const owner = generation => createHostTransport({ directory, dataDomainRef, generation,
+    lifetime: 'ephemeral', getState: () => ({ storeOwnership: 'held' }) })
+  const old = owner('generation-old'), next = owner('generation-next')
+  try {
+    await old.start()
+    await old.cleanupDiscovery()
+    await old.start() // Already-started owner does not republish after cleanup.
+    await next.start()
+    await old.cleanupDiscovery()
+    const record = JSON.parse(await original.readFile(target, 'utf8'))
+    assert.equal(record.generation, 'generation-next')
+    await next.cleanupDiscovery()
+    assert.deepEqual(boundaries, ['publish', 'read-before-delete', 'delete',
+      'publish', 'read-before-delete', 'read-before-delete', 'delete'])
+  } finally {
+    Object.assign(fs.promises, original)
+    syncBuiltinESMExports()
+    await old.close()
+    await next.close()
+  }
 }))

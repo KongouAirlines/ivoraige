@@ -48,7 +48,10 @@ export function createHostSession({ dataDomainRef, generation, lifetime, origin,
     !Number.isInteger(bootstrapTtlMs) || bootstrapTtlMs < 1 || bootstrapTtlMs > 60_000)
     throw new KernelError('INVALID_ARGUMENT', 'Invalid owner session configuration')
   const url = validOrigin(origin)
-  const name = url.protocol === 'https:' ? '__Host-ivoraige_owner' : 'ivoraige_owner'
+  // Cookie scope ignores ports, so distinct owners on one loopback host need
+  // distinct names even when their sessions use separate HTTP origins.
+  const scope = createHash('sha256').update(JSON.stringify([dataDomainRef, url.origin])).digest('hex').slice(0, 32)
+  const name = `${url.protocol === 'https:' ? '__Host-' : ''}ivoraige_owner_${scope}`
   const bootstraps = new Map()
   const sessions = new Map()
   let revoked = false

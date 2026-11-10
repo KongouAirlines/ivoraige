@@ -181,16 +181,19 @@ public static class HostPipe {
                     NamedPipeServerStream stream;
                     lock (Gate) { if (Closed) return; stream = Pending; }
                     await stream.WaitForConnectionAsync();
+                    Peer peer;
                     lock (Gate) {
                         if (Closed) { stream.Dispose(); return; }
                         // Keep one live instance at all times so another
                         // process cannot substitute a new pipe between clients.
                         Pending = NewPipe(Address, false);
+                        if (Peers.Count >= 64) { stream.Dispose(); continue; }
+                        // Close also holds Gate before draining Peers. Publish
+                        // and arm this peer before Close can acknowledge.
+                        peer = new Peer { Id = "p" + Interlocked.Increment(ref Sequence), Server = Id, Stream = stream };
+                        Peers[peer.Id] = peer;
+                        peer.Idle = new Timer(ignored => peer.Close(), null, 5000, Timeout.Infinite);
                     }
-                    if (Peers.Count >= 64) { stream.Dispose(); continue; }
-                    var peer = new Peer { Id = "p" + Interlocked.Increment(ref Sequence), Server = Id, Stream = stream };
-                    Peers[peer.Id] = peer;
-                    peer.Idle = new Timer(ignored => peer.Close(), null, 5000, Timeout.Infinite);
                     Read(peer, true);
                 }
             } catch {

@@ -9,6 +9,7 @@ import { assertPrivateDirectory, assertPrivateFile, createPrivateFile, ensurePri
 import { createWindowsPipeServer, connectWindowsPipe } from './host-windows-pipe.mjs'
 
 import { hostSocketDirectory } from './host-socket-directory.mjs'
+import { acquireRegistryLockBounded } from './host-domain.mjs'
 
 export const HOST_INTERFACE_VERSION = 'HostControl@1'
 export const HOST_INTERFACE_MINOR = 0
@@ -76,21 +77,32 @@ async function readRecord(directory, dataDomainRef) {
 }
 
 async function writeRecord(directory, record) {
+  await assertPrivateDirectory(directory)
+  const lease = await acquireRegistryLockBounded(directory)
   const target = recordPath(directory, record.dataDomainRef)
   const temporary = `${target}.${randomUUID()}.tmp`
   try {
     await createPrivateFile(temporary, `${JSON.stringify(record)}\n`)
     await rename(temporary, target)
     await assertPrivateFile(target)
-  } finally { await rm(temporary, { force: true }) }
+  } finally {
+    try { await rm(temporary, { force: true }) }
+    finally { lease.release() }
+  }
 }
 
 async function removeOwnedRecord(directory, record) {
+  await assertPrivateDirectory(directory)
+  // The store lease is already released during exit. Serialize the entire
+  // read/check/unlink with publication so an old generation cannot remove a
+  // replacement owner's record between the check and the unlink.
+  const lease = await acquireRegistryLockBounded(directory)
   try {
     const existing = await readRecord(directory, record.dataDomainRef)
     if (existing.generation === record.generation && existing.address === record.address)
       await rm(recordPath(directory, record.dataDomainRef))
   } catch (error) { if (error.code !== 'NOT_FOUND') throw error }
+  finally { lease.release() }
 }
 
 function normalizeError(error) {

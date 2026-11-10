@@ -10,6 +10,41 @@ This layer implements the local ownership primitives for D01.H01–H05 and H10. 
 - Owner transport uses a private Unix socket, or a Windows named pipe with an exact current-user native DACL, connected-handle server identity checks and actual client TokenUser verification before dispatch. A private per-generation capability is an additional generation-bound check. Ephemeral owners publish only a refusal marker. HTTP instance ids and PIDs are not authentication.
 - One-time browser bootstrap credentials are origin/domain/generation bound, replay protected, and held only in memory. Session cookies are HttpOnly/SameSite=Strict and writes require CSRF validation.
 
+## Review hardening
+
+Discovery publication and conditional removal now hold the same protected,
+bounded registry lease. The lease spans the generation/address read and unlink,
+so cleanup after store release cannot delete a replacement owner's record.
+The regression probes that lease at each filesystem boundary and verifies that
+late cleanup leaves the next generation discoverable.
+
+Windows accept registers and arms each accepted peer under the listener gate
+before close can enumerate peers and acknowledge shutdown. A native concurrent
+accept/close stress case checks connected peers within one second of the close
+acknowledgment, before the five-second unauthenticated-peer idle timer. This is
+stress coverage, not a deterministic scheduler probe; its native Windows run
+remains required.
+
+Browser cookie names include a hash of the bound data domain and origin. Two
+local owners on different ports therefore retain separate sessions even though
+browser cookies are not port-scoped. Host-only, HttpOnly, SameSite=Strict, HTTPS
+Secure/__Host- attributes and origin/CSRF checks are unchanged. HostControl@1,
+API 2.0 and stored record, task, snapshot and domain identities are unchanged.
+
+The discovery and browser-cookie regressions fail against their original
+implementations and pass with these fixes. Linux / Node 24.22.1 focused domain
+and transport checks passed 15 tests, with the socket-listen case skipped because
+the environment rejects bind. Session, broker and permission checks also passed.
+Native Windows peer-close stress and separate ordinary-account/fully unelevated
+acceptance are not established by these Linux results.
+
+With fresh `npm ci` dependencies, the complete Linux / Node 24.22.1 build and
+test run passed: 606 tests, 587 passed, 19 conditional/platform skips, zero
+failures. The isolated package smoke passed with 91 files, including reinstall,
+persistence, frozen exports, MCP discovery/call and static UI. An initial run
+using an older copied dependency cache failed the dependency-baseline checks;
+that cache was replaced from the unchanged lockfile before these final checks.
+
 ## Recovery and validation limits
 
 `copy` requires a distinct verified store and allocates a new domain/registration identity. `migrate` additionally requires trusted evidence that the source process retired; a free lock and a command-line confirmation do not supply that proof. `repair-registration` does not overwrite an unparseable multi-domain registry: without a trustworthy complete backup and merge evidence it remains unavailable. These limits are deliberate fail-closed results, not completed migration/repair UX.
