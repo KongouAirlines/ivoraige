@@ -1,6 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
+import { readFile } from 'node:fs/promises'
+import Ajv2020 from 'ajv/dist/2020.js'
 import { HostControl } from '../src/host-control.mjs'
 import { HostDeadline, waitForDeadline } from '../src/host-deadline.mjs'
 import { Context, z } from '../dist/dsh.mjs'
@@ -20,6 +22,28 @@ function host(stages = {}) {
   return control
 }
 const op = (control, operationId) => control.operation(operationId, { expectedGeneration: generation })
+
+test('actual lifecycle projections conform to the shared contract through completed cleanup', async () => {
+  const schema = JSON.parse(await readFile(new URL('../docs/requirements/0.1.x/schemas/host-control-v1.schema.json', import.meta.url), 'utf8'))
+  const ajv = new Ajv2020({ allErrors: true, strict: false })
+  ajv.addSchema(schema)
+  const validateState = ajv.getSchema(`${schema.$id}#/$defs/State`)
+  const validateOperation = ajv.getSchema(`${schema.$id}#/$defs/ControlOperation`)
+  const observations = []
+  const control = new HostControl({ dataDomainRef: 'domain-1', generation, stages: defaultStages(),
+    onChange: state => observations.push({ state, operation: state.operationId ? op(control, state.operationId) : null }) })
+  observations.push({ state: control.state(), operation: null })
+  control.ready()
+  control.drain({ expectedGeneration: generation, budgetMs: 1000 })
+  await control.waitForAttempt()
+  control.exit({ expectedGeneration: generation, budgetMs: 1000 })
+  await control.waitForAttempt()
+  assert.equal(observations.at(-1).operation.status, 'completed')
+  for (const { state, operation } of observations) {
+    assert.ok(validateState(state), ajv.errorsText(validateState.errors))
+    if (operation) assert.ok(validateOperation(operation), ajv.errorsText(validateOperation.errors))
+  }
+})
 
 test('failed startup retains the normal ordered exit path and reports state reasons', async () => {
   const calls = []
