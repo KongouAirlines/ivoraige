@@ -196,7 +196,7 @@ inspect 不启动业务 host；返回观察条件的 diagnosticRevision、域/�
 
 ## 8. 错误与查询规则
 
-所有 HostControl 外部错误使用 v2 §1.3 信封 `{ apiVersion: "2.0", error: { code, message, details: { reason } } }`。`reason` 必须位于 `error.details.reason`，不是 `error.reason` 或顶层字段；`interface-version-unsupported` 还必须在同一 `details` 中给出非空 `supportedMinors`。OwnerIPC 失败帧仅在此信封外加 `ok: false`，错误对象形状不变。`code` 给出协议级类别，`reason` 给出机器可读分支；客户端遇到未知 reason 必须按未知拒绝处理，不推断自动重试或 owner 不存在。错误对外的 `message` 是无秘密的诊断文本，不能回显原始异常/请求帧。以下 reason 枚举是本切片已定义的生产分支；本机 inspect/recover 的局部诊断另列，不经 HTTP/MCP 公开。
+所有 HostControl 外部错误使用 v2 §1.3 信封 `{ apiVersion: "2.0", error: { code, message, details: { reason } } }`。`reason` 必须位于 `error.details.reason`，不是 `error.reason` 或顶层字段；`interface-version-unsupported` 还必须在同一 `details` 中给出非空 `supportedMinors`。OwnerIPC 失败帧仅在此信封外加 `ok: false`，错误对象形状不变。`code` 给出协议级类别，`reason` 给出机器可读分支；表内已定义的 reason 必须匹配其 code，schema 对两个错误边界共用此约束。客户端遇到未知 reason 必须按未知拒绝处理，不推断自动重试或 owner 不存在。错误对外的 `message` 是无秘密的诊断文本，不能回显原始异常/请求帧。以下 reason 枚举是本切片已定义的生产分支；本机 inspect/recover 的局部诊断另列，不经 HTTP/MCP 公开。
 
 | code / reason | 行为 |
 | --- | --- |
