@@ -170,3 +170,26 @@ rather than introduce a second host, runtime, scheduler or storage owner:
 
 This handoff does not mark D01 complete or change the work-package dependencies,
 runtime migration gates or release criteria.
+
+## Reviewed foundation and lifecycle integration
+
+The entry layer now incorporates owner-foundation `af661fd` and lifecycle
+`b61d6a5`, preserving initialization journal safety, bounded sessions, random
+socket leaves, disconnect cancellation and terminal lifecycle projections.
+The shared transport dispatcher retains the entry layer's accepted-exit
+finalization channel; the owner facade forwards business cancellation signals.
+Browser reload uses `POST /api/host/session/refresh` with the paired cookie
+and exact Origin to rotate CSRF, instead of the former cookie-only GET.
+Bootstrap credential exchange remains `POST /api/host/session`.
+
+On Linux / Node 24.22.1, the integrated build and complete suite passed:
+673 tests, 645 passed, 28 conditional/platform skips, no failures. Regression
+coverage includes refresh method/Origin checks and retention of the exit
+receipt channel after shared dispatch validation. Native CI for the new
+combined head is distinct from prior green commits. This integration does
+not rerun or complete the separate-account acceptance described above.
+The isolated package smoke reached the installed owner startup but could not
+listen on a Unix socket (`EPERM`) in this execution environment, including an
+approved expanded-execution attempt. This is a local verification limitation,
+not a package-smoke pass; the three native CI platforms must establish the
+packaged entry result for this combined commit.

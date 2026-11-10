@@ -128,6 +128,38 @@ test('Windows retired pipe reports owner-unreachable rather than a permission fa
   } finally { client.destroy() }
 })
 
+test('Windows native close promptly drains peers while accepts race with shutdown', windows, async () => {
+  const host = await listen(socket => socket.once('data', () => {}))
+  const first = connectWindowsPipe(host.endpoint)
+  const accepted = once(host.server, 'connection')
+  await once(first, 'connect')
+  first.write('established\n')
+  await accepted
+  const sockets = [first, ...Array.from({ length: 24 }, () => connectWindowsPipe(host.endpoint))]
+  const connected = new Set([first])
+  const closed = sockets.map(socket => new Promise(resolve => {
+    socket.once('connect', () => { connected.add(socket); socket.write('racing\n') })
+    socket.once('close', resolve)
+  }))
+  let deadline
+  try {
+    // Native connects and the close command run concurrently in the helper.
+    await host.close()
+    // Some outbound connects can legitimately spend up to 5s looking for a
+    // pipe after the listener closes; only connections made by the close
+    // acknowledgment can represent a surviving accepted server handle.
+    const liveAtClose = sockets.map((socket, i) => connected.has(socket) ? closed[i] : null).filter(Boolean)
+    for (const socket of sockets) if (!connected.has(socket)) socket.destroy()
+    await Promise.race([
+      Promise.all(liveAtClose),
+      // This must expire before the helper's 5s idle timer could mask an
+      // accepted-peer leak from the old registration/Close interleaving.
+      new Promise((_, reject) => { deadline = setTimeout(() => reject(new Error('A native peer survived close acknowledgment')), 1000) })
+    ])
+    assert.ok(sockets.every(socket => socket.destroyed))
+  } finally { clearTimeout(deadline); for (const socket of sockets) socket.destroy(); await host.close() }
+})
+
 test('Windows same-SID native transport does not need SeImpersonatePrivilege', windows, async () => {
   const runner = fileURLToPath(new URL('./fixtures/windows-pipe-unprivileged.mjs', import.meta.url))
   const { stdout } = await execute(`$result = [WindowsPipeProbe]::WithoutImpersonationPrivilege(${quote(process.execPath)}, ${quote(runner)}); if ($result -ne 0) { throw 'Reduced-token exchange failed' }`)

@@ -245,8 +245,8 @@ export async function createOwnedApp(options, { compose, lifetime, attach }) {
       getState: () => control.state(), getSession: () => session,
       getInfo: () => ({ ...httpInfo, ownerConfigBinding: binding }), handleControl,
       waitForAttempt: () => control.waitForAttempt(),
-      handleBusiness: async (method, input) => {
-        if (!method.startsWith('mcp.')) return app.operations.invoke(method, input)
+      handleBusiness: async (method, input, { signal } = {}) => {
+        if (!method.startsWith('mcp.')) return app.operations.invoke(method, input, { signal })
         const registry = app.mcp
         if (!registry) throw fail('COMPONENT_MISSING', 'mcp-unavailable')
         if (method === 'mcp.describe') return {
@@ -261,7 +261,7 @@ export async function createOwnedApp(options, { compose, lifetime, attach }) {
         if (method === 'mcp.call') {
           const tool = registry.tools.get(input.name)
           if (!tool) throw fail('NOT_FOUND', 'mcp-tool-absent')
-          return tool.invoke(input.input, {})
+          return tool.invoke(input.input, { signal })
         }
         if (method === 'mcp.read') {
           const resource = registry.resources.get(input.name)
@@ -269,7 +269,7 @@ export async function createOwnedApp(options, { compose, lifetime, attach }) {
           const { ResourceTemplate } = await import('@modelcontextprotocol/server')
           const variables = new ResourceTemplate(resource.template, { list: undefined }).uriTemplate.match(input.uri)
           if (!variables) throw fail('INVALID_ARGUMENT', 'mcp-resource-uri-mismatch')
-          return resource.read(new URL(input.uri), variables, {})
+          return resource.read(new URL(input.uri), variables, { signal })
         }
         throw fail('INVALID_ARGUMENT', 'invalid-request')
       },

@@ -50,11 +50,11 @@ bootstrap 只取得一次 store lease，并将它交给同一长寿命 host 组�
 - 请求字段严格；响应容忍新增字段。未知状态显示“状态未知”，不能推断 ready。`requestId` 仅关联诊断，不是幂等键。
 - 连接后所有动作含 `expectedGeneration`。认证和归属先于对象存在性/状态披露；generation 不符返回 `CONFLICT/stale-generation`，不自动切到新宿主。
 - `dataDomainRef` 是持久域 ID，不能传路径。首次新库先由本机 `resolveLocalSelection(startupOptions)` 完成安全初始化，得到域 ID；路径只存在于本机 CLI 参数与受保护诊断中。在线写入不能改绑数据域。
-- 请求不包含 principal、grant、owner 标志或秘密；这些从受保护控制连接/浏览器会话带外提供。
+- 通用 HostControl Request 不包含 principal、grant、owner 标志或秘密；这些从受保护控制连接/浏览器会话带外提供。OwnerIPC 有独立的 `OwnerIPCRequest` 帧，Windows `capability` 只用于该本机帧的代际认证，不进入通用 Request、HTTP 或 MCP。
 
-候选 [JSON Schema](schemas/host-control-v1.schema.json) 的 `$defs` 分别提供 Request、State、Accepted、Attached、ControlOperation 与 RecoveryRequest。使用请求 schema 的前提是已通过版本和传输大小检查；实现以同一 schema 生成/对照 zod，不把文档 fixture 当服务器。
+候选 [JSON Schema](schemas/host-control-v1.schema.json) 的 `$defs` 分别提供 Request、OwnerIPCRequest、OwnerIPCFrame、ErrorResponse、State、Accepted、Attached、ControlOperation 与 RecoveryRequest。使用请求 schema 的前提是已通过版本和传输大小检查；实现层必须在自动测试中对照同一批 Request/OwnerIPCRequest fixture，不能把文档 fixture 当服务器。schema 不能证明认证、锁或恢复语义。
 
-传输响应共用 `apiVersion, interfaceVersion, minor, requestId`；state/operation 查询分别包为 `{ ..., state: State }` 和 `{ ..., operation: ControlOperation }`，Accepted 返回 `accepted, generation, operationId`，Attached 返回 `reused, dataDomainRef, generation, supportedMinors, state`。Attached 的外层与 State 的域/generation 必须相同，这类跨字段关系由语义测试补验。ownerBootstrap 与强退 challenge 的秘密响应在传输实现时单列内存-only schema，本轮 fixture 不包含它们；这三个管理动作的请求已定候选形状，不表示其响应/OS 接线已冻结。
+通用 HostControl 成功响应共用 `apiVersion, interfaceVersion, minor, requestId`；state/operation 查询分别包为 `{ ..., state: State }` 和 `{ ..., operation: ControlOperation }`，Accepted 返回 `accepted, generation, operationId`，Attached 返回 `reused, dataDomainRef, generation, supportedMinors, state`。OwnerIPC 响应另用 §4 的 `ok/result` 帧，不把通用成功响应字段误加到帧上。Attached 的外层与 State 的域/generation 必须相同，这类跨字段关系由语义测试补验。ownerBootstrap 与强退 challenge 的秘密响应在传输实现时单列内存-only schema，本轮 fixture 不包含它们；这三个管理动作的请求已定候选形状，不表示其响应/OS 接线已冻结。
 
 ## 4. 方法与传输映射
 
@@ -74,7 +74,11 @@ bootstrap 只取得一次 store lease，并将它交给同一长寿命 host 组�
 
 只有握手中的 storeOwnership=held 才可作为当前 owner 返回。released 的旧 generation 只接受原操作的查询/最终清理，不签发 ownerBootstrap/新会话、不接业务、不代新 host 执行动作；unknown 保持诊断阻塞。新控制器在取得已释放的锁后可创建下一 generation，旧地址还存活不能阻止或冒充新 owner；整个核验同时受 generation 和实际锁结果约束。
 
-最小传输候选：Unix 使用用户私有目录内的 socket，目录 0700、socket 0600 并核验实际 peer；Windows 使用仅当前用户 SID 可连接的 named pipe，验证 DACL、客户端身份与远程连接拒绝。不能用随机管道名替代权限验证。具体跨平台绑定/API 必须由 A1 原生探针选择，Node API 无法保证时不能宣称已支持，不能退回匿名 loopback。
+最小传输候选：POSIX 使用用户私有目录内的 socket，目录 0700、socket 0600，依赖内核 DAC 拒绝其他用户访问；这一实现不读取 peer credentials，不能声称核验了实际 peer。优先选择已核验的用户运行时/用户私有目录，路径过长或不可用时可在共享临时目录下原子创建随机的 0700 私有叶目录，并将实际地址写入受保护的发现记录；不得依赖可预测的共享 `/tmp` 子目录，也不得改 chmod 接管不属于自己的现有目录。须实测目录、socket 属主和权限，以及目录被抢占或删除后的行为。Windows 使用仅当前用户 SID 可连接的 named pipe，验证 DACL、客户端身份与远程连接拒绝，并在帧内验证本 generation 的 `capability`。不能用随机管道名或 capability 替代权限验证。具体跨平台绑定/API 必须由 A1 原生探针选择，无法保证时不能宣称已支持，不能退回匿名 loopback。
+
+本机 OwnerIPC 是独立传输，不把它的帧冒充为上述九个通用 HostControl Request。当前 A1 实现的 owner 帧动作是 `attach, state, drain, exit, operation, ownerBootstrap, transportInfo, prepareForceExit, forceExit, business, mcp.describe, mcp.call, mcp.read`；`start` 只在本机 bootstrap 中执行，不经 IPC。OwnerIPC 的 `business` 只转发到已安装的 P04 catalog，`mcp.*` 只转发到该 owner 的 MCP 操作/资源适配，不开放任意方法或宿主内部对象。此路径仅供已核实的本机 owner 调用者，不把 OS 用户身份当外部共享授权；向远端或多用户开放仍需要 I01.shared 授权隔离。所有业务转发在提交/派发点重新检查同一业务闸门与 generation，drain 后返回 `PRECONDITION_FAILED/host-draining`；`state/operation` 在释锁后仍可查询原 generation，其他动作不得恢复业务或签发凭证。`transportInfo` 只返回本机入口连接信息，不提供业务调用或权限提升。
+
+OwnerIPC 一连接只收一帧，成功帧为 `{ ok: true, result }`，失败帧为 `{ ok: false, apiVersion: "2.0", error: { code, message, details: { reason, supportedMinors? } } }`。失败的 `error` 与 HTTP/CLI/MCP 的 `ErrorResponse` 共享同一错误信封；`ok` 仅为 IPC 帧判别位，不能把整个 IPC 帧作为外部错误响应。`result` 按动作返回 HostControl 投影或 P04 既有业务结果，不把业务结果当管理授权。ownerBootstrap/force challenge 的秘密结果仍须在具体实现验证，不进入公开 fixture。
 
 Windows 实现采用独立原生传输 helper，保留 `HostControl@1` minor 0、generation、capability 与帧语义；权限与双向身份校验由实际 pipe handle/token 提供。实现、依赖、原生探针和仍待验收项目见[Windows pipe 边界](../../plan/0.1.x/evidence/host-windows-pipe.md)，不能用编写了探针代替运行结果。
 
@@ -84,7 +88,18 @@ Windows 实现采用独立原生传输 helper，保留 `HostControl@1` minor 0�
 
 ### 5.1 State
 
-State 包含 `dataDomainRef, generation, lifetime, state, storeOwnership, acceptingBusiness, stateRevision, synchronization, operationId, blockers`。state 只取 starting/ready/draining/stopping/failed；storeOwnership 为 held/released/unknown。`ready` 必须 held，表示必要 owner/storage 已就绪，不表示所有可选 PDF/模型能力就绪。
+State 字段如下。`ready` 必须 held，表示必要 owner/storage 已就绪，不表示所有可选 PDF/模型能力就绪。`starting`、`ready`、`draining` 不得报告 released；`ready` 尚无退出操作，`draining` 必有 operationId。`stopping` 可在 release 阶段报告 released；`failed` 允许启动失败回收后的 released，也允许持锁或未知归属，不能据 failed 猜测锁已释放。
+
+| 字段 | 含义 |
+| --- | --- |
+| `dataDomainRef`, `generation` | 当前域和本次宿主代际；必须与外层 Attached 一致 |
+| `lifetime` | `resident` 可附加；`ephemeral` 仅创建它的调用会话使用 |
+| `state` | `starting` 装配中；`ready` 可受理；`draining` 已关闸门、等待安全边界；`stopping` 正在销毁/释锁；`failed` 启动或基础设施故障且不可接业务 |
+| `storeOwnership` | `held` 已确认持锁；`released` 已确认释锁；`unknown` 不能证明归属，须按阻塞处理 |
+| `acceptingBusiness` | 仅 ready 为 true；写入/派发点仍须重查闸门 |
+| `stateRevision`, `synchronization` | `p04` 时为 P04 已提交修订；`control-only` 时 revision 为 null，不提供 barrier |
+| `operationId` | drain/exit 原子创建的唯一操作 ID；无操作为 null |
+| `blockers`, `blockersTruncated` | 最多返回 100 个残留；截断为 true 时列表不完整，不得当作无其他残留 |
 
 - `starting → ready`：登记一致、锁已持有、必要服务可用；ready 才可打开业务闸门。
 - `starting → failed`：启动失败；保留能够安全运行的最小诊断通道，回收已取得资源后才释放锁。不能开始业务。
@@ -103,6 +118,19 @@ P04 存活时 `stateRevision` 来自现有 bridge。尚未装配或最终销毁�
 
 operation 是 bootstrap 持有的生命周期记录，不是新的任务调度器，也不占 DSH 执行槽。它引用已有 taskId/安装操作/worker lease，残留列表由这些 owner 提供。进程重启不恢复旧 operation 执行；旧 generation 失效，实际任务按持久 checkpoint 恢复。没有持久结果证据的旧操作保持 unknown。
 
+| ControlOperation 字段 | 含义 |
+| --- | --- |
+| `operationId`, `generation` | 本代际唯一收尾操作及其 owner |
+| `intent` | `drain` 仅到 quiescent；`exit` 继续 storage/release；只能从 drain 升级到 exit |
+| `phase` | `gate` 关闸门；`admissions` 等入场租约；`work` 等任务安全点；`resources` 回收资源；`quiescent` drain 停点；`storage` 关闭存储；`release` 释锁及最终清理。只有 exit 可进入 storage/release |
+| `status` | `pending` 当前阶段仍在执行；`blocked` 超时或故障，保留 reason 并可重试；`drained` drain 停在 quiescent；`completed` exit 的 release 与管理清理全部成功，不等同于进程已退出 |
+| `remainingMs` | 本次尝试的单调时钟剩余等待预算；不重新发放已过期限额 |
+| `reason` | blocked 时必有可诊断原因；其他终态为 null |
+| `safeToExit` | 仅 `drained` 或 `completed` 为 true；blocked/pending 即使已越过业务安全边界也保守地为 false，不证明进程已退出或授权跳过清理 |
+| `blockers`, `blockersTruncated` | 同 State，来自已有 owner；列表截断不得视为无残留 |
+
+`Blocker.kind` 由报告残留的 owner 分类：`task` 是翻译/导出/导入任务；`operation` 是 catalog 或安装操作；`worker` 是受本宿主拥有的子进程/工作者；`storage` 是写者、存储销毁或锁；`registry` 是域登记/发现清理；`control` 是管理通道收尾。`ref` 可为该 owner 的稳定引用，未知为 null；`reason` 是机器可读诊断，不泄漏路径或凭证。`Blocker.recovery` 指下一步：`wait` 等待在途工作；`retry` 用同一 operation 重试；`repair` 先修复持久前置条件；`explicit-force` 仅在受信本机控制器展示风险并获确认后可强退本实例拥有的工作；`manual-recovery` 表示自动重试/强退均无法证明安全，须本机诊断。报告者必须根据实际资源归属选 kind，不能把未知资源伪作 task。
+
 `budgetMs` 候选范围 1–120000，UI 默认 15000；这是一次尝试的等待预算，不是数据安全上限。服务接收时转换为单调时钟 deadline，并扣除该进程内后续等待；HTTP、catalog、Tasks、worker 不各自续出一份预算。运行中的重复请求不刷新/缩短现有期限；超时进入 blocked/deadline-exceeded 后，下一次 drain/exit 用新 budget 继续同一 operation 的未完成阶段。断开请求只结束客户端等待，不撤销已受理退出意图。
 
 ### 5.3 必须按顺序完成的阶段
@@ -114,7 +142,7 @@ operation 是 bootstrap 持有的生命周期记录，不是新的任务调度�
 5. **storage**：关闭业务消费者，确认不再有写入者，再销毁 Records/DSH storage。部分 dispose 成功要逐阶段记录；失败重试只调用尚存对象，不重新创建已销毁对象。
 6. **release**：全部潜在写入资源已销毁后，先释放 store lock，随后条件删除“仍属于本 generation”的发现记录，最后关闭 bootstrap 管理通道并结束进程。管理 IPC 使用绑定 generation 的地址；控制器在 attach 时保留该地址及进程身份，不依赖后续 instance.json 仍存在。清理异常不得通过 `finally` 无条件跳到这一阶段。释放阶段与客户端的最终响应可竞态，客户端需用可信控制器确认，不把 accepted 当 stopped。
 
-drain-only 完成第 4 步后停在 `phase=quiescent,status=drained,safeToExit=true`，保留必要服务与管理通道；只有 exit 意图进入 storage/release。safeToExit 表示现阶段没有已知业务写入者，不授权绕过后续存储销毁步骤。
+drain-only 完成第 4 步后停在 `phase=quiescent,status=drained,safeToExit=true`，保留必要服务与管理通道；只有 exit 意图进入 storage/release。exit 完成 release 和管理通道清理后为 `phase=release,status=completed,safeToExit=true,reason=null`，但进程是否真正退出仍由本机控制器观察。`safeToExit=true` 只在这两种无已知业务写入者的终态出现，不授权绕过后续存储销毁步骤；storage/release 的 pending/blocked 仍为 false。
 
 释放是单向边界：释锁失败/结果不明时仍保留发现记录和管理通道，storeOwnership 为 held/unknown，不报告退出完成；释锁成功后为 released，旧 host 不再访问 store，也不能为重试抢回锁。此后删除记录失败仅重试本 generation 的发现清理；新 host 已替换记录则跳过，绝不删除新记录。此阶段仍可查询旧 generation 的管理 IPC，但旧进程不再是数据库 owner。管理通道最后关闭失败同样不伪报进程已退出。管理服务器对最终清理的投影不依赖已销毁的 DSH 服务；通道自身损坏时只能本机诊断，不能说“已可查询”。
 
@@ -136,7 +164,9 @@ store 内建议单独使用 DSH StorageDomain 的 `ivoraige_host` v1 元数据�
 
 锁顺序固定为 **OS 用户登记写锁 → 规范路径排序的目标 store 独占锁**。仅在初始化/恢复时短持登记锁，锁忙立即释放已取得锁再有界重试；不拿登记锁等待活跃 host 退出/网络/用户输入。普通 attach 在可验证的活 owner 路径只做受保护登记读取与握手，不另开应用数据库。恢复需要多个本机 store 时按相同排序非阻塞取得，避免倒序死锁。
 
-在受保护登记目录写入已刷盘的恢复意图（随机 transactionId、前置登记条件、目标身份、拟写域 ID）→ 通过 DSH 提交 store 元数据 → 原子替换并刷盘登记 → 标记/回收意图。每个故障点重启都以精确 store 身份和前置条件核验后续接；不能再生成 ID。意图路径不随数据目录迁移，业务闸门在两边一致前一直关闭。fsync/rename 与 Windows 文件替换行为需平台实测，不能用一次 writeFile 当耐崩溃事务。
+在受保护登记目录按目标 store 单独写入已刷盘的恢复意图（随机 transactionId、目标/来源记录的前置条件、目标身份、拟写域 ID）。新 initialize 意图使用 v3：在 store lease 下创建并刷盘目标文件、记录非空文件身份及 prepared 阶段；任何 DSH 元数据写入前先持久化 writing 屏障。随后提交元数据、原子替换并刷盘登记、回收该目标意图。每个故障点重启都以精确 store 身份和记录前置条件核验后续接，不能重新生成 ID，也不能在丢失目标时重建可能已写过的同 ID 库。
+
+一个可归属到目标的 pending intent 不阻塞不相关域；其他域的登记变化不使本目标前置条件失效。旧版无可信目标信息的全局意图仍阻塞全部域，直到核实或从可信备份恢复，不能猜测归属。永久的 v3 全局格式标记使旧实现拒绝忽略分区意图继续写库；旧 v1/v2 缺少阶段证据，不能被当成 prepared。迁移须保留其可核实身份/元数据与原有事务前置证据，不凭目标缺失补造 no-write 事实。意图路径不随数据目录迁移，目标业务闸门在两边一致前一直关闭。fsync/rename 与 Windows 文件替换行为需平台实测，不能用一次 writeFile 当耐崩溃事务。
 
 无 ID、已知 schema 且登记无冲突的存量 store 静默初始化一次，保留全部文档/修订/task/snapshot ID。元数据不可读、未知版本或登记损坏不等于“无 ID”。已有域 ID 而登记不匹配时，serve/CLI/stdio 及时非零返回，既不读 stdin 等选择，也不自动开浏览器/调用模型。
 
@@ -146,20 +176,23 @@ store 内建议单独使用 DSH StorageDomain 的 `ivoraige_host` v1 元数据�
 
 ```text
 ivoraige host domain inspect --store <本机路径> --json
-ivoraige host domain recover --store <本机路径> --mode migrate|copy|repair-registration --expected-diagnostic <诊断摘要> --confirm
+ivoraige host domain recover --store <本机路径> --mode migrate|copy|refresh-identity|abandon-initialization --expected-diagnostic <诊断摘要> --confirm
 ```
 
 inspect 不启动业务 host；返回观察条件的 diagnosticRevision、域/位置差异、锁状态与可行恢复模式。它不能把一次锁空闲读当作提交时证明。recover 缺少任何前置条件/confirm 时只报参数错误，不弹交互等待；取得锁后重读条件，变化返回 CONFLICT，绝不抢活库。RecoveryRequest schema 表示本机解析后的命令参数，不允许 HTTP/公共 MCP 调用。
 
-- **migrate**：必须核实旧 owner 已退出、旧位置不再作为活动域；保留 domainId 和幂等历史，转移登记，重新建立本机会话。本机原位置存在时锁定并核实；跨机器/不可访问原位置没有可核实退役依据则拒绝，不能把 `--confirm` 当旧 owner 已退出的证据。
+- **migrate**：必须核实旧 owner 已退出、旧位置不再作为活动域；保留 domainId 和幂等历史，转移登记，重新建立本机会话。本机原位置存在时锁定并核实；跨机器/不可访问原位置没有可核实退役依据则拒绝，不能把 `--confirm` 当旧 owner 已退出的证据。中断的 migrate 不由普通 create 自动续接；须以原 `migrate` 模式、精确 pending diagnostic、确认和新的同步 source-retirement 验证器显式续接。inspect 无该新证据时不宣称 migrate 可用。
 - **copy**：仅确认是不同 store 的副本后分配新 domainId/registrationId；保留内容/task/snapshot 身份与来源，旧幂等仅供历史，清除继承的授权/会话可用性，未完任务不自动恢复。原文件的配置冲突拒绝 copy。
-- **repair-registration**：只重建已明确核实的目标记录，保留原损坏文件与其他域内容。无法可靠解析/合并其他记录时要求可信备份恢复，不“修复”为一个覆盖全文件的新条目；无依据仍阻塞。
+- **refresh-identity**：只处理相同规范路径上的原地文件替换。须核对 store 中的 domainId、registrationId、binding 与登记记录完全一致，独占目标 store 并重查诊断，再更新文件身份；不借此允许 copy/migrate 或重置不匹配的元数据。
+- **abandon-initialization**：只放弃单目标的未决 initialize intent，不删除 store 或域数据。须无该目标登记记录、显式确认并重验 diagnosticRevision。v3 prepared 的持久写前屏障可证明从未尝试元数据写入；writing 则须仍能访问同一文件身份并核实无域元数据。目标缺失本身不是安全证明：文件可能在写入后被移动、卷可能离线；旧 v1/v2 空身份或缺失目标不能据此撤回或重建。证据不足时保持该目标阻塞，其他域不受连坐。
+
+登记文件损坏或其他记录无法可靠解析时要求可信备份恢复，不“修复”为覆盖全文件的新条目。`repair-registration` 不作为首版恢复模式。`verifySourceRetired` 是 migrate 的本机实现验证器，不由线上请求提供；`--confirm` 不能替代其退役证据。
 
 首版不支持任意整机克隆检测、跨机器分布式锁或网络文件系统共享。新登记格式不可被旧实现忽略后继续写库；回退先停全部 owner，恢复成套备份，而非删除域元数据降级。
 
 ## 7. 管理会话与旧入口迁移
 
-常驻启动器通过已认证本机通道获取一次性 bootstrap 凭证，候选 TTL 60 秒，绑定域/generation/真实 origin，重放原子拒绝。WebUI 只从 fragment 接收、立即清除 fragment，再同源 POST 交换；不放 query/日志/Referer/连接地址或长期存储。浏览器仅持有 HttpOnly、SameSite=Strict 的 host-only 会话 cookie，HTTPS 加 Secure；写操作另有 CSRF 校验与完整 Origin/Host 验证。会话在重启、owner 撤销时失效；网络断连本身不升级身份。
+常驻启动器通过已认证本机通道获取一次性 bootstrap 凭证，候选 TTL 60 秒，绑定域/generation/真实 origin，重放原子拒绝。首轮默认最多保留 64 个未兑换凭证与 64 个活动会话：签发时清理过期凭证并淘汰最旧的超额条目，会话满额时淘汰最旧会话；不能让常驻 owner 的内存随打开管理页次数无限增长。WebUI 只从 fragment 接收、立即清除 fragment，再同源 POST 交换；不放 query/日志/Referer/连接地址或长期存储。浏览器仅持有 HttpOnly、SameSite=Strict 的 host-only 会话 cookie，HTTPS 加 Secure；写操作另有 CSRF 校验与完整 Origin/Host 验证。CSRF 刷新会改变服务端状态，A3 接线只允许 POST 且必须核验完整 request Origin 与本页 origin 相同，不能由带 cookie 的跨端口 GET 触发。会话在重启、owner 撤销时失效；网络断连本身不升级身份。
 
 交换端点只消费已有凭证，不能匿名签发；其成功/失败都不返回密钥。生产日志、导出诊断及 schema fixtures 不含真实 credential/token。无配对页面仅显示本机授权步骤，不提供私有快照。临时 CLI owner 无管理页会话。
 
@@ -169,6 +202,8 @@ inspect 不启动业务 host；返回观察条件的 diagnosticRevision、域/�
 
 ## 8. 错误与查询规则
 
+所有 HostControl 外部错误使用 v2 §1.3 信封 `{ apiVersion: "2.0", error: { code, message, details: { reason } } }`。`reason` 必须位于 `error.details.reason`，不是 `error.reason` 或顶层字段；`interface-version-unsupported` 还必须在同一 `details` 中给出非空 `supportedMinors`。OwnerIPC 失败帧仅在此信封外加 `ok: false`，错误对象形状不变。`code` 给出协议级类别，`reason` 给出机器可读分支；客户端遇到未知 reason 必须按未知拒绝处理，不推断自动重试或 owner 不存在。错误对外的 `message` 是无秘密的诊断文本，不能回显原始异常/请求帧。以下 reason 枚举是本切片已定义的生产分支；本机 inspect/recover 的局部诊断另列，不经 HTTP/MCP 公开。
+
 | code / reason | 行为 |
 | --- | --- |
 | INVALID_ARGUMENT / invalid-request | 未知字段、错误类型、非法 budget；无副作用 |
@@ -177,11 +212,17 @@ inspect 不启动业务 host；返回观察条件的 diagnosticRevision、域/�
 | CONFLICT / domain-registration-mismatch、owner-config-mismatch | 保留现状，输出受保护恢复诊断 |
 | PRECONDITION_FAILED / registry-corrupt、registry-unavailable、domain-schema-unsupported | 不清空登记、不静默初始化；非交互拒绝 |
 | PRECONDITION_FAILED / host-draining、force-unavailable | 业务不受理或强退不可安全执行 |
+| PRECONDITION_FAILED / host-not-ready、owner-unavailable、store-ownership-unknown | 宿主尚未就绪、必要 owner 服务不可用、store 归属不明；均不得受理业务或新退出副作用 |
+| CONFLICT / registry-intent-pending、diagnostic-changed | 目标登记操作待核验或恢复诊断条件已变化；目标意图只阻塞该目标，不连坐其他域 |
+| CONFLICT / registry-busy | 共享登记锁忙；该次请求有界等待/拒绝，不能据此宣称其他域存在未决意图 |
+| PRECONDITION_FAILED / source-retirement-unverified | migrate 的旧位置退役无法证明；保持原登记和域 ID |
 | NOT_FOUND / owner-absent、operation-absent | 只向已授权 owner 披露；已知 generation 的失效先报冲突 |
 
 认证沿用外部 AUTHENTICATION_REQUIRED/PERMISSION_DENIED 的语义；旧内核线上的 UNAUTHORIZED/FORBIDDEN_HOST 不擅自新增/混用为“owner 不匹配”。首个传输实现须给出明确映射并验证 HTTP 状态、CLI 退出码与旧协议，不能借返回 200 掩盖拒绝。
 
-已受理操作的超时/阻塞首先由 ControlOperation 的 status/reason 表达，而不是报无操作发生的参数错误。传输结果未知时按 generation 查询 state/operation；requestId 不保证重放安全，禁止盲目重发强退或恢复写入。CLI 保留既有退出码：输入/认证 2，缺席/冲突/前置 3，上游/内部 4，明确取消 5；stdio stdout 只放 MCP 协议，诊断去 stderr。
+`deadline-exceeded`、`stage-precondition-failed`、`stage-failed` 是已受理 ControlOperation 的 `status=blocked` 原因，后两者分别为阶段前置条件错误与其他阶段错误缺少更具体 reason 时的保守分类；它们不自行规定外部 ErrorResponse code。已受理操作的超时/阻塞首先由 ControlOperation 的 status/reason 表达，而不是报无操作发生的参数错误。应答超过大小上限、无法解析或形状不合法也不能归类为“请求无副作用”；在请求已经提交时按结果未知处理。本机 IPC 客户端在已写出请求后超时/断开报告 `CONFLICT/outcome-unknown`，无法从该错误推断动作没有执行；明确的调用者中止报告 `CONFLICT/request-cancelled`，只证明客户端停止等待并发出了取消，不证明副作用未发生或已回滚。已发送的业务结果仍可能未知，不能据此自动重试。业务/MCP 转发默认没有一律 5 秒的结果等待上限，drain/exit 响应等待至少覆盖本次 budget；调用者若设置超时，必须接受结果未知并按 generation 查询 state/operation。`requestId` 不保证重放安全，禁止盲目重发强退或恢复写入。CLI 保留既有退出码：输入/认证 2，缺席/冲突/前置 3，上游/内部 4，明确取消 5；stdio stdout 只放 MCP 协议，诊断去 stderr。
+
+`store-replaced-in-place`、`pending-intent` 等 inspect problem 是受保护的本机恢复诊断分类，不是外部 `ErrorResponse.details.reason` 的别名。对该诊断调用 recover 仍须提供精确 `expectedDiagnostic` 与确认，并在取得目标锁后重查；缺少证据时返回上述拒绝 reason，而不自动修复。
 
 ## 9. 分步实施与验收
 

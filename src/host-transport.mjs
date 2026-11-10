@@ -1,19 +1,23 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { createServer, createConnection } from 'node:net'
 import { chmod, lstat, readFile, rename, rm } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { z } from 'zod'
-import { KernelError } from './errors.mjs'
+import { ERROR_STATUSES, KernelError } from './errors.mjs'
 import { assertPrivateDirectory, assertPrivateFile, createPrivateFile, ensurePrivateDirectory } from './host-permissions.mjs'
 
 import { createWindowsPipeServer, connectWindowsPipe } from './host-windows-pipe.mjs'
 
-import { hostSocketDirectory } from './host-socket-directory.mjs'
+import { hostSocketDirectory, releaseHostSocketDirectory } from './host-socket-directory.mjs'
+import { acquireRegistryLockBounded } from './host-domain.mjs'
 
 export const HOST_INTERFACE_VERSION = 'HostControl@1'
 export const HOST_INTERFACE_MINOR = 0
 const MAX_FRAME = 1024 * 1024
 const MAX_CONNECTIONS = 64
+// The native Windows broker may need its existing 20-second cold start before
+// the pipe can connect; its own connect deadline is 25 seconds.
+const CONNECT_TIMEOUT_MS = process.platform === 'win32' ? 25_000 : 5000
 const id = z.string().min(1).max(128).regex(/^[A-Za-z0-9_.:-]+$/)
 const shape = fields => z.object(fields).strict()
 const empty = shape({})
@@ -32,10 +36,10 @@ const actions = {
   'mcp.read': shape({ name: id, uri: z.string().min(1).max(2048), variables: z.record(z.string(), z.string().max(2048)) }),
 }
 const requestShape = shape({ interfaceVersion: z.string(), minor: z.number().int(), requestId: id,
-  action: z.string(), expectedGeneration: id, params: z.unknown(), capability: z.string().optional() })
+  action: z.string(), expectedGeneration: id, params: z.unknown(), capability: z.string().min(1).optional() })
 const attachShape = shape({ interfaceVersion: z.string(), minor: z.number().int(), requestId: id,
   action: z.literal('attach'), params: shape({ dataDomainRef: id, requiredLifetime: z.enum(['resident', 'ephemeral']) }),
-  capability: z.string().optional() })
+  capability: z.string().min(1).optional() })
 const fail = (code, reason, message = reason) => new KernelError(code, message, { reason })
 const validVersion = frame => {
   if (frame.interfaceVersion !== HOST_INTERFACE_VERSION || frame.minor !== HOST_INTERFACE_MINOR)
@@ -76,29 +80,43 @@ async function readRecord(directory, dataDomainRef) {
 }
 
 async function writeRecord(directory, record) {
+  await assertPrivateDirectory(directory)
+  const lease = await acquireRegistryLockBounded(directory)
   const target = recordPath(directory, record.dataDomainRef)
   const temporary = `${target}.${randomUUID()}.tmp`
   try {
     await createPrivateFile(temporary, `${JSON.stringify(record)}\n`)
     await rename(temporary, target)
     await assertPrivateFile(target)
-  } finally { await rm(temporary, { force: true }) }
+  } finally {
+    try { await rm(temporary, { force: true }) }
+    finally { lease.release() }
+  }
 }
 
 async function removeOwnedRecord(directory, record) {
+  await assertPrivateDirectory(directory)
+  // The store lease is already released during exit. Serialize the entire
+  // read/check/unlink with publication so an old generation cannot remove a
+  // replacement owner's record between the check and the unlink.
+  const lease = await acquireRegistryLockBounded(directory)
   try {
     const existing = await readRecord(directory, record.dataDomainRef)
     if (existing.generation === record.generation && existing.address === record.address)
       await rm(recordPath(directory, record.dataDomainRef))
   } catch (error) { if (error.code !== 'NOT_FOUND') throw error }
+  finally { lease.release() }
 }
 
-function normalizeError(error) {
-  const code = error instanceof KernelError ? error.code : 'INTERNAL'
+export function formatHostFailure(error) {
+  const code = error instanceof KernelError && Object.hasOwn(ERROR_STATUSES, error.code) ? error.code : 'INTERNAL'
+  const reason = code !== 'INTERNAL' && id.safeParse(error.details?.reason).success
+    ? error.details.reason : 'internal-error'
   // Never return raw exception text or a received frame; either could contain
   // a browser bootstrap credential or business secret.
-  return { code, reason: error instanceof KernelError ? error.details?.reason : undefined,
-    ...(error?.details?.supportedMinors ? { supportedMinors: error.details.supportedMinors } : {}) }
+  return { ok: false, apiVersion: '2.0', error: { code, message: 'Host control request failed',
+    details: { reason, ...(reason === 'interface-version-unsupported'
+      ? { supportedMinors: [HOST_INTERFACE_MINOR] } : {}) } } }
 }
 
 function equalSecret(a, b) {
@@ -107,27 +125,31 @@ function equalSecret(a, b) {
   return aa.length === bb.length && timingSafeEqual(aa, bb)
 }
 
-function frameSocket(socket, payload, timeoutMs = 5000) {
+function frameSocket(socket, payload, { timeoutMs, timeoutReason = 'owner-unreachable', invalidFrameReason = 'invalid-request', signal } = {}) {
   return new Promise((resolveFrame, reject) => {
     let size = 0
     const chunks = []
-    const timer = setTimeout(() => socket.destroy(fail('CONFLICT', 'owner-unreachable')), timeoutMs)
-    const cleanup = () => { clearTimeout(timer); socket.off('data', data); socket.off('error', error); socket.off('end', end) }
+    const timer = timeoutMs === undefined ? undefined : setTimeout(() => socket.destroy(fail('CONFLICT', timeoutReason)), timeoutMs)
+    const cleanup = () => { clearTimeout(timer); signal?.removeEventListener('abort', abort); socket.off('data', data); socket.off('error', error); socket.off('end', end); socket.off('close', end) }
     const error = cause => { cleanup(); reject(cause) }
-    const end = () => error(fail('CONFLICT', 'owner-unreachable'))
+    const end = () => error(fail('CONFLICT', timeoutReason))
+    const abort = () => socket.destroy(fail('CONFLICT', 'request-cancelled'))
+    const invalidFrame = () => fail(invalidFrameReason === 'invalid-request' ? 'INVALID_ARGUMENT' : 'CONFLICT', invalidFrameReason)
     const data = chunk => {
       size += chunk.length
-      if (size > MAX_FRAME) { socket.destroy(fail('INVALID_ARGUMENT', 'invalid-request')); return }
+      if (size > MAX_FRAME) { socket.destroy(invalidFrame()); return }
       chunks.push(chunk)
       const all = Buffer.concat(chunks)
       const newline = all.indexOf(10)
       if (newline < 0) return
       cleanup()
-      if (newline !== all.length - 1) { reject(fail('INVALID_ARGUMENT', 'invalid-request')); return }
+      if (newline !== all.length - 1) { reject(invalidFrame()); return }
       try { resolveFrame(JSON.parse(all.subarray(0, newline).toString('utf8'))) }
-      catch { reject(fail('INVALID_ARGUMENT', 'invalid-request')) }
+      catch { reject(invalidFrame()) }
     }
-    socket.on('data', data).once('error', error).once('end', end)
+    socket.on('data', data).once('error', error).once('end', end).once('close', end)
+    signal?.addEventListener('abort', abort, { once: true })
+    if (signal?.aborted) { abort(); return }
     if (payload !== undefined) {
       const bytes = Buffer.from(`${JSON.stringify(payload)}\n`)
       if (bytes.length > MAX_FRAME) { error(fail('INVALID_ARGUMENT', 'invalid-request')); return }
@@ -137,8 +159,14 @@ function frameSocket(socket, payload, timeoutMs = 5000) {
 }
 
 function sendFrame(socket, frame) {
-  const bytes = Buffer.from(`${JSON.stringify(frame)}\n`)
-  if (bytes.length > MAX_FRAME) throw fail('INVALID_ARGUMENT', 'invalid-request')
+  // A handler has already run. Failure to deliver its result must never be
+  // described as invalid input with no side effects.
+  let bytes
+  try {
+    if (frame.ok === true && frame.result === undefined) throw new Error('Missing result')
+    bytes = Buffer.from(`${JSON.stringify(frame)}\n`)
+  } catch { throw fail('CONFLICT', 'outcome-unknown') }
+  if (bytes.length > MAX_FRAME) throw fail('CONFLICT', 'outcome-unknown')
   socket.end(bytes)
 }
 
@@ -159,6 +187,13 @@ export function validateHostRequest(value) {
   return { ...base.data, params: params.data }
 }
 
+export function validateHostAttach(value) {
+  const parsed = attachShape.safeParse(value)
+  if (!parsed.success) throw fail('INVALID_ARGUMENT', 'invalid-request')
+  validVersion(parsed.data)
+  return parsed.data
+}
+
 // A protected owner transport is deliberately separate from HTTP and MCP.
 // The host bootstrap must already own the canonical store lock before start().
 // POSIX uses kernel-enforced private directory/socket DAC; Windows uses a
@@ -173,7 +208,7 @@ export function createHostTransport({ directory, dataDomainRef, generation, life
     (lifetime === 'resident' && typeof handleControl !== 'function'))
     throw fail('INVALID_ARGUMENT', 'invalid-request')
   directory = resolve(directory)
-  let server, record, capability, closing, closed = false
+  let server, record, capability, closing, socketDirectory, closed = false
   const ownerProcess = { pid: process.pid, runtimeStartTimeMs: Math.floor(performance.timeOrigin), nonce: randomUUID() }
   const sockets = new Set()
   const exitWaiters = new Map()
@@ -187,14 +222,13 @@ export function createHostTransport({ directory, dataDomainRef, generation, life
 
   async function handle(socket) {
     try {
-      const hello = await frameSocket(socket)
-      if (hello?.action !== 'attach') { await handleAction(socket, hello); return }
-      const parsed = attachShape.safeParse(hello)
-      if (!parsed.success) throw fail('INVALID_ARGUMENT', 'invalid-request')
-      validVersion(parsed.data)
-      if (parsed.data.params.dataDomainRef !== dataDomainRef) throw fail('CONFLICT', 'stale-generation')
-      if (parsed.data.params.requiredLifetime !== 'resident') throw fail('CONFLICT', 'temporary-owner')
-      if (process.platform === 'win32' && !equalSecret(parsed.data.capability, capability))
+      const hello = await frameSocket(socket, undefined, { timeoutMs: 5000 })
+      if (hello?.action !== 'attach') { await dispatchHostAction(socket, hello, { dataDomainRef, generation, capability,
+        getState, handleControl, handleBusiness, getSession, getInfo, onAcceptedExit }); return }
+      const parsed = validateHostAttach(hello)
+      if (parsed.params.dataDomainRef !== dataDomainRef) throw fail('CONFLICT', 'stale-generation')
+      if (parsed.params.requiredLifetime !== 'resident') throw fail('CONFLICT', 'temporary-owner')
+      if (process.platform === 'win32' && !equalSecret(parsed.capability, capability))
         throw fail('UNAUTHORIZED', 'owner-authentication-required')
       const state = await getState()
       if (state.dataDomainRef !== dataDomainRef || state.generation !== generation ||
@@ -202,53 +236,20 @@ export function createHostTransport({ directory, dataDomainRef, generation, life
       sendFrame(socket, { ok: true, result: { reused: true, dataDomainRef, generation,
         supportedMinors: [HOST_INTERFACE_MINOR], state, ownerProcess } })
     } catch (error) {
-      try { sendFrame(socket, { ok: false, error: normalizeError(error) }) } catch { socket.destroy() }
+      try { sendFrame(socket, formatHostFailure(error)) } catch { socket.destroy() }
     }
   }
 
-  async function handleAction(socket, frame) {
-    try {
-      // Each connection is one authenticated action. The protected socket
-      // path/capability is checked again rather than trusting a prior attach.
-      const parsed = validateHostRequest(frame)
-      if (process.platform === 'win32' && !equalSecret(frame.capability, capability))
-        throw fail('UNAUTHORIZED', 'owner-authentication-required')
-      if (parsed.expectedGeneration !== generation) throw fail('CONFLICT', 'stale-generation')
-      const state = await getState()
-      if (state.dataDomainRef !== dataDomainRef || state.generation !== generation)
-        throw fail('CONFLICT', 'stale-generation')
-      if (state.storeOwnership !== 'held' && !['state', 'operation'].includes(parsed.action))
-        throw fail('CONFLICT', 'owner-unreachable')
-      if (parsed.action === 'prepareForceExit' || parsed.action === 'forceExit')
-        throw fail('PRECONDITION_FAILED', 'force-unavailable')
-      let result
-      if (parsed.action === 'ownerBootstrap') {
-        const currentSession = getSession()
-        if (!currentSession) throw fail('PRECONDITION_FAILED', 'owner-unavailable')
-        result = currentSession.issueBootstrap()
-      } else if (parsed.action === 'transportInfo') {
-        result = await getInfo()
-      } else if (parsed.action === 'business' || parsed.action.startsWith('mcp.')) {
-        if (state.storeOwnership !== 'held' || !state.acceptingBusiness || typeof handleBusiness !== 'function')
-          throw fail('PRECONDITION_FAILED', 'host-draining')
-        result = parsed.action === 'business'
-          ? await handleBusiness(parsed.params.method, parsed.params.input)
-          : await handleBusiness(parsed.action, parsed.params)
-      } else result = await handleControl(parsed.action, parsed.params, parsed)
-      if (parsed.action === 'exit' && result?.accepted === true && id.safeParse(result.operationId).success) {
-        let peers = exitWaiters.get(result.operationId)
-        if (!peers) exitWaiters.set(result.operationId, peers = new Set())
-        peers.add(socket)
-        writeFrame(socket, { ok: true, result })
-        // A blocked attempt ends without a receipt. No idle socket is kept
-        // waiting for an unrelated future retry of the same operation.
-        if (typeof waitForAttempt === 'function') Promise.resolve().then(() => waitForAttempt()).finally(() => {
-          if (peers.has(socket) && !finalizedSockets.has(socket)) socket.end()
-        }).catch(() => { socket.destroy() })
-      } else sendFrame(socket, { ok: true, result })
-    } catch (error) {
-      try { sendFrame(socket, { ok: false, error: normalizeError(error) }) } catch { socket.destroy() }
-    }
+  function onAcceptedExit(socket, result) {
+    let peers = exitWaiters.get(result.operationId)
+    if (!peers) exitWaiters.set(result.operationId, peers = new Set())
+    peers.add(socket)
+    writeFrame(socket, { ok: true, result })
+    // Preserve the finalization channel until this attempt settles; a blocked
+    // attempt closes without a receipt instead of waiting for a later retry.
+    if (typeof waitForAttempt === 'function') Promise.resolve().then(() => waitForAttempt()).finally(() => {
+      if (peers.has(socket) && !finalizedSockets.has(socket)) socket.end()
+    }).catch(() => { socket.destroy() })
   }
 
   async function start() {
@@ -263,7 +264,7 @@ export function createHostTransport({ directory, dataDomainRef, generation, life
       return record
     }
     const nonce = randomBytes(16).toString('base64url')
-    const socketDirectory = process.platform === 'win32' ? null : await hostSocketDirectory(directory)
+    socketDirectory = process.platform === 'win32' ? null : await hostSocketDirectory(directory)
     if (socketDirectory) await ensurePrivateDirectory(socketDirectory)
     const address = process.platform === 'win32' ? `\\\\.\\pipe\\ivoraige-${nonce}` : join(socketDirectory, `host-${nonce}.sock`)
     if (process.platform !== 'win32' && Buffer.byteLength(address) > 100)
@@ -335,6 +336,7 @@ export function createHostTransport({ directory, dataDomainRef, generation, life
         if (record.address && process.platform !== 'win32') await rm(record.address, { force: true })
         else if (record.address) await rm(capabilityPath(directory, dataDomainRef, generation), { force: true })
       }
+      if (socketDirectory) await releaseHostSocketDirectory(socketDirectory)
       getSession()?.revokeAll()
       closed = true
     })()
@@ -344,20 +346,93 @@ export function createHostTransport({ directory, dataDomainRef, generation, life
   return { start, cleanupDiscovery, finalize, close, get record() { return record } }
 }
 
-async function exchangeFrame(address, frame) {
-  const socket = (process.platform === 'win32' ? connectWindowsPipe : createConnection)(address)
+export async function dispatchHostAction(socket, frame, { dataDomainRef, generation, capability,
+  getState, handleControl, handleBusiness, getSession, getInfo, onAcceptedExit } = {}) {
+  let businessController, cancelBusiness
   try {
-    await new Promise((resolveConnect, reject) => socket.once('connect', resolveConnect).once('error', reject))
-    const response = await frameSocket(socket, frame)
-    if (!response || typeof response !== 'object' || typeof response.ok !== 'boolean')
+    // Each connection is one authenticated action. The protected socket
+    // path/capability is checked again rather than trusting a prior attach.
+    const parsed = validateHostRequest(frame)
+    if (process.platform === 'win32' && !equalSecret(frame.capability, capability))
+      throw fail('UNAUTHORIZED', 'owner-authentication-required')
+    if (parsed.expectedGeneration !== generation) throw fail('CONFLICT', 'stale-generation')
+    if (parsed.action === 'business' || parsed.action.startsWith('mcp.')) {
+      businessController = new AbortController()
+      cancelBusiness = () => businessController.abort()
+      socket.once('close', cancelBusiness)
+      if (socket.destroyed) cancelBusiness()
+    }
+    const state = await getState()
+    if (businessController?.signal.aborted) return
+    if (state.dataDomainRef !== dataDomainRef || state.generation !== generation)
+      throw fail('CONFLICT', 'stale-generation')
+    if (state.storeOwnership !== 'held' && !['state', 'operation'].includes(parsed.action))
       throw fail('CONFLICT', 'owner-unreachable')
+    if (parsed.action === 'prepareForceExit' || parsed.action === 'forceExit')
+      throw fail('PRECONDITION_FAILED', 'force-unavailable')
+    let result
+    if (parsed.action === 'ownerBootstrap') {
+      const currentSession = getSession()
+      if (!currentSession) throw fail('PRECONDITION_FAILED', 'owner-unavailable')
+      result = currentSession.issueBootstrap()
+    } else if (parsed.action === 'transportInfo') {
+      result = await getInfo()
+    } else if (parsed.action === 'business' || parsed.action.startsWith('mcp.')) {
+      if (state.storeOwnership !== 'held' || !state.acceptingBusiness || typeof handleBusiness !== 'function')
+        throw fail('PRECONDITION_FAILED', 'host-draining')
+      result = parsed.action === 'business'
+        ? await handleBusiness(parsed.params.method, parsed.params.input, { signal: businessController.signal })
+        : await handleBusiness(parsed.action, parsed.params, { signal: businessController.signal })
+    } else result = await handleControl(parsed.action, parsed.params, parsed)
+    if (!socket.destroyed) {
+      if (parsed.action === 'exit' && result?.accepted === true &&
+          id.safeParse(result.operationId).success && typeof onAcceptedExit === 'function')
+        onAcceptedExit(socket, result)
+      else sendFrame(socket, { ok: true, result })
+    }
+  } catch (error) {
+    if (!socket.destroyed) try { sendFrame(socket, formatHostFailure(error)) } catch { socket.destroy() }
+  } finally { if (cancelBusiness) socket.off('close', cancelBusiness) }
+}
+
+
+export async function exchangeHostFrame(address, frame, { timeoutMs, signal,
+  createSocket = process.platform === 'win32' ? connectWindowsPipe : createConnection } = {}) {
+  if ((timeoutMs !== undefined && (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 2_147_483_647)) ||
+    (signal !== undefined && (typeof signal?.addEventListener !== 'function' ||
+      typeof signal?.removeEventListener !== 'function' || typeof signal?.aborted !== 'boolean')))
+    throw fail('INVALID_ARGUMENT', 'invalid-request')
+  const socket = createSocket(address)
+  let connected = false
+  try {
+    if (signal?.aborted) throw fail('CONFLICT', 'request-cancelled')
+    await new Promise((resolveConnect, reject) => {
+      const timer = setTimeout(() => socket.destroy(fail('CONFLICT', 'owner-unreachable')), CONNECT_TIMEOUT_MS)
+      const cleanup = () => { clearTimeout(timer); signal?.removeEventListener('abort', abort); socket.off('connect', connect); socket.off('error', error); socket.off('close', close) }
+      const connect = () => { cleanup(); connected = true; resolveConnect() }
+      const error = cause => { cleanup(); reject(cause) }
+      const close = () => error(fail('CONFLICT', 'owner-unreachable'))
+      const abort = () => socket.destroy(fail('CONFLICT', 'request-cancelled'))
+      socket.once('connect', connect).once('error', error).once('close', close)
+      signal?.addEventListener('abort', abort, { once: true })
+      if (signal?.aborted) abort()
+    })
+    const response = await frameSocket(socket, frame, { timeoutMs,
+      timeoutReason: frame.action === 'attach' ? 'owner-unreachable' : 'outcome-unknown',
+      invalidFrameReason: frame.action === 'attach' ? 'owner-unreachable' : 'outcome-unknown', signal })
+    const validResponse = response?.ok === true ? Object.hasOwn(response, 'result')
+      : response?.ok === false && response.apiVersion === '2.0' &&
+        Object.hasOwn(ERROR_STATUSES, response.error?.code) && typeof response.error?.message === 'string' &&
+        id.safeParse(response.error?.details?.reason).success
+    if (!validResponse)
+      throw fail('CONFLICT', frame.action === 'attach' ? 'owner-unreachable' : 'outcome-unknown')
     if (!response.ok) throw new KernelError(response.error?.code || 'CONFLICT',
-      'Host control request failed', { reason: response.error?.reason,
-        ...(response.error?.supportedMinors ? { supportedMinors: response.error.supportedMinors } : {}) })
+      'Host control request failed', { reason: response.error?.details?.reason,
+        ...(response.error?.details?.supportedMinors ? { supportedMinors: response.error.details.supportedMinors } : {}) })
     return response.result
   } catch (error) {
     if (['ENOENT', 'ECONNREFUSED', 'EPIPE', 'ECONNRESET', 'ETIMEDOUT'].includes(error.code))
-      throw fail('CONFLICT', 'owner-unreachable')
+      throw fail('CONFLICT', connected && frame.action !== 'attach' ? 'outcome-unknown' : 'owner-unreachable')
     throw error
   } finally { socket.destroy() }
 }
@@ -383,22 +458,33 @@ export async function connectHostTransport({ directory, dataDomainRef, requiredL
     let info
     try { info = await lstat(record.address) }
     catch { throw fail('CONFLICT', 'owner-unreachable') }
-    const socketDirectory = await hostSocketDirectory(directory)
+    const socketDirectory = dirname(record.address)
     await assertPrivateDirectory(socketDirectory)
-    if (!record.address.startsWith(`${socketDirectory}/`) || !info.isSocket() ||
+    if (!/^host-[A-Za-z0-9_-]{22}\.sock$/.test(basename(record.address)) ||
+      resolve(record.address) !== record.address || !info.isSocket() ||
       info.uid !== process.getuid() || (info.mode & 0o777) !== 0o600)
       throw fail('CONFLICT', 'owner-unreachable')
   }
-  const attached = await exchangeFrame(record.address, { interfaceVersion: HOST_INTERFACE_VERSION,
+  const attached = await exchangeHostFrame(record.address, { interfaceVersion: HOST_INTERFACE_VERSION,
     minor: HOST_INTERFACE_MINOR, requestId: randomUUID(), action: 'attach',
-    params: { dataDomainRef, requiredLifetime }, ...(capability ? { capability } : {}) })
+    params: { dataDomainRef, requiredLifetime }, ...(capability ? { capability } : {}) }, { timeoutMs: 5000 })
   if (attached.generation !== record.generation || attached.dataDomainRef !== dataDomainRef ||
     attached.state?.generation !== record.generation || attached.state?.dataDomainRef !== dataDomainRef ||
     attached.state?.storeOwnership !== 'held') throw fail('CONFLICT', 'owner-unreachable')
-  return { attached, generation: record.generation, async request(action, params = {}) {
+  return { attached, generation: record.generation, async request(action, params = {}, options = {}) {
     if (!Object.hasOwn(actions, action)) throw fail('INVALID_ARGUMENT', 'invalid-request')
-    return exchangeFrame(record.address, { interfaceVersion: HOST_INTERFACE_VERSION,
+    if (options === null || typeof options !== 'object' || Array.isArray(options) ||
+      (options.timeoutMs !== undefined && (!Number.isSafeInteger(options.timeoutMs) ||
+        options.timeoutMs < 1 || options.timeoutMs > 2_147_483_647)) ||
+      (options.signal !== undefined && (typeof options.signal?.addEventListener !== 'function' ||
+        typeof options.signal?.removeEventListener !== 'function' || typeof options.signal?.aborted !== 'boolean')))
+      throw fail('INVALID_ARGUMENT', 'invalid-request')
+    if (options.signal?.aborted) throw fail('CONFLICT', 'request-cancelled')
+    const timeoutMs = options.timeoutMs ?? (['business', 'mcp.describe', 'mcp.call', 'mcp.read'].includes(action)
+      ? undefined : ['drain', 'exit'].includes(action) ? params.budgetMs + 5000 : 5000)
+    return exchangeHostFrame(record.address, { interfaceVersion: HOST_INTERFACE_VERSION,
       minor: HOST_INTERFACE_MINOR, requestId: randomUUID(), action,
-      expectedGeneration: record.generation, params, ...(capability ? { capability } : {}) })
+      expectedGeneration: record.generation, params, ...(capability ? { capability } : {}) },
+    { timeoutMs, signal: options.signal })
   }, close() {} }
 }

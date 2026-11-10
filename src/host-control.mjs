@@ -53,13 +53,14 @@ export class HostControl {
   }
   ready() {
     if (this.phase !== 'starting' || this.storeOwnership !== 'held')
-      throw new KernelError('PRECONDITION_FAILED', 'Host cannot become ready')
+      throw new KernelError('PRECONDITION_FAILED', 'Host cannot become ready', { reason: 'host-not-ready' })
     this.phase = 'ready'
     this.accepting = true
     this.changed()
   }
   failStart() {
-    if (this.phase !== 'starting') throw new KernelError('PRECONDITION_FAILED', 'Host is not starting')
+    if (this.phase !== 'starting') throw new KernelError('PRECONDITION_FAILED', 'Host is not starting',
+      { reason: 'host-not-ready' })
     this.phase = 'failed'
     this.accepting = false
     this.changed()
@@ -67,16 +68,37 @@ export class HostControl {
   setStoreOwnership(value) {
     if (!['held', 'released', 'unknown'].includes(value) ||
         (this.storeOwnership === 'released' && value !== 'released')) throw invalid('Invalid store ownership transition')
+    const previous = this.storeOwnership
     this.storeOwnership = value
-    if (value !== 'held' && this.phase === 'ready') {
+    const unexpectedLoss = value !== 'held' && (['starting', 'ready', 'draining'].includes(this.phase) ||
+      this.phase === 'stopping' && !['releaseStore', 'cleanupDiscovery', 'closeControl'].includes(this.currentStage))
+    if (unexpectedLoss) {
       this.accepting = false
       this.phase = 'failed'
+      if (this.controlOperation) {
+        const reason = value === 'unknown' ? 'store-ownership-unknown' : 'owner-unavailable'
+        this.controlOperation.status = 'blocked'
+        this.controlOperation.reason = reason
+        this.blockers = [{ kind: 'storage', ref: null, reason, recovery: 'manual-recovery' }]
+      }
+    }
+    if (previous === 'unknown' && value === 'released' && this.currentStage === 'releaseStore' &&
+        this.controlOperation?.status === 'blocked') {
+      // A late successful release resolves ownership uncertainty. The
+      // operation still needs explicit retry for discovery/control cleanup.
+      this.blockers = this.blockers.map(blocker => blocker.recovery === 'manual-recovery'
+        ? { ...blocker, recovery: 'retry' } : blocker)
     }
     this.changed()
   }
   assertGeneration(expectedGeneration) {
     if (expectedGeneration !== this.generation)
       throw new KernelError('CONFLICT', 'Host generation changed', { reason: 'stale-generation' })
+  }
+  assertStoreHeld() {
+    if (this.storeOwnership !== 'held')
+      throw new KernelError('PRECONDITION_FAILED', 'Host ownership does not permit cleanup',
+        { reason: this.storeOwnership === 'unknown' ? 'store-ownership-unknown' : 'owner-unavailable' })
   }
   assertAcceptingBusiness() {
     if (!this.accepting || this.phase !== 'ready' || this.storeOwnership !== 'held') {
@@ -123,7 +145,7 @@ export class HostControl {
     const blockers = this.blockers.slice(0, 100)
     return { operationId: op.operationId, generation: this.generation, intent: op.intent,
       phase: op.phase, status: op.status, remainingMs: this.deadline?.remainingMs() ?? 0,
-      reason: op.reason, safeToExit: op.status === 'drained', blockers,
+      reason: op.reason, safeToExit: ['drained', 'completed'].includes(op.status), blockers,
       blockersTruncated: this.blockers.length > 100 }
   }
   drain({ expectedGeneration, budgetMs }) { return this.accept('drain', expectedGeneration, budgetMs) }
@@ -132,11 +154,15 @@ export class HostControl {
   accept(intent, expectedGeneration, budgetMs) {
     this.assertGeneration(expectedGeneration)
     // Validate even repeated calls. A duplicate never changes the in-flight deadline.
+    if (!Number.isSafeInteger(budgetMs) || budgetMs < 1 || budgetMs > 120_000)
+      throw invalid('budgetMs must be an integer from 1 to 120000')
     const deadline = new HostDeadline(budgetMs)
     let stateChanged = false
+    if (this.phase === 'failed') this.assertStoreHeld()
     if (!this.controlOperation) {
-      if (this.phase !== 'ready' || this.storeOwnership !== 'held')
-        throw new KernelError('PRECONDITION_FAILED', 'Host is not ready to drain')
+      this.assertStoreHeld()
+      if (this.phase !== 'ready' && !(intent === 'exit' && this.phase === 'failed'))
+        throw new KernelError('PRECONDITION_FAILED', 'Host is not ready to drain', { reason: 'host-not-ready' })
       this.controlOperation = { operationId: randomUUID(), intent, phase: 'gate', status: 'pending', reason: null }
       this.accepting = false // Admission close is atomic with operation creation.
       this.phase = 'draining'
@@ -181,10 +207,13 @@ export class HostControl {
       this.controlOperation.reason = null
       this.blockers = []
       this.attempt = Promise.resolve().then(() => this.advance(deadline)).catch(error => {
+        if (this.completed.has('closeControl')) return
+        if (this.phase === 'failed' && this.storeOwnership !== 'held') return
         this.controlOperation.status = 'blocked'
         this.controlOperation.reason = reasonOf(error)
         this.blockers = [{ kind: stageKinds[this.inflight?.key ?? this.currentStage ?? 'gate'], ref: null,
-          reason: this.controlOperation.reason, recovery: this.storeOwnership === 'unknown' ? 'manual-recovery' : 'retry' }]
+          reason: this.controlOperation.reason,
+          recovery: this.storeOwnership === 'unknown' || this.phase === 'failed' ? 'manual-recovery' : 'retry' }]
         this.changed()
       }).finally(() => { this.attempt = null })
     }
@@ -193,6 +222,7 @@ export class HostControl {
 
   async runStage(key, callback, deadline) {
     if (this.completed.has(key)) return
+    if (['gate', 'admissions', 'work', 'resources', 'storage'].includes(key)) this.assertStoreHeld()
     this.currentStage = key
     if (this.inflight && this.inflight.key !== key)
       throw new KernelError('INTERNAL', 'Another host stage is still running')
@@ -206,6 +236,14 @@ export class HostControl {
       }).then(result => {
         this.completed.add(key)
         if (key === 'releaseStore') this.setStoreOwnership('released')
+        if (key === 'closeControl') {
+          // This may finish after the waiting attempt timed out. Completion
+          // is cleanup evidence only; a controller must still observe exit.
+          this.controlOperation.status = 'completed'
+          this.controlOperation.reason = null
+          this.blockers = []
+          this.changed()
+        }
         return result
       }).finally(() => { if (this.inflight === flight) this.inflight = null })
       this.inflight = flight
@@ -231,6 +269,7 @@ export class HostControl {
     await this.runStage('work', this.stages.work, deadline)
     op.phase = 'resources'
     await this.runStage('resources', this.stages.resources, deadline)
+    if (!this.completed.has('storage')) this.assertStoreHeld()
     op.phase = 'quiescent'
     if (op.intent === 'drain') {
       op.status = 'drained'

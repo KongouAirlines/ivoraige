@@ -1,5 +1,8 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import { readFile } from 'node:fs/promises'
+import Ajv2020 from 'ajv/dist/2020.js'
 import { HostControl } from '../src/host-control.mjs'
 import { HostDeadline, waitForDeadline } from '../src/host-deadline.mjs'
 import { Context, z } from '../dist/dsh.mjs'
@@ -19,6 +22,170 @@ function host(stages = {}) {
   return control
 }
 const op = (control, operationId) => control.operation(operationId, { expectedGeneration: generation })
+
+test('actual lifecycle projections conform to the shared contract through completed cleanup', async () => {
+  const schema = JSON.parse(await readFile(new URL('../docs/requirements/0.1.x/schemas/host-control-v1.schema.json', import.meta.url), 'utf8'))
+  const ajv = new Ajv2020({ allErrors: true, strict: false })
+  ajv.addSchema(schema)
+  const validateState = ajv.getSchema(`${schema.$id}#/$defs/State`)
+  const validateOperation = ajv.getSchema(`${schema.$id}#/$defs/ControlOperation`)
+  const observations = []
+  const control = new HostControl({ dataDomainRef: 'domain-1', generation, stages: defaultStages(),
+    onChange: state => observations.push({ state, operation: state.operationId ? op(control, state.operationId) : null }) })
+  observations.push({ state: control.state(), operation: null })
+  control.ready()
+  control.drain({ expectedGeneration: generation, budgetMs: 1000 })
+  await control.waitForAttempt()
+  control.exit({ expectedGeneration: generation, budgetMs: 1000 })
+  await control.waitForAttempt()
+  assert.equal(observations.at(-1).operation.status, 'completed')
+  for (const { state, operation } of observations) {
+    assert.ok(validateState(state), ajv.errorsText(validateState.errors))
+    if (operation) assert.ok(validateOperation(operation), ajv.errorsText(validateOperation.errors))
+  }
+})
+
+test('failed startup retains the normal ordered exit path and reports state reasons', async () => {
+  const calls = []
+  const stages = Object.fromEntries(['gate', 'admissions', ...Object.keys(defaultStages())]
+    .map(key => [key, () => calls.push(key)]))
+  const control = new HostControl({ dataDomainRef: 'domain-1', generation, stages })
+  assert.throws(() => control.exit({ expectedGeneration: generation, budgetMs: 100 }),
+    { details: { reason: 'host-not-ready' } })
+  control.failStart()
+  assert.throws(() => control.ready(), { details: { reason: 'host-not-ready' } })
+  assert.throws(() => control.failStart(), { details: { reason: 'host-not-ready' } })
+  assert.throws(() => control.drain({ expectedGeneration: generation, budgetMs: 100 }),
+    { details: { reason: 'host-not-ready' } })
+  const accepted = control.exit({ expectedGeneration: generation, budgetMs: 100 })
+  await control.waitForAttempt()
+  assert.deepEqual(calls, ['gate', 'admissions', 'work', 'resources', 'storage', 'releaseStore', 'cleanupDiscovery', 'closeControl'])
+  assert.equal(op(control, accepted.operationId).status, 'completed')
+  assert.equal(op(control, accepted.operationId).safeToExit, true)
+  assert.equal(control.state().storeOwnership, 'released')
+  assert.equal(control.state().state, 'stopping') // Completion is not OS process-exit proof.
+  control.exit({ expectedGeneration: generation, budgetMs: 100 })
+  await control.waitForAttempt()
+  assert.equal(calls.length, 8)
+})
+
+test('a failed owner with unknown or released ownership cannot begin cleanup', () => {
+  for (const [ownership, reason] of [['unknown', 'store-ownership-unknown'], ['released', 'owner-unavailable']]) {
+    const control = host()
+    control.setStoreOwnership(ownership)
+    assert.equal(control.state().state, 'failed')
+    assert.throws(() => control.exit({ expectedGeneration: generation, budgetMs: 100 }), { details: { reason } })
+    assert.equal(control.state().operationId, null)
+  }
+})
+
+test('ownership loss during startup or drain never projects a live safe owner', async () => {
+  for (const ownership of ['unknown', 'released']) {
+    const starting = new HostControl({ dataDomainRef: 'domain-1', generation, stages: defaultStages() })
+    starting.setStoreOwnership(ownership)
+    assert.equal(starting.state().state, 'failed')
+    assert.equal(starting.state().acceptingBusiness, false)
+
+    let finishWork, entered
+    const pending = new Promise(resolve => { finishWork = resolve })
+    const started = new Promise(resolve => { entered = resolve })
+    const calls = []
+    const control = host({ work: () => { calls.push('work'); entered(); return pending },
+      resources: () => calls.push('resources'), storage: () => calls.push('storage') })
+    const accepted = control.exit({ expectedGeneration: generation, budgetMs: 1000 })
+    await started
+    control.setStoreOwnership(ownership)
+    assert.equal(control.state().state, 'failed')
+    assert.equal(op(control, accepted.operationId).status, 'blocked')
+    assert.equal(op(control, accepted.operationId).safeToExit, false)
+    finishWork()
+    await control.waitForAttempt()
+    assert.deepEqual(calls, ['work'])
+    assert.equal(op(control, accepted.operationId).blockers[0].kind, 'storage')
+    assert.equal(op(control, accepted.operationId).blockers[0].recovery, 'manual-recovery')
+    assert.throws(() => control.exit({ expectedGeneration: generation, budgetMs: 100 }),
+      { details: { reason: ownership === 'unknown' ? 'store-ownership-unknown' : 'owner-unavailable' } })
+  }
+})
+
+test('loss of ownership demotes a completed drain instead of preserving safeToExit', async () => {
+  const control = host()
+  const accepted = control.drain({ expectedGeneration: generation, budgetMs: 100 })
+  await control.waitForAttempt()
+  assert.equal(op(control, accepted.operationId).safeToExit, true)
+  control.setStoreOwnership('unknown')
+  assert.equal(control.state().state, 'failed')
+  assert.equal(op(control, accepted.operationId).status, 'blocked')
+  assert.equal(op(control, accepted.operationId).safeToExit, false)
+  assert.equal(op(control, accepted.operationId).reason, 'store-ownership-unknown')
+})
+
+test('late release updates recovery to retry and retry only performs final cleanup', async () => {
+  let release
+  const released = new Promise(resolve => { release = resolve })
+  const calls = []
+  const control = host({ releaseStore: deadline => {
+    calls.push('release')
+    deadline.now = () => Number.MAX_SAFE_INTEGER
+    return released
+  }, cleanupDiscovery: () => calls.push('discovery'), closeControl: () => calls.push('close') })
+  const accepted = control.exit({ expectedGeneration: generation, budgetMs: 1000 })
+  await control.waitForAttempt()
+  assert.equal(control.state().storeOwnership, 'unknown')
+  assert.equal(op(control, accepted.operationId).blockers[0].recovery, 'manual-recovery')
+  release()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(control.state().storeOwnership, 'released')
+  assert.equal(op(control, accepted.operationId).blockers[0].recovery, 'retry')
+  control.exit({ expectedGeneration: generation, budgetMs: 1000 })
+  await control.waitForAttempt()
+  assert.deepEqual(calls, ['release', 'discovery', 'close'])
+  assert.equal(op(control, accepted.operationId).status, 'completed')
+})
+
+test('late control closure records completed cleanup without inventing process exit', async () => {
+  let close
+  const closed = new Promise(resolve => { close = resolve })
+  const control = host({ closeControl: deadline => {
+    deadline.now = () => Number.MAX_SAFE_INTEGER
+    return closed
+  } })
+  const accepted = control.exit({ expectedGeneration: generation, budgetMs: 1000 })
+  await control.waitForAttempt()
+  assert.equal(op(control, accepted.operationId).status, 'blocked')
+  close()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(op(control, accepted.operationId).status, 'completed')
+  assert.equal(op(control, accepted.operationId).reason, null)
+  assert.deepEqual(op(control, accepted.operationId).blockers, [])
+  assert.equal(control.state().state, 'stopping')
+})
+
+test('internal deadlines support zero, fractional and longer budgets while request budgets remain bounded', async () => {
+  for (const budget of [0, 0.5, 120_001, Number.MAX_SAFE_INTEGER]) {
+    const deadline = new HostDeadline(budget, () => 0)
+    assert.equal(deadline.remainingMs(), Math.ceil(budget))
+  }
+  const control = host()
+  for (const budgetMs of [0, 0.5, 120_001])
+    assert.throws(() => control.exit({ expectedGeneration: generation, budgetMs }), { details: { reason: 'invalid-request' } })
+  await waitForDeadline(new Promise(resolve => setTimeout(resolve, 10)), new HostDeadline(Number.MAX_SAFE_INTEGER))
+  for (const budget of [-1, NaN, Infinity, '10']) assert.throws(() => new HostDeadline(budget))
+})
+
+test('ordinary service cleanup does not apply the HostControl request range to its config', async t => {
+  for (const budgetMs of [0, 0.5, 120_001]) {
+    const ctx = new Context()
+    t.after(() => ctx.fiber.dispose())
+    await ctx.plugin(OperationCatalog, { drainTimeoutMs: budgetMs })
+    await ctx.get('ivoraige.operationCatalog').close()
+  }
+  for (const budgetMs of [100.5, 120_001]) {
+    const resource = { stopAccepting() {}, pending: new Set(), opened: new Set(), drainTimeoutMs: budgetMs }
+    await ResourceAccess.prototype.close.call(resource)
+    assert.equal(resource.drained, true)
+  }
+})
 
 test('gate atomically closes admission; timed out admission joins the same operation', async () => {
   let gates = 0
@@ -146,6 +313,22 @@ test('deadline waits use a monotonic clock and do not cancel underlying work', a
   const deadline = new HostDeadline(10, () => now)
   now = 21
   await assert.rejects(waitForDeadline(new Promise(() => {}), deadline), { details: { reason: 'deadline-exceeded' } })
+})
+
+test('expired deadline observes a later cleanup rejection without terminating Node', () => {
+  const script = `
+    import { HostDeadline, waitForDeadline } from './src/host-deadline.mjs'
+    const deadline = new HostDeadline(1, () => 10)
+    deadline.now = () => 12
+    const cleanup = new Promise((_, reject) => setTimeout(() => reject(new Error('late cleanup')), 5))
+    try { await waitForDeadline(cleanup, deadline); process.exitCode = 2 }
+    catch (error) { if (error.details?.reason !== 'deadline-exceeded') process.exitCode = 3 }
+    await new Promise(resolve => setTimeout(resolve, 20))
+  `
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', script],
+    { cwd: process.cwd(), encoding: 'utf8', timeout: 5000 })
+  assert.equal(child.status, 0, child.stderr)
+  assert.equal(child.signal, null)
 })
 
 test('service gate closes before accept returns, including direct service admissions', () => {

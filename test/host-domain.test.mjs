@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { copyFile, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { copyFile, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHostDomain, findHostDomain, hostRegistryDirectory,
@@ -8,8 +9,9 @@ import { createHostDomain, findHostDomain, hostRegistryDirectory,
 import { createPrivateFile } from '../src/host-permissions.mjs'
 
 const config = { settingsDir: '/example/settings', componentRoot: '/example/components', pdfSource: 'installed' }
+const intentName = path => `domain-intent-${createHash('sha256').update(path).digest('hex')}.json`
 async function fixture(t) {
-  const dir = await mkdtemp(join(tmpdir(), 'ivoraige-host-domain-'))
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'ivoraige-host-domain-')))
   const registryRoot = join(dir, 'state')
   const store = join(dir, 'store.sqlite')
   t.after(() => rm(dir, { recursive: true, force: true }))
@@ -119,6 +121,154 @@ test('copy recovery assigns a new domain; changed diagnostic rejects before muta
   reopened.storeLease.release()
 })
 
+test('same-path restored store requires explicit identity refresh and retains both IDs', async t => {
+  const f = await fixture(t)
+  const first = await create(f)
+  first.storeLease.release()
+  const backup = join(f.dir, 'backup.sqlite')
+  await copyFile(f.store, backup)
+  await rm(f.store)
+  await copyFile(backup, f.store)
+  const diagnosis = await inspectHostDomain(f)
+  assert.equal(diagnosis.problem, 'store-replaced-in-place')
+  assert.deepEqual(diagnosis.availableModes, ['refresh-identity'])
+  await assert.rejects(create(f), error => error.details.reason === 'domain-registration-mismatch')
+  await assert.rejects(recoverHostDomain({ ...f, mode: 'copy', expectedDiagnostic: diagnosis.diagnosticRevision,
+    confirm: true }), error => error.details.reason === 'domain-registration-mismatch')
+  const refreshed = await recoverHostDomain({ ...f, mode: 'refresh-identity',
+    expectedDiagnostic: diagnosis.diagnosticRevision, confirm: true })
+  assert.equal(refreshed.dataDomainRef, first.dataDomainRef)
+  assert.equal(refreshed.registrationId, first.registrationId)
+  const reopened = await create(f)
+  assert.equal(reopened.dataDomainRef, first.dataDomainRef)
+  reopened.storeLease.release()
+})
+
+test('another domain restored at the registered path cannot be refreshed', async t => {
+  const f = await fixture(t)
+  const original = await create(f)
+  original.storeLease.release()
+  const otherPath = join(f.dir, 'other.sqlite')
+  const other = await create(f, otherPath)
+  other.storeLease.release()
+  await rm(f.store)
+  await copyFile(otherPath, f.store)
+  const diagnosis = await inspectHostDomain(f)
+  assert.equal(diagnosis.problem, 'path-replaced')
+  assert.deepEqual(diagnosis.availableModes, [])
+  await assert.rejects(recoverHostDomain({ ...f, mode: 'refresh-identity',
+    expectedDiagnostic: diagnosis.diagnosticRevision, confirm: true }),
+  error => error.details.reason === 'domain-registration-mismatch')
+})
+
+test('pending initialization is target-scoped and replay survives unrelated registry changes', async t => {
+  const f = await fixture(t)
+  const a = await create(f)
+  a.storeLease.release()
+  const cPath = join(f.dir, 'c.sqlite')
+  const c = await create(f, cPath)
+  c.storeLease.release()
+  const registryDir = hostRegistryDirectory(f.registryRoot)
+  const registryPath = join(registryDir, 'domains.json')
+  const registry = JSON.parse(await readFile(registryPath))
+  const cRecord = registry.domains.find(item => item.domainId === c.dataDomainRef)
+  registry.domains = registry.domains.filter(item => item.domainId !== c.dataDomainRef)
+  await writeFile(registryPath, `${JSON.stringify(registry)}\n`)
+  await createPrivateFile(join(registryDir, intentName(cPath)), `${JSON.stringify({
+    version: 2, mode: 'initialize', transactionId: '252c3b8e-753f-4451-b937-bcb203801002',
+    targetBefore: null, source: null, record: { ...cRecord, fileIdentity: null },
+  })}\n`)
+  assert.equal((await findHostDomain(f)).domainId, a.dataDomainRef)
+  const b = await create(f, join(f.dir, 'b.sqlite'))
+  b.storeLease.release()
+  const resumed = await create(f, cPath)
+  assert.equal(resumed.dataDomainRef, c.dataDomainRef)
+  resumed.storeLease.release()
+  assert.equal((await findHostDomain({ store: join(f.dir, 'b.sqlite'), registryRoot: f.registryRoot })).domainId,
+    b.dataDomainRef)
+})
+
+test('only a provably metadata-free pending initialization can be abandoned', async t => {
+  const f = await fixture(t)
+  const first = await create(f)
+  first.storeLease.release()
+  const registryDir = hostRegistryDirectory(f.registryRoot)
+  const registryPath = join(registryDir, 'domains.json')
+  const registry = JSON.parse(await readFile(registryPath))
+  const record = registry.domains.pop()
+  await writeFile(registryPath, `${JSON.stringify(registry)}\n`)
+  const intentPath = join(registryDir, intentName(f.store))
+  await createPrivateFile(intentPath, `${JSON.stringify({ version: 2, mode: 'initialize',
+    transactionId: '252c3b8e-753f-4451-b937-bcb203801003', targetBefore: null, source: null,
+    record: { ...record, fileIdentity: null } })}\n`)
+  let diagnosis = await inspectHostDomain(f)
+  assert.deepEqual(diagnosis.availableModes, [])
+  await assert.rejects(recoverHostDomain({ ...f, mode: 'abandon-initialization',
+    expectedDiagnostic: diagnosis.diagnosticRevision, confirm: true }),
+  error => error.details.reason === 'domain-registration-mismatch')
+  await rm(f.store)
+  diagnosis = await inspectHostDomain(f)
+  assert.deepEqual(diagnosis.availableModes, [])
+  await assert.rejects(recoverHostDomain({ ...f, mode: 'abandon-initialization',
+    expectedDiagnostic: diagnosis.diagnosticRevision, confirm: true }),
+  error => error.details.reason === 'domain-registration-mismatch')
+  assert.ok(await readFile(intentPath))
+})
+
+test('an unresolved source intent blocks another target using that source', async t => {
+  const f = await fixture(t)
+  const source = await create(f)
+  source.storeLease.release()
+  const firstCopy = join(f.dir, 'copy1.sqlite')
+  const secondCopy = join(f.dir, 'copy2.sqlite')
+  await copyFile(f.store, firstCopy)
+  await copyFile(f.store, secondCopy)
+  const registryDir = hostRegistryDirectory(f.registryRoot)
+  const sourceRecord = JSON.parse(await readFile(join(registryDir, 'domains.json'))).domains[0]
+  await createPrivateFile(join(registryDir, intentName(firstCopy)), `${JSON.stringify({
+    version: 2, mode: 'copy', transactionId: '252c3b8e-753f-4451-b937-bcb203801004',
+    targetBefore: null, source: sourceRecord,
+    record: { ...sourceRecord, canonicalStore: firstCopy,
+      domainId: '252c3b8e-753f-4451-b937-bcb203801005',
+      registrationId: '252c3b8e-753f-4451-b937-bcb203801006' },
+  })}\n`)
+  const diagnosis = await inspectHostDomain({ store: secondCopy, registryRoot: f.registryRoot })
+  await assert.rejects(recoverHostDomain({ store: secondCopy, registryRoot: f.registryRoot,
+    mode: 'copy', expectedDiagnostic: diagnosis.diagnosticRevision, confirm: true }),
+  error => error.details.reason === 'registry-intent-pending')
+  assert.equal((await findHostDomain(f)).domainId, source.dataDomainRef)
+})
+
+test('a pending migration needs fresh retirement proof before replay', async t => {
+  const f = await fixture(t)
+  const source = await create(f)
+  source.storeLease.release()
+  const target = join(f.dir, 'moved.sqlite')
+  await copyFile(f.store, target)
+  const registryDir = hostRegistryDirectory(f.registryRoot)
+  const sourceRecord = JSON.parse(await readFile(join(registryDir, 'domains.json'))).domains[0]
+  const s = await stat(target, { bigint: true })
+  const targetIdentity = { platform: process.platform, dev: String(s.dev), ino: String(s.ino),
+    ...(s.birthtimeNs > 0n ? { birthtimeNs: String(s.birthtimeNs) } : {}) }
+  const intentPath = join(registryDir, intentName(target))
+  await createPrivateFile(intentPath, `${JSON.stringify({ version: 2, mode: 'migrate',
+    transactionId: '252c3b8e-753f-4451-b937-bcb203801007', targetBefore: null,
+    source: sourceRecord, record: { ...sourceRecord, canonicalStore: target, fileIdentity: targetIdentity },
+  })}\n`)
+  await assert.rejects(create(f), error => error.details.reason === 'registry-intent-pending')
+  await assert.rejects(findHostDomain(f), error => error.details.reason === 'registry-intent-pending')
+  await assert.rejects(create(f, target), error => error.details.reason === 'source-retirement-unverified')
+  const diagnosis = await inspectHostDomain({ store: target, registryRoot: f.registryRoot })
+  await assert.rejects(recoverHostDomain({ store: target, registryRoot: f.registryRoot,
+    mode: 'migrate', expectedDiagnostic: diagnosis.diagnosticRevision, confirm: true }),
+  error => error.details.reason === 'source-retirement-unverified')
+  const resumed = await recoverHostDomain({ store: target, registryRoot: f.registryRoot,
+    mode: 'migrate', expectedDiagnostic: diagnosis.diagnosticRevision, confirm: true,
+    verifySourceRetired: () => true })
+  assert.equal(resumed.dataDomainRef, source.dataDomainRef)
+  await assert.rejects(readFile(intentPath), { code: 'ENOENT' })
+})
+
 test('migrate retains domain identity and retires the old registered path', async t => {
   const f = await fixture(t)
   const original = await create(f)
@@ -156,7 +306,7 @@ test('recover requires confirmed mode and exact diagnostic; busy owner is never 
 // D01.H03: persisted intent survives each interruption boundary without minting
 // another ID. These fixtures reproduce the on-disk states instead of relying
 // on a timed process kill whose exact instruction boundary is nondeterministic.
-test('replays interrupted initialization before and after DSH metadata commit', async t => {
+test('replays committed legacy initialization but refuses an absent unknown-phase target', async t => {
   const f = await fixture(t)
   const first = await create(f)
   first.storeLease.release()
@@ -170,25 +320,28 @@ test('replays interrupted initialization before and after DSH metadata commit', 
   const intent = { version: 1, mode: 'initialize', transactionId: '252c3b8e-753f-4451-b937-bcb203801001',
     beforeRevision: emptyRevision, source: null, record: { ...record, fileIdentity: null } }
   await rm(registryPath)
-  await createPrivateFile(intentPath, `${JSON.stringify(intent)}\n`)
+  await writeFile(intentPath, `${JSON.stringify(intent)}\n`)
+  const unrelated = await create(f, join(f.dir, 'unrelated.sqlite'))
+  unrelated.storeLease.release()
+  assert.equal((await readFile(join(dir, intentName(record.canonicalStore)), 'utf8')).includes(intent.transactionId), true)
   const afterMetadata = await create(f)
   assert.equal(afterMetadata.dataDomainRef, first.dataDomainRef)
   afterMetadata.storeLease.release()
-  await assert.rejects(readFile(intentPath), { code: 'ENOENT' })
+  assert.equal((await findHostDomain({ store: join(f.dir, 'unrelated.sqlite'), registryRoot: f.registryRoot })).domainId,
+    unrelated.dataDomainRef)
+  assert.deepEqual(JSON.parse(await readFile(intentPath)), { version: 3, layout: 'per-store' })
 
-  await createPrivateFile(intentPath, `${JSON.stringify(intent)}\n`)
+  await writeFile(intentPath, `${JSON.stringify(intent)}\n`)
   const afterRegistry = await create(f)
   assert.equal(afterRegistry.dataDomainRef, first.dataDomainRef)
   afterRegistry.storeLease.release()
-  await assert.rejects(readFile(intentPath), { code: 'ENOENT' })
+  assert.deepEqual(JSON.parse(await readFile(intentPath)), { version: 3, layout: 'per-store' })
 
   await rm(registryPath)
   await rm(f.store)
-  await createPrivateFile(intentPath, `${JSON.stringify(intent)}\n`)
-  const beforeMetadata = await create(f)
-  assert.equal(beforeMetadata.dataDomainRef, first.dataDomainRef)
-  beforeMetadata.storeLease.release()
-  await assert.rejects(readFile(intentPath), { code: 'ENOENT' })
+  await writeFile(intentPath, `${JSON.stringify(intent)}\n`)
+  await assert.rejects(create(f), error => error.details.reason === 'domain-registration-mismatch')
+  assert.deepEqual((await inspectHostDomain(f)).availableModes, [])
 })
 
 test('unknown host-domain version and hard-linked stores fail closed', async t => {

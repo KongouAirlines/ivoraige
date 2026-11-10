@@ -24,3 +24,100 @@
 本切片不包含生产 bootstrap 接管 store lease，也不包含经过认证的本机控制通道、管理 HTTP/WebUI、跨进程退出观察或强退实现。因此它只提供受测协调器与服务接点，不能声称 D01.H06–H08 端到端通过，不能声称 A1/A3、D01 或管理 UI 已交付。真实任务、安装事务、文件 lease 与 DSH storage 的全链路关停、三系统进程/锁竞争及 Node 26 CI 仍须在装配后验证。后续接线必须保持控制通道至最终清理，并由可信 owner 边界决定谁能请求 owner 投影与 drain/exit。
 
 依据：[HostControl@1 契约](../../../requirements/0.1.x/host-control-contract.md) §5、§9；[D01 工作包](../packages/desktop.md#d01)。
+
+
+## Review hardening
+
+An already-expired deadline now attaches a rejection observer to the supplied
+cleanup promise before returning `deadline-exceeded`. The underlying work is
+still retained by its owner and can be joined on retry; a later failure no
+longer becomes an unhandled rejection that terminates Node. A child-process
+regression exercises the default unhandled-rejection behavior.
+
+Translation tasks recheck the synchronous admission gate after preflight and
+after durable call accounting, immediately before model dispatch. If the gate
+closes during accounting, the undelivered call's count, reuse ratio and
+translation-token estimate are restored without replacing unrelated statistics.
+Abrupt teardown retains its existing no-more-record-writes boundary. Held
+preflight and held-accounting regressions verify zero new model calls after
+`stopAccepting`, an unchanged cursor and a paused checkpoint.
+
+All three regressions fail against the original implementation and pass with
+the fixes. On Linux / Node 24.22.1, the focused HostControl, task and task-lifecycle
+suites passed 31 tests with no failures. API 2.0, HostControl@1 and stored record,
+task, snapshot and domain identities are unchanged. These tests do not establish
+Windows pipe or separate ordinary-account acceptance.
+
+
+After merging the owner-foundation review fixes without rewriting either
+branch's history, the integrated Linux / Node 24.22.1 build and complete test
+suite passed with fresh lockfile dependencies: 624 tests, 605 passed, 19
+conditional/platform skips, zero failures. The isolated package smoke passed
+with 93 files, including reinstall, persistence, frozen exports, MCP discovery/call
+and static UI. Native Windows pipe-close stress remains unrun in this environment;
+the separate ordinary-account/fully unelevated gate remains open.
+
+## Lifecycle review corrections
+
+A failed host that still holds its store lease can accept `exit` and run the
+same ordered cleanup stages. It does not skip admissions, work or resources:
+the bootstrap's stage callbacks remain responsible for partially initialized
+objects. `starting` and failed-host `drain` return `host-not-ready`; a new
+cleanup operation with uncertain or released ownership returns
+`store-ownership-unknown` or `owner-unavailable`. Invalid ready/start-failure
+transitions also include a reason.
+
+When a release finishes after its wait budget, ownership and blocker recovery
+change together from unknown/manual-recovery to released/retry. Explicit retry
+then performs only unfinished discovery and control cleanup. Successful control
+closure records `status=completed, phase=release, safeToExit=true`, including
+closure that completes after its waiting attempt timed out. State remains
+`stopping`; this result is not proof that the OS process exited.
+
+The monotonic deadline helper accepts finite nonnegative internal budgets,
+including zero, fractional values and budgets above two minutes. HostControl
+request admission still separately requires integer budgets from 1 to 120000.
+Long internal waits use bounded timer chunks rather than Node's overflowing
+timer behavior.
+
+On Linux / Node 24.22.1, six added regressions failed against the preceding
+implementation and passed after these corrections. The combined HostControl,
+operation-catalog and resource-access suites passed 39/39 with no skips. A fresh
+build from clean DSH pin `639ed015397290b3745d163aafe02ffee4aa3f84` passed.
+These checks do not establish native Windows, cross-account or installed-entry
+acceptance. The contract/schema update is carried by the preceding stack layer.
+
+The schema/runtime cross-check also reproduced two ownership-loss cases:
+starting/draining could still project released ownership, and an already-drained
+operation could retain `safeToExit=true` after ownership became unknown.
+Unexpected loss now projects failed/blocked with a storage blocker requiring
+manual recovery. No subsequent pre-release stage starts without a held lease;
+normal releaseStore completion in the stopping phase keeps its existing path.
+Both added cases failed before the correction. The combined focused suites now
+pass 41/41 with no skips.
+
+After integrating the contract and owner-foundation review corrections, a fresh
+Linux / Node 24.22.1 build and complete suite passed: 648 tests, 628 passed,
+20 conditional/platform skips and zero failures. This includes all 100 shared
+schema fixtures and a regression validating actual State/ControlOperation
+projections against the schema through terminal completion. The isolated package
+smoke passed with 93 files, including reinstall, persistence, frozen exports,
+MCP discovery/call and static UI. The DSH pin remains
+`639ed015397290b3745d163aafe02ffee4aa3f84`.
+
+These results cover the locally integrated review changes. The green native CI
+for the preceding published heads does not cover these later corrections.
+Windows-native recovery/cancellation, the separate ordinary-account/fully
+unelevated gate and downstream A3 entry wiring remain outside this acceptance.
+
+## Owner-foundation safety integration
+
+Integrated owner-foundation `af661fd` without replacing the lifecycle review
+corrections. The integration includes durable initialization write evidence,
+legacy-writer gates, conservative recovery when store identity disappears,
+post-dispatch response outcome handling and the cross-platform fixtures.
+
+On Linux / Node 24.22.1, a fresh build and complete suite passed with 659 tests:
+639 passed, 20 conditional/platform skips and zero failures. Native platform
+checks for this integration remain separate from these local results; the
+ordinary-account/fully unelevated acceptance is still outstanding.

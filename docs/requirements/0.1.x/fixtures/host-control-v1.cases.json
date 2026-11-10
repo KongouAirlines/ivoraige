@@ -358,7 +358,7 @@
     {
       "id": "recover-repair-registration",
       "definition": "RecoveryRequest",
-      "valid": true,
+      "valid": false,
       "instance": {
         "action": "recover",
         "store": "/example/user-selected/store.sqlite",
@@ -833,6 +833,809 @@
         "generation": "generation-demo",
         "operationId": "shutdown-demo",
         "storeOwnership": "held"
+      }
+    },
+    {
+      "id": "recover-refresh-identity",
+      "definition": "RecoveryRequest",
+      "valid": true,
+      "instance": {
+        "action": "recover",
+        "store": "/example/user-selected/store.sqlite",
+        "mode": "refresh-identity",
+        "expectedDiagnostic": "diagnostic-demo",
+        "confirm": true
+      }
+    },
+    {
+      "id": "recover-abandon-initialization",
+      "definition": "RecoveryRequest",
+      "valid": true,
+      "instance": {
+        "action": "recover",
+        "store": "/example/user-selected/store.sqlite",
+        "mode": "abandon-initialization",
+        "expectedDiagnostic": "diagnostic-demo",
+        "confirm": true
+      }
+    },
+    {
+      "id": "drain-cannot-enter-storage",
+      "definition": "ControlOperation",
+      "valid": false,
+      "instance": {
+        "operationId": "shutdown-demo",
+        "generation": "generation-demo",
+        "intent": "drain",
+        "phase": "storage",
+        "status": "pending",
+        "remainingMs": 4000,
+        "reason": null,
+        "safeToExit": false,
+        "blockers": [],
+        "blockersTruncated": false
+      }
+    },
+    {
+      "id": "drain-cannot-enter-release",
+      "definition": "ControlOperation",
+      "valid": false,
+      "instance": {
+        "operationId": "shutdown-demo",
+        "generation": "generation-demo",
+        "intent": "drain",
+        "phase": "release",
+        "status": "pending",
+        "remainingMs": 4000,
+        "reason": null,
+        "safeToExit": false,
+        "blockers": [],
+        "blockersTruncated": false
+      }
+    },
+    {
+      "id": "gate-cannot-be-safe",
+      "definition": "ControlOperation",
+      "valid": false,
+      "instance": {
+        "operationId": "shutdown-demo",
+        "generation": "generation-demo",
+        "intent": "exit",
+        "phase": "gate",
+        "status": "pending",
+        "remainingMs": 0,
+        "reason": null,
+        "safeToExit": true,
+        "blockers": [],
+        "blockersTruncated": false
+      }
+    },
+    {
+      "id": "pending-needs-null-reason",
+      "definition": "ControlOperation",
+      "valid": false,
+      "instance": {
+        "operationId": "shutdown-demo",
+        "generation": "generation-demo",
+        "intent": "exit",
+        "phase": "resources",
+        "status": "pending",
+        "remainingMs": 0,
+        "reason": "still-busy",
+        "safeToExit": false,
+        "blockers": [
+          {
+            "kind": "worker",
+            "ref": "worker-demo",
+            "reason": "worker-still-running",
+            "recovery": "retry"
+          }
+        ],
+        "blockersTruncated": false
+      }
+    },
+    {
+      "id": "exit-completed",
+      "definition": "ControlOperation",
+      "valid": true,
+      "instance": {
+        "operationId": "shutdown-demo",
+        "generation": "generation-demo",
+        "intent": "exit",
+        "phase": "release",
+        "status": "completed",
+        "remainingMs": 4000,
+        "reason": null,
+        "safeToExit": true,
+        "blockers": [],
+        "blockersTruncated": false
+      }
+    },
+    {
+      "id": "drain-cannot-complete",
+      "definition": "ControlOperation",
+      "valid": false,
+      "instance": {
+        "operationId": "shutdown-demo",
+        "generation": "generation-demo",
+        "intent": "drain",
+        "phase": "quiescent",
+        "status": "completed",
+        "remainingMs": 4000,
+        "reason": null,
+        "safeToExit": true,
+        "blockers": [],
+        "blockersTruncated": false
+      }
+    },
+    {
+      "id": "completed-cannot-have-blocker",
+      "definition": "ControlOperation",
+      "valid": false,
+      "instance": {
+        "operationId": "shutdown-demo",
+        "generation": "generation-demo",
+        "intent": "exit",
+        "phase": "release",
+        "status": "completed",
+        "remainingMs": 4000,
+        "reason": null,
+        "safeToExit": true,
+        "blockers": [
+          {
+            "kind": "control",
+            "ref": null,
+            "reason": "still-open",
+            "recovery": "retry"
+          }
+        ],
+        "blockersTruncated": false
+      }
+    },
+    {
+      "id": "starting-cannot-be-released",
+      "definition": "State",
+      "valid": false,
+      "instance": {
+        "dataDomainRef": "domain-demo",
+        "generation": "generation-demo",
+        "lifetime": "resident",
+        "state": "starting",
+        "acceptingBusiness": false,
+        "stateRevision": 21,
+        "synchronization": "p04",
+        "operationId": null,
+        "blockers": [],
+        "blockersTruncated": false,
+        "storeOwnership": "released"
+      }
+    },
+    {
+      "id": "draining-cannot-be-released",
+      "definition": "State",
+      "valid": false,
+      "instance": {
+        "dataDomainRef": "domain-demo",
+        "generation": "generation-demo",
+        "lifetime": "resident",
+        "state": "draining",
+        "acceptingBusiness": false,
+        "stateRevision": 21,
+        "synchronization": "p04",
+        "operationId": "shutdown-demo",
+        "blockers": [],
+        "blockersTruncated": false,
+        "storeOwnership": "released"
+      }
+    },
+    {
+      "id": "draining-needs-operation",
+      "definition": "State",
+      "valid": false,
+      "instance": {
+        "dataDomainRef": "domain-demo",
+        "generation": "generation-demo",
+        "lifetime": "resident",
+        "state": "draining",
+        "acceptingBusiness": false,
+        "stateRevision": 21,
+        "synchronization": "p04",
+        "operationId": null,
+        "blockers": [],
+        "blockersTruncated": false,
+        "storeOwnership": "held"
+      }
+    },
+    {
+      "id": "ready-cannot-have-operation",
+      "definition": "State",
+      "valid": false,
+      "instance": {
+        "dataDomainRef": "domain-demo",
+        "generation": "generation-demo",
+        "lifetime": "resident",
+        "state": "ready",
+        "acceptingBusiness": true,
+        "stateRevision": 21,
+        "synchronization": "p04",
+        "operationId": "shutdown-demo",
+        "blockers": [],
+        "blockersTruncated": false,
+        "storeOwnership": "held"
+      }
+    },
+    {
+      "id": "stopping-after-release",
+      "definition": "State",
+      "valid": true,
+      "instance": {
+        "dataDomainRef": "domain-demo",
+        "generation": "generation-demo",
+        "lifetime": "resident",
+        "state": "stopping",
+        "acceptingBusiness": false,
+        "stateRevision": null,
+        "synchronization": "control-only",
+        "operationId": "shutdown-demo",
+        "blockers": [],
+        "blockersTruncated": false,
+        "storeOwnership": "released"
+      }
+    },
+    {
+      "id": "failed-after-startup-cleanup",
+      "definition": "State",
+      "valid": true,
+      "instance": {
+        "dataDomainRef": "domain-demo",
+        "generation": "generation-demo",
+        "lifetime": "resident",
+        "state": "failed",
+        "acceptingBusiness": false,
+        "stateRevision": null,
+        "synchronization": "control-only",
+        "operationId": null,
+        "blockers": [],
+        "blockersTruncated": false,
+        "storeOwnership": "released"
+      }
+    },
+    {
+      "id": "error-stale-generation",
+      "definition": "ErrorResponse",
+      "valid": true,
+      "instance": {
+        "apiVersion": "2.0",
+        "error": {
+          "code": "CONFLICT",
+          "message": "Host control request could not proceed",
+          "details": {
+            "reason": "stale-generation"
+          }
+        }
+      }
+    },
+    {
+      "id": "error-interface-version",
+      "definition": "ErrorResponse",
+      "valid": true,
+      "instance": {
+        "apiVersion": "2.0",
+        "error": {
+          "code": "PRECONDITION_FAILED",
+          "message": "Host control request could not proceed",
+          "details": {
+            "reason": "interface-version-unsupported",
+            "supportedMinors": [
+              0
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "error-unknown-reason",
+      "definition": "ErrorResponse",
+      "valid": true,
+      "instance": {
+        "apiVersion": "2.0",
+        "error": {
+          "code": "CONFLICT",
+          "message": "Host control request could not proceed",
+          "details": {
+            "reason": "future-reason"
+          }
+        }
+      }
+    },
+    {
+      "id": "error-missing-reason",
+      "definition": "ErrorResponse",
+      "valid": false,
+      "instance": {
+        "apiVersion": "2.0",
+        "error": {
+          "code": "CONFLICT",
+          "message": "rejected",
+          "details": {}
+        }
+      }
+    },
+    {
+      "id": "error-flat-reason",
+      "definition": "ErrorResponse",
+      "valid": false,
+      "instance": {
+        "apiVersion": "2.0",
+        "error": {
+          "code": "CONFLICT",
+          "message": "rejected",
+          "reason": "stale-generation",
+          "details": {}
+        }
+      }
+    },
+    {
+      "id": "error-unsupported-without-minors",
+      "definition": "ErrorResponse",
+      "valid": false,
+      "instance": {
+        "apiVersion": "2.0",
+        "error": {
+          "code": "PRECONDITION_FAILED",
+          "message": "Host control request could not proceed",
+          "details": {
+            "reason": "interface-version-unsupported"
+          }
+        }
+      }
+    },
+    {
+      "id": "error-unsupported-empty-minors",
+      "definition": "ErrorResponse",
+      "valid": false,
+      "instance": {
+        "apiVersion": "2.0",
+        "error": {
+          "code": "PRECONDITION_FAILED",
+          "message": "Host control request could not proceed",
+          "details": {
+            "reason": "interface-version-unsupported",
+            "supportedMinors": []
+          }
+        }
+      }
+    },
+    {
+      "id": "ipc-attach",
+      "definition": "OwnerIPCRequest",
+      "valid": true,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "ipc-attach",
+        "action": "attach",
+        "params": {
+          "dataDomainRef": "domain-demo",
+          "requiredLifetime": "resident"
+        }
+      }
+    },
+    {
+      "id": "ipc-state",
+      "definition": "OwnerIPCRequest",
+      "valid": true,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "ipc-state",
+        "action": "state",
+        "params": {},
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "ipc-drain",
+      "definition": "OwnerIPCRequest",
+      "valid": true,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "ipc-drain",
+        "action": "drain",
+        "params": {
+          "budgetMs": 15000
+        },
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "ipc-exit",
+      "definition": "OwnerIPCRequest",
+      "valid": true,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "ipc-exit",
+        "action": "exit",
+        "params": {
+          "budgetMs": 30000
+        },
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "ipc-operation",
+      "definition": "OwnerIPCRequest",
+      "valid": true,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "ipc-operation",
+        "action": "operation",
+        "params": {
+          "operationId": "shutdown-demo"
+        },
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "ipc-ownerBootstrap",
+      "definition": "OwnerIPCRequest",
+      "valid": true,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "ipc-ownerBootstrap",
+        "action": "ownerBootstrap",
+        "params": {},
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "ipc-prepareForceExit",
+      "definition": "OwnerIPCRequest",
+      "valid": true,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "ipc-prepareForceExit",
+        "action": "prepareForceExit",
+        "params": {
+          "operationId": "shutdown-demo"
+        },
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "ipc-forceExit",
+      "definition": "OwnerIPCRequest",
+      "valid": true,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "ipc-forceExit",
+        "action": "forceExit",
+        "params": {
+          "operationId": "shutdown-demo",
+          "challengeId": "challenge-demo",
+          "acknowledgeUnknownOutcome": true
+        },
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "ipc-transportInfo",
+      "definition": "OwnerIPCRequest",
+      "valid": true,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "ipc-transportInfo",
+        "action": "transportInfo",
+        "params": {},
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "ipc-business",
+      "definition": "OwnerIPCRequest",
+      "valid": true,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "ipc-business",
+        "action": "business",
+        "params": {
+          "method": "listDocuments",
+          "input": {}
+        },
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "ipc-mcp.describe",
+      "definition": "OwnerIPCRequest",
+      "valid": true,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "ipc-mcp.describe",
+        "action": "mcp.describe",
+        "params": {},
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "ipc-mcp.call",
+      "definition": "OwnerIPCRequest",
+      "valid": true,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "ipc-mcp.call",
+        "action": "mcp.call",
+        "params": {
+          "name": "listDocuments",
+          "input": {}
+        },
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "ipc-mcp.read",
+      "definition": "OwnerIPCRequest",
+      "valid": true,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "ipc-mcp.read",
+        "action": "mcp.read",
+        "params": {
+          "name": "artifact",
+          "uri": "ivoraige://artifact/one",
+          "variables": {}
+        },
+        "expectedGeneration": "generation-demo"
+      }
+    },
+    {
+      "id": "ipc-windows-capability",
+      "definition": "OwnerIPCRequest",
+      "valid": true,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "ipc-state",
+        "action": "state",
+        "params": {},
+        "expectedGeneration": "generation-demo",
+        "capability": "generation-bound-secret-placeholder"
+      }
+    },
+    {
+      "id": "ipc-start-rejected",
+      "definition": "OwnerIPCRequest",
+      "valid": false,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "request-start",
+        "action": "start",
+        "params": {
+          "dataDomainRef": "domain-demo",
+          "lifetime": "resident"
+        }
+      }
+    },
+    {
+      "id": "generic-capability-rejected",
+      "definition": "Request",
+      "valid": false,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "request-state",
+        "action": "state",
+        "params": {},
+        "expectedGeneration": "generation-demo",
+        "capability": "generation-bound-secret-placeholder"
+      }
+    },
+    {
+      "id": "ipc-self-reported-principal-rejected",
+      "definition": "OwnerIPCRequest",
+      "valid": false,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "ipc-state",
+        "action": "state",
+        "params": {},
+        "expectedGeneration": "generation-demo",
+        "principal": "self"
+      }
+    },
+    {
+      "id": "ipc-non-attach-needs-generation",
+      "definition": "OwnerIPCRequest",
+      "valid": false,
+      "instance": {
+        "interfaceVersion": "HostControl@1",
+        "minor": 0,
+        "requestId": "ipc-state",
+        "action": "state",
+        "params": {},
+        "expectedGeneration": null
+      }
+    },
+    {
+      "id": "ipc-error-frame",
+      "definition": "OwnerIPCFrame",
+      "valid": true,
+      "instance": {
+        "ok": false,
+        "apiVersion": "2.0",
+        "error": {
+          "code": "CONFLICT",
+          "message": "Host control request could not proceed",
+          "details": {
+            "reason": "stale-generation"
+          }
+        }
+      }
+    },
+    {
+      "id": "ipc-unsupported-frame",
+      "definition": "OwnerIPCFrame",
+      "valid": true,
+      "instance": {
+        "ok": false,
+        "apiVersion": "2.0",
+        "error": {
+          "code": "PRECONDITION_FAILED",
+          "message": "Host control request could not proceed",
+          "details": {
+            "reason": "interface-version-unsupported",
+            "supportedMinors": [
+              0
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "ipc-old-flat-error-rejected",
+      "definition": "OwnerIPCFrame",
+      "valid": false,
+      "instance": {
+        "ok": false,
+        "error": {
+          "code": "CONFLICT",
+          "reason": "stale-generation"
+        }
+      }
+    },
+    {
+      "id": "ipc-success-frame",
+      "definition": "OwnerIPCFrame",
+      "valid": true,
+      "instance": {
+        "ok": true,
+        "result": {
+          "generation": "generation-demo"
+        }
+      }
+    },
+    {
+      "id": "ipc-success-with-error-rejected",
+      "definition": "OwnerIPCFrame",
+      "valid": false,
+      "instance": {
+        "ok": true,
+        "result": {},
+        "error": {
+          "code": "CONFLICT",
+          "message": "Host control request could not proceed",
+          "details": {
+            "reason": "invalid-request"
+          }
+        }
+      }
+    },
+    {
+      "id": "storage-pending-not-safe",
+      "definition": "ControlOperation",
+      "valid": false,
+      "instance": {
+        "operationId": "shutdown-demo",
+        "generation": "generation-demo",
+        "intent": "exit",
+        "phase": "storage",
+        "status": "pending",
+        "remainingMs": 4000,
+        "reason": null,
+        "safeToExit": true,
+        "blockers": [],
+        "blockersTruncated": false
+      }
+    },
+    {
+      "id": "operation-stage-failed",
+      "definition": "ControlOperation",
+      "valid": true,
+      "instance": {
+        "operationId": "shutdown-demo",
+        "generation": "generation-demo",
+        "intent": "exit",
+        "phase": "resources",
+        "status": "blocked",
+        "remainingMs": 0,
+        "reason": "stage-failed",
+        "safeToExit": false,
+        "blockers": [
+          {
+            "kind": "worker",
+            "ref": "worker-demo",
+            "reason": "worker-still-running",
+            "recovery": "retry"
+          }
+        ],
+        "blockersTruncated": false
+      }
+    },
+    {
+      "id": "operation-stage-precondition-failed",
+      "definition": "ControlOperation",
+      "valid": true,
+      "instance": {
+        "operationId": "shutdown-demo",
+        "generation": "generation-demo",
+        "intent": "exit",
+        "phase": "resources",
+        "status": "blocked",
+        "remainingMs": 0,
+        "reason": "stage-precondition-failed",
+        "safeToExit": false,
+        "blockers": [
+          {
+            "kind": "worker",
+            "ref": "worker-demo",
+            "reason": "worker-still-running",
+            "recovery": "retry"
+          }
+        ],
+        "blockersTruncated": false
+      }
+    },
+    {
+      "id": "client-outcome-unknown",
+      "definition": "ErrorResponse",
+      "valid": true,
+      "instance": {
+        "apiVersion": "2.0",
+        "error": {
+          "code": "CONFLICT",
+          "message": "Host response unavailable",
+          "details": {
+            "reason": "outcome-unknown"
+          }
+        }
+      }
+    },
+    {
+      "id": "client-request-cancelled",
+      "definition": "ErrorResponse",
+      "valid": true,
+      "instance": {
+        "apiVersion": "2.0",
+        "error": {
+          "code": "CONFLICT",
+          "message": "Caller stopped waiting",
+          "details": {
+            "reason": "request-cancelled"
+          }
+        }
       }
     }
   ]

@@ -19,7 +19,7 @@ export async function bootstrapOwnerSession({ location = globalThis.location,
     const response = credential !== null
       ? await fetchImpl('/api/host/session', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ credential }), credentials: 'same-origin', cache: 'no-store' })
-      : await fetchImpl('/api/host/session', { method: 'GET', credentials: 'same-origin', cache: 'no-store' })
+      : await fetchImpl('/api/host/session/refresh', { method: 'POST', credentials: 'same-origin', cache: 'no-store' })
     credential = null
     if (!response.ok) return { authorized: false }
     const result = await response.json()

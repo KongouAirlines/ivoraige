@@ -41,7 +41,7 @@ v2.0 的 Cordis 组合契约在实现中出现了可观察的漂移：
 
 ## 处理记录
 
-- 2026-11-09：[PR #70](https://github.com/KongouAirlines/ivoraige/pull/70) 合入 main `978d947`，随后形成 [HostControl@1 接口设计草案](../../requirements/0.1.x/host-control-contract.md)，承接 D01 的统一 owner、退出及本地管理边界；[设计检查](../0.1.x/evidence/host-control-design.md)仅覆盖静态契约/schema，未启用生产接口。设计草稿工作分支为 `docs/0.1.x-host-control-contract`；实现与原生验收仍按 D01.H01–H12 推进，本事项其余范围不变。
+- 2026-11-09：[PR #70](https://github.com/KongouAirlines/ivoraige/pull/70) 合入 main `978d947`，随后形成 [HostControl@1 接口设计草案](../../requirements/0.1.x/host-control-contract.md)，承接 D01 的统一 owner、退出及本地管理边界；[设计检查](../0.1.x/evidence/host-control-design.md)仅覆盖静态契约/schema，未启用生产接口。设计草稿工作分支为 `codex/0.1.x-host-control-contract`；实现与原生验收仍按 D01.H01–H12 推进，本事项其余范围不变。
 
 - 2026-10-23：P01、Q01/Q03、P02 已在分支完成验证，P03 基础适配器切片在独立堆叠分支完成 293/293 本机回归、构建及 npm package smoke；证据见 [P01](../0.1.x/evidence/foundation-runtime.md)、[Q01/Q03](../0.1.x/evidence/foundation-qfix.md)、[P02](../0.1.x/evidence/foundation-p02.md)、[P03](../0.1.x/evidence/foundation-p03.md)。目前均待按依赖顺序集成，P04 入口/事件及其余验收未完成，本 follow-up 保持处理中。
 

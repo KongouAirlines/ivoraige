@@ -224,13 +224,13 @@ async function listenHttp(app, { host = '127.0.0.1', port = 8787, staticDir, all
               generation: exchanged.generation, csrfToken: exchanged.csrfToken }, { 'Set-Cookie': exchanged.setCookie })
             return
           }
-          ownerSession.authenticate({ cookie: req.headers.cookie, requestOrigin: req.headers.origin,
-            host: req.headers.host, csrfToken: req.headers['x-ivoraige-csrf'], method: req.method })
-          if (pathname === '/api/host/session' && req.method === 'GET') {
+          if (pathname === '/api/host/session/refresh' && req.method === 'POST') {
             send(res, 200, { apiVersion: '2.0', ...ownerSession.refreshCsrf({ cookie: req.headers.cookie,
-              requestOrigin: req.headers.origin, host: req.headers.host }) })
+              requestOrigin: req.headers.origin, host: req.headers.host, method: req.method }) })
             return
           }
+          ownerSession.authenticate({ cookie: req.headers.cookie, requestOrigin: req.headers.origin,
+            host: req.headers.host, csrfToken: req.headers['x-ivoraige-csrf'], method: req.method })
         } else if (await authorizeOwner(req) !== true) throw new KernelError('UNAUTHORIZED',
           'Owner authorization required', { reason: 'owner-authentication-required' })
       }

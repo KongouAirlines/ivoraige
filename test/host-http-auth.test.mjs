@@ -90,7 +90,34 @@ test('HTTP private routes require paired owner cookie and CSRF', async t => {
       body: JSON.stringify({ expectedGeneration: 'generation-a', budgetMs: 100 }) })).status, 200)
     assert.equal((await request('/api/host/state?expectedGeneration=wrong',
       { headers: { Cookie: cookie } })).status, 409)
+    assert.equal((await request('/api/host/session/refresh', { method: 'POST',
+      headers: { Cookie: cookie } })).status, 403)
+    assert.equal((await request('/api/host/session/refresh', { method: 'POST',
+      headers: { Cookie: cookie, Origin: 'http://localhost:55' } })).status, 403)
+    const refreshed = await request('/api/host/session/refresh', { method: 'POST',
+      headers: { Cookie: cookie, Origin: origin } })
+    assert.equal(refreshed.status, 200)
+    const nextToken = (await refreshed.json()).csrfToken
+    assert.notEqual(nextToken, csrfToken)
+    assert.equal((await request('/api/host/drain', { method: 'POST', headers: { Cookie: cookie, Origin: origin,
+      'X-Ivoraige-CSRF': csrfToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedGeneration: 'generation-a', budgetMs: 100 }) })).status, 403)
     app.state.storeOwnership = 'released'
     assert.equal((await request('/api/instance', { headers: { Cookie: cookie } })).status, 401)
   } finally { await server?.close() }
+})
+
+test('browser reload refreshes CSRF using same-origin POST rather than cookie-only GET', async () => {
+  let calls = 0
+  const result = await bootstrapOwnerSession({ location: { hash: '', pathname: '/', search: '' },
+    history: {}, fetchImpl: async (path, options) => {
+      calls++
+      assert.equal(path, '/api/host/session/refresh')
+      assert.equal(options.method, 'POST')
+      assert.equal(options.credentials, 'same-origin')
+      return { ok: true, json: async () => ({ csrfToken: 'c'.repeat(43), dataDomainRef: 'd', generation: 'g' }) }
+    } })
+  assert.equal(calls, 1)
+  assert.equal(result.authorized, true)
+  clearOwnerSession()
 })
