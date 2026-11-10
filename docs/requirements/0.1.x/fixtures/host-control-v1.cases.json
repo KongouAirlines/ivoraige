@@ -1542,6 +1542,23 @@
           }
         }
       }
+    },
+    {
+      "id": "storage-pending-not-safe",
+      "definition": "ControlOperation",
+      "valid": false,
+      "instance": {
+        "operationId": "shutdown-demo",
+        "generation": "generation-demo",
+        "intent": "exit",
+        "phase": "storage",
+        "status": "pending",
+        "remainingMs": 4000,
+        "reason": null,
+        "safeToExit": true,
+        "blockers": [],
+        "blockersTruncated": false
+      }
     }
   ]
 }

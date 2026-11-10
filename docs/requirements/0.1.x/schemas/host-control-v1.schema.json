@@ -983,6 +983,25 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "pending"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "safeToExit": {
+                "const": false
+              }
+            }
+          }
         }
       ],
       "description": "Only exit can complete after release and control cleanup. A live State lacks phase, so State/operation phase and physical process exit still require semantic checks."

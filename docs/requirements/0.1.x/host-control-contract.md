@@ -120,7 +120,7 @@ operation 是 bootstrap 持有的生命周期记录，不是新的任务调度�
 | `status` | `pending` 当前阶段仍在执行；`blocked` 超时或故障，保留 reason 并可重试；`drained` drain 停在 quiescent；`completed` exit 的 release 与管理清理全部成功，不等同于进程已退出 |
 | `remainingMs` | 本次尝试的单调时钟剩余等待预算；不重新发放已过期限额 |
 | `reason` | blocked 时必有可诊断原因；其他终态为 null |
-| `safeToExit` | 已完成 work/resources 安全边界；不证明存储已销毁或进程已退出 |
+| `safeToExit` | 仅 `drained` 或 `completed` 为 true；blocked/pending 即使已越过业务安全边界也保守地为 false，不证明进程已退出或授权跳过清理 |
 | `blockers`, `blockersTruncated` | 同 State，来自已有 owner；列表截断不得视为无残留 |
 
 `Blocker.kind` 由报告残留的 owner 分类：`task` 是翻译/导出/导入任务；`operation` 是 catalog 或安装操作；`worker` 是受本宿主拥有的子进程/工作者；`storage` 是写者、存储销毁或锁；`registry` 是域登记/发现清理；`control` 是管理通道收尾。`ref` 可为该 owner 的稳定引用，未知为 null；`reason` 是机器可读诊断，不泄漏路径或凭证。`Blocker.recovery` 指下一步：`wait` 等待在途工作；`retry` 用同一 operation 重试；`repair` 先修复持久前置条件；`explicit-force` 仅在受信本机控制器展示风险并获确认后可强退本实例拥有的工作；`manual-recovery` 表示自动重试/强退均无法证明安全，须本机诊断。报告者必须根据实际资源归属选 kind，不能把未知资源伪作 task。
@@ -136,7 +136,7 @@ operation 是 bootstrap 持有的生命周期记录，不是新的任务调度�
 5. **storage**：关闭业务消费者，确认不再有写入者，再销毁 Records/DSH storage。部分 dispose 成功要逐阶段记录；失败重试只调用尚存对象，不重新创建已销毁对象。
 6. **release**：全部潜在写入资源已销毁后，先释放 store lock，随后条件删除“仍属于本 generation”的发现记录，最后关闭 bootstrap 管理通道并结束进程。管理 IPC 使用绑定 generation 的地址；控制器在 attach 时保留该地址及进程身份，不依赖后续 instance.json 仍存在。清理异常不得通过 `finally` 无条件跳到这一阶段。释放阶段与客户端的最终响应可竞态，客户端需用可信控制器确认，不把 accepted 当 stopped。
 
-drain-only 完成第 4 步后停在 `phase=quiescent,status=drained,safeToExit=true`，保留必要服务与管理通道；只有 exit 意图进入 storage/release。exit 完成 release 和管理通道清理后为 `phase=release,status=completed,safeToExit=true,reason=null`，但进程是否真正退出仍由本机控制器观察。safeToExit 表示现阶段没有已知业务写入者，不授权绕过后续存储销毁步骤。
+drain-only 完成第 4 步后停在 `phase=quiescent,status=drained,safeToExit=true`，保留必要服务与管理通道；只有 exit 意图进入 storage/release。exit 完成 release 和管理通道清理后为 `phase=release,status=completed,safeToExit=true,reason=null`，但进程是否真正退出仍由本机控制器观察。`safeToExit=true` 只在这两种无已知业务写入者的终态出现，不授权绕过后续存储销毁步骤；storage/release 的 pending/blocked 仍为 false。
 
 释放是单向边界：释锁失败/结果不明时仍保留发现记录和管理通道，storeOwnership 为 held/unknown，不报告退出完成；释锁成功后为 released，旧 host 不再访问 store，也不能为重试抢回锁。此后删除记录失败仅重试本 generation 的发现清理；新 host 已替换记录则跳过，绝不删除新记录。此阶段仍可查询旧 generation 的管理 IPC，但旧进程不再是数据库 owner。管理通道最后关闭失败同样不伪报进程已退出。管理服务器对最终清理的投影不依赖已销毁的 DSH 服务；通道自身损坏时只能本机诊断，不能说“已可查询”。
 
