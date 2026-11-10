@@ -6,7 +6,7 @@
 
 HostSession、TaskCapabilities、shutdown/drain、worker lease/idle-stop/final-dispose、受限本机控制。
 
-首个接口设计切片见 [HostControl@1 候选契约](../../../requirements/0.1.x/host-control-contract.md)：统一 bootstrap、数据域登记/离线恢复、单 generation、可重试退出与 owner 管理会话，附机器 schema 和 D01.H01–H12 验收。当前仅完成设计草稿，A1/A2/A3 实现与原生验证仍待进行。
+首个接口设计切片见 [HostControl@1 候选契约](../../../requirements/0.1.x/host-control-contract.md)：统一 bootstrap、数据域登记/离线恢复、单 generation、可重试退出与 owner 管理会话，附机器 schema 和 D01.H01–H12 验收。契约与 owner 基础原语已有分支实现和回归证据；分层进度、入口接线及尚未完成的原生验收统一见[执行索引](../work-packages.md)。
 
 - 不做：不选桌面框架、不建平行 jobs、不先放宽 Origin。
 - 验收：[D01 专项](../validation/desktop.md#d01)。
