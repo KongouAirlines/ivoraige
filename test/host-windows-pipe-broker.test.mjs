@@ -7,6 +7,7 @@ import { syncBuiltinESMExports } from 'node:module'
 import { EventEmitter, once } from 'node:events'
 import { PassThrough, Writable } from 'node:stream'
 import { createWindowsPipeServer, connectWindowsPipe } from '../src/host-windows-pipe.mjs'
+import { exchangeHostFrame } from '../src/host-transport.mjs'
 
 const sid = 'S-1-5-21-1000'
 const address = '\\\\.\\pipe\\ivoraige-abcdefghijklmnopqrstuv'
@@ -96,4 +97,22 @@ test('native close acknowledgment completes without terminating a healthy helper
   assert.equal(child.kills, 0)
   assert.equal(server.verifiedClosed, true)
   await close(server)
+})
+
+test('broker failure after a business frame is submitted reports unknown outcome', async t => {
+  const child = helper(t)
+  const frame = { interfaceVersion: 'HostControl@1', minor: 0, requestId: 'broker-outcome',
+    expectedGeneration: 'generation', action: 'business', params: { method: 'write', input: {} } }
+  const exchange = exchangeHostFrame(address, frame, { createSocket: connectWindowsPipe })
+  const rejected = assert.rejects(exchange, { code: 'CONFLICT', details: { reason: 'outcome-unknown' } })
+  child.reply({ type: 'ready', sid })
+  const connect = child.commands.find(command => command.type === 'connect')
+  child.reply({ type: 'connected', id: connect.id, peerSid: sid })
+  await new Promise(resolve => setImmediate(resolve))
+  const submitted = child.commands.find(command => command.type === 'write')
+  assert.deepEqual(JSON.parse(Buffer.from(submitted.data, 'base64')), frame)
+  // The native operation may have run before the helper loses its channel.
+  child.emit('error', new Error('injected helper channel failure'))
+  await rejected
+  assert.equal(child.kills, 1)
 })

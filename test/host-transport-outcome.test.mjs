@@ -70,6 +70,34 @@ test('socket-free handler result delivery failure never claims a committed side 
   socket.destroy()
 })
 
+test('local broker and stream failures after submission are outcome-unknown, not permission rejections', async () => {
+  const permissionFailure = () => new KernelError('PRECONDITION_FAILED', 'Native helper failed',
+    { reason: 'owner-permissions-unverified' })
+  for (const failure of [permissionFailure(), Object.assign(new Error('Stream ended'),
+    { code: 'ERR_STREAM_PREMATURE_CLOSE' })]) {
+    let effects = 0
+    const socket = new Duplex({ read() {}, write(_chunk, _encoding, callback) {
+      effects++
+      callback()
+      queueMicrotask(() => this.destroy(failure))
+    } })
+    queueMicrotask(() => socket.emit('connect'))
+    await assert.rejects(exchangeHostFrame('unused', request, { createSocket: () => socket }), unknown)
+    assert.equal(effects, 1)
+  }
+  // A failure before connection and a verified rejection frame still carry
+  // their original meaning; only a local reply-channel fault is normalized.
+  const unconnected = new Duplex({ read() {}, write(_chunk, _encoding, callback) { callback() } })
+  queueMicrotask(() => unconnected.destroy(permissionFailure()))
+  await assert.rejects(exchangeHostFrame('unused', request, { createSocket: () => unconnected }),
+    { code: 'PRECONDITION_FAILED', details: { reason: 'owner-permissions-unverified' } })
+  const rejection = { ok: false, apiVersion: '2.0', error: { code: 'PRECONDITION_FAILED',
+    message: 'Owner refused request', details: { reason: 'owner-permissions-unverified' } } }
+  await assert.rejects(exchangeHostFrame('unused', request, {
+    createSocket: () => replySocket(`${JSON.stringify(rejection)}\n`) }),
+  { code: 'PRECONDITION_FAILED', details: { reason: 'owner-permissions-unverified' } })
+})
+
 test('random socket leaves are retired without deleting shared or unowned directories',
   { skip: process.platform === 'win32' }, async () => {
     const root = await mkdtemp(join(await realpath('/tmp'), 'io-'))
