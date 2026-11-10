@@ -47,3 +47,12 @@ the fixes. On Linux / Node 24.22.1, the focused HostControl, task and task-lifec
 suites passed 31 tests with no failures. API 2.0, HostControl@1 and stored record,
 task, snapshot and domain identities are unchanged. These tests do not establish
 Windows pipe or separate ordinary-account acceptance.
+
+
+After merging the owner-foundation review fixes without rewriting either
+branch's history, the integrated Linux / Node 24.22.1 build and complete test
+suite passed with fresh lockfile dependencies: 624 tests, 605 passed, 19
+conditional/platform skips, zero failures. The isolated package smoke passed
+with 93 files, including reinstall, persistence, frozen exports, MCP discovery/call
+and static UI. Native Windows pipe-close stress remains unrun in this environment;
+the separate ordinary-account/fully unelevated gate remains open.
