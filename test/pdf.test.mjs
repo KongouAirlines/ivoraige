@@ -313,6 +313,35 @@ test('PDF Markdown preserves numeric literals in document titles, headings and s
   }
 })
 
+test('PDF Markdown flattens Unicode heading separators without changing body text', () => {
+  const cases = [
+    ['LF', '\n', ' ', '\n'],
+    ['CR', '\r', ' ', '\n'],
+    ['CRLF', '\r\n', ' ', '\n'],
+    ['line separator', '\u2028', ' ', '\u2028'],
+    ['paragraph separator', '\u2029', ' ', '\u2029'],
+    ['mixed separators', '\r\n\u2028\u2029\n', ' ', '\n\u2028\u2029\n'],
+    ['next line control', '\u0085', '\u0085', '\u0085'],
+  ]
+  for (const [label, separator, headingSeparator, bodySeparator] of cases) {
+    const title = `Deep${separator}Learning`
+    const heading = `Results${separator}and Discussion`
+    const text = `Metric${separator}1. item`
+    const md = renderPdfMarkdown({ sourceBinding: { adapterId: 'babeldoc', records: [{}, {}] },
+      snapshot: { id: 'heading-separators', revisionSetHash: 'heading-separators' },
+      document: { title }, units: [
+        { unit: { order: 0, kind: 'heading' }, text: heading },
+        { unit: { order: 1, kind: 'body' }, text },
+      ] })
+    const body = new JSDOM(marked.parse(md)).window.document.body
+    assert.deepEqual([...body.children].map(node => node.tagName), ['H1', 'H2', 'P'], label)
+    assert.equal(body.querySelector('h1').textContent, `Deep${headingSeparator}Learning`, label)
+    assert.equal(body.querySelector('h2').textContent, `Results${headingSeparator}and Discussion`, label)
+    assert.equal(body.querySelector('p').textContent, `Metric${bodySeparator}1. item`, label)
+    assert.equal(body.querySelector('ol, ul, pre, code, a'), null, label)
+  }
+})
+
 test('PDF email candidates containing NUL remain unlinked after HTML normalization', () => {
   const text = 'user@example.com\u0000'
   const md = renderPdfMarkdown({ sourceBinding: { adapterId: 'babeldoc', records: [{}] },

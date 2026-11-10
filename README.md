@@ -50,7 +50,7 @@ For PDF, prepare the optional Windows development environment using the [PDF dev
 
 New PDF imports show captured units, translation callback requests, retained units without callbacks, audited lines and empty units in the workbench and frozen JSON summary. These are source inventory counts, not proof that all original text was captured or translated; audited lines and empty units can overlap with retained units.
 
-PDF Markdown export shows captured headings at one unranked section level and keeps extracted symbols, identifiers, and unresolved placeholder tokens visible as literal text. Other captured units remain paragraphs; the export cannot recover missing text, table cells, figures, or accurate heading levels.
+PDF Markdown export shows captured headings at one unranked section level and keeps extracted symbols, identifiers, and unresolved placeholder tokens visible as literal text. Document and section titles flatten line breaks, including Unicode line and paragraph separators, to spaces. Other captured units remain paragraphs; the export cannot recover missing text, table cells, figures, or accurate heading levels.
 
 Recognized links keep their visible labels and navigation targets, including URLs and www addresses adjacent to identifiers, quoted email addresses with ASCII or Unicode punctuation inside or outside the quotes, and IPv6 hosts; prose escapes do not become part of the address. Leading spaces and tabs, including mixed prefixes, stay visible prose instead of creating code blocks.
 
