@@ -274,3 +274,22 @@ plugin packing remains seven files with no bundled dependencies
 (`latest-plugin-pack.json`). The separate combined first-tier evidence document
 retains its original tested implementation snapshot and exact bytes; this
 package correction does not retroactively relabel that earlier broad run.
+
+## Cross-platform CI fixture follow-up (2026-11-10)
+
+The prior Windows run logged 13 failed tests before cancellation; nine were the
+BabelDOC fixture failures also seen on macOS, and four were the profile alias /
+cleanup failures addressed in parent PR #97. This branch incorporates #97
+`e66b911` by ordinary two-parent synchronization, without changing the independent
+BabelDOC plugin or relaxing production managed-path protections.
+
+The BabelDOC fixture now canonicalizes its newly created temporary directory
+before deriving the store and managed PDF paths. An explicit directory-alias
+regression exercises a legacy mount even on ordinary Linux temp paths. Before
+this fix, running the exact old head with a symlinked TMPDIR reproduced 20 passed
+and 9 failed tests; after the fix and added regression it passes 30/30. The
+combined final tree on Node 26.13.0/Linux passes 635 with 2 conditional skips
+(637 total). The runtime-equivalent tree before adding that test passed the
+87-file isolated package smoke. Native three-platform CI on the new head is
+still required; these results add no real PDF fidelity, native engine
+redistribution, translation-quality or cross-account acceptance claim.

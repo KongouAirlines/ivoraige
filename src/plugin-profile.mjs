@@ -24,7 +24,9 @@ export async function acquireProfile(directory) {
 export function acquireProbe(directory) { return acquireStoreLock(join(directory, '.plugin-validation')) }
 export function ownsProfile(lease, directory) {
   if (!leases.has(lease)) return false
-  try { return lease.directory === realpathSync(resolve(directory)) }
+  // Match fs.promises.realpath: both use the native resolver. On Windows the
+  // JavaScript resolver can retain an 8.3 alias that the native API expands.
+  try { return lease.directory === realpathSync.native(resolve(directory)) }
   catch { return false }
 }
 const files = ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.patch.yml', 'node_modules']

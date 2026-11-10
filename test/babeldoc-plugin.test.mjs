@@ -22,8 +22,10 @@ async function closeFixture(apps, remove) {
   if (failure) throw failure
 }
 
-async function fixture(t) {
-  const dir = await mkdtemp(join(tmpdir(), 'ivoraige-babeldoc-plugin-'))
+async function fixture(t, tempRoot = tmpdir()) {
+  // The host canonicalizes its store. Match that root before constructing
+  // managed paths (macOS /var aliases and Windows short temp names included).
+  const dir = await realpath(await mkdtemp(join(tempRoot, 'ivoraige-babeldoc-plugin-')))
   const apps = []
   t.after(() => closeFixture(apps, () => rm(dir, { recursive: true, force: true })))
   const engine = join(dir, 'engine.mjs')
@@ -201,6 +203,20 @@ test('legacy-first BabelDOC mount rejects the independent package without replac
   await app.dispose()
   app = await f.open()
   await app.ctx.plugin(BabelDOCSource, f.config)
+  await importPdf(app)
+})
+
+test('BabelDOC legacy mount works through a temporary-root directory alias', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'ivoraige-babeldoc-temp-alias-'))
+  const target = join(root, 'target'), alias = join(root, 'alias')
+  await fs.mkdir(target)
+  await symlink(target, alias, 'junction')
+  const f = await fixture(t, alias)
+  // Register after the fixture so SQLite and child processes are closed first.
+  t.after(() => rm(root, { recursive: true, force: true }))
+  assert.equal(f.dir, await realpath(f.dir))
+  const app = await f.open()
+  await app.ctx.plugin(Pdf, { ...f.config, storePath: f.store })
   await importPdf(app)
 })
 
