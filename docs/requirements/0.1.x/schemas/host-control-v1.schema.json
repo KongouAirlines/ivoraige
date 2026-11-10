@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:ivoraige:design:HostControl:1.0",
   "title": "HostControl@1 candidate 1.0 (design only)",
-  "description": "Producer/request shape checks only. Transport authentication, OS ownership, locks, generation comparison, deadlines and crash consistency require runtime tests. Response clients must tolerate additive fields and display unknown states as unknown. RecoveryRequest is local-only.",
+  "description": "Candidate producer/request shape checks. Request is generic HostControl; OwnerIPCRequest/OwnerIPCFrame are a distinct protected local transport. Runtime tests must prove authentication, locks, generation matching, deadlines and crash consistency. Response clients tolerate additive fields and unknown reasons. RecoveryRequest is local-only.",
   "$ref": "#/$defs/Request",
   "$defs": {
     "startRequest": {
@@ -674,6 +674,73 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "starting",
+                  "ready",
+                  "draining"
+                ]
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "storeOwnership": {
+                "enum": [
+                  "held",
+                  "unknown"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "ready"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "operationId": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "draining"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "operationId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[A-Za-z0-9_.:-]+$"
+              }
+            }
+          }
         }
       ]
     },
@@ -713,7 +780,8 @@
           "enum": [
             "pending",
             "blocked",
-            "drained"
+            "drained",
+            "completed"
           ]
         },
         "remainingMs": {
@@ -814,8 +882,110 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "intent": {
+                "const": "drain"
+              }
+            },
+            "required": [
+              "intent"
+            ]
+          },
+          "then": {
+            "properties": {
+              "phase": {
+                "enum": [
+                  "gate",
+                  "admissions",
+                  "work",
+                  "resources",
+                  "quiescent"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "safeToExit": {
+                "const": true
+              }
+            },
+            "required": [
+              "safeToExit"
+            ]
+          },
+          "then": {
+            "properties": {
+              "phase": {
+                "enum": [
+                  "quiescent",
+                  "storage",
+                  "release"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "completed"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "intent": {
+                "const": "exit"
+              },
+              "phase": {
+                "const": "release"
+              },
+              "safeToExit": {
+                "const": true
+              },
+              "reason": {
+                "type": "null"
+              },
+              "blockers": {
+                "maxItems": 0
+              },
+              "blockersTruncated": {
+                "const": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "pending"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "reason": {
+                "type": "null"
+              }
+            }
+          }
         }
-      ]
+      ],
+      "description": "Only exit can complete after release and control cleanup. A live State lacks phase, so State/operation phase and physical process exit still require semantic checks."
     },
     "StateResponse": {
       "type": "object",
@@ -996,7 +1166,8 @@
           "enum": [
             "migrate",
             "copy",
-            "repair-registration"
+            "refresh-identity",
+            "abandon-initialization"
           ]
         },
         "expectedDiagnostic": {
@@ -1016,7 +1187,8 @@
         "expectedDiagnostic",
         "confirm"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "description": "Local-only resolved command. Runtime enforces exact target-scoped diagnostic, ownership, source retirement, and intent preconditions."
     },
     "ExitObservation": {
       "type": "object",
@@ -1132,6 +1304,707 @@
         "storeOwnership"
       ],
       "additionalProperties": true
+    },
+    "ErrorResponse": {
+      "type": "object",
+      "description": "External v2 error envelope. OwnerIPC failure adds only ok:false at frame level.",
+      "properties": {
+        "apiVersion": {
+          "const": "2.0"
+        },
+        "error": {
+          "type": "object",
+          "properties": {
+            "code": {
+              "enum": [
+                "INVALID_ARGUMENT",
+                "PRECONDITION_FAILED",
+                "CONFLICT",
+                "NOT_FOUND",
+                "UNAUTHORIZED",
+                "FORBIDDEN_HOST",
+                "AUTHENTICATION_REQUIRED",
+                "PERMISSION_DENIED",
+                "UPSTREAM_FAILURE",
+                "COMPONENT_MISSING",
+                "INTERNAL"
+              ]
+            },
+            "message": {
+              "type": "string",
+              "minLength": 1
+            },
+            "details": {
+              "type": "object",
+              "properties": {
+                "reason": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128,
+                  "pattern": "^[A-Za-z0-9_.:-]+$",
+                  "description": "Known reasons are listed in contract §8; clients must treat unknown values as unknown, not automatically retry."
+                },
+                "supportedMinors": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "minItems": 1,
+                  "uniqueItems": true
+                }
+              },
+              "required": [
+                "reason"
+              ],
+              "additionalProperties": true
+            }
+          },
+          "required": [
+            "code",
+            "message",
+            "details"
+          ],
+          "additionalProperties": true,
+          "allOf": [
+            {
+              "if": {
+                "properties": {
+                  "details": {
+                    "properties": {
+                      "reason": {
+                        "const": "interface-version-unsupported"
+                      }
+                    },
+                    "required": [
+                      "reason"
+                    ]
+                  }
+                },
+                "required": [
+                  "details"
+                ]
+              },
+              "then": {
+                "properties": {
+                  "details": {
+                    "required": [
+                      "supportedMinors"
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      },
+      "required": [
+        "apiVersion",
+        "error"
+      ],
+      "additionalProperties": true
+    },
+    "OwnerIPCRequest": {
+      "type": "object",
+      "description": "Protected local owner request. attach has no expectedGeneration; other actions bind the generation. capability is permitted only on this local frame and required by the Windows runtime.",
+      "properties": {
+        "interfaceVersion": {
+          "const": "HostControl@1"
+        },
+        "minor": {
+          "const": 0
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "action": {
+          "enum": [
+            "attach",
+            "state",
+            "drain",
+            "exit",
+            "operation",
+            "ownerBootstrap",
+            "prepareForceExit",
+            "forceExit",
+            "transportInfo",
+            "business",
+            "mcp.describe",
+            "mcp.call",
+            "mcp.read"
+          ]
+        },
+        "expectedGeneration": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "params": {},
+        "capability": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "interfaceVersion",
+        "minor",
+        "requestId",
+        "action",
+        "params"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "attach"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "expectedGeneration"
+              ]
+            }
+          },
+          "else": {
+            "required": [
+              "expectedGeneration"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "attach"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {
+                  "dataDomainRef": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]+$"
+                  },
+                  "requiredLifetime": {
+                    "enum": [
+                      "resident",
+                      "ephemeral"
+                    ]
+                  }
+                },
+                "required": [
+                  "dataDomainRef",
+                  "requiredLifetime"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "state"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "drain"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {
+                  "budgetMs": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 120000
+                  }
+                },
+                "required": [
+                  "budgetMs"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "exit"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {
+                  "budgetMs": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 120000
+                  }
+                },
+                "required": [
+                  "budgetMs"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "operation"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {
+                  "operationId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]+$"
+                  }
+                },
+                "required": [
+                  "operationId"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "ownerBootstrap"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "prepareForceExit"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {
+                  "operationId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]+$"
+                  }
+                },
+                "required": [
+                  "operationId"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "forceExit"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {
+                  "operationId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]+$"
+                  },
+                  "challengeId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]+$"
+                  },
+                  "acknowledgeUnknownOutcome": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "operationId",
+                  "challengeId",
+                  "acknowledgeUnknownOutcome"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "transportInfo"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "business"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {
+                  "method": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]+$"
+                  },
+                  "input": {}
+                },
+                "required": [
+                  "method",
+                  "input"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "mcp.describe"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "mcp.call"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]+$"
+                  },
+                  "input": {}
+                },
+                "required": [
+                  "name",
+                  "input"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "mcp.read"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]+$"
+                  },
+                  "uri": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "variables": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "string",
+                      "maxLength": 2048
+                    }
+                  }
+                },
+                "required": [
+                  "name",
+                  "uri",
+                  "variables"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      ]
+    },
+    "OwnerIPCFrame": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": true
+            },
+            "result": {}
+          },
+          "required": [
+            "ok",
+            "result"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": false
+            },
+            "apiVersion": {
+              "const": "2.0"
+            },
+            "error": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "enum": [
+                    "INVALID_ARGUMENT",
+                    "PRECONDITION_FAILED",
+                    "CONFLICT",
+                    "NOT_FOUND",
+                    "UNAUTHORIZED",
+                    "FORBIDDEN_HOST",
+                    "AUTHENTICATION_REQUIRED",
+                    "PERMISSION_DENIED",
+                    "UPSTREAM_FAILURE",
+                    "COMPONENT_MISSING",
+                    "INTERNAL"
+                  ]
+                },
+                "message": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "details": {
+                  "type": "object",
+                  "properties": {
+                    "reason": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 128,
+                      "pattern": "^[A-Za-z0-9_.:-]+$",
+                      "description": "Known reasons are listed in contract §8; clients must treat unknown values as unknown, not automatically retry."
+                    },
+                    "supportedMinors": {
+                      "type": "array",
+                      "items": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "minItems": 1,
+                      "uniqueItems": true
+                    }
+                  },
+                  "required": [
+                    "reason"
+                  ],
+                  "additionalProperties": true
+                }
+              },
+              "required": [
+                "code",
+                "message",
+                "details"
+              ],
+              "additionalProperties": true,
+              "allOf": [
+                {
+                  "if": {
+                    "properties": {
+                      "details": {
+                        "properties": {
+                          "reason": {
+                            "const": "interface-version-unsupported"
+                          }
+                        },
+                        "required": [
+                          "reason"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "details"
+                    ]
+                  },
+                  "then": {
+                    "properties": {
+                      "details": {
+                        "required": [
+                          "supportedMinors"
+                        ]
+                      }
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          "required": [
+            "ok",
+            "apiVersion",
+            "error"
+          ],
+          "additionalProperties": false
+        }
+      ]
     }
   }
 }
