@@ -22,5 +22,5 @@ test('HostControl design fixtures validate under the checked-in Draft 2020-12 sc
       assert.equal(instance.dataDomainRef, instance.state.dataDomainRef, `${id}: domain mismatch`)
     }
   }
-  assert.ok(cases.length >= 95, 'fixture coverage unexpectedly dropped')
+  assert.ok(cases.length >= 100, 'fixture coverage unexpectedly dropped')
 })
