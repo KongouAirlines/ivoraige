@@ -199,3 +199,9 @@ one stale package-smoke assertion: it expected the former shared cookie name.
 The smoke now requires the domain/origin-scoped 32-hex cookie suffix and also
 exercises same-origin POST refresh on the installed application. This retains
 the stronger session boundary instead of restoring the old shared cookie.
+
+### Follow-up integration of reviewed upstream outcomes (2026-11-10)
+
+- Synchronized lifecycle `e5ffb673a8ebf6e1c833501d25a441e435b35c94`, including foundation `26957a335a9f3b46ba0be9df922f5c94b81f33eb`, without dropping the entry finalization channel or Origin-bound POST CSRF refresh.
+- Retained the reviewed resident-unavailable error contract and broker outcome-unknown normalization with the expanded fixtures/tests.
+- Local Node 24.22.1 compatibility run: 677 tests, 649 passed, 28 platform/capability skips, zero failures. This is not Node 26 native CI or real cross-account acceptance. Earlier Unix socket permission limits still apply; native package smoke must be checked on this new head.

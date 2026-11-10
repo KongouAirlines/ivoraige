@@ -1637,6 +1637,228 @@
           }
         }
       }
+    },
+    {
+      "id": "error-version-wrong-code",
+      "definition": "ErrorResponse",
+      "valid": false,
+      "instance": {
+        "apiVersion": "2.0",
+        "error": {
+          "code": "INVALID_ARGUMENT",
+          "message": "Host control request could not proceed",
+          "details": {
+            "reason": "interface-version-unsupported",
+            "supportedMinors": [
+              0
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "ipc-version-wrong-code",
+      "definition": "OwnerIPCFrame",
+      "valid": false,
+      "instance": {
+        "ok": false,
+        "apiVersion": "2.0",
+        "error": {
+          "code": "INVALID_ARGUMENT",
+          "message": "Host control request could not proceed",
+          "details": {
+            "reason": "interface-version-unsupported",
+            "supportedMinors": [
+              0
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": "error-stale-generation-wrong-code",
+      "definition": "ErrorResponse",
+      "valid": false,
+      "instance": {
+        "apiVersion": "2.0",
+        "error": {
+          "code": "NOT_FOUND",
+          "message": "Host control request could not proceed",
+          "details": {
+            "reason": "stale-generation"
+          }
+        }
+      }
+    },
+    {
+      "id": "error-invalid-request-wrong-code",
+      "definition": "ErrorResponse",
+      "valid": false,
+      "instance": {
+        "apiVersion": "2.0",
+        "error": {
+          "code": "CONFLICT",
+          "message": "Host control request could not proceed",
+          "details": {
+            "reason": "invalid-request"
+          }
+        }
+      }
+    },
+    {
+      "id": "error-owner-absent-wrong-code",
+      "definition": "ErrorResponse",
+      "valid": false,
+      "instance": {
+        "apiVersion": "2.0",
+        "error": {
+          "code": "CONFLICT",
+          "message": "Host control request could not proceed",
+          "details": {
+            "reason": "owner-absent"
+          }
+        }
+      }
+    },
+    {
+      "id": "error-owner-absent",
+      "definition": "ErrorResponse",
+      "valid": true,
+      "instance": {
+        "apiVersion": "2.0",
+        "error": {
+          "code": "NOT_FOUND",
+          "message": "Host control request could not proceed",
+          "details": {
+            "reason": "owner-absent"
+          }
+        }
+      }
+    },
+    {
+      "id": "error-invalid-request",
+      "definition": "ErrorResponse",
+      "valid": true,
+      "instance": {
+        "apiVersion": "2.0",
+        "error": {
+          "code": "INVALID_ARGUMENT",
+          "message": "Host control request could not proceed",
+          "details": {
+            "reason": "invalid-request"
+          }
+        }
+      }
+    },
+    {
+      "id": "ipc-unknown-reason",
+      "definition": "OwnerIPCFrame",
+      "valid": true,
+      "instance": {
+        "ok": false,
+        "apiVersion": "2.0",
+        "error": {
+          "code": "CONFLICT",
+          "message": "Host control request could not proceed",
+          "details": {
+            "reason": "future-reason"
+          }
+        }
+      }
+    },
+    {
+      "id": "client-outcome-unknown-wrong-code",
+      "definition": "ErrorResponse",
+      "valid": false,
+      "instance": {
+        "apiVersion": "2.0",
+        "error": {
+          "code": "INVALID_ARGUMENT",
+          "message": "Host response unavailable",
+          "details": {
+            "reason": "outcome-unknown"
+          }
+        }
+      }
+    },
+    {
+      "id": "ipc-outcome-unknown",
+      "definition": "OwnerIPCFrame",
+      "valid": true,
+      "instance": {
+        "ok": false,
+        "apiVersion": "2.0",
+        "error": {
+          "code": "CONFLICT",
+          "message": "Host response unavailable",
+          "details": {
+            "reason": "outcome-unknown"
+          }
+        }
+      }
+    },
+    {
+      "id": "ipc-outcome-unknown-wrong-code",
+      "definition": "OwnerIPCFrame",
+      "valid": false,
+      "instance": {
+        "ok": false,
+        "apiVersion": "2.0",
+        "error": {
+          "code": "INVALID_ARGUMENT",
+          "message": "Host response unavailable",
+          "details": {
+            "reason": "outcome-unknown"
+          }
+        }
+      }
+    },
+    {
+      "id": "client-request-cancelled-wrong-code",
+      "definition": "ErrorResponse",
+      "valid": false,
+      "instance": {
+        "apiVersion": "2.0",
+        "error": {
+          "code": "INVALID_ARGUMENT",
+          "message": "Caller stopped waiting",
+          "details": {
+            "reason": "request-cancelled"
+          }
+        }
+      }
+    },
+    {
+      "id": "ipc-request-cancelled",
+      "definition": "OwnerIPCFrame",
+      "valid": true,
+      "instance": {
+        "ok": false,
+        "apiVersion": "2.0",
+        "error": {
+          "code": "CONFLICT",
+          "message": "Caller stopped waiting",
+          "details": {
+            "reason": "request-cancelled"
+          }
+        }
+      }
+    },
+    {
+      "id": "ipc-request-cancelled-wrong-code",
+      "definition": "OwnerIPCFrame",
+      "valid": false,
+      "instance": {
+        "ok": false,
+        "apiVersion": "2.0",
+        "error": {
+          "code": "INVALID_ARGUMENT",
+          "message": "Caller stopped waiting",
+          "details": {
+            "reason": "request-cancelled"
+          }
+        }
+      }
     }
   ]
 }

@@ -59,7 +59,7 @@ test('bootstrap is origin bound, single use, and produces a strict host-only coo
     requestOrigin: origin, csrfToken: refreshed.csrfToken }), { dataDomainRef: 'domain-a', generation: 'generation-a' })
   session.revokeAll()
   assert.throws(() => session.authenticate({ cookie, host: '127.0.0.1:4321' }), { code: 'UNAUTHORIZED' })
-  assert.throws(() => session.issueBootstrap(), { code: 'CONFLICT' })
+  assert.throws(() => session.issueBootstrap(), { code: 'PRECONDITION_FAILED' })
 })
 
 test('expired bootstrap, temporary owner and released owner cannot issue sessions', () => {
@@ -76,7 +76,7 @@ test('expired bootstrap, temporary owner and released owner cannot issue session
   const browser = released.issueBootstrap()
   held = false
   assert.throws(() => released.exchange({ credential: browser.credential, requestOrigin: released.origin,
-    host: '127.0.0.1:4321' }), { code: 'CONFLICT' })
+    host: '127.0.0.1:4321' }), { code: 'PRECONDITION_FAILED' })
 })
 
 test('HTTPS cookie is Secure and untrusted origins are rejected', () => {

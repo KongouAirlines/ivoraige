@@ -125,13 +125,18 @@ function equalSecret(a, b) {
   return aa.length === bb.length && timingSafeEqual(aa, bb)
 }
 
-function frameSocket(socket, payload, { timeoutMs, timeoutReason = 'owner-unreachable', invalidFrameReason = 'invalid-request', signal } = {}) {
+function frameSocket(socket, payload, { timeoutMs, timeoutReason = 'owner-unreachable', invalidFrameReason = 'invalid-request', socketErrorReason, signal } = {}) {
   return new Promise((resolveFrame, reject) => {
     let size = 0
     const chunks = []
     const timer = timeoutMs === undefined ? undefined : setTimeout(() => socket.destroy(fail('CONFLICT', timeoutReason)), timeoutMs)
     const cleanup = () => { clearTimeout(timer); signal?.removeEventListener('abort', abort); socket.off('data', data); socket.off('error', error); socket.off('end', end); socket.off('close', end) }
-    const error = cause => { cleanup(); reject(cause) }
+    const rejectFrame = cause => { cleanup(); reject(cause) }
+    // Native broker failures are KernelErrors, not necessarily network errno.
+    // Once waiting for a reply, any local transport failure leaves delivery
+    // uncertain. Keep received failure frames and local input errors separate.
+    const error = cause => rejectFrame(socketErrorReason
+      ? fail('CONFLICT', signal?.aborted ? 'request-cancelled' : socketErrorReason) : cause)
     const end = () => error(fail('CONFLICT', timeoutReason))
     const abort = () => socket.destroy(fail('CONFLICT', 'request-cancelled'))
     const invalidFrame = () => fail(invalidFrameReason === 'invalid-request' ? 'INVALID_ARGUMENT' : 'CONFLICT', invalidFrameReason)
@@ -152,7 +157,7 @@ function frameSocket(socket, payload, { timeoutMs, timeoutReason = 'owner-unreac
     if (signal?.aborted) { abort(); return }
     if (payload !== undefined) {
       const bytes = Buffer.from(`${JSON.stringify(payload)}\n`)
-      if (bytes.length > MAX_FRAME) { error(fail('INVALID_ARGUMENT', 'invalid-request')); return }
+      if (bytes.length > MAX_FRAME) { rejectFrame(fail('INVALID_ARGUMENT', 'invalid-request')); return }
       socket.write(bytes)
     }
   })
@@ -419,7 +424,8 @@ export async function exchangeHostFrame(address, frame, { timeoutMs, signal,
     })
     const response = await frameSocket(socket, frame, { timeoutMs,
       timeoutReason: frame.action === 'attach' ? 'owner-unreachable' : 'outcome-unknown',
-      invalidFrameReason: frame.action === 'attach' ? 'owner-unreachable' : 'outcome-unknown', signal })
+      invalidFrameReason: frame.action === 'attach' ? 'owner-unreachable' : 'outcome-unknown',
+      socketErrorReason: frame.action === 'attach' ? 'owner-unreachable' : 'outcome-unknown', signal })
     const validResponse = response?.ok === true ? Object.hasOwn(response, 'result')
       : response?.ok === false && response.apiVersion === '2.0' &&
         Object.hasOwn(ERROR_STATUSES, response.error?.code) && typeof response.error?.message === 'string' &&
