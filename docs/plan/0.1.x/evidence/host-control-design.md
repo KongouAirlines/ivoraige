@@ -10,12 +10,12 @@
 
 - [候选契约](../../../requirements/0.1.x/host-control-contract.md)：9 个管理/启动动作、单 owner/generation、受控本地会话、数据域恢复、重试退出和 A1/A2/A3 实施顺序。
 - [机器 schema](../../../requirements/0.1.x/schemas/host-control-v1.schema.json)：通用请求、独立 OwnerIPC 请求/帧、错误信封、状态/操作投影、启动结果、恢复参数及控制器退出观察/最终收据。
-- [96 个正反例](../../../requirements/0.1.x/fixtures/host-control-v1.cases.json)、[Python 检查器](../../../requirements/0.1.x/fixtures/check-host-control-v1.py)及 [Node 测试](../../../../test/host-contract.test.mjs)：48 个合法、48 个应拒绝形状。
+- [100 个正反例](../../../requirements/0.1.x/fixtures/host-control-v1.cases.json)、[Python 检查器](../../../requirements/0.1.x/fixtures/check-host-control-v1.py)及 [Node 测试](../../../../test/host-contract.test.mjs)：52 个合法、48 个应拒绝形状。
 - D01 工作包导航与设计状态、RFC 后续设计链接、design-v3 处理记录、依据合并事实将 ADR-0003 标为采纳；未标任何运行能力完成。
 
 ## 实际检查
 
-1. Python 3 + jsonschema：`python3 docs/requirements/0.1.x/fixtures/check-host-control-v1.py` 通过。Draft 2020-12 schema 自检及 96 个案例全部符合预期；附加验证 Attached 外层与 state 的域/generation 一致。
+1. Python 3 + jsonschema：`python3 docs/requirements/0.1.x/fixtures/check-host-control-v1.py` 通过。Draft 2020-12 schema 自检及 100 个案例全部符合预期；附加验证 Attached 外层与 state 的域/generation 一致。
 2. Node + Ajv：`node --test test/host-contract.test.mjs` 通过，读取同一 schema 与 fixture。该测试由现有 `npm test` 的 `test/*.test.mjs` 自动纳入，无需修改 package.json。
 3. 原设计检查的 15 个新增本地链接与 2 个已物化锚点检查通过，目标与固定 main 文件清单或本设计文件核对；未扫描所有未改历史文档，也未声称复查全部外链。
 4. `git diff --check` 通过；改动仅文档、JSON 设计例与文档示例检查器，没有生产代码改动。

@@ -50,7 +50,7 @@ bootstrap 只取得一次 store lease，并将它交给同一长寿命 host 组�
 
 候选 [JSON Schema](schemas/host-control-v1.schema.json) 的 `$defs` 分别提供 Request、OwnerIPCRequest、OwnerIPCFrame、ErrorResponse、State、Accepted、Attached、ControlOperation 与 RecoveryRequest。使用请求 schema 的前提是已通过版本和传输大小检查；实现层必须在自动测试中对照同一批 Request/OwnerIPCRequest fixture，不能把文档 fixture 当服务器。schema 不能证明认证、锁或恢复语义。
 
-传输响应共用 `apiVersion, interfaceVersion, minor, requestId`；state/operation 查询分别包为 `{ ..., state: State }` 和 `{ ..., operation: ControlOperation }`，Accepted 返回 `accepted, generation, operationId`，Attached 返回 `reused, dataDomainRef, generation, supportedMinors, state`。Attached 的外层与 State 的域/generation 必须相同，这类跨字段关系由语义测试补验。ownerBootstrap 与强退 challenge 的秘密响应在传输实现时单列内存-only schema，本轮 fixture 不包含它们；这三个管理动作的请求已定候选形状，不表示其响应/OS 接线已冻结。
+通用 HostControl 成功响应共用 `apiVersion, interfaceVersion, minor, requestId`；state/operation 查询分别包为 `{ ..., state: State }` 和 `{ ..., operation: ControlOperation }`，Accepted 返回 `accepted, generation, operationId`，Attached 返回 `reused, dataDomainRef, generation, supportedMinors, state`。OwnerIPC 响应另用 §4 的 `ok/result` 帧，不把通用成功响应字段误加到帧上。Attached 的外层与 State 的域/generation 必须相同，这类跨字段关系由语义测试补验。ownerBootstrap 与强退 challenge 的秘密响应在传输实现时单列内存-only schema，本轮 fixture 不包含它们；这三个管理动作的请求已定候选形状，不表示其响应/OS 接线已冻结。
 
 ## 4. 方法与传输映射
 
@@ -70,7 +70,7 @@ bootstrap 只取得一次 store lease，并将它交给同一长寿命 host 组�
 
 只有握手中的 storeOwnership=held 才可作为当前 owner 返回。released 的旧 generation 只接受原操作的查询/最终清理，不签发 ownerBootstrap/新会话、不接业务、不代新 host 执行动作；unknown 保持诊断阻塞。新控制器在取得已释放的锁后可创建下一 generation，旧地址还存活不能阻止或冒充新 owner；整个核验同时受 generation 和实际锁结果约束。
 
-最小传输候选：POSIX 使用用户私有目录内的 socket，目录 0700、socket 0600，依赖内核 DAC 拒绝其他用户访问；这一实现不读取 peer credentials，不能声称核验了实际 peer。须实测目录、socket 属主和权限，以及目录被抢占或删除后的行为。Windows 使用仅当前用户 SID 可连接的 named pipe，验证 DACL、客户端身份与远程连接拒绝，并在帧内验证本 generation 的 `capability`。不能用随机管道名或 capability 替代权限验证。具体跨平台绑定/API 必须由 A1 原生探针选择，无法保证时不能宣称已支持，不能退回匿名 loopback。
+最小传输候选：POSIX 使用用户私有目录内的 socket，目录 0700、socket 0600，依赖内核 DAC 拒绝其他用户访问；这一实现不读取 peer credentials，不能声称核验了实际 peer。优先选择已核验的用户运行时/用户私有目录，路径过长或不可用时可在共享临时目录下原子创建随机的 0700 私有叶目录，并将实际地址写入受保护的发现记录；不得依赖可预测的共享 `/tmp` 子目录，也不得改 chmod 接管不属于自己的现有目录。须实测目录、socket 属主和权限，以及目录被抢占或删除后的行为。Windows 使用仅当前用户 SID 可连接的 named pipe，验证 DACL、客户端身份与远程连接拒绝，并在帧内验证本 generation 的 `capability`。不能用随机管道名或 capability 替代权限验证。具体跨平台绑定/API 必须由 A1 原生探针选择，无法保证时不能宣称已支持，不能退回匿名 loopback。
 
 本机 OwnerIPC 是独立传输，不把它的帧冒充为上述九个通用 HostControl Request。当前 A1 实现的 owner 帧动作是 `attach, state, drain, exit, operation, ownerBootstrap, transportInfo, prepareForceExit, forceExit, business, mcp.describe, mcp.call, mcp.read`；`start` 只在本机 bootstrap 中执行，不经 IPC。OwnerIPC 的 `business` 只转发到已安装的 P04 catalog，`mcp.*` 只转发到该 owner 的 MCP 操作/资源适配，不开放任意方法或宿主内部对象。此路径仅供已核实的本机 owner 调用者，不把 OS 用户身份当外部共享授权；向远端或多用户开放仍需要 I01.shared 授权隔离。所有业务转发在提交/派发点重新检查同一业务闸门与 generation，drain 后返回 `PRECONDITION_FAILED/host-draining`；`state/operation` 在释锁后仍可查询原 generation，其他动作不得恢复业务或签发凭证。`transportInfo` 只返回本机入口连接信息，不提供业务调用或权限提升。
 
@@ -184,7 +184,7 @@ inspect 不启动业务 host；返回观察条件的 diagnosticRevision、域/�
 
 ## 7. 管理会话与旧入口迁移
 
-常驻启动器通过已认证本机通道获取一次性 bootstrap 凭证，候选 TTL 60 秒，绑定域/generation/真实 origin，重放原子拒绝。WebUI 只从 fragment 接收、立即清除 fragment，再同源 POST 交换；不放 query/日志/Referer/连接地址或长期存储。浏览器仅持有 HttpOnly、SameSite=Strict 的 host-only 会话 cookie，HTTPS 加 Secure；写操作另有 CSRF 校验与完整 Origin/Host 验证。会话在重启、owner 撤销时失效；网络断连本身不升级身份。
+常驻启动器通过已认证本机通道获取一次性 bootstrap 凭证，候选 TTL 60 秒，绑定域/generation/真实 origin，重放原子拒绝。首轮默认最多保留 64 个未兑换凭证与 64 个活动会话：签发时清理过期凭证并淘汰最旧的超额条目，会话满额时淘汰最旧会话；不能让常驻 owner 的内存随打开管理页次数无限增长。WebUI 只从 fragment 接收、立即清除 fragment，再同源 POST 交换；不放 query/日志/Referer/连接地址或长期存储。浏览器仅持有 HttpOnly、SameSite=Strict 的 host-only 会话 cookie，HTTPS 加 Secure；写操作另有 CSRF 校验与完整 Origin/Host 验证。CSRF 刷新会改变服务端状态，A3 接线只允许 POST 且必须核验完整 request Origin 与本页 origin 相同，不能由带 cookie 的跨端口 GET 触发。会话在重启、owner 撤销时失效；网络断连本身不升级身份。
 
 交换端点只消费已有凭证，不能匿名签发；其成功/失败都不返回密钥。生产日志、导出诊断及 schema fixtures 不含真实 credential/token。无配对页面仅显示本机授权步骤，不提供私有快照。临时 CLI owner 无管理页会话。
 
@@ -205,14 +205,14 @@ inspect 不启动业务 host；返回观察条件的 diagnosticRevision、域/�
 | PRECONDITION_FAILED / registry-corrupt、registry-unavailable、domain-schema-unsupported | 不清空登记、不静默初始化；非交互拒绝 |
 | PRECONDITION_FAILED / host-draining、force-unavailable | 业务不受理或强退不可安全执行 |
 | PRECONDITION_FAILED / host-not-ready、owner-unavailable、store-ownership-unknown | 宿主尚未就绪、必要 owner 服务不可用、store 归属不明；均不得受理业务或新退出副作用 |
-| CONFLICT / registry-intent-pending、registry-busy、diagnostic-changed | 目标登记操作待核验、登记锁忙、恢复诊断条件已变化；仅对目标域阻塞，不连坐其他域 |
+| CONFLICT / registry-intent-pending、diagnostic-changed | 目标登记操作待核验或恢复诊断条件已变化；目标意图只阻塞该目标，不连坐其他域 |
+| CONFLICT / registry-busy | 共享登记锁忙；该次请求有界等待/拒绝，不能据此宣称其他域存在未决意图 |
 | PRECONDITION_FAILED / source-retirement-unverified | migrate 的旧位置退役无法证明；保持原登记和域 ID |
-| PRECONDITION_FAILED / deadline-exceeded | 收尾等待预算耗尽；已有 operation 以 blocked/reason 记录，继续查询同 ID |
 | NOT_FOUND / owner-absent、operation-absent | 只向已授权 owner 披露；已知 generation 的失效先报冲突 |
 
 认证沿用外部 AUTHENTICATION_REQUIRED/PERMISSION_DENIED 的语义；旧内核线上的 UNAUTHORIZED/FORBIDDEN_HOST 不擅自新增/混用为“owner 不匹配”。首个传输实现须给出明确映射并验证 HTTP 状态、CLI 退出码与旧协议，不能借返回 200 掩盖拒绝。
 
-已受理操作的超时/阻塞首先由 ControlOperation 的 status/reason 表达，而不是报无操作发生的参数错误。传输结果未知时按 generation 查询 state/operation；requestId 不保证重放安全，禁止盲目重发强退或恢复写入。CLI 保留既有退出码：输入/认证 2，缺席/冲突/前置 3，上游/内部 4，明确取消 5；stdio stdout 只放 MCP 协议，诊断去 stderr。
+`deadline-exceeded`、`stage-precondition-failed`、`stage-failed` 是已受理 ControlOperation 的 `status=blocked` 原因，后两者分别为阶段前置条件错误与其他阶段错误缺少更具体 reason 时的保守分类；它们不自行规定外部 ErrorResponse code。已受理操作的超时/阻塞首先由 ControlOperation 的 status/reason 表达，而不是报无操作发生的参数错误。本机 IPC 客户端在已写出请求后超时/断开报告 `CONFLICT/outcome-unknown`，无法从该错误推断动作没有执行；明确的调用者中止报告 `CONFLICT/request-cancelled`，同样不撤销已受理副作用。业务/MCP 转发默认没有一律 5 秒的结果等待上限，drain/exit 响应等待至少覆盖本次 budget；调用者若设置超时，必须接受结果未知并按 generation 查询 state/operation。`requestId` 不保证重放安全，禁止盲目重发强退或恢复写入。CLI 保留既有退出码：输入/认证 2，缺席/冲突/前置 3，上游/内部 4，明确取消 5；stdio stdout 只放 MCP 协议，诊断去 stderr。
 
 `store-replaced-in-place`、`pending-intent` 等 inspect problem 是受保护的本机恢复诊断分类，不是外部 `ErrorResponse.details.reason` 的别名。对该诊断调用 recover 仍须提供精确 `expectedDiagnostic` 与确认，并在取得目标锁后重查；缺少证据时返回上述拒绝 reason，而不自动修复。
 

@@ -1559,6 +1559,84 @@
         "blockers": [],
         "blockersTruncated": false
       }
+    },
+    {
+      "id": "operation-stage-failed",
+      "definition": "ControlOperation",
+      "valid": true,
+      "instance": {
+        "operationId": "shutdown-demo",
+        "generation": "generation-demo",
+        "intent": "exit",
+        "phase": "resources",
+        "status": "blocked",
+        "remainingMs": 0,
+        "reason": "stage-failed",
+        "safeToExit": false,
+        "blockers": [
+          {
+            "kind": "worker",
+            "ref": "worker-demo",
+            "reason": "worker-still-running",
+            "recovery": "retry"
+          }
+        ],
+        "blockersTruncated": false
+      }
+    },
+    {
+      "id": "operation-stage-precondition-failed",
+      "definition": "ControlOperation",
+      "valid": true,
+      "instance": {
+        "operationId": "shutdown-demo",
+        "generation": "generation-demo",
+        "intent": "exit",
+        "phase": "resources",
+        "status": "blocked",
+        "remainingMs": 0,
+        "reason": "stage-precondition-failed",
+        "safeToExit": false,
+        "blockers": [
+          {
+            "kind": "worker",
+            "ref": "worker-demo",
+            "reason": "worker-still-running",
+            "recovery": "retry"
+          }
+        ],
+        "blockersTruncated": false
+      }
+    },
+    {
+      "id": "client-outcome-unknown",
+      "definition": "ErrorResponse",
+      "valid": true,
+      "instance": {
+        "apiVersion": "2.0",
+        "error": {
+          "code": "CONFLICT",
+          "message": "Host response unavailable",
+          "details": {
+            "reason": "outcome-unknown"
+          }
+        }
+      }
+    },
+    {
+      "id": "client-request-cancelled",
+      "definition": "ErrorResponse",
+      "valid": true,
+      "instance": {
+        "apiVersion": "2.0",
+        "error": {
+          "code": "CONFLICT",
+          "message": "Caller stopped waiting",
+          "details": {
+            "reason": "request-cancelled"
+          }
+        }
+      }
     }
   ]
 }
