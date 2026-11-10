@@ -15,6 +15,9 @@ export const HOST_INTERFACE_VERSION = 'HostControl@1'
 export const HOST_INTERFACE_MINOR = 0
 const MAX_FRAME = 1024 * 1024
 const MAX_CONNECTIONS = 64
+// The native Windows broker may need its existing 20-second cold start before
+// the pipe can connect; its own connect deadline is 25 seconds.
+const CONNECT_TIMEOUT_MS = process.platform === 'win32' ? 25_000 : 5000
 const id = z.string().min(1).max(128).regex(/^[A-Za-z0-9_.:-]+$/)
 const shape = fields => z.object(fields).strict()
 const empty = shape({})
@@ -342,7 +345,7 @@ export async function exchangeHostFrame(address, frame, { timeoutMs, signal,
   try {
     if (signal?.aborted) throw fail('CONFLICT', 'request-cancelled')
     await new Promise((resolveConnect, reject) => {
-      const timer = setTimeout(() => socket.destroy(fail('CONFLICT', 'owner-unreachable')), 5000)
+      const timer = setTimeout(() => socket.destroy(fail('CONFLICT', 'owner-unreachable')), CONNECT_TIMEOUT_MS)
       const cleanup = () => { clearTimeout(timer); signal?.removeEventListener('abort', abort); socket.off('connect', connect); socket.off('error', error); socket.off('close', close) }
       const connect = () => { cleanup(); connected = true; resolveConnect() }
       const error = cause => { cleanup(); reject(cause) }
