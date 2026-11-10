@@ -40,3 +40,50 @@ A handler result that exceeds the frame limit, cannot be serialized, or has no r
 Normal close retires only random fallback leaves allocated by this process, with nonrecursive removal and retryable ownership tracking. Shared runtime/home directories and unowned directories are never removed. Abrupt process death may still leave directories, and OS temporary cleanup can still affect a live fallback socket. macOS tests compare canonical temporary paths; Windows direct-dispatch tests supply a matching synthetic capability so they exercise the authenticated path rather than stopping at authentication.
 
 The 12 targeted Linux / Node 24.22.1 tests passed after rebuilding the exact ec4e20d baseline; native platform outcomes remain the responsibility of current-head CI. The downstream A3 cancellation propagation and POST refresh wiring remain outside this PR.
+
+## Follow-up: local broker failures after submission
+
+Review of `af661fd` reproduced a remaining result-classification gap: after a
+business frame was written, a Windows helper/channel failure propagated
+`PRECONDITION_FAILED / owner-permissions-unverified` rather than
+`CONFLICT / outcome-unknown`. The client normalized only a short list of network
+errno values, while the pipe broker emits its own KernelError. A socket-free
+probe recorded one visible effect before provoking this failure.
+
+Reply-channel errors now use the same outcome-unknown classification regardless
+of their local exception type. Connection-time authorization failures, explicit
+failure frames received from the owner, local input-size rejection and caller
+cancellation retain their distinct meanings. Regression tests exercise both a
+Duplex stream and the actual JavaScript Windows broker with an injected child
+failure after its write command. These are deterministic local fault-injection
+checks, not native Windows acceptance.
+
+Linux / Node 24.22.1 `npm test` passed 614 of 634 tests with 20 platform/sandbox
+skips and no failures. An initial build through a shared vendor path selected
+an ancestor dependency cache containing fast-uri 3.1.8 and failed the bundle
+dependency-baseline check. A clean local checkout of the unchanged DSH pin,
+using the exact-lockfile dependency cache, produced the passing build. The
+100-fixture Python schema check passed. Package staging and tarball checks
+completed, but the isolated installation could not run because the offline npm
+cache lacked the pi-ai registry response (`ENOTCACHED`); persistence/export/MCP
+package smoke is therefore not established by this run. Unix socket bind still
+returns EPERM in this environment, and native macOS/Windows checks remain needed.
+
+## Follow-up: unavailable browser-session error contract
+
+After integrating the known reason/code constraints from contract commit
+`e68db9d`, actual session failures exposed a runtime mismatch: a revoked or
+released resident owner used `CONFLICT / owner-unavailable`, while the declared
+pair is `PRECONDITION_FAILED / owner-unavailable`. Both `issueBootstrap` and
+`exchange` now use that precondition code; an ephemeral owner still reports
+`CONFLICT / temporary-owner`.
+
+Two new regressions failed before this change and passed afterward. They check
+real session exceptions through `formatHostFailure` and Ajv, plus a revoked
+session reached through `ownerBootstrap` dispatch. The session cases cover both
+issuance and exchange after revocation or ownership loss, and the unchanged
+ephemeral rejection. The final Linux / Node 24.22.1 `npm test` rebuilt the pinned
+DSH bundle and passed 616 of 636 tests with 20 platform/sandbox skips and no
+failures. The focused contract/session/outcome/broker checks passed all 17 tests;
+the Python checker passed all 108 fixtures (55 valid, 53 rejected). The package
+installation and native-platform limits recorded above remain unresolved.

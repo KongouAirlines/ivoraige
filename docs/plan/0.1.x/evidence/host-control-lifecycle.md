@@ -121,3 +121,28 @@ On Linux / Node 24.22.1, a fresh build and complete suite passed with 659 tests:
 639 passed, 20 conditional/platform skips and zero failures. Native platform
 checks for this integration remain separate from these local results; the
 ordinary-account/fully unelevated acceptance is still outstanding.
+
+## Error-contract and broker-outcome review integration
+
+The lifecycle branch incorporates owner-foundation review commit
+`256ca2d6f69625a3a6f0fdf94b02b19a8c326ccf` above the collaborator's
+`b61d6a5636973970cace827d8b60ba3bad4c4090` synchronization. Local reply-channel
+failures after submission now report an unknown outcome without erasing
+connection-time rejection, explicit owner error frames or caller cancellation.
+Unavailable resident browser sessions use the contract's precondition code;
+the ephemeral-owner conflict is unchanged. The shared schema checks all 23
+explicitly defined error code/reason pairs while permitting future reasons.
+
+A fresh Linux / Node 24.22.1 build and the complete final suite passed 643 of
+663 tests, with 20 conditional/platform skips and no failures. The Python
+schema checker passed all 114 fixtures (57 valid and 57 rejected), including
+client outcome classification. `git diff --check` passed. Existing lifecycle
+ordering, admission, ownership-loss and terminal-projection tests remain green.
+
+The synchronized implementation before these review corrections had passed
+639 tests with 20 skips locally. Its remote three-platform CI does not cover
+these subsequent changes. The offline package smoke reached tarball/content
+checks but could not install because the npm cache lacked the pi-ai registry
+response, so no installed-package validation is claimed here. Native Windows
+helper execution, cross-account acceptance and downstream bootstrap/entry
+wiring remain separate gates.
