@@ -92,6 +92,9 @@ interface Revision {
   origin: "machine" | "human" | "imported";
   status: "draft" | "accepted" | "superseded";
   modelId?: string; promptVersion?: string; reuseKey: string;
+  promptTrace?: { templateId: string; version: string; contentId: string; source: string;
+    pluginId: string; featureId: string; configurationId: string; protocolVersion: string;
+    fallback?: { from: string; reason: string } }; // 当前新增；历史修订可缺省
   createdAt: ISODate;
 }
 
@@ -106,6 +109,7 @@ interface Task {
   stats: TaskStats;                     // 见下
   artifacts: Artifact[];
   warnings?: string[];                  // 已完成导出产物的非阻断提示，持久化且重启后可查
+  promptSelection?: object;              // 当前逐单位翻译任务使用的提示词快照；旧任务可缺省
   label?: string;                        // 导入完成前标识来源
   result?: { document: Document; deduplicated: boolean; warnings: string[] }; // 成功的导入任务
   createdAt: ISODate; updatedAt: ISODate;
@@ -269,6 +273,14 @@ CLI 对应 `components status|catalog|credential --token-env NAME|credential-cle
 0.1.0 清单契约：`version` 必须是严格 SemVer（允许 prerelease 与 build metadata，不接受 `v` 前缀、范围或不完整版本），每个 `(id, platform, arch)` 只允许一个候选版本；不同平台可并列。catalog 和本地／远程安装均在读取清单时拒绝重复候选，不由数组顺序隐式选版本。入口仍不提供版本选择参数。普通安装在下载／激活前按 SemVer 优先级比较当前有效已选组件，拒绝更旧版本并保留原选择；允许升级和同版本修复。build metadata 不改变优先级。未提供显式降级／rollback 操作。
 
 独立启动器默认使用用户数据目录，`--data-dir` 可覆盖；同一目录已有工作台时复用实例。仅启动器会提供 `GET /api/instance` 的随机实例标识，用于排除遗留端口记录；它不是授权凭据，服务仍仅监听本机回环地址。
+
+### 3.9 当前逐单位翻译提示词库（0.1.0 增量）
+
+共享 operation 入口 `POST /api/operations/{operation}` 增加 `getPromptLibrary`（空请求，返回 `{ library: { features, templates, bindings, selectedModel } }`）、`copyPrompt`（`sourceId?`, `sourceVersion?`, `name?` → `{ template }`）、`updatePrompt`（`id`, `expectedVersion`, `style?`, `name?` → `{ template }`）、`bindPrompt`（`pluginId`, `featureId`, `configurationId`, `docId?`, `templateId` → `{ binding }`）、`restorePrompt`（前述身份字段但无 `templateId` → `{ restored: true }`）与 `resolvePrompt`（身份字段及可选 `templateId` → `{ selection }`）。CLI 对应 `prompts list|copy|update|bind|restore|resolve --set JSON`；`prompts` 等于 `prompts list`。这些操作复用当前 CLI／HTTP／MCP operation schema 和错误信封，不新增 API 版本。
+
+现有 `translate` 请求允许可选 `promptTemplateId`；CLI 对应 `translate ... --prompt TEMPLATE_ID`。旧请求无需新增字段；未指定本次模板时依次采用文档绑定、全局绑定、兼容内置默认，仅在没有自定义绑定时直接采用内置默认。绑定按插件、功能和模型连接配置摘要确定；当前支持全局与文档绑定，不声明尚未实现的项目模型。优先级是本次、文档、全局、兼容内置默认。失效绑定回退同功能内置默认，并在 selection 记录 `fallback`；显式本次模板失效返回 `NOT_FOUND` 或 `PRECONDITION_FAILED`。缺少插件功能返回 `COMPONENT_MISSING`。任务开始处理第一个单位时保存实际模板内容，恢复沿用该内容；连接变更则失败而不改用另一配置。修订的 `promptTrace` 记录模板 ID、版本、内容摘要、来源、连接配置摘要和翻译协议版本；无该追溯的既有机器修订不作为带提示词追溯的新调用的复用来源。冻结快照与历史修订语义不变。
+
+Records 域的 prompt 字段写入前先将 DSH unit 版本从 1／2 提升到 3，包含任务的单次模板 ID、固定选择及修订追溯；旧读者不能将新增字段剥除后写回。只读旧记录和普通旧字段写入仍按原版本运行。提示词库单独使用同一 SQLite 中的 DSH 域，不另建并行状态文件。
 
 ## 4. SSE 事件类型
 
