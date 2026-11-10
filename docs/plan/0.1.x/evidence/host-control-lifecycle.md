@@ -86,3 +86,12 @@ operation-catalog and resource-access suites passed 39/39 with no skips. A fresh
 build from clean DSH pin `639ed015397290b3745d163aafe02ffee4aa3f84` passed.
 These checks do not establish native Windows, cross-account or installed-entry
 acceptance. The contract/schema update is carried by the preceding stack layer.
+
+The schema/runtime cross-check also reproduced two ownership-loss cases:
+starting/draining could still project released ownership, and an already-drained
+operation could retain `safeToExit=true` after ownership became unknown.
+Unexpected loss now projects failed/blocked with a storage blocker requiring
+manual recovery. No subsequent pre-release stage starts without a held lease;
+normal releaseStore completion in the stopping phase keeps its existing path.
+Both added cases failed before the correction. The combined focused suites now
+pass 41/41 with no skips.

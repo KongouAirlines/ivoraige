@@ -55,6 +55,47 @@ test('a failed owner with unknown or released ownership cannot begin cleanup', (
   }
 })
 
+test('ownership loss during startup or drain never projects a live safe owner', async () => {
+  for (const ownership of ['unknown', 'released']) {
+    const starting = new HostControl({ dataDomainRef: 'domain-1', generation, stages: defaultStages() })
+    starting.setStoreOwnership(ownership)
+    assert.equal(starting.state().state, 'failed')
+    assert.equal(starting.state().acceptingBusiness, false)
+
+    let finishWork, entered
+    const pending = new Promise(resolve => { finishWork = resolve })
+    const started = new Promise(resolve => { entered = resolve })
+    const calls = []
+    const control = host({ work: () => { calls.push('work'); entered(); return pending },
+      resources: () => calls.push('resources'), storage: () => calls.push('storage') })
+    const accepted = control.exit({ expectedGeneration: generation, budgetMs: 1000 })
+    await started
+    control.setStoreOwnership(ownership)
+    assert.equal(control.state().state, 'failed')
+    assert.equal(op(control, accepted.operationId).status, 'blocked')
+    assert.equal(op(control, accepted.operationId).safeToExit, false)
+    finishWork()
+    await control.waitForAttempt()
+    assert.deepEqual(calls, ['work'])
+    assert.equal(op(control, accepted.operationId).blockers[0].kind, 'storage')
+    assert.equal(op(control, accepted.operationId).blockers[0].recovery, 'manual-recovery')
+    assert.throws(() => control.exit({ expectedGeneration: generation, budgetMs: 100 }),
+      { details: { reason: ownership === 'unknown' ? 'store-ownership-unknown' : 'owner-unavailable' } })
+  }
+})
+
+test('loss of ownership demotes a completed drain instead of preserving safeToExit', async () => {
+  const control = host()
+  const accepted = control.drain({ expectedGeneration: generation, budgetMs: 100 })
+  await control.waitForAttempt()
+  assert.equal(op(control, accepted.operationId).safeToExit, true)
+  control.setStoreOwnership('unknown')
+  assert.equal(control.state().state, 'failed')
+  assert.equal(op(control, accepted.operationId).status, 'blocked')
+  assert.equal(op(control, accepted.operationId).safeToExit, false)
+  assert.equal(op(control, accepted.operationId).reason, 'store-ownership-unknown')
+})
+
 test('late release updates recovery to retry and retry only performs final cleanup', async () => {
   let release
   const released = new Promise(resolve => { release = resolve })

@@ -70,9 +70,17 @@ export class HostControl {
         (this.storeOwnership === 'released' && value !== 'released')) throw invalid('Invalid store ownership transition')
     const previous = this.storeOwnership
     this.storeOwnership = value
-    if (value !== 'held' && this.phase === 'ready') {
+    const unexpectedLoss = value !== 'held' && (['starting', 'ready', 'draining'].includes(this.phase) ||
+      this.phase === 'stopping' && !['releaseStore', 'cleanupDiscovery', 'closeControl'].includes(this.currentStage))
+    if (unexpectedLoss) {
       this.accepting = false
       this.phase = 'failed'
+      if (this.controlOperation) {
+        const reason = value === 'unknown' ? 'store-ownership-unknown' : 'owner-unavailable'
+        this.controlOperation.status = 'blocked'
+        this.controlOperation.reason = reason
+        this.blockers = [{ kind: 'storage', ref: null, reason, recovery: 'manual-recovery' }]
+      }
     }
     if (previous === 'unknown' && value === 'released' && this.currentStage === 'releaseStore' &&
         this.controlOperation?.status === 'blocked') {
@@ -86,6 +94,11 @@ export class HostControl {
   assertGeneration(expectedGeneration) {
     if (expectedGeneration !== this.generation)
       throw new KernelError('CONFLICT', 'Host generation changed', { reason: 'stale-generation' })
+  }
+  assertStoreHeld() {
+    if (this.storeOwnership !== 'held')
+      throw new KernelError('PRECONDITION_FAILED', 'Host ownership does not permit cleanup',
+        { reason: this.storeOwnership === 'unknown' ? 'store-ownership-unknown' : 'owner-unavailable' })
   }
   assertAcceptingBusiness() {
     if (!this.accepting || this.phase !== 'ready' || this.storeOwnership !== 'held') {
@@ -145,10 +158,9 @@ export class HostControl {
       throw invalid('budgetMs must be an integer from 1 to 120000')
     const deadline = new HostDeadline(budgetMs)
     let stateChanged = false
+    if (this.phase === 'failed') this.assertStoreHeld()
     if (!this.controlOperation) {
-      if (this.storeOwnership !== 'held')
-        throw new KernelError('PRECONDITION_FAILED', 'Host ownership does not permit cleanup',
-          { reason: this.storeOwnership === 'unknown' ? 'store-ownership-unknown' : 'owner-unavailable' })
+      this.assertStoreHeld()
       if (this.phase !== 'ready' && !(intent === 'exit' && this.phase === 'failed'))
         throw new KernelError('PRECONDITION_FAILED', 'Host is not ready to drain', { reason: 'host-not-ready' })
       this.controlOperation = { operationId: randomUUID(), intent, phase: 'gate', status: 'pending', reason: null }
@@ -196,10 +208,12 @@ export class HostControl {
       this.blockers = []
       this.attempt = Promise.resolve().then(() => this.advance(deadline)).catch(error => {
         if (this.completed.has('closeControl')) return
+        if (this.phase === 'failed' && this.storeOwnership !== 'held') return
         this.controlOperation.status = 'blocked'
         this.controlOperation.reason = reasonOf(error)
         this.blockers = [{ kind: stageKinds[this.inflight?.key ?? this.currentStage ?? 'gate'], ref: null,
-          reason: this.controlOperation.reason, recovery: this.storeOwnership === 'unknown' ? 'manual-recovery' : 'retry' }]
+          reason: this.controlOperation.reason,
+          recovery: this.storeOwnership === 'unknown' || this.phase === 'failed' ? 'manual-recovery' : 'retry' }]
         this.changed()
       }).finally(() => { this.attempt = null })
     }
@@ -208,6 +222,7 @@ export class HostControl {
 
   async runStage(key, callback, deadline) {
     if (this.completed.has(key)) return
+    if (['gate', 'admissions', 'work', 'resources', 'storage'].includes(key)) this.assertStoreHeld()
     this.currentStage = key
     if (this.inflight && this.inflight.key !== key)
       throw new KernelError('INTERNAL', 'Another host stage is still running')
@@ -254,6 +269,7 @@ export class HostControl {
     await this.runStage('work', this.stages.work, deadline)
     op.phase = 'resources'
     await this.runStage('resources', this.stages.resources, deadline)
+    if (!this.completed.has('storage')) this.assertStoreHeld()
     op.phase = 'quiescent'
     if (op.intent === 'drain') {
       op.status = 'drained'
