@@ -112,3 +112,55 @@ This includes the actual Restricted-policy/literal-path check, ancestor replacem
 checks, idle helper exit and retirement regressions. The 91-file isolated tarball
 smoke also passed. [Verified job](https://github.com/KongouAirlines/ivoraige/actions/runs/42563331451/job/128984338865).
 That foundation package does not activate the A3 installed owner entry paths.
+
+## Separate-account acceptance attempt
+
+The [2026-11-09 scoped account job](https://github.com/KongouAirlines/ivoraige/actions/runs/42568044404/job/128998805631)
+at `64d32ec4681d9c601b4da4b7d68a582f003a6caa` tested the transport from
+`4882a83c`. Its historical result is retained here so this foundation branch
+does not require an evidence file from the later entry-activation branch.
+
+- Preflight and 14 Secondary Logon state checks passed. The service was
+  initially stopped, was started for the probe, and its startup configuration
+  was not changed.
+- Credentialed launch for the ordinary test accounts failed with Win32 error 5
+  before establishing ordinary-account exchange, cross-user denial or fully
+  unelevated execution.
+- Both account removals and owned-process exits were reported, but profile
+  cleanup failed with error 32 and service restoration failed with error 1052.
+  The final observed service state was still running. The result was
+  `passed=false`, `cleanupSucceeded=false`, `serviceRestored=false`, exit code 1.
+
+That attempt does not close separate-account acceptance. Native CI below also
+does not establish that boundary; no account-management or service-state
+operation is part of these foundation tests.
+
+## Published review-fix checks
+
+Foundation head `d59282f` (the same source tree as local `f6099e0`) passed all
+six push/PR checks on Linux, macOS and Windows / Node 26.13.0. The
+[Windows PR job](https://github.com/KongouAirlines/ivoraige/actions/runs/42752833286/job/129620235202)
+tested synthetic stack commit `8da37e0`: that foundation head above the contract
+and main `5bfa8a8`. It passed 621 of 628 tests with 7 platform/conditional skips,
+including the native accept-versus-close regression, and its 95-file package
+smoke passed. This is evidence for the preceding review fixes, not the later
+domain, transport and session corrections described below.
+
+## Domain and transport review corrections
+
+The [domain recovery record](host-domain-review.md) covers per-target intents,
+record-scoped replay, explicit in-place identity refresh and safe abandoned
+initialization. The [transport/session record](host-transport-review.md) covers
+separate connection and reply budgets, business cancellation, private socket
+locations, bounded credentials and POST-only CSRF refresh. Both records retain
+their native-platform and downstream-entry limitations. The updated schema and
+runtime validators are exercised together by the Node test suite.
+
+After integrating those corrections with contract head `37601ec`, the Linux /
+Node 24.22.1 `npm test` rebuilt the clean pinned DSH source and passed 601 of 621
+tests, with 20 conditional/platform skips and no failures. The Python schema
+check passed 100 fixtures (52 accepted, 48 rejected). The isolated package smoke
+passed with 91 files, including reinstall, persistence, frozen exports and MCP.
+The first package attempt could not create the default npm cache; rerunning with
+a cache in the writable temporary workspace passed. New native POSIX/Windows
+transport and domain recovery behavior still requires platform CI.
