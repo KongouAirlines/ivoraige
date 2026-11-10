@@ -1332,89 +1332,7 @@
           "const": "2.0"
         },
         "error": {
-          "type": "object",
-          "properties": {
-            "code": {
-              "enum": [
-                "INVALID_ARGUMENT",
-                "PRECONDITION_FAILED",
-                "CONFLICT",
-                "NOT_FOUND",
-                "UNAUTHORIZED",
-                "FORBIDDEN_HOST",
-                "AUTHENTICATION_REQUIRED",
-                "PERMISSION_DENIED",
-                "UPSTREAM_FAILURE",
-                "COMPONENT_MISSING",
-                "INTERNAL"
-              ]
-            },
-            "message": {
-              "type": "string",
-              "minLength": 1
-            },
-            "details": {
-              "type": "object",
-              "properties": {
-                "reason": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 128,
-                  "pattern": "^[A-Za-z0-9_.:-]+$",
-                  "description": "Known reasons are listed in contract §8; clients must treat unknown values as unknown, not automatically retry."
-                },
-                "supportedMinors": {
-                  "type": "array",
-                  "items": {
-                    "type": "integer",
-                    "minimum": 0
-                  },
-                  "minItems": 1,
-                  "uniqueItems": true
-                }
-              },
-              "required": [
-                "reason"
-              ],
-              "additionalProperties": true
-            }
-          },
-          "required": [
-            "code",
-            "message",
-            "details"
-          ],
-          "additionalProperties": true,
-          "allOf": [
-            {
-              "if": {
-                "properties": {
-                  "details": {
-                    "properties": {
-                      "reason": {
-                        "const": "interface-version-unsupported"
-                      }
-                    },
-                    "required": [
-                      "reason"
-                    ]
-                  }
-                },
-                "required": [
-                  "details"
-                ]
-              },
-              "then": {
-                "properties": {
-                  "details": {
-                    "required": [
-                      "supportedMinors"
-                    ]
-                  }
-                }
-              }
-            }
-          ]
+          "$ref": "#/$defs/HostError"
         }
       },
       "required": [
@@ -1931,89 +1849,7 @@
               "const": "2.0"
             },
             "error": {
-              "type": "object",
-              "properties": {
-                "code": {
-                  "enum": [
-                    "INVALID_ARGUMENT",
-                    "PRECONDITION_FAILED",
-                    "CONFLICT",
-                    "NOT_FOUND",
-                    "UNAUTHORIZED",
-                    "FORBIDDEN_HOST",
-                    "AUTHENTICATION_REQUIRED",
-                    "PERMISSION_DENIED",
-                    "UPSTREAM_FAILURE",
-                    "COMPONENT_MISSING",
-                    "INTERNAL"
-                  ]
-                },
-                "message": {
-                  "type": "string",
-                  "minLength": 1
-                },
-                "details": {
-                  "type": "object",
-                  "properties": {
-                    "reason": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 128,
-                      "pattern": "^[A-Za-z0-9_.:-]+$",
-                      "description": "Known reasons are listed in contract §8; clients must treat unknown values as unknown, not automatically retry."
-                    },
-                    "supportedMinors": {
-                      "type": "array",
-                      "items": {
-                        "type": "integer",
-                        "minimum": 0
-                      },
-                      "minItems": 1,
-                      "uniqueItems": true
-                    }
-                  },
-                  "required": [
-                    "reason"
-                  ],
-                  "additionalProperties": true
-                }
-              },
-              "required": [
-                "code",
-                "message",
-                "details"
-              ],
-              "additionalProperties": true,
-              "allOf": [
-                {
-                  "if": {
-                    "properties": {
-                      "details": {
-                        "properties": {
-                          "reason": {
-                            "const": "interface-version-unsupported"
-                          }
-                        },
-                        "required": [
-                          "reason"
-                        ]
-                      }
-                    },
-                    "required": [
-                      "details"
-                    ]
-                  },
-                  "then": {
-                    "properties": {
-                      "details": {
-                        "required": [
-                          "supportedMinors"
-                        ]
-                      }
-                    }
-                  }
-                }
-              ]
+              "$ref": "#/$defs/HostError"
             }
           },
           "required": [
@@ -2022,6 +1858,222 @@
             "error"
           ],
           "additionalProperties": false
+        }
+      ]
+    },
+    "HostError": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "enum": [
+            "INVALID_ARGUMENT",
+            "PRECONDITION_FAILED",
+            "CONFLICT",
+            "NOT_FOUND",
+            "UNAUTHORIZED",
+            "FORBIDDEN_HOST",
+            "AUTHENTICATION_REQUIRED",
+            "PERMISSION_DENIED",
+            "UPSTREAM_FAILURE",
+            "COMPONENT_MISSING",
+            "INTERNAL"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "details": {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$",
+              "description": "Known reasons are listed in contract §8; clients must treat unknown values as unknown, not automatically retry."
+            },
+            "supportedMinors": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "details"
+      ],
+      "additionalProperties": true,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "details": {
+                "properties": {
+                  "reason": {
+                    "const": "interface-version-unsupported"
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
+              }
+            },
+            "required": [
+              "details"
+            ]
+          },
+          "then": {
+            "properties": {
+              "details": {
+                "required": [
+                  "supportedMinors"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "details": {
+                "properties": {
+                  "reason": {
+                    "enum": [
+                      "invalid-request"
+                    ]
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
+              }
+            },
+            "required": [
+              "details"
+            ]
+          },
+          "then": {
+            "properties": {
+              "code": {
+                "const": "INVALID_ARGUMENT"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "details": {
+                "properties": {
+                  "reason": {
+                    "enum": [
+                      "interface-version-unsupported",
+                      "registry-corrupt",
+                      "registry-unavailable",
+                      "domain-schema-unsupported",
+                      "host-draining",
+                      "force-unavailable",
+                      "host-not-ready",
+                      "owner-unavailable",
+                      "store-ownership-unknown",
+                      "source-retirement-unverified"
+                    ]
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
+              }
+            },
+            "required": [
+              "details"
+            ]
+          },
+          "then": {
+            "properties": {
+              "code": {
+                "const": "PRECONDITION_FAILED"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "details": {
+                "properties": {
+                  "reason": {
+                    "enum": [
+                      "stale-generation",
+                      "temporary-owner",
+                      "owner-unreachable",
+                      "domain-registration-mismatch",
+                      "owner-config-mismatch",
+                      "registry-intent-pending",
+                      "diagnostic-changed",
+                      "registry-busy",
+                      "outcome-unknown",
+                      "request-cancelled"
+                    ]
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
+              }
+            },
+            "required": [
+              "details"
+            ]
+          },
+          "then": {
+            "properties": {
+              "code": {
+                "const": "CONFLICT"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "details": {
+                "properties": {
+                  "reason": {
+                    "enum": [
+                      "owner-absent",
+                      "operation-absent"
+                    ]
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
+              }
+            },
+            "required": [
+              "details"
+            ]
+          },
+          "then": {
+            "properties": {
+              "code": {
+                "const": "NOT_FOUND"
+              }
+            }
+          }
         }
       ]
     }
