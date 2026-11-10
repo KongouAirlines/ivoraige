@@ -41,3 +41,5 @@ MinerU parse-only：结构、图片/表格/公式资源、来源版本与通用�
 - 不做：不把都输出 PDF 当作兼容，不按文本相同自动复用。
 - 验收：[P10 专项](../validation/pdf.md#p10)。
 - 回退：不发布映射能力，继续各自同引擎重建；原 binding/快照不变。
+
+P08 实物清单及尚未关闭的分发门禁见[分发闭包审计](../pdf-distribution-closure.md)。
