@@ -169,10 +169,10 @@ export function renderPdfMarkdown({ sourceBinding, snapshot, document, units }) 
   if (sourceBinding?.adapterId !== 'babeldoc' || !Array.isArray(units)) {
     throw new KernelError('PRECONDITION_FAILED', 'Frozen PDF source binding is unavailable')
   }
-  const title = escapePdfMarkdown(document.title.replace(/[\r\n]+/g, ' '))
+  const title = escapePdfMarkdown(document.title.replace(/[\r\n\u2028\u2029]+/g, ' '))
   const paragraphs = units.map(({ unit, text }) => {
     const readable = readablePdfText(sourceBinding, unit, text)
-    const prose = escapePdfMarkdown(unit.kind === 'heading' ? readable.replace(/[\r\n]+/g, ' ') : readable)
+    const prose = escapePdfMarkdown(unit.kind === 'heading' ? readable.replace(/[\r\n\u2028\u2029]+/g, ' ') : readable)
     return unit.kind === 'heading' && prose ? `## ${prose}` : prose
   })
   return `<!-- ivoraige snapshot:${snapshot.id} revisions:${snapshot.revisionSetHash} -->\n\n` +
