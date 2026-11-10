@@ -32,3 +32,11 @@ copy arbitrary `details.supportedMinors` into the public failure frame. Both
 were reproduced and corrected. Capability validation now agrees with the
 schema; supported minors come only from the local interface definition, and
 unknown/internal errors expose only the fixed internal-error reason.
+
+## Follow-up: response delivery and owned-directory cleanup
+
+A handler result that exceeds the frame limit, cannot be serialized, or has no result no longer returns invalid-request, which would incorrectly imply that no side effect occurred. Corrupt, oversized or invalid response frames report outcome-unknown after dispatch. True input validation errors remain distinct. Socket-free tests commit a visible effect before provoking delivery failures and verify this classification.
+
+Normal close retires only random fallback leaves allocated by this process, with nonrecursive removal and retryable ownership tracking. Shared runtime/home directories and unowned directories are never removed. Abrupt process death may still leave directories, and OS temporary cleanup can still affect a live fallback socket. macOS tests compare canonical temporary paths; Windows direct-dispatch tests supply a matching synthetic capability so they exercise the authenticated path rather than stopping at authentication.
+
+The 12 targeted Linux / Node 24.22.1 tests passed after rebuilding the exact ec4e20d baseline; native platform outcomes remain the responsibility of current-head CI. The downstream A3 cancellation propagation and POST refresh wiring remain outside this PR.

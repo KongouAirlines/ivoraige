@@ -23,6 +23,7 @@ const spec = StorageDomain.defineDomain({ name: 'ivoraige_host', version: 1, lay
 const key = 'store'
 const REGISTRY = 'domains.json'
 const INTENT = 'domain-intent.json'
+const INTENT_LAYOUT = { version: 3, layout: 'per-store' }
 const LOCK = 'domains.owner.sqlite'
 // If DSH disposal cannot be confirmed, retaining the lease is safer than
 // permitting another owner to open a store with a possible live writer.
@@ -110,33 +111,70 @@ function parseRegistry(raw) {
 }
 async function readRegistry(dir) { return parseRegistry(dir ? await privateRead(join(dir, REGISTRY)) : null) }
 function intentName(path) { return `domain-intent-${hash(path)}.json` }
-async function parseIntent(raw) {
+async function parseIntent(raw, allowLayout = false) {
   if (raw === null) return null
   let value
   try { value = JSON.parse(raw) } catch { throw fail('PRECONDITION_FAILED', 'registry-corrupt') }
-  if (!isObject(value) || ![1, 2].includes(value.version) ||
+  if (allowLayout && isObject(value) && value.version === 3 && value.layout === 'per-store' && Object.keys(value).length === 2) return null
+  if (!isObject(value) || ![1, 2, 3].includes(value.version) ||
       !['initialize', 'migrate', 'copy', 'refresh-identity', 'repair-registration'].includes(value.mode) ||
       !/^[0-9a-f-]{36}$/i.test(value.transactionId) || !validRecord(value.record, true) ||
       !(value.source === null || validRecord(value.source)) ||
       (value.version === 1 && !/^[a-f0-9]{64}$/.test(value.beforeRevision)) ||
-      (value.version === 2 && !(value.targetBefore === null || validRecord(value.targetBefore))))
+      (value.version >= 2 && !(value.targetBefore === null || validRecord(value.targetBefore))) ||
+      (value.version === 3 && (!validIdentity(value.record.fileIdentity) ||
+        !['prepared', 'writing'].includes(value.phase) || value.phase === 'prepared' && value.mode !== 'initialize')))
     throw fail('PRECONDITION_FAILED', 'registry-corrupt')
   return value
 }
 async function readIntent(dir, path) {
   if (!dir) return null
   const current = await parseIntent(await privateRead(join(dir, intentName(path))))
-  const legacy = await parseIntent(await privateRead(join(dir, INTENT)))
+  const legacy = await parseIntent(await privateRead(join(dir, INTENT)), true)
   if (current && current.record.canonicalStore !== path) throw fail('PRECONDITION_FAILED', 'registry-corrupt')
-  if (current && legacy?.record.canonicalStore === path) throw fail('PRECONDITION_FAILED', 'registry-corrupt')
+  if (current && legacy?.record.canonicalStore === path &&
+      (current.transactionId !== legacy.transactionId || current.mode !== legacy.mode ||
+       !same(current.record, legacy.record) || !same(current.source, legacy.source)))
+    throw fail('PRECONDITION_FAILED', 'registry-corrupt')
   return current ?? (legacy?.record.canonicalStore === path ? legacy : null)
 }
 function intentFile(intent) { return intent.version === 1 ? INTENT : intentName(intent.record.canonicalStore) }
+// The global file becomes a permanent format gate: both older singleton and
+// phase-less v2 binaries must reject it rather than ignore per-store journals.
+// Never label a legacy intent prepared. Publish its per-store representation
+// first, then the gate; a crash between these writes is safely deduplicated.
+async function ensureIntentLayout(dir, registry) {
+  const raw = await privateRead(join(dir, INTENT))
+  const legacy = await parseIntent(raw, true)
+  if (raw !== null && legacy === null) return
+  if (legacy) {
+    if (legacy.version !== 1) throw fail('PRECONDITION_FAILED', 'registry-corrupt')
+    const name = intentName(legacy.record.canonicalStore)
+    const existing = await parseIntent(await privateRead(join(dir, name)), name === INTENT)
+    if (existing) {
+      if (existing.transactionId !== legacy.transactionId || existing.mode !== legacy.mode ||
+          !same(existing.record, legacy.record) || !same(existing.source, legacy.source))
+        throw fail('CONFLICT', 'registry-intent-pending')
+    } else {
+      const atPath = findByStore(registry, legacy.record.canonicalStore)
+      const committed = atPath && sameRecord(atPath, { ...legacy.record,
+        fileIdentity: legacy.record.fileIdentity ?? atPath.fileIdentity })
+      if (!committed && registryRevision(registry) !== legacy.beforeRevision)
+        throw fail('CONFLICT', 'domain-registration-mismatch')
+      if (!committed && legacy.source && !registry.domains.some(item => sameRecord(item, legacy.source)))
+        throw fail('CONFLICT', 'domain-registration-mismatch')
+      await durableReplace(dir, name, { version: 2, mode: legacy.mode,
+        transactionId: legacy.transactionId, targetBefore: committed ? null : atPath ?? null,
+        source: legacy.source, record: legacy.record })
+    }
+  }
+  await durableReplace(dir, INTENT, INTENT_LAYOUT)
+}
 async function assertSourceIntentFree(dir, source, target) {
   if (!source) return
   const names = (await readdir(dir)).filter(name => name === INTENT || /^domain-intent-[a-f0-9]{64}\.json$/.test(name))
   for (const name of names) {
-    const pending = await parseIntent(await privateRead(join(dir, name)))
+    const pending = await parseIntent(await privateRead(join(dir, name)), name === INTENT)
     if (!pending || pending.record.canonicalStore === target) continue
     if (pending.record.canonicalStore === source.canonicalStore ||
         pending.source?.canonicalStore === source.canonicalStore ||
@@ -148,7 +186,7 @@ async function assertSourceNotMigrating(dir, path) {
   if (!dir) return
   const names = (await readdir(dir)).filter(name => name === INTENT || /^domain-intent-[a-f0-9]{64}\.json$/.test(name))
   for (const name of names) {
-    const pending = await parseIntent(await privateRead(join(dir, name)))
+    const pending = await parseIntent(await privateRead(join(dir, name)), name === INTENT)
     if (pending?.mode === 'migrate' && pending.source?.canonicalStore === path)
       throw fail('CONFLICT', 'registry-intent-pending')
   }
@@ -162,6 +200,9 @@ function intendedRecord(registry, intent, identity) {
         !(atPath === null && (intent.version === 1 || intent.targetBefore === null)))
       throw fail('CONFLICT', 'domain-registration-mismatch')
     if (intent.source && !registry.domains.some(item => sameRecord(item, intent.source)))
+      throw fail('CONFLICT', 'domain-registration-mismatch')
+    const byDomain = findByDomain(registry, record.domainId)
+    if (byDomain && !sameRecord(byDomain, atPath) && !sameRecord(byDomain, intent.source))
       throw fail('CONFLICT', 'domain-registration-mismatch')
   }
   return { record, committed }
@@ -357,6 +398,7 @@ export async function createHostDomain({ store, ownerConfigBinding, registryRoot
   let initIntent
   try {
     const registry = await readRegistry(dir)
+    await ensureIntentLayout(dir, registry)
     const intent = await readIntent(dir, path)
     await assertSourceNotMigrating(dir, path)
     storeLease = await acquireStoreLock(path)
@@ -382,12 +424,18 @@ export async function createHostDomain({ store, ownerConfigBinding, registryRoot
             verifySourceRetired(intent.source) !== true))
           throw fail('PRECONDITION_FAILED', 'source-retirement-unverified')
       }
+      identity = await fileIdentity(path)
       if (intent.record.fileIdentity && !sameIdentity(intent.record.fileIdentity, identity))
         throw fail('CONFLICT', 'domain-registration-mismatch')
       let current = await readMetadataSnapshot(path)
+      // A phase-less legacy intent with no file identity can prove an existing
+      // committed ID, not that a disappeared/empty target is safe to recreate.
+      if (intent.mode === 'initialize' && !intent.record.fileIdentity && !current)
+        throw fail('CONFLICT', 'domain-registration-mismatch')
       if (!current && intent.mode === 'initialize' ||
           intent.mode === 'copy' && current && intent.source && same(current,
             { domainId: intent.source.domainId, registrationId: intent.source.registrationId, bindingVersion: 1 })) {
+        if (intent.version === 3) await durableReplace(dir, intentFile(intent), { ...intent, phase: 'writing' })
         await withMetadata(path, async (value, table) => {
           if (!same(value, current)) throw fail('CONFLICT', 'domain-registration-mismatch')
           await table.put(key, { domainId: intent.record.domainId,
@@ -396,6 +444,7 @@ export async function createHostDomain({ store, ownerConfigBinding, registryRoot
         current = await readMetadataSnapshot(path)
         identity = await fileIdentity(path)
       }
+      identity = await fileIdentity(path)
       if (intent.record.fileIdentity && !sameIdentity(intent.record.fileIdentity, identity))
         throw fail('CONFLICT', 'domain-registration-mismatch')
       if (!current || current.domainId !== intent.record.domainId || current.registrationId !== intent.record.registrationId)
@@ -417,17 +466,28 @@ export async function createHostDomain({ store, ownerConfigBinding, registryRoot
         canonicalStore: path, fileIdentity: identity, ownerConfigBinding: binding, storeLease }
     }
     if (meta) throw fail('CONFLICT', 'domain-registration-mismatch')
+    if (!identity) {
+      const target = await open(path, 'wx', 0o600)
+      try { await target.sync() } finally { await target.close() }
+      identity = await fileIdentity(path)
+    }
+    if (!identity || !sameIdentity(identity, await fileIdentity(path)))
+      throw fail('CONFLICT', 'domain-registration-mismatch')
     const proposed = { domainId: uuid(), registrationId: uuid(), bindingVersion: 1 }
     const record = registryRecord(proposed, path, identity, binding)
-    initIntent = { version: 2, mode: 'initialize', transactionId: uuid(),
-      targetBefore: null, source: null, record }
-    // For a new store the file identity is filled after DSH creates it.
+    initIntent = { version: 3, mode: 'initialize', transactionId: uuid(),
+      phase: 'prepared', targetBefore: null, source: null, record }
+    // A durable write-start barrier separates provable no-write preparation
+    // from every point at which a domain metadata commit might have occurred.
+    await durableReplace(dir, intentFile(initIntent), initIntent)
+    initIntent = { ...initIntent, phase: 'writing' }
     await durableReplace(dir, intentFile(initIntent), initIntent)
     await withMetadata(path, async (current, table) => {
       if (current) throw fail('CONFLICT', 'domain-registration-mismatch')
       await table.put(key, proposed)
     })
     identity = await fileIdentity(path)
+    if (!sameIdentity(record.fileIdentity, identity)) throw fail('CONFLICT', 'domain-registration-mismatch')
     const completed = { ...record, fileIdentity: identity }
     await durableReplace(dir, REGISTRY, replaceRecord(active, completed))
     await durableRemove(dir, intentFile(initIntent))
@@ -439,7 +499,9 @@ export async function createHostDomain({ store, ownerConfigBinding, registryRoot
     // cannot establish that no write took effect.
     if (initIntent && !error.storageDisposalUnconfirmed) {
       try {
-        if (!await readMetadataSnapshot(path)) await durableRemove(dir, intentFile(initIntent))
+        const identity = await fileIdentity(path)
+        if (sameIdentity(initIntent.record.fileIdentity, identity) && !await readMetadataSnapshot(path) &&
+            sameIdentity(identity, await fileIdentity(path))) await durableRemove(dir, intentFile(initIntent))
       } catch { /* Preserve the intent and original failure. */ }
     }
     if (error.storageDisposalUnconfirmed) unconfirmedLeases.add(storeLease)
@@ -448,15 +510,36 @@ export async function createHostDomain({ store, ownerConfigBinding, registryRoot
   } finally { sourceLease?.release(); registryLock.release() }
 }
 
-async function observation(path, dir, lease) {
+// Only a saved v3 prepared target may be addressed without its missing parent.
+// The registry lease fences all initialization/replay writers; no store or lock
+// file is recreated merely to abandon an operation that never attempted a write.
+async function recoveryPath(store, dir) {
+  try { return { path: await canonicalStorePath(store), missingParent: false } }
+  catch (error) {
+    if (error.code !== 'INVALID_ARGUMENT') throw error
+    const path = resolve(store)
+    const intent = await readIntent(dir, path)
+    if (!intent || intent.version !== 3 || intent.mode !== 'initialize' || intent.phase !== 'prepared' ||
+        intent.record.canonicalStore !== path || await fileIdentity(path)) throw error
+    return { path, missingParent: true }
+  }
+}
+function canAbandonInitialization(intent, atPath, identity, metadata, locked) {
+  if (!locked || intent?.mode !== 'initialize' || atPath || intent.source || intent.targetBefore || metadata)
+    return false
+  if (!identity) return intent.version === 3 && intent.phase === 'prepared'
+  return sameIdentity(intent.record.fileIdentity, identity)
+}
+async function observation(path, dir, lease, missingParent = false) {
   const registry = await readRegistry(dir)
   const intent = await readIntent(dir, path)
   const identity = await fileIdentity(path)
   const metadata = lease && identity ? await readMetadataSnapshot(path) : null
+  if (missingParent && identity || lease && identity && !sameIdentity(identity, await fileIdentity(path)))
+    throw fail('CONFLICT', 'diagnostic-changed')
   const atPath = findByStore(registry, path) ?? null
   const byDomain = metadata ? findByDomain(registry, metadata.domainId) ?? null : null
-  const canAbandon = intent?.mode === 'initialize' && !atPath &&
-    (identity === null || metadata === null) && lease
+  const canAbandon = canAbandonInitialization(intent, atPath, identity, metadata, lease || missingParent)
   const problem = intent ? 'pending-intent' : !identity ? 'store-absent' : !metadata ? 'metadata-absent' :
     atPath && atPath.domainId === metadata.domainId && atPath.registrationId === metadata.registrationId &&
       sameIdentity(atPath.fileIdentity, identity) ? 'none' :
@@ -464,22 +547,24 @@ async function observation(path, dir, lease) {
       !sameIdentity(atPath.fileIdentity, identity) ? 'store-replaced-in-place' :
     atPath ? 'path-replaced' : byDomain ? 'domain-at-other-path' : 'registration-missing'
   const observed = { canonicalStore: path, fileIdentity: identity, metadata, atPath, byDomain, problem,
-    lock: lease ? 'available' : 'busy', registryRevision: registryRevision(registry) }
+    lock: lease ? 'available' : missingParent ? 'unavailable' : 'busy', registryRevision: registryRevision(registry) }
   const diagnosticRevision = hash({ ...observed, registryRevision: undefined,
-    intent: intent ? { transactionId: intent.transactionId, mode: intent.mode } : null })
-  const availableModes = !lease ? [] : canAbandon ? ['abandon-initialization'] :
+    intent: intent ? hash(intent) : null })
+  const availableModes = canAbandon ? ['abandon-initialization'] : !lease ? [] :
     problem === 'store-replaced-in-place' ? ['refresh-identity'] : []
   return { ...observed, diagnosticRevision, availableModes }
 }
 export async function inspectHostDomain({ store, registryRoot } = {}) {
   if (!store || typeof store !== 'string') throw fail('INVALID_ARGUMENT', 'invalid-store')
-  const path = await canonicalStorePath(store)
   const dir = await secureDirectory(registryRoot, false)
+  const { path, missingParent } = await recoveryPath(store, dir)
   let lease
-  try { lease = await acquireStoreLock(path) }
-  catch (error) { if (error.code !== 'CONFLICT') throw error }
+  if (!missingParent) {
+    try { lease = await acquireStoreLock(path) }
+    catch (error) { if (error.code !== 'CONFLICT') throw error }
+  }
   try {
-    let found = await observation(path, dir, lease)
+    let found = await observation(path, dir, lease, missingParent)
     if (lease && found.problem === 'domain-at-other-path' && found.byDomain?.canonicalStore !== path) {
       let sourceLease
       try {
@@ -511,24 +596,30 @@ export async function inspectHostDomain({ store, registryRoot } = {}) {
 export async function recoverHostDomain({ store, mode, expectedDiagnostic, confirm, ownerConfigBinding,
   verifySourceRetired, registryRoot } = {}) {
   if (!['migrate', 'copy', 'refresh-identity', 'abandon-initialization'].includes(mode) ||
-      !expectedDiagnostic || confirm !== true)
+      typeof store !== 'string' || !store || !expectedDiagnostic || confirm !== true)
     throw fail('INVALID_ARGUMENT', 'invalid-recovery-request')
-  const path = await canonicalStorePath(store)
   const dir = await secureDirectory(registryRoot, true)
+  const { path, missingParent } = await recoveryPath(store, dir)
   const registryLock = await acquireRegistryLockBounded(dir)
   let lease, sourceLease, retainTargetLease = false
   try {
-    lease = await acquireStoreLock(path)
-    const actual = await observation(path, dir, lease)
+    if (!missingParent) lease = await acquireStoreLock(path)
+    else {
+      const current = await recoveryPath(store, dir)
+      if (!current.missingParent || current.path !== path) throw fail('CONFLICT', 'diagnostic-changed')
+    }
+    const actual = await observation(path, dir, lease, missingParent)
     if (actual.diagnosticRevision !== expectedDiagnostic)
       throw fail('CONFLICT', 'diagnostic-changed')
     if (mode === 'abandon-initialization') {
       if (!actual.availableModes.includes(mode)) throw fail('CONFLICT', 'domain-registration-mismatch')
+      await ensureIntentLayout(dir, await readRegistry(dir))
       const pending = await readIntent(dir, path)
       if (!pending || pending.mode !== 'initialize') throw fail('CONFLICT', 'diagnostic-changed')
       await durableRemove(dir, intentFile(pending))
       return { abandonedTransactionId: pending.transactionId, diagnosticRevision: actual.diagnosticRevision }
     }
+    await ensureIntentLayout(dir, await readRegistry(dir))
     if (mode === 'migrate' && actual.problem === 'pending-intent') {
       const pending = await readIntent(dir, path)
       if (pending?.mode !== 'migrate' || !pending.source || !actual.metadata || !actual.fileIdentity ||
@@ -604,7 +695,7 @@ export async function recoverHostDomain({ store, mode, expectedDiagnostic, confi
         !same(actual.metadata, await readMetadataSnapshot(path)))
       throw fail('CONFLICT', 'diagnostic-changed')
     const record = registryRecord(meta, path, actual.fileIdentity, binding)
-    const intent = { version: 2, mode, transactionId: uuid(), targetBefore: actual.atPath ?? null,
+    const intent = { version: 3, mode, transactionId: uuid(), phase: 'writing', targetBefore: actual.atPath ?? null,
       source: mode === 'refresh-identity' ? null : source ?? null, record }
     await durableReplace(dir, intentFile(intent), intent)
     if (mode === 'copy') await withMetadata(path, async (current, table) => {

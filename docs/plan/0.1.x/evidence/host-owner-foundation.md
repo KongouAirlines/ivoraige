@@ -47,7 +47,7 @@ that cache was replaced from the unchanged lockfile before these final checks.
 
 ## Recovery and validation limits
 
-`copy` requires a distinct verified store and allocates a new domain/registration identity. `migrate` additionally requires trusted evidence that the source process retired; a free lock and a command-line confirmation do not supply that proof. `repair-registration` does not overwrite an unparseable multi-domain registry: without a trustworthy complete backup and merge evidence it remains unavailable. These limits are deliberate fail-closed results, not completed migration/repair UX.
+`copy` requires a distinct verified store and allocates a new domain/registration identity. `migrate` additionally requires trusted evidence that the source process retired; a free lock and a command-line confirmation do not supply that proof. `refresh-identity` updates only the file identity of a same-path store whose domainId and registrationId match the protected record, under both locks, confirmation and an exact diagnostic. It does not reconstruct a missing or unparseable multi-domain registry; without trustworthy backup and merge evidence that remains unavailable. These limits are deliberate fail-closed results, not completed migration/repair UX.
 
 Metadata inspection uses SQLite's public backup API followed by the DSH domain API on a private temporary copy, without reading DSH private tables. Windows discovery needs this snapshot even when dev, inode and creation time match: the #88 Windows run at head `501aa66` accepted a replaced file under that identity check, consistent with NTFS file-system tunneling. The snapshot can copy a large database during discovery and can hold the registry lock longer in writer paths; large-library performance remains unverified.
 
@@ -164,3 +164,100 @@ passed with 91 files, including reinstall, persistence, frozen exports and MCP.
 The first package attempt could not create the default npm cache; rerunning with
 a cache in the writable temporary workspace passed. New native POSIX/Windows
 transport and domain recovery behavior still requires platform CI.
+
+
+## Domain journal write-start and compatibility supplement
+
+Review of `ec4e20d` reproduced three remaining journal hazards: after committed
+metadata was moved away, `abandon-initialization` still removed its intent;
+replay recreated a store under the same ID while the original persisted file
+still existed; and a `d59282f` binary ignored the per-target v2 intent and
+initialized a different ID, leaving the newer binary blocked by the conflict.
+These observations concern journal proof, not the corrected identity-refresh or
+source-retirement mechanisms.
+
+New intents are version 3. Initialization first creates and flushes an empty
+file under its store lease and records its non-null fileIdentity. It then flushes
+`phase: prepared`, followed by `phase: writing` before DSH can write domain
+metadata. An absent target is abandonable only with the durable v3 prepared
+proof. With a disappeared parent, the exact saved canonical target is addressed
+under the registry lease, which fences initialization/replay writers; no parent,
+store or sidecar is recreated. An accessible target additionally requires its
+store lease, matching saved file identity and a readable metadata-free snapshot.
+The public mode and result remain `abandon-initialization` and
+`{ abandonedTransactionId, diagnosticRevision }`.
+
+Phase-less v1/v2 intents are never relabeled prepared. Matching committed metadata
+can complete their replay, but a null-identity intent cannot recreate or abandon
+an absent/metadata-free target. Automatic cleanup after initialization failure
+also requires a stable, exact-identity metadata-free snapshot and confirmed DSH
+disposal. A missing target after write-start retains the intent. The diagnostic
+includes the full relevant intent, so a phase change invalidates confirmation.
+
+The permanent global marker `{ version: 3, layout: "per-store" }` makes both
+singleton-intent and phase-less v2 binaries fail closed. A legacy singleton is
+converted only with its original registry-revision proof or an exact already
+registered result; its per-target representation is flushed before replacing
+the singleton with the marker. Interrupted conversion is deduplicated without
+inventing no-write evidence. Registry/domain schemas and recovery-mode names are
+unchanged; old binaries are not a supported rollback for this journal layout.
+
+The domain fixtures now canonicalize their temporary root before constructing
+journal paths and recorded targets. This addresses `/var` versus `/private/var`
+on macOS and Windows short-path normalization without weakening production
+identity/path checks. Native reruns are still required; Linux results are not
+native macOS/Windows acceptance.
+
+On Linux / Node 24.22.1, with exact-lockfile offline dependencies and a fresh
+verified DSH build, all 25 domain tests passed. The new cases cover v2
+write-then-disappear refusal, prepared missing-parent abandonment, writing-phase
+identity checks and stale diagnostics, the write-start boundary before DSH,
+confirmed-failure cleanup, interrupted layout migration, and v3 replay across
+metadata/registry publication boundaries. A stale initialization journal is also
+rejected when its domain ID is registered at another path, preventing replay
+from overwriting a later migration. Exact baseline `d59282f` and
+`ec4e20d` modules both rejected create/find after the v3 marker, while the new
+implementation retained the same domain ID. Tests use deterministic persisted
+states and injected failures, not physical power-loss or real cross-account
+acceptance. Existing full-snapshot latency, orphan temporary-copy cleanup and
+native Windows durability limitations remain.
+
+The final complete suite, run with `node --test --test-concurrency=4
+--test-timeout=180000 test/*.test.mjs` after a fresh build, passed 609 of 629
+tests with 20 conditional/platform skips and no failures. The 91-file isolated
+package smoke also passed. A preceding default-concurrency run had nine failures under parallel load:
+six PDF sidecar handshake/parse timeouts, two PDF upstream failures, and the
+10-second unsupported-runtime subprocess deadline in `runtime.test.mjs`. No
+runtime or sidecar deadline was changed, and that failed run is not counted as
+a pass. The bounded-concurrency run includes all of those tests.
+
+Converting a v1 singleton still fails closed if neither its original registry
+revision nor an exact already-registered result can be verified. Such unresolved
+legacy evidence can block new registry writes until local recovery; v2/v3
+per-target intents do not have that whole-registry precondition. No absent
+legacy target is silently promoted to a v3 prepared transaction.
+
+## Integrated follow-up verification
+
+The v3 journal supplement and transport response/cleanup corrections were
+integrated on exact foundation head `ec4e20d`, preserving moewell's identity
+refresh, migration retirement checks, discovery locking, OwnerIPC frame and
+session design. Contract commit `12d90ad` is included as an upstream parent.
+The former macOS/Windows CI failures were traced to noncanonical journal/socket
+fixture paths and a missing Windows test capability; those fixtures were fixed
+without weakening production checks.
+
+On Linux / Node 24.22.1, the integrated default `npm test` rebuilt the clean
+pinned DSH source and passed 612 of 632 tests, with 20 platform/sandbox skips
+and no failures. The 91-file isolated package smoke passed. This later integrated
+pass does not erase the earlier parallel-run failures recorded above. Current
+native macOS/Windows CI must be checked separately; skipped local Unix socket
+bind and Windows cases are not passed acceptance.
+
+No real cross-account test was rerun. The prior scoped Windows account attempt
+failed at credentialed launch (Win32 5). Both account removals and owned-process
+exit were reported, but profile cleanup (32) and Secondary Logon restoration
+(1052) failed; the last observed service state was running, with startup
+configuration unchanged. Neither ordinary CI success nor these local tests
+close that acceptance or cleanup boundary. Downstream #90/#93 integration,
+including A3 signal propagation and POST refresh routing, remains separate.

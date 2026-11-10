@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { chmod, mkdtemp, readFile, rm } from 'node:fs/promises'
+import { chmod, mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
 import fs from 'node:fs'
 import { createHash } from 'node:crypto'
 import { once } from 'node:events'
@@ -121,14 +121,14 @@ test('socket-free exchange keeps business response unbounded and distinguishes c
 test('disconnect during state lookup prevents business dispatch but does not cancel accepted exit', async () => {
   const state = { dataDomainRef: 'd', generation: 'g', storeOwnership: 'held', acceptingBusiness: true }
   const frame = action => ({ interfaceVersion: 'HostControl@1', minor: 0, requestId: 'r',
-    expectedGeneration: 'g', action, params: action === 'business'
+    expectedGeneration: 'g', capability: 'synthetic-dispatch-test', action, params: action === 'business'
       ? { method: 'listDocuments', input: {} } : { budgetMs: 100 } })
   const socket = () => new Duplex({ read() {}, write(_chunk, _encoding, callback) { callback() } })
   let releaseLookup, businessCalls = 0
   const lookup = new Promise(resolve => { releaseLookup = resolve })
   const businessSocket = socket()
   const pendingBusiness = dispatchHostAction(businessSocket, frame('business'), {
-    dataDomainRef: 'd', generation: 'g', getState: () => lookup,
+    dataDomainRef: 'd', generation: 'g', capability: 'synthetic-dispatch-test', getState: () => lookup,
     handleBusiness: () => { businessCalls++; return {} } })
   const closedBusiness = once(businessSocket, 'close')
   businessSocket.destroy()
@@ -140,7 +140,7 @@ test('disconnect during state lookup prevents business dispatch but does not can
   const exitWork = new Promise(resolve => { finishExit = resolve })
   const exitSocket = socket()
   const pendingExit = dispatchHostAction(exitSocket, frame('exit'), {
-    dataDomainRef: 'd', generation: 'g', getState: () => state,
+    dataDomainRef: 'd', generation: 'g', capability: 'synthetic-dispatch-test', getState: () => state,
     handleControl: async () => { exitCalls++; await exitWork; return { exited: true } } })
   await Promise.resolve()
   assert.equal(exitCalls, 1)
@@ -226,7 +226,7 @@ test('shared temp fallback chooses a private random directory despite predictabl
     homeDirectory: `${directory}/${'x'.repeat(120)}`, sharedTemporaryDirectory: root })
   try {
     assert.notEqual(selected, occupied)
-    assert.match(selected, new RegExp(`^${root}/ivoraige-${namespace}-[A-Za-z0-9]{6}$`))
+    assert.match(selected, new RegExp(`^${await realpath(root)}/ivoraige-${namespace}-[A-Za-z0-9]{6}$`))
     await assertPrivateDirectory(selected)
   } finally { await rm(selected, { recursive: true, force: true }) }
   } finally { await rm(root, { recursive: true, force: true }) }

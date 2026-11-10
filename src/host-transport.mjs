@@ -8,7 +8,7 @@ import { assertPrivateDirectory, assertPrivateFile, createPrivateFile, ensurePri
 
 import { createWindowsPipeServer, connectWindowsPipe } from './host-windows-pipe.mjs'
 
-import { hostSocketDirectory } from './host-socket-directory.mjs'
+import { hostSocketDirectory, releaseHostSocketDirectory } from './host-socket-directory.mjs'
 import { acquireRegistryLockBounded } from './host-domain.mjs'
 
 export const HOST_INTERFACE_VERSION = 'HostControl@1'
@@ -125,7 +125,7 @@ function equalSecret(a, b) {
   return aa.length === bb.length && timingSafeEqual(aa, bb)
 }
 
-function frameSocket(socket, payload, { timeoutMs, timeoutReason = 'owner-unreachable', signal } = {}) {
+function frameSocket(socket, payload, { timeoutMs, timeoutReason = 'owner-unreachable', invalidFrameReason = 'invalid-request', signal } = {}) {
   return new Promise((resolveFrame, reject) => {
     let size = 0
     const chunks = []
@@ -134,17 +134,18 @@ function frameSocket(socket, payload, { timeoutMs, timeoutReason = 'owner-unreac
     const error = cause => { cleanup(); reject(cause) }
     const end = () => error(fail('CONFLICT', timeoutReason))
     const abort = () => socket.destroy(fail('CONFLICT', 'request-cancelled'))
+    const invalidFrame = () => fail(invalidFrameReason === 'invalid-request' ? 'INVALID_ARGUMENT' : 'CONFLICT', invalidFrameReason)
     const data = chunk => {
       size += chunk.length
-      if (size > MAX_FRAME) { socket.destroy(fail('INVALID_ARGUMENT', 'invalid-request')); return }
+      if (size > MAX_FRAME) { socket.destroy(invalidFrame()); return }
       chunks.push(chunk)
       const all = Buffer.concat(chunks)
       const newline = all.indexOf(10)
       if (newline < 0) return
       cleanup()
-      if (newline !== all.length - 1) { reject(fail('INVALID_ARGUMENT', 'invalid-request')); return }
+      if (newline !== all.length - 1) { reject(invalidFrame()); return }
       try { resolveFrame(JSON.parse(all.subarray(0, newline).toString('utf8'))) }
-      catch { reject(fail('INVALID_ARGUMENT', 'invalid-request')) }
+      catch { reject(invalidFrame()) }
     }
     socket.on('data', data).once('error', error).once('end', end).once('close', end)
     signal?.addEventListener('abort', abort, { once: true })
@@ -158,8 +159,14 @@ function frameSocket(socket, payload, { timeoutMs, timeoutReason = 'owner-unreac
 }
 
 function sendFrame(socket, frame) {
-  const bytes = Buffer.from(`${JSON.stringify(frame)}\n`)
-  if (bytes.length > MAX_FRAME) throw fail('INVALID_ARGUMENT', 'invalid-request')
+  // A handler has already run. Failure to deliver its result must never be
+  // described as invalid input with no side effects.
+  let bytes
+  try {
+    if (frame.ok === true && frame.result === undefined) throw new Error('Missing result')
+    bytes = Buffer.from(`${JSON.stringify(frame)}\n`)
+  } catch { throw fail('CONFLICT', 'outcome-unknown') }
+  if (bytes.length > MAX_FRAME) throw fail('CONFLICT', 'outcome-unknown')
   socket.end(bytes)
 }
 
@@ -195,7 +202,7 @@ export function createHostTransport({ directory, dataDomainRef, generation, life
     (lifetime === 'resident' && typeof handleControl !== 'function'))
     throw fail('INVALID_ARGUMENT', 'invalid-request')
   directory = resolve(directory)
-  let server, record, capability, closing, closed = false
+  let server, record, capability, closing, socketDirectory, closed = false
   const ownerProcess = { pid: process.pid, runtimeStartTimeMs: Math.floor(performance.timeOrigin), nonce: randomUUID() }
   const sockets = new Set()
 
@@ -231,7 +238,7 @@ export function createHostTransport({ directory, dataDomainRef, generation, life
       return record
     }
     const nonce = randomBytes(16).toString('base64url')
-    const socketDirectory = process.platform === 'win32' ? null : await hostSocketDirectory(directory)
+    socketDirectory = process.platform === 'win32' ? null : await hostSocketDirectory(directory)
     if (socketDirectory) await ensurePrivateDirectory(socketDirectory)
     const address = process.platform === 'win32' ? `\\\\.\\pipe\\ivoraige-${nonce}` : join(socketDirectory, `host-${nonce}.sock`)
     if (process.platform !== 'win32' && Buffer.byteLength(address) > 100)
@@ -282,6 +289,7 @@ export function createHostTransport({ directory, dataDomainRef, generation, life
         if (record.address && process.platform !== 'win32') await rm(record.address, { force: true })
         else if (record.address) await rm(capabilityPath(directory, dataDomainRef, generation), { force: true })
       }
+      if (socketDirectory) await releaseHostSocketDirectory(socketDirectory)
       getSession()?.revokeAll()
       closed = true
     })()
@@ -358,8 +366,13 @@ export async function exchangeHostFrame(address, frame, { timeoutMs, signal,
       if (signal?.aborted) abort()
     })
     const response = await frameSocket(socket, frame, { timeoutMs,
-      timeoutReason: frame.action === 'attach' ? 'owner-unreachable' : 'outcome-unknown', signal })
-    if (!response || typeof response !== 'object' || typeof response.ok !== 'boolean')
+      timeoutReason: frame.action === 'attach' ? 'owner-unreachable' : 'outcome-unknown',
+      invalidFrameReason: frame.action === 'attach' ? 'owner-unreachable' : 'outcome-unknown', signal })
+    const validResponse = response?.ok === true ? Object.hasOwn(response, 'result')
+      : response?.ok === false && response.apiVersion === '2.0' &&
+        Object.hasOwn(ERROR_STATUSES, response.error?.code) && typeof response.error?.message === 'string' &&
+        id.safeParse(response.error?.details?.reason).success
+    if (!validResponse)
       throw fail('CONFLICT', frame.action === 'attach' ? 'owner-unreachable' : 'outcome-unknown')
     if (!response.ok) throw new KernelError(response.error?.code || 'CONFLICT',
       'Host control request failed', { reason: response.error?.details?.reason,

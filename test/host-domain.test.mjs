@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { copyFile, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { copyFile, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHostDomain, findHostDomain, hostRegistryDirectory,
@@ -11,7 +11,7 @@ import { createPrivateFile } from '../src/host-permissions.mjs'
 const config = { settingsDir: '/example/settings', componentRoot: '/example/components', pdfSource: 'installed' }
 const intentName = path => `domain-intent-${createHash('sha256').update(path).digest('hex')}.json`
 async function fixture(t) {
-  const dir = await mkdtemp(join(tmpdir(), 'ivoraige-host-domain-'))
+  const dir = await realpath(await mkdtemp(join(tmpdir(), 'ivoraige-host-domain-')))
   const registryRoot = join(dir, 'state')
   const store = join(dir, 'store.sqlite')
   t.after(() => rm(dir, { recursive: true, force: true }))
@@ -208,10 +208,11 @@ test('only a provably metadata-free pending initialization can be abandoned', as
   error => error.details.reason === 'domain-registration-mismatch')
   await rm(f.store)
   diagnosis = await inspectHostDomain(f)
-  assert.deepEqual(diagnosis.availableModes, ['abandon-initialization'])
-  await recoverHostDomain({ ...f, mode: 'abandon-initialization',
-    expectedDiagnostic: diagnosis.diagnosticRevision, confirm: true })
-  await assert.rejects(readFile(intentPath), { code: 'ENOENT' })
+  assert.deepEqual(diagnosis.availableModes, [])
+  await assert.rejects(recoverHostDomain({ ...f, mode: 'abandon-initialization',
+    expectedDiagnostic: diagnosis.diagnosticRevision, confirm: true }),
+  error => error.details.reason === 'domain-registration-mismatch')
+  assert.ok(await readFile(intentPath))
 })
 
 test('an unresolved source intent blocks another target using that source', async t => {
@@ -305,7 +306,7 @@ test('recover requires confirmed mode and exact diagnostic; busy owner is never 
 // D01.H03: persisted intent survives each interruption boundary without minting
 // another ID. These fixtures reproduce the on-disk states instead of relying
 // on a timed process kill whose exact instruction boundary is nondeterministic.
-test('replays interrupted initialization before and after DSH metadata commit', async t => {
+test('replays committed legacy initialization but refuses an absent unknown-phase target', async t => {
   const f = await fixture(t)
   const first = await create(f)
   first.storeLease.release()
@@ -319,30 +320,28 @@ test('replays interrupted initialization before and after DSH metadata commit', 
   const intent = { version: 1, mode: 'initialize', transactionId: '252c3b8e-753f-4451-b937-bcb203801001',
     beforeRevision: emptyRevision, source: null, record: { ...record, fileIdentity: null } }
   await rm(registryPath)
-  await createPrivateFile(intentPath, `${JSON.stringify(intent)}\n`)
+  await writeFile(intentPath, `${JSON.stringify(intent)}\n`)
   const unrelated = await create(f, join(f.dir, 'unrelated.sqlite'))
   unrelated.storeLease.release()
-  assert.equal((await readFile(intentPath, 'utf8')).includes(intent.transactionId), true)
+  assert.equal((await readFile(join(dir, intentName(record.canonicalStore)), 'utf8')).includes(intent.transactionId), true)
   const afterMetadata = await create(f)
   assert.equal(afterMetadata.dataDomainRef, first.dataDomainRef)
   afterMetadata.storeLease.release()
   assert.equal((await findHostDomain({ store: join(f.dir, 'unrelated.sqlite'), registryRoot: f.registryRoot })).domainId,
     unrelated.dataDomainRef)
-  await assert.rejects(readFile(intentPath), { code: 'ENOENT' })
+  assert.deepEqual(JSON.parse(await readFile(intentPath)), { version: 3, layout: 'per-store' })
 
-  await createPrivateFile(intentPath, `${JSON.stringify(intent)}\n`)
+  await writeFile(intentPath, `${JSON.stringify(intent)}\n`)
   const afterRegistry = await create(f)
   assert.equal(afterRegistry.dataDomainRef, first.dataDomainRef)
   afterRegistry.storeLease.release()
-  await assert.rejects(readFile(intentPath), { code: 'ENOENT' })
+  assert.deepEqual(JSON.parse(await readFile(intentPath)), { version: 3, layout: 'per-store' })
 
   await rm(registryPath)
   await rm(f.store)
-  await createPrivateFile(intentPath, `${JSON.stringify(intent)}\n`)
-  const beforeMetadata = await create(f)
-  assert.equal(beforeMetadata.dataDomainRef, first.dataDomainRef)
-  beforeMetadata.storeLease.release()
-  await assert.rejects(readFile(intentPath), { code: 'ENOENT' })
+  await writeFile(intentPath, `${JSON.stringify(intent)}\n`)
+  await assert.rejects(create(f), error => error.details.reason === 'domain-registration-mismatch')
+  assert.deepEqual((await inspectHostDomain(f)).availableModes, [])
 })
 
 test('unknown host-domain version and hard-linked stores fail closed', async t => {
