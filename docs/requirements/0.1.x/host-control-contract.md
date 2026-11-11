@@ -68,7 +68,7 @@ bootstrap 只取得一次 store lease，并将它交给同一长寿命 host 组�
 
 `start` 与 `attach` 都须核对域登记、实际 store/owner 配置和已认证握手。锁忙且握手不可核实时返回 `CONFLICT/owner-unreachable`，不删除锁或发现记录。start 竞争失败者释放登记锁后有界等待、重查；等待耗尽返回冲突。`attach` 没有已验证 owner 且锁空闲时为 NOT_FOUND。
 
-只有握手中的 storeOwnership=held 才可作为当前 owner 返回。released 的旧 generation 只接受原操作的查询/最终清理，不签发 ownerBootstrap/新会话、不接业务、不代新 host 执行动作；unknown 保持诊断阻塞。新控制器在取得已释放的锁后可创建下一 generation，旧地址还存活不能阻止或冒充新 owner；整个核验同时受 generation 和实际锁结果约束。
+只有握手中的 storeOwnership=held 才可作为当前 owner 返回。对活跃库附加不能为核对元数据反复整库备份；Windows/旧登记需额外核对时，优先在取得独占 store lease 后读元数据，否则通过受信本机握手核对 `registrationId` 与域 ID，前后重验文件身份。未提供或不匹配的登记证明必须拒绝，POSIX 验证预算 5 秒、Windows 含 broker 冷启动预算 30 秒；超时不返回未经验证的候选。OwnerIPC attach 响应可增加 `registrationId`，生产 owner 提供它，严格附加客户端必须核对；只带旧握手形状的 owner 在需要该证明时安全拒绝。业务并发上限须低于总连接上限，为管理查询/退出预留容量；未完成握手同样有界等待。released 的旧 generation 只接受原操作的查询/最终清理，不签发 ownerBootstrap/新会话、不接业务、不代新 host 执行动作；unknown 保持诊断阻塞。新控制器在取得已释放的锁后可创建下一 generation，旧地址还存活不能阻止或冒充新 owner；整个核验同时受 generation 和实际锁结果约束。
 
 最小传输候选：POSIX 使用用户私有目录内的 socket，目录 0700、socket 0600，依赖内核 DAC 拒绝其他用户访问；这一实现不读取 peer credentials，不能声称核验了实际 peer。优先选择已核验的用户运行时/用户私有目录，路径过长或不可用时可在共享临时目录下原子创建随机的 0700 私有叶目录，并将实际地址写入受保护的发现记录；不得依赖可预测的共享 `/tmp` 子目录，也不得改 chmod 接管不属于自己的现有目录。须实测目录、socket 属主和权限，以及目录被抢占或删除后的行为。Windows 使用仅当前用户 SID 可连接的 named pipe，验证 DACL、客户端身份与远程连接拒绝，并在帧内验证本 generation 的 `capability`。不能用随机管道名或 capability 替代权限验证。具体跨平台绑定/API 必须由 A1 原生探针选择，无法保证时不能宣称已支持，不能退回匿名 loopback。
 
@@ -82,7 +82,7 @@ OwnerIPC 一连接只收一帧，成功帧为 `{ ok: true, result }`，失败帧
 
 ### 5.1 State
 
-State 字段如下。`ready` 必须 held，表示必要 owner/storage 已就绪，不表示所有可选 PDF/模型能力就绪。`starting`、`ready`、`draining` 不得报告 released；`ready` 尚无退出操作，`draining` 必有 operationId。`stopping` 可在 release 阶段报告 released；`failed` 允许启动失败回收后的 released，也允许持锁或未知归属，不能据 failed 猜测锁已释放。
+State 字段如下。`ready` 必须 held，表示必要 owner/storage 已就绪，不表示所有可选 PDF/模型能力就绪。`starting`、`ready`、`draining` 不得报告 released；`ready` 尚无退出操作，`draining` 与 `stopping` 必有 operationId。`stopping` 可在 release 阶段报告 released；`failed` 允许启动失败回收后的 released，也允许持锁或未知归属，不能据 failed 猜测锁已释放。
 
 | 字段 | 含义 |
 | --- | --- |
@@ -138,7 +138,7 @@ operation 是 bootstrap 持有的生命周期记录，不是新的任务调度�
 
 drain-only 完成第 4 步后停在 `phase=quiescent,status=drained,safeToExit=true`，保留必要服务与管理通道；只有 exit 意图进入 storage/release。exit 完成 release 和管理通道清理后为 `phase=release,status=completed,safeToExit=true,reason=null`，但进程是否真正退出仍由本机控制器观察。`safeToExit=true` 只在这两种无已知业务写入者的终态出现，不授权绕过后续存储销毁步骤；storage/release 的 pending/blocked 仍为 false。
 
-释放是单向边界：释锁失败/结果不明时仍保留发现记录和管理通道，storeOwnership 为 held/unknown，不报告退出完成；释锁成功后为 released，旧 host 不再访问 store，也不能为重试抢回锁。此后删除记录失败仅重试本 generation 的发现清理；新 host 已替换记录则跳过，绝不删除新记录。此阶段仍可查询旧 generation 的管理 IPC，但旧进程不再是数据库 owner。管理通道最后关闭失败同样不伪报进程已退出。管理服务器对最终清理的投影不依赖已销毁的 DSH 服务；通道自身损坏时只能本机诊断，不能说“已可查询”。
+释放是单向边界：释锁失败/结果不明时仍保留发现记录和管理通道，storeOwnership 为 held/unknown，不报告退出完成；释锁成功后为 released，旧 host 不再访问 store，也不能为重试抢回锁。此后删除记录失败仅重试本 generation 的发现清理；新 host 已替换记录则跳过，绝不删除新记录。此阶段仍可查询旧 generation 的管理 IPC，但旧进程不再是数据库 owner。管理通道最后关闭失败同样不伪报进程已退出。已认证同 generation 的 exit 重试必须可到达协调器，由其决定只重试剩余清理或报告未知所有权；不能在传输层仅因非 held 把它改写为 owner-unreachable。管理服务器对最终清理的投影不依赖已销毁的 DSH 服务；通道自身损坏时只能本机诊断，不能说“已可查询”。
 
 控制器单独产生 ExitObservation，含原 dataDomainRef/generation/operationId、`observation=stopped|unknown`、processExited、ownerReleased 与 cleanupOutcome。它在 attach/start 的可信握手中保存实际进程身份/句柄与控制地址，不能事后仅查 PID。只有该进程已退出，且规范 store 锁可取得后立即释放，或同 store 的新 generation 已通过可信握手，才可判原 owner 已释放并显示 stopped。旧进程死亡不能证明正常收尾：未收到可核实的完成事实时 cleanupOutcome=unknown，后续任务以持久记录恢复。锁/身份无法核实时 observation=unknown，停止等待可以返回未知但不得改为成功。该 DTO 不加入活 host 的 State、不创建第二生命周期或事件计数。
 
@@ -170,15 +170,18 @@ store 内建议单独使用 DSH StorageDomain 的 `ivoraige_host` v1 元数据�
 
 ```text
 ivoraige host domain inspect --store <本机路径> --json
-ivoraige host domain recover --store <本机路径> --mode migrate|copy|refresh-identity|abandon-initialization --expected-diagnostic <诊断摘要> --confirm
+ivoraige host domain recover --store <本机路径> --mode migrate|copy|adopt-copy|refresh-identity|abandon-initialization --expected-diagnostic <诊断摘要> --confirm
 ```
 
 inspect 不启动业务 host；返回观察条件的 diagnosticRevision、域/位置差异、锁状态与可行恢复模式。它不能把一次锁空闲读当作提交时证明。recover 缺少任何前置条件/confirm 时只报参数错误，不弹交互等待；取得锁后重读条件，变化返回 CONFLICT，绝不抢活库。RecoveryRequest schema 表示本机解析后的命令参数，不允许 HTTP/公共 MCP 调用。
 
 - **migrate**：必须核实旧 owner 已退出、旧位置不再作为活动域；保留 domainId 和幂等历史，转移登记，重新建立本机会话。本机原位置存在时锁定并核实；跨机器/不可访问原位置没有可核实退役依据则拒绝，不能把 `--confirm` 当旧 owner 已退出的证据。中断的 migrate 不由普通 create 自动续接；须以原 `migrate` 模式、精确 pending diagnostic、确认和新的同步 source-retirement 验证器显式续接。inspect 无该新证据时不宣称 migrate 可用。
 - **copy**：仅确认是不同 store 的副本后分配新 domainId/registrationId；保留内容/task/snapshot 身份与来源，旧幂等仅供历史，清除继承的授权/会话可用性，未完任务不自动恢复。原文件的配置冲突拒绝 copy。
+- **adopt-copy**：处理已有合法域元数据但本机登记完全缺席（`registration-missing`）的导入。登记中不得有任何记录引用目标规范路径或原 domainId；诊断摘要匹配、显式确认、登记锁与目标 store 锁齐备后，按 copy 语义分配新的 domainId/registrationId，保留文档/修订/task/snapshot ID，清除继承的授权和会话可用性，未完任务不自动恢复。此模式不保留原域身份，也不声明原机退役；它不会修改原机器，故不需要旧位置可访问或来源退役证明。本机发现相同域的另一记录则拒绝，改用已有 copy/migrate 流程。写前 journal 必须保留实际 metadataBefore 以支持中断恢复，不能把本来有元数据的库当成未初始化空库。
 - **refresh-identity**：只处理相同规范路径上的原地文件替换。须核对 store 中的 domainId、registrationId、binding 与登记记录完全一致，独占目标 store 并重查诊断，再更新文件身份；不借此允许 copy/migrate 或重置不匹配的元数据。
 - **abandon-initialization**：只放弃单目标的未决 initialize intent，不删除 store 或域数据。须无该目标登记记录、显式确认并重验 diagnosticRevision。v3 prepared 的持久写前屏障可证明从未尝试元数据写入；writing 则须仍能访问同一文件身份并核实无域元数据。目标缺失本身不是安全证明：文件可能在写入后被移动、卷可能离线；旧 v1/v2 空身份或缺失目标不能据此撤回或重建。证据不足时保持该目标阻塞，其他域不受连坐。
+
+对于 `writing` 意图且目标缺失，inspect 必须报告独立问题与人工处置指引，不能只有空模式列表。支持的处置是：停止相关 owner，保留登记根、意图和所有可找回副本作为证据；先恢复原文件并复核，再用现有恢复流程完成。若文件确已丢失且要重新开始，用户可选**不同的新路径**创建新库（新域身份），原路径保留阻塞；若找到有元数据的备份则放在新路径并按诊断选择 copy/adopt-copy。首版没有“删意图后复用原路径”的命令，不能靠删文件、改 journal 或手工删除 intent 绕过未知写入结果。这是明确的安全限制，不代表无法在其他路径继续工作。
 
 登记文件损坏或其他记录无法可靠解析时要求可信备份恢复，不“修复”为覆盖全文件的新条目。`repair-registration` 不作为首版恢复模式。`verifySourceRetired` 是 migrate 的本机实现验证器，不由线上请求提供；`--confirm` 不能替代其退役证据。
 
@@ -208,6 +211,8 @@ inspect 不启动业务 host；返回观察条件的 diagnosticRevision、域/�
 | PRECONDITION_FAILED / host-draining、force-unavailable | 业务不受理或强退不可安全执行 |
 | PRECONDITION_FAILED / host-not-ready、owner-unavailable、store-ownership-unknown | 宿主尚未就绪、必要 owner 服务不可用、store 归属不明；均不得受理业务或新退出副作用 |
 | CONFLICT / registry-intent-pending、diagnostic-changed | 目标登记操作待核验或恢复诊断条件已变化；目标意图只阻塞该目标，不连坐其他域 |
+| CONFLICT / outcome-unknown、request-cancelled | 请求可能已产生副作用；不得自动重发，按 generation 查询 state/operation；取消只停止等待，不证明回滚 |
+| PRECONDITION_FAILED / host-busy | 业务并发容量已满，本次未派发；退避并保留管理查询通道，不推断 owner 缺席 |
 | CONFLICT / registry-busy | 共享登记锁忙；该次请求有界等待/拒绝，不能据此宣称其他域存在未决意图 |
 | PRECONDITION_FAILED / source-retirement-unverified | migrate 的旧位置退役无法证明；保持原登记和域 ID |
 | NOT_FOUND / owner-absent、operation-absent | 只向已授权 owner 披露；已知 generation 的失效先报冲突 |
@@ -247,4 +252,4 @@ A1/A2 的测试可并行设计，合入需保持现有入口可用且不暴露�
 
 本次只做静态源码核对、机器 schema/正反例、文档链接与 diff 检查，未运行新的宿主代码、真实跨进程/DSH/Windows 安装测试。执行结果见[设计检查记录](../../plan/0.1.x/evidence/host-control-design.md)。不据此标 D01、D05、P04 或 A 已完成。
 
-A1 必须定案的仅有：三系统可验证的 IPC/peer 身份 API；DSH 元数据域及旧版拒写策略；文件身份、刷盘与恢复证据的具体实现。15 秒等待/60 秒凭证是候选值，平台测试可调整但不能减弱上述语义。桌面框架、外部业务授权全套、插件第二包与单文本冻结仍在各自工作包，不阻塞当前设计评审。
+A1 尚需运行验收的包括：§4 已定的 POSIX 私有目录/socket DAC 与 Windows pipe token/DACL 方案；DSH 元数据域及旧版拒写策略；文件身份、刷盘与恢复证据的具体实现。15 秒等待/60 秒凭证是候选值，平台测试可调整但不能减弱上述语义。桌面框架、外部业务授权全套、插件第二包与单文本冻结仍在各自工作包，不阻塞当前设计评审。

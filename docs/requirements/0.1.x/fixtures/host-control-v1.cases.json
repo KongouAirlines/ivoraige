@@ -1859,6 +1859,78 @@
           }
         }
       }
+    },
+    {
+      "id": "recover-adopt-copy",
+      "definition": "RecoveryRequest",
+      "valid": true,
+      "instance": {
+        "action": "recover",
+        "store": "/example/user-selected/store.sqlite",
+        "mode": "adopt-copy",
+        "expectedDiagnostic": "diagnostic-demo",
+        "confirm": true
+      }
+    },
+    {
+      "id": "adopt-copy-needs-confirmation",
+      "definition": "RecoveryRequest",
+      "valid": false,
+      "instance": {
+        "action": "recover",
+        "store": "/example/user-selected/store.sqlite",
+        "mode": "adopt-copy",
+        "expectedDiagnostic": "diagnostic-demo",
+        "confirm": false
+      }
+    },
+    {
+      "id": "stopping-needs-operation",
+      "definition": "State",
+      "valid": false,
+      "instance": {
+        "dataDomainRef": "domain-demo",
+        "generation": "generation-demo",
+        "lifetime": "resident",
+        "state": "stopping",
+        "acceptingBusiness": false,
+        "stateRevision": null,
+        "synchronization": "control-only",
+        "operationId": null,
+        "blockers": [],
+        "blockersTruncated": false,
+        "storeOwnership": "released"
+      }
+    },
+    {
+      "id": "host-busy-precondition_failed",
+      "definition": "ErrorResponse",
+      "valid": true,
+      "instance": {
+        "apiVersion": "2.0",
+        "error": {
+          "code": "PRECONDITION_FAILED",
+          "message": "Capacity exhausted",
+          "details": {
+            "reason": "host-busy"
+          }
+        }
+      }
+    },
+    {
+      "id": "host-busy-conflict",
+      "definition": "ErrorResponse",
+      "valid": false,
+      "instance": {
+        "apiVersion": "2.0",
+        "error": {
+          "code": "CONFLICT",
+          "message": "Capacity exhausted",
+          "details": {
+            "reason": "host-busy"
+          }
+        }
+      }
     }
   ]
 }
