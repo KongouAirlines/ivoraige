@@ -4,6 +4,33 @@ Date: 2026-11-09. This A3 slice depends on the A1 foundation and A2 lifecycle
 coordinator. It activates owner bootstrap and authenticated entry paths, not a
 completed desktop/tray product or a completed D01 acceptance.
 
+## Attached request cancellation review, 2026-11-11
+
+Review of source `0a7622323d675c9423ab3bf0ff2e78c699efeeca` found that the
+attached CLI facade discarded its invocation signal, while the stdio MCP bridge
+discarded SDK cancellation signals and did not cancel outstanding owner IPC
+requests when stdin closed. The transport already supported these signals.
+The facade now forwards them; the bridge combines each request signal with its
+own lifetime and aborts the latter on close. CLI maps the owner's explicit
+`request-cancelled` reason to exit code 5 without changing the error envelope.
+This cancels request waiting, not the resident owner or a background task that
+has already been admitted, and does not assert rollback of submitted work.
+
+Verification in Linux / Node 24.22.1 compatibility environment:
+
+- Original source: full `npm test`, 690 tests, 659 passed, 31 skipped, zero
+  failures or cancellations.
+- Four added stdio regressions (tool call/resource read, each cancelled or
+  disconnected) failed on the original code and passed after the correction.
+- Corrected source: fresh build and full `npm test`, 695 tests, 664 passed,
+  31 skipped, zero failures or cancellations. Focused entry suites: 29 tests,
+  26 passed, 3 skipped. `git diff --check` passed.
+- The real attached CLI signal assertions are included in the native owner
+  integration suite, which skipped here after Unix-socket `listen` was denied.
+  They are not a locally passed integration result. This correction still
+  needs native Node 26 CI and installed-package smoke; prior CI on the source
+  head does not cover this correction. No cross-account experiment was run.
+
 ## Activated boundaries
 
 Persistent `createApp` owns an ephemeral domain and lease. `startHost` creates or

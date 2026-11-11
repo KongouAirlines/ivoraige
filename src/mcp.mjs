@@ -142,6 +142,9 @@ export async function runMcpStdio(app, { stdin = process.stdin, stdout = process
 // opens a store: every discovery, invocation and resource read goes through
 // the already authenticated local owner connection.
 export async function runMcpOwnerStdio(client, { stdin = process.stdin, stdout = process.stdout } = {}) {
+  const controller = new AbortController()
+  const invocationSignal = context => context?.mcpReq?.signal
+    ? AbortSignal.any([controller.signal, context.mcpReq.signal]) : controller.signal
   const initial = await client.request('mcp.describe')
   if (!initial || !Array.isArray(initial.tools) || !Array.isArray(initial.resources))
     throw new KernelError('UPSTREAM_FAILURE', 'Owner MCP discovery is unavailable')
@@ -153,25 +156,26 @@ export async function runMcpOwnerStdio(client, { stdin = process.stdin, stdout =
       if (resources.has(definition.name)) continue
       resources.set(definition.name, server.registerResource(definition.name,
         new ResourceTemplate(definition.template, { list: undefined }), definition.metadata ?? {},
-        async (uri, variables) => {
-          try { return await client.request('mcp.read', { name: definition.name, uri: uri.href, variables }) }
+        async (uri, variables, context) => {
+          try { return await client.request('mcp.read', { name: definition.name, uri: uri.href, variables },
+            { signal: invocationSignal(context) }) }
           catch (error) { throw resourceError(error) }
         }))
     }
   }
   syncResources(initial.resources)
-  server.server.setRequestHandler('tools/list', async () => {
-    const description = await client.request('mcp.describe')
+  server.server.setRequestHandler('tools/list', async (request, context) => {
+    const description = await client.request('mcp.describe', {}, { signal: invocationSignal(context) })
     syncResources(description.resources)
     return { tools: description.tools }
   })
-  server.server.setRequestHandler('tools/call', async request => {
+  server.server.setRequestHandler('tools/call', async (request, context) => {
     try { return result(await client.request('mcp.call', {
-      name: request.params.name, input: request.params.arguments ?? {} })) }
+      name: request.params.name, input: request.params.arguments ?? {} }, { signal: invocationSignal(context) })) }
     catch (error) { return result(errorEnvelope(error).body, true) }
   })
   let stop
-  const stopped = new Promise(resolve => { stop = resolve })
+  const stopped = new Promise(resolve => { stop = () => { controller.abort(); resolve() } })
   const transport = new StdioServerTransport(stdin, stdout)
   const handle = serveStdio(() => server, { transport, onerror: error => console.error('MCP stdio error:', error) })
   const onclose = transport.onclose
@@ -182,6 +186,7 @@ export async function runMcpOwnerStdio(client, { stdin = process.stdin, stdout =
   process.once('SIGTERM', stop)
   try { await stopped }
   finally {
+    controller.abort()
     stdin.off('end', stop); stdin.off('close', stop)
     process.off('SIGINT', stop); process.off('SIGTERM', stop)
     await handle.close()

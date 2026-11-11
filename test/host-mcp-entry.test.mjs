@@ -3,6 +3,50 @@ import assert from 'node:assert/strict'
 import { PassThrough } from 'node:stream'
 import { runMcpOwnerStdio } from '../src/mcp.mjs'
 
+for (const method of ['tools/call', 'resources/read']) {
+  for (const interruption of ['cancel', 'disconnect']) {
+    test(`attached stdio MCP forwards ${method} ${interruption} to owner IPC`, async () => {
+      const stdin = new PassThrough(), stdout = new PassThrough()
+      let output = '', requestSignal, release, requested
+      stdout.on('data', chunk => { output += chunk })
+      const invoked = new Promise(resolve => { requested = resolve })
+      const client = { async request(action, params, options = {}) {
+        if (action === 'mcp.describe') return {
+          tools: [{ name: 'waiting_tool', inputSchema: { type: 'object', properties: {} } }],
+          resources: [{ name: 'Waiting resource', template: 'ivoraige://waiting/{id}' }],
+        }
+        requestSignal = options.signal
+        requested()
+        await new Promise(resolve => { release = resolve })
+        return action === 'mcp.read' ? { contents: [{ uri: params.uri, text: 'finished' }] } : { finished: true }
+      } }
+      const running = runMcpOwnerStdio(client, { stdin, stdout })
+      const send = message => stdin.write(`${JSON.stringify({ jsonrpc: '2.0', ...message })}\n`)
+      try {
+        send({ id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {},
+          clientInfo: { name: 'test', version: '1' } } })
+        for (let i = 0; !output.includes('"id":1') && i < 100; i++)
+          await new Promise(resolve => setTimeout(resolve, 10))
+        assert.ok(output.includes('"id":1'))
+        send({ method: 'notifications/initialized' })
+        send({ id: 2, method, params: method === 'tools/call'
+          ? { name: 'waiting_tool', arguments: {} } : { uri: 'ivoraige://waiting/one' } })
+        await invoked
+        if (interruption === 'cancel') send({ method: 'notifications/cancelled', params: { requestId: 2 } })
+        else stdin.end()
+        for (let i = 0; !requestSignal?.aborted && i < 30; i++)
+          await new Promise(resolve => setTimeout(resolve, 10))
+        assert.ok(requestSignal?.aborted, 'Owner request must observe the interrupted stdio request')
+      } finally {
+        release?.()
+        stdin.end()
+        await running
+        stdout.destroy()
+      }
+    })
+  }
+}
+
 test('attached stdio MCP forwards tools and resources without exiting its owner', async () => {
   const stdin = new PassThrough(), stdout = new PassThrough()
   const requests = []

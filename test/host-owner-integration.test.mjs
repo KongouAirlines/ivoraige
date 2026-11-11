@@ -35,6 +35,11 @@ test('repeated start attaches same owner; MCP bridge and client close preserve o
   assert.ok(registry.tools.every(tool => !/host.*(exit|drain)/i.test(tool.name)))
   const documents = await joined.operations.invoke('listDocuments', {})
   assert.deepEqual(documents, await app.operations.invoke('listDocuments', {}))
+  const controller = new AbortController()
+  controller.abort()
+  for (const entry of [joined.cli, joined.operations])
+    await assert.rejects(entry.invoke('listDocuments', {}, { signal: controller.signal }),
+      error => error.details?.reason === 'request-cancelled')
   await joined.dispose()
   assert.equal(app.host.closed, false)
   assert.equal(app.host.control.state().storeOwnership, 'held')

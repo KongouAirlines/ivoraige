@@ -364,7 +364,7 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
     const mapped = errorEnvelope(error)
     if (argv.includes('--json') && !mcpStdio) stdout.write(`${serialize(mapped.body)}\n`)
     stderr.write(`${mapped.body.error.message}\n`)
-    return mapped.exitCode
+    return error.details?.reason === 'request-cancelled' ? 5 : mapped.exitCode
   } finally {
     process.off('SIGINT', onSignal); process.off('SIGTERM', onSignal)
     if (stop) requestSignal.removeEventListener('abort', stop)

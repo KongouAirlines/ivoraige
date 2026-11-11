@@ -59,7 +59,7 @@ export async function hostConfigBinding(options) {
 }
 
 function facade(client) {
-  const invoke = (method, input = {}) => client.request('business', { method, input })
+  const invoke = (method, input = {}, { signal } = {}) => client.request('business', { method, input }, { signal })
   return { reused: true, attached: client.attached, generation: client.generation,
     dataDomainRef: client.attached.dataDomainRef, client,
     cli: { invoke }, operations: { invoke },

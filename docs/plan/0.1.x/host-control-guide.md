@@ -10,6 +10,8 @@ The launcher (`node src/launch.mjs`, or `npm start` after building) starts one r
 
 HTTP MCP is off by default. For a single `serve` run, use `--mcp-enabled` to expose `/mcp` behind the same owner session; `--no-mcp` overrides it. There is no persisted MCP enable switch yet. An anonymous or independently launched HTTP MCP client cannot use the owner-only endpoint.
 
+Interrupting an attached CLI request or cancelling an MCP request stops its owner IPC wait and asks the request handler to cancel. Closing the stdio bridge cancels its outstanding requests without stopping the resident owner. Cancellation does not prove that a submitted operation was rolled back, and it does not automatically cancel an already admitted background task. Query that task or use its explicit cancel operation instead of blindly resubmitting it.
+
 ## Inspect and stop
 
 `ivoraige host state --store /absolute/path/store.sqlite` queries the selected resident owner. `ivoraige host drain --store /absolute/path/store.sqlite --budget-ms 15000` closes new business admission and waits for a safe boundary. `ivoraige host exit --store /absolute/path/store.sqlite --budget-ms 15000` asks it to finish shutdown. Both return an accepted operation ID, not proof that the process has stopped. Query `ivoraige host operation OPERATION_ID --store /absolute/path/store.sqlite` while the owner channel remains available. A blocked operation can be retried with a new budget. Forced exit is not available; do not delete a lock or registry entry to simulate it. Closing a browser tab does not call exit.

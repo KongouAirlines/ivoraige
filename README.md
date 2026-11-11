@@ -48,7 +48,7 @@ Windows owner IPC also requires built-in Windows PowerShell 5.1 and .NET Framewo
 2. Configure a model when you want machine translation, or enter translations yourself.
 3. Review and accept revisions, then export the result.
 
-The launcher pairs the local browser with a one-use URL fragment; copying the plain server URL does not grant access to documents or settings. CLI commands and stdio MCP attach to the same resident owner when it exists. See the [local owner guide](docs/plan/0.1.x/host-control-guide.md) for startup, authentication, drain and exit behavior. This is still a browser-based workbench, not a native desktop or tray app.
+The launcher pairs the local browser with a one-use URL fragment; copying the plain server URL does not grant access to documents or settings. CLI commands and stdio MCP attach to the same resident owner when it exists. Interrupting an attached request stops its wait without stopping the owner or proving that submitted work was rolled back. See the [local owner guide](docs/plan/0.1.x/host-control-guide.md) for startup, authentication, cancellation, drain and exit behavior. This is still a browser-based workbench, not a native desktop or tray app.
 
 For PDF, prepare the optional Windows development environment using the [PDF development guide (中文)](docs/plan/0.1.0/pdf-development.md), then follow the [PDF guide (中文)](docs/plan/0.1.0/pdf-guide.md). The default online component source currently has no downloadable Release.
 

@@ -14,6 +14,18 @@ import { runCli } from '../src/cli.mjs'
 function asCliApp(app, { reused = false } = {}) {
   return { ...app, reused, cli: { invoke: (name, params) => app.operations.invoke(name, params) } }
 }
+
+test('attached CLI preserves cancellation exit code without changing the owner error', async () => {
+  let out = ''
+  const app = asCliApp({ operations: { async invoke() {
+    throw new KernelError('CONFLICT', 'request-cancelled', { reason: 'request-cancelled' })
+  } } }, { reused: true })
+  const code = await runCli(['--json', 'documents'], { app,
+    stdout: { write: chunk => { out += chunk } }, stderr: { write() {} } })
+  assert.equal(code, 5)
+  assert.deepEqual(JSON.parse(out).error, { code: 'CONFLICT', message: 'request-cancelled',
+    details: { reason: 'request-cancelled' } })
+})
 import { createApp, startHost } from '../src/app.mjs'
 
 function fixture() {
