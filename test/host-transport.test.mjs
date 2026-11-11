@@ -352,3 +352,117 @@ test('discovery publication and conditional cleanup share the registry lease', a
     await next.close()
   }
 }))
+
+
+test('response write errors after a complete request are contained for the duplex lifetime', async () => {
+  for (const size of [200_000, 900_000]) {
+    const socket = new Duplex({ read() {}, write(_chunk, _encoding, callback) {
+      queueMicrotask(() => callback(Object.assign(new Error('peer disconnected'), { code: 'EPIPE' })))
+    } })
+    const closed = new Promise(resolve => socket.once('close', resolve))
+    await dispatchHostAction(socket, { interfaceVersion: 'HostControl@1', minor: 0,
+      requestId: 'large', expectedGeneration: 'g', capability: 'test-capability', action: 'business',
+      params: { method: 'export', input: {} } }, {
+      dataDomainRef: 'd', generation: 'g', capability: 'test-capability',
+      getState: () => ({ dataDomainRef: 'd', generation: 'g', storeOwnership: 'held', acceptingBusiness: true }),
+      handleBusiness: () => 'x'.repeat(size),
+    })
+    await closed
+    assert.equal(socket.destroyed, true)
+  }
+})
+
+test('exit reaches the coordinator after release or uncertain ownership, other mutations do not', async () => {
+  for (const storeOwnership of ['released', 'unknown']) {
+    const calls = [], frames = []
+    const makeSocket = () => new Duplex({ read() {}, write(chunk, _encoding, callback) {
+      frames.push(JSON.parse(chunk.toString())); callback()
+    } })
+    const context = { dataDomainRef: 'd', generation: 'g', capability: 'test-capability',
+      getState: () => ({ dataDomainRef: 'd', generation: 'g', storeOwnership, acceptingBusiness: false }),
+      handleControl: action => { calls.push(action); return { accepted: true } } }
+    for (const action of ['exit', 'drain', 'ownerBootstrap', 'transportInfo']) {
+      const socket = makeSocket()
+      await dispatchHostAction(socket, { interfaceVersion: 'HostControl@1', minor: 0,
+        requestId: 'r', expectedGeneration: 'g', capability: 'test-capability', action,
+        params: ['exit', 'drain'].includes(action) ? { budgetMs: 100 } : {} }, context)
+      socket.destroy()
+    }
+    assert.deepEqual(calls, ['exit'])
+    assert.equal(frames[0].ok, true)
+    assert.ok(frames.slice(1).every(frame => !frame.ok && frame.error.details.reason === 'owner-unreachable'))
+  }
+})
+
+test('business saturation reserves transport capacity for management actions', async t => fixture(async directory => {
+  let count = 0, release
+  const waiting = new Promise(resolve => { release = resolve })
+  const state = { dataDomainRef: 'd', generation: 'g', lifetime: 'resident', state: 'ready',
+    storeOwnership: 'held', acceptingBusiness: true }
+  const host = createHostTransport({ directory, dataDomainRef: 'd', registrationId: 'registration-a',
+    generation: 'g', lifetime: 'resident', getState: () => state,
+    handleControl: action => ({ action }),
+    handleBusiness: async () => { count++; await waiting; return {} } })
+  const pending = []
+  try {
+    try { await host.start() }
+    catch (error) {
+      if (!process.env.CI && ['EPERM', 'EACCES'].includes(error.code)) {
+        t.skip('Local sandbox does not permit Unix socket listening'); return
+      }
+      throw error
+    }
+    await assert.rejects(connectHostTransport({ directory, dataDomainRef: 'd', expectedRegistrationId: 'wrong' }),
+      { code: 'CONFLICT' })
+    const client = await connectHostTransport({ directory, dataDomainRef: 'd', expectedRegistrationId: 'registration-a' })
+    for (let i = 0; i < 56; i++) {
+      pending.push(client.request('business', { method: 'slow', input: {} }))
+      const end = performance.now() + 5000
+      while (count < i + 1 && performance.now() < end) await new Promise(resolve => setTimeout(resolve, 5))
+      assert.equal(count, i + 1)
+    }
+    await assert.rejects(client.request('business', { method: 'overflow', input: {} }),
+      { code: 'PRECONDITION_FAILED', details: { reason: 'host-busy' } })
+    assert.deepEqual(await client.request('state'), { action: 'state' })
+    assert.deepEqual(await client.request('exit', { budgetMs: 100 }), { action: 'exit' })
+  } finally {
+    release()
+    await Promise.allSettled(pending)
+    await host.cleanupDiscovery(); await host.close()
+  }
+}))
+
+test('a disconnected business caller cannot terminate the resident owner', async t => fixture(async directory => {
+  let entered, finish
+  const started = new Promise(resolve => { entered = resolve })
+  const work = new Promise(resolve => { finish = resolve })
+  const state = { dataDomainRef: 'd', generation: 'g', lifetime: 'resident', state: 'ready',
+    storeOwnership: 'held', acceptingBusiness: true }
+  const host = createHostTransport({ directory, dataDomainRef: 'd', generation: 'g', lifetime: 'resident',
+    getState: () => state, handleControl: () => state,
+    handleBusiness: async () => { entered(); await work; return 'x'.repeat(900_000) } })
+  let pending
+  try {
+    try { await host.start() }
+    catch (error) {
+      if (!process.env.CI && ['EPERM', 'EACCES'].includes(error.code)) {
+        t.skip('Local sandbox does not permit Unix socket listening'); return
+      }
+      throw error
+    }
+    const client = await connectHostTransport({ directory, dataDomainRef: 'd' })
+    const abort = new AbortController()
+    pending = client.request('business', { method: 'export', input: {} }, { signal: abort.signal })
+    const rejected = assert.rejects(pending, { details: { reason: 'request-cancelled' } })
+    await started
+    abort.abort()
+    await rejected
+    finish()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    assert.equal((await client.request('state')).generation, 'g')
+  } finally {
+    finish()
+    await pending?.catch(() => {})
+    await host.cleanupDiscovery(); await host.close()
+  }
+}))

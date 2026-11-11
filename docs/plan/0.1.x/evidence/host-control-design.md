@@ -42,3 +42,9 @@ schema 的拒绝案例仅证明形状，不证明调用者身份；权限、锁�
 同日复核发现原 schema 接受 `INVALID_ARGUMENT/interface-version-unsupported`，与契约表中的 `PRECONDITION_FAILED` 不符；OwnerIPC 失败帧也接受相同组合。现将两个边界的错误对象共用同一 schema，只限制表中已有明确类别的 reason；未知 reason 与仅用于 ControlOperation 的阶段原因不额外绑定 code。新增五个反例和三个正例后，Python jsonschema 与 Node/Ajv 检查 108 例通过，`git diff --check` 通过。此检查不证明运行时错误分类正确；实际 OwnerIPC formatter 对照仍属 A1 实施验证。
 
 补验正文已规定的 `CONFLICT/outcome-unknown` 与 `CONFLICT/request-cancelled`：此前映射已在共用 HostError schema 内，追加 ErrorResponse 与 OwnerIPCFrame 的正反例六项，不修改映射。Python jsonschema 与 Node/Ajv 检查现为 114 例通过。
+
+## 2026-11-11 第二轮复审
+
+明确 registration-missing 的 adopt-copy 正向恢复与保留内容身份/清除授权边界；writing 丢失目标提供保留证据、恢复原件或转到新路径的人工处置，不提供危险清空意图命令。补齐 outcome-unknown/request-cancelled 表格、host-busy 管理容量边界、stopping 必须 operationId 规则，并说明活跃附加采用有界登记证明而非整库快照。
+
+此前 100、108、114 例小节为各自时间点的历史验证；本轮新增 5 例，Node/AJV 与 Python 检查当前 119 例（59 合法、60 拒绝）。这些是合同检查，不是实现、实际跨账户或安装验收。
