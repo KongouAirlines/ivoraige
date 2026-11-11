@@ -26,6 +26,9 @@ function run(command, args, cwd) {
   // npm run forwards npm 12's allow-scripts flag; a nested project install
   // rejects that flag. This smoke explicitly disables all lifecycle scripts.
   for (const key of Object.keys(env)) if (key.toLowerCase() === 'npm_config_allow_scripts') delete env[key]
+  const label = args[0] === npmCli ? `npm ${args[1]}` : args[0]
+  const started = performance.now()
+  console.log(`[package smoke] start ${label} in ${cwd}`)
   const result = spawnSync(command, args, {
     cwd,
     env,
@@ -35,7 +38,11 @@ function run(command, args, cwd) {
     timeout: PROCESS_TIMEOUT_MS,
     killSignal: 'SIGKILL',
   })
-  if (result.error) throw result.error
+  const elapsed = Math.round(performance.now() - started)
+  console.log(`[package smoke] finish ${label} after ${elapsed}ms (${result.error?.code ?? result.status})`)
+  if (result.error) {
+    throw new Error(`${label} failed after ${elapsed}ms: ${result.error.code}\n${result.stdout ?? ''}\n${result.stderr ?? ''}`, { cause: result.error })
+  }
   if (result.status !== 0) {
     throw new Error(`${command} ${args.join(' ')} failed (${result.status})\n${result.stdout}\n${result.stderr}`)
   }
@@ -89,7 +96,7 @@ try {
 
   const tarball = join(work, packed[0].filename)
   await writeFile(join(work, 'package.json'), JSON.stringify({ private: true, type: 'module' }))
-  run(process.execPath, [npmCli, 'install', '--ignore-scripts', '--omit=dev', '--no-audit', '--no-fund', tarball], work)
+  run(process.execPath, [npmCli, 'install', '--ignore-scripts', '--omit=dev', '--no-audit', '--no-fund', '--loglevel=http', tarball], work)
   await validatePackagedLinks(join(work, 'node_modules', 'ivoraige'),
     JSON.parse(await readFile(join(work, 'node_modules', 'ivoraige', 'dist/web/release-info.json'), 'utf8')))
   const probe = join(work, 'installed-package-smoke.mjs')
@@ -209,8 +216,11 @@ try {
   assert.ok((await readdir(join(backup, 'exports'))).length > 0)
   const replacement = join(work, 'replacement-install')
   await mkdir(replacement)
-  await writeFile(join(replacement, 'package.json'), JSON.stringify({ private: true, type: 'module' }))
-  run(process.execPath, [npmCli, 'install', '--ignore-scripts', '--omit=dev', '--no-audit', '--no-fund', tarball], replacement)
+  // Reinstall the same resolved dependency graph, not another network resolution.
+  // Copy only manifests and the original tarball: node_modules is rebuilt independently.
+  for (const name of ['package.json', 'package-lock.json', packed[0].filename])
+    await cp(join(work, name), join(replacement, name))
+  run(process.execPath, [npmCli, 'ci', '--offline', '--ignore-scripts', '--omit=dev', '--no-audit', '--no-fund', '--loglevel=http'], replacement)
   const replacementCli = join(replacement, 'node_modules', packed[0].name, 'src', 'cli.mjs')
   assert.notEqual(replacementCli, cli)
   assert.equal(JSON.parse(await readFile(join(replacement, 'node_modules', packed[0].name, 'package.json'), 'utf8')).version,

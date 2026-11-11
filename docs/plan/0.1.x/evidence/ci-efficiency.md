@@ -42,3 +42,11 @@ Package acceptance includes local install and same-version reinstall; it is not 
 ## Local validation
 
 On Linux with Node 26.13.0: build passed; the full Node suite passed (637 tests, 635 passed, 2 existing platform skips); Python inventory/sidecar/archive suites passed (16/26/4); isolated package install/reinstall smoke passed. The final concurrency and timeout-test refinements passed their six focused tests. Native Windows/macOS results remain required from the pull-request matrix; local success is not a cross-account acceptance claim.
+
+## Windows follow-up: reinstall resolution
+
+The first PR matrix passed Linux/macOS and all Windows regression tests, but Windows package acceptance hit the 180-second subprocess limit on the **second** `npm install` (run 42957660172, job 130316490886, smoke line 213). The initial installation and first installed-server checks had already finished. The previous error path discarded npm output, so this proves the slow phase, not whether the underlying delay was registry resolution or extraction.
+
+The replacement installation now copies only the first installation's generated manifest/lockfile and original tarball, then runs `npm ci --offline` in the empty replacement directory. This preserves a real independent installation while removing a second dependency resolution/network dependency and fixing the resolved graph for the same-version persistence test. No node_modules is copied. The 180-second bound and 10-minute smoke step remain unchanged. Every subprocess now reports its phase and elapsed time; failures include captured npm output (HTTP logging enabled) instead of losing the diagnostic evidence.
+
+Linux validation passed the complete install/reinstall scenario: first install 12.6 seconds; locked offline reinstall 3.5 seconds. This is not a Windows speedup claim; the new native matrix must verify that platform.
