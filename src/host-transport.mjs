@@ -15,6 +15,7 @@ export const HOST_INTERFACE_VERSION = 'HostControl@1'
 export const HOST_INTERFACE_MINOR = 0
 const MAX_FRAME = 1024 * 1024
 const MAX_CONNECTIONS = 64
+const MAX_BUSINESS_CONNECTIONS = 56
 // The native Windows broker may need its existing 20-second cold start before
 // the pipe can connect; its own connect deadline is 25 seconds.
 const CONNECT_TIMEOUT_MS = process.platform === 'win32' ? 25_000 : 5000
@@ -163,6 +164,13 @@ function frameSocket(socket, payload, { timeoutMs, timeoutReason = 'owner-unreac
   })
 }
 
+const guardedSockets = new WeakSet()
+function guardSocket(socket) {
+  if (guardedSockets.has(socket)) return
+  guardedSockets.add(socket)
+  socket.on('error', () => socket.destroy())
+}
+
 function sendFrame(socket, frame) {
   // A handler has already run. Failure to deliver its result must never be
   // described as invalid input with no side effects.
@@ -172,7 +180,9 @@ function sendFrame(socket, frame) {
     bytes = Buffer.from(`${JSON.stringify(frame)}\n`)
   } catch { throw fail('CONFLICT', 'outcome-unknown') }
   if (bytes.length > MAX_FRAME) throw fail('CONFLICT', 'outcome-unknown')
-  socket.end(bytes)
+  // A disconnect can race the write even after destroyed was checked. The
+  // lifetime error observer contains asynchronous EPIPE/broker errors.
+  try { socket.end(bytes) } catch { socket.destroy() }
 }
 
 function writeFrame(socket, frame) {
@@ -205,10 +215,10 @@ export function validateHostAttach(value) {
 // current-SID native pipe DACL plus verified server/client token identities.
 // The per-generation 256-bit capability remains a second, generation-bound check.
 // Ephemeral owners publish only a protected marker, never a connectable IPC.
-export function createHostTransport({ directory, dataDomainRef, generation, lifetime,
+export function createHostTransport({ directory, dataDomainRef, registrationId, generation, lifetime,
   getState, handleControl, handleBusiness, session, getSession = () => session,
   getInfo = () => ({}), waitForAttempt } = {}) {
-  if (!id.safeParse(dataDomainRef).success || !id.safeParse(generation).success ||
+  if (!id.safeParse(dataDomainRef).success || (registrationId !== undefined && !id.safeParse(registrationId).success) || !id.safeParse(generation).success ||
     !['resident', 'ephemeral'].includes(lifetime) || typeof getState !== 'function' ||
     (lifetime === 'resident' && typeof handleControl !== 'function'))
     throw fail('INVALID_ARGUMENT', 'invalid-request')
@@ -224,12 +234,19 @@ export function createHostTransport({ directory, dataDomainRef, generation, life
       if (!peers.size) exitWaiters.delete(operationId)
     }
   }
+  let activeBusiness = 0
+  const acquireBusiness = () => {
+    if (activeBusiness >= MAX_BUSINESS_CONNECTIONS) throw fail('PRECONDITION_FAILED', 'host-busy')
+    activeBusiness++
+    let released = false
+    return () => { if (!released) { released = true; activeBusiness-- } }
+  }
 
   async function handle(socket) {
     try {
       const hello = await frameSocket(socket, undefined, { timeoutMs: 5000 })
       if (hello?.action !== 'attach') { await dispatchHostAction(socket, hello, { dataDomainRef, generation, capability,
-        getState, handleControl, handleBusiness, getSession, getInfo, onAcceptedExit }); return }
+        getState, handleControl, handleBusiness, getSession, getInfo, onAcceptedExit, acquireBusiness }); return }
       const parsed = validateHostAttach(hello)
       if (parsed.params.dataDomainRef !== dataDomainRef) throw fail('CONFLICT', 'stale-generation')
       if (parsed.params.requiredLifetime !== 'resident') throw fail('CONFLICT', 'temporary-owner')
@@ -239,7 +256,8 @@ export function createHostTransport({ directory, dataDomainRef, generation, life
       if (state.dataDomainRef !== dataDomainRef || state.generation !== generation ||
         state.storeOwnership !== 'held') throw fail('CONFLICT', 'owner-unreachable')
       sendFrame(socket, { ok: true, result: { reused: true, dataDomainRef, generation,
-        supportedMinors: [HOST_INTERFACE_MINOR], state, ownerProcess } })
+        supportedMinors: [HOST_INTERFACE_MINOR], state, ownerProcess,
+        ...(registrationId === undefined ? {} : { registrationId }) } })
     } catch (error) {
       try { sendFrame(socket, formatHostFailure(error)) } catch { socket.destroy() }
     }
@@ -279,6 +297,9 @@ export function createHostTransport({ directory, dataDomainRef, generation, life
       kind: process.platform === 'win32' ? 'pipe-capability' : 'unix-socket' }
     if (capability) await createPrivateFile(capabilityPath(directory, dataDomainRef, generation), `${capability}\n`)
     server = (process.platform === 'win32' ? createWindowsPipeServer : createServer)(socket => {
+      // frameSocket removes its per-frame observer after parsing. Keep this
+      // observer for the entire duplex lifetime, including queued writes.
+      guardSocket(socket)
       if (sockets.size >= MAX_CONNECTIONS) { socket.destroy(); return }
       sockets.add(socket)
       socket.once('close', () => { sockets.delete(socket); finalizedSockets.delete(socket); removeExitWaiter(socket) })
@@ -352,8 +373,9 @@ export function createHostTransport({ directory, dataDomainRef, generation, life
 }
 
 export async function dispatchHostAction(socket, frame, { dataDomainRef, generation, capability,
-  getState, handleControl, handleBusiness, getSession, getInfo, onAcceptedExit } = {}) {
-  let businessController, cancelBusiness
+  getState, handleControl, handleBusiness, getSession, getInfo, onAcceptedExit, acquireBusiness } = {}) {
+  let businessController, cancelBusiness, releaseBusiness
+  guardSocket(socket)
   try {
     // Each connection is one authenticated action. The protected socket
     // path/capability is checked again rather than trusting a prior attach.
@@ -371,7 +393,7 @@ export async function dispatchHostAction(socket, frame, { dataDomainRef, generat
     if (businessController?.signal.aborted) return
     if (state.dataDomainRef !== dataDomainRef || state.generation !== generation)
       throw fail('CONFLICT', 'stale-generation')
-    if (state.storeOwnership !== 'held' && !['state', 'operation'].includes(parsed.action))
+    if (state.storeOwnership !== 'held' && !['state', 'operation', 'exit'].includes(parsed.action))
       throw fail('CONFLICT', 'owner-unreachable')
     if (parsed.action === 'prepareForceExit' || parsed.action === 'forceExit')
       throw fail('PRECONDITION_FAILED', 'force-unavailable')
@@ -385,6 +407,7 @@ export async function dispatchHostAction(socket, frame, { dataDomainRef, generat
     } else if (parsed.action === 'business' || parsed.action.startsWith('mcp.')) {
       if (state.storeOwnership !== 'held' || !state.acceptingBusiness || typeof handleBusiness !== 'function')
         throw fail('PRECONDITION_FAILED', 'host-draining')
+      releaseBusiness = acquireBusiness?.()
       result = parsed.action === 'business'
         ? await handleBusiness(parsed.params.method, parsed.params.input, { signal: businessController.signal })
         : await handleBusiness(parsed.action, parsed.params, { signal: businessController.signal })
@@ -397,7 +420,10 @@ export async function dispatchHostAction(socket, frame, { dataDomainRef, generat
     }
   } catch (error) {
     if (!socket.destroyed) try { sendFrame(socket, formatHostFailure(error)) } catch { socket.destroy() }
-  } finally { if (cancelBusiness) socket.off('close', cancelBusiness) }
+  } finally {
+    if (cancelBusiness) socket.off('close', cancelBusiness)
+    releaseBusiness?.()
+  }
 }
 
 
@@ -443,8 +469,8 @@ export async function exchangeHostFrame(address, frame, { timeoutMs, signal,
   } finally { socket.destroy() }
 }
 
-export async function connectHostTransport({ directory, dataDomainRef, requiredLifetime = 'resident' } = {}) {
-  if (!id.safeParse(dataDomainRef).success || requiredLifetime !== 'resident')
+export async function connectHostTransport({ directory, dataDomainRef, expectedRegistrationId, signal, requiredLifetime = 'resident' } = {}) {
+  if (!id.safeParse(dataDomainRef).success || (expectedRegistrationId !== undefined && !id.safeParse(expectedRegistrationId).success) || requiredLifetime !== 'resident')
     throw fail('INVALID_ARGUMENT', 'invalid-request')
   directory = resolve(directory)
   const record = await readRecord(directory, dataDomainRef)
@@ -473,8 +499,9 @@ export async function connectHostTransport({ directory, dataDomainRef, requiredL
   }
   const attached = await exchangeHostFrame(record.address, { interfaceVersion: HOST_INTERFACE_VERSION,
     minor: HOST_INTERFACE_MINOR, requestId: randomUUID(), action: 'attach',
-    params: { dataDomainRef, requiredLifetime }, ...(capability ? { capability } : {}) }, { timeoutMs: 5000 })
-  if (attached.generation !== record.generation || attached.dataDomainRef !== dataDomainRef ||
+    params: { dataDomainRef, requiredLifetime }, ...(capability ? { capability } : {}) }, { timeoutMs: 5000, signal })
+  if ((expectedRegistrationId !== undefined && attached.registrationId !== expectedRegistrationId) ||
+    attached.generation !== record.generation || attached.dataDomainRef !== dataDomainRef ||
     attached.state?.generation !== record.generation || attached.state?.dataDomainRef !== dataDomainRef ||
     attached.state?.storeOwnership !== 'held') throw fail('CONFLICT', 'owner-unreachable')
   return { attached, generation: record.generation, async request(action, params = {}, options = {}) {

@@ -724,7 +724,10 @@
           "if": {
             "properties": {
               "state": {
-                "const": "draining"
+                "enum": [
+                  "draining",
+                  "stopping"
+                ]
               }
             },
             "required": [
@@ -1186,7 +1189,8 @@
             "migrate",
             "copy",
             "refresh-identity",
-            "abandon-initialization"
+            "abandon-initialization",
+            "adopt-copy"
           ]
         },
         "expectedDiagnostic": {
@@ -1988,7 +1992,8 @@
                       "host-not-ready",
                       "owner-unavailable",
                       "store-ownership-unknown",
-                      "source-retirement-unverified"
+                      "source-retirement-unverified",
+                      "host-busy"
                     ]
                   }
                 },

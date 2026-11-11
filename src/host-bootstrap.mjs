@@ -68,12 +68,19 @@ function facade(client) {
 }
 
 export async function attachHost({ store, registryRoot, binding } = {}) {
-  const found = await findHostDomain({ store, registryRoot })
+  const found = await findHostDomain({ store, registryRoot, verifyOwner: async candidate => {
+    const verified = await connectHostTransport({ directory: hostRegistryDirectory(registryRoot),
+      dataDomainRef: candidate.dataDomainRef, expectedRegistrationId: candidate.registrationId,
+      signal: candidate.signal })
+    try { return { dataDomainRef: verified.attached.dataDomainRef,
+      registrationId: verified.attached.registrationId } }
+    finally { verified.close() }
+  } })
   if (!found) throw fail('NOT_FOUND', 'owner-absent')
   // The registry reader checks path/file identity; a successful socket alone
   // cannot make an unrelated database the selected domain.
   const client = await connectHostTransport({ directory: hostRegistryDirectory(registryRoot),
-    dataDomainRef: found.domainId ?? found.dataDomainRef })
+    dataDomainRef: found.domainId ?? found.dataDomainRef, expectedRegistrationId: found.registrationId })
   if (binding !== undefined) {
     const info = await client.request('transportInfo')
     if (JSON.stringify(info.ownerConfigBinding) !== JSON.stringify(binding)) {
@@ -241,7 +248,8 @@ export async function createOwnedApp(options, { compose, lifetime, attach }) {
     // Host projection is owner-only and is not part of the ordinary business
     // event reader set. HTTP passes an owner capability after authentication.
     if (app.events) app.events.registerOwnerState?.('host', () => control.state())
-    transport = createHostTransport({ directory, dataDomainRef: domain.dataDomainRef, generation, lifetime,
+    transport = createHostTransport({ directory, dataDomainRef: domain.dataDomainRef,
+      registrationId: domain.registrationId, generation, lifetime,
       getState: () => control.state(), getSession: () => session,
       getInfo: () => ({ ...httpInfo, ownerConfigBinding: binding }), handleControl,
       waitForAttempt: () => control.waitForAttempt(),

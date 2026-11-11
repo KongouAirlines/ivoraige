@@ -245,6 +245,18 @@ export class HostControl {
           this.changed()
         }
         return result
+      }, error => {
+        // The waiting deadline can expire before the stage settles. Preserve
+        // the late failure as diagnostic evidence without repeating release
+        // or claiming ownership was restored.
+        if (this.inflight === flight && this.controlOperation?.status === 'blocked' &&
+            this.controlOperation.reason === 'deadline-exceeded') {
+          this.controlOperation.reason = reasonOf(error)
+          this.blockers = [{ kind: stageKinds[key], ref: null, reason: reasonOf(error),
+            recovery: this.storeOwnership === 'unknown' || this.phase === 'failed' ? 'manual-recovery' : 'retry' }]
+          this.changed()
+        }
+        throw error
       }).finally(() => { if (this.inflight === flight) this.inflight = null })
       this.inflight = flight
     }
