@@ -1,6 +1,6 @@
 # ADR-0003：0.1.x 运行时迁移门禁
 
-日期：2026-11-06｜状态：提议，待 [PR #70](https://github.com/KongouAirlines/ivoraige/pull/70) 合并确认；记录 2026-11-05 确定的实施顺序，不批准具体运行时升级。
+日期：2026-11-06｜状态：采纳；[PR #70](https://github.com/KongouAirlines/ivoraige/pull/70) 已于 2026-11-09 合并，确认记录为 [978d947](https://github.com/KongouAirlines/ivoraige/commit/978d9471fcc87857f4ca84da1ece6d169ee60a2b)。记录 2026-11-05 确定的实施顺序，不批准具体运行时升级。
 
 ## 确认方式
 

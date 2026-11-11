@@ -42,7 +42,7 @@
     "build:distribution": "npm run build && node scripts/build-distribution.mjs",
     "setup:dsh": "node scripts/setup-dsh.mjs",
     "build": "node scripts/build.mjs && node scripts/build-web.mjs",
-    "test": "npm run build && node --test test/*.test.mjs",
+    "test": "npm run build && node --test --test-timeout=180000 test/*.test.mjs",
     "pack:npm": "npm run build && node scripts/pack-npm.mjs",
     "smoke:package": "node scripts/smoke-package.mjs",
     "verify:release": "node scripts/verify-release.mjs",

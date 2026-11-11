@@ -50,3 +50,13 @@ The first PR matrix passed Linux/macOS and all Windows regression tests, but Win
 The replacement installation now copies only the first installation's generated manifest/lockfile and original tarball, then runs `npm ci --offline` in the empty replacement directory. This preserves a real independent installation while removing a second dependency resolution/network dependency and fixing the resolved graph for the same-version persistence test. No node_modules is copied. The 180-second bound and 10-minute smoke step remain unchanged. Every subprocess now reports its phase and elapsed time; failures include captured npm output (HTTP logging enabled) instead of losing the diagnostic evidence.
 
 Linux validation passed the complete install/reinstall scenario: first install 12.6 seconds; locked offline reinstall 3.5 seconds. This is not a Windows speedup claim; the new native matrix must verify that platform.
+
+## Integration with HostControl foundation (2026-11-11)
+
+Synchronize the CI branch at `d5bc0f3` with main `934de89`, which includes the HostControl contract and owner foundation. Resolve the workflow conflict by retaining the named build/regression/package steps and the 25-minute job bound from this change. Preserve main's 180-second top-level timeout for `npm test`; the CI-only command retains its 120-second bound. No HostControl implementation or assertion is removed.
+
+Local compatibility validation used Linux, Node 24.22.1 and npm 11.9.0; Node 26.13.0 was not available in this environment. Source checks reused the existing dependency checkout and verified pinned DSH source. Build and `npm run test:ci` passed: 721 total, 699 passed, 22 skipped. Four skips were Unix socket tests blocked by the local sandbox; the other 18 were platform-specific cases. Python inventory/sidecar/archive tests passed (16/26/4), and the HostControl schema check passed all 119 fixtures. `git diff --check` passed.
+
+The isolated installed-package smoke also passed, including public API/CLI, HTTP/MCP/UI, settings, document/snapshot persistence and byte-for-byte exports after a separate locked offline reinstall. The initial install took 9.4 seconds and replacement install 3.1 seconds on this machine.
+
+The [three-platform Node 26.13.0 run](https://github.com/KongouAirlines/ivoraige/actions/runs/42958925078) passed for the original `d5bc0f3` head. It does not cover this integration with `934de89`; the synchronized branch still needs its own native matrix, including the socket and Windows cases unavailable locally.

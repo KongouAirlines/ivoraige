@@ -3,7 +3,7 @@ import { dirname, basename, join, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { KernelError } from './errors.mjs'
 
-async function canonicalStorePath(store) {
+export async function canonicalStorePath(store) {
   const absolute = resolve(store)
   try { return await realpath(absolute) }
   catch (error) {
