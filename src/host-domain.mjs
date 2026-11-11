@@ -91,6 +91,10 @@ function sameRecord(a, b) {
   return !!a && !!b && same({ ...a, fileIdentity: null }, { ...b, fileIdentity: null }) &&
     (a.fileIdentity === null && b.fileIdentity === null || sameIdentity(a.fileIdentity, b.fileIdentity))
 }
+function validMetadata(value) {
+  return isObject(value) && Object.keys(value).length === 3 && value.bindingVersion === 1 &&
+    /^[0-9a-f-]{36}$/i.test(value.domainId) && /^[0-9a-f-]{36}$/i.test(value.registrationId)
+}
 function validRecord(value, allowMissingIdentity = false) {
   return isObject(value) && /^[0-9a-f-]{36}$/i.test(value.domainId) && /^[0-9a-f-]{36}$/i.test(value.registrationId) &&
     typeof value.canonicalStore === 'string' && (validIdentity(value.fileIdentity) || allowMissingIdentity && value.fileIdentity === null) &&
@@ -117,11 +121,13 @@ async function parseIntent(raw, allowLayout = false) {
   try { value = JSON.parse(raw) } catch { throw fail('PRECONDITION_FAILED', 'registry-corrupt') }
   if (allowLayout && isObject(value) && value.version === 3 && value.layout === 'per-store' && Object.keys(value).length === 2) return null
   if (!isObject(value) || ![1, 2, 3].includes(value.version) ||
-      !['initialize', 'migrate', 'copy', 'refresh-identity', 'repair-registration'].includes(value.mode) ||
+      !['initialize', 'migrate', 'copy', 'adopt-copy', 'refresh-identity', 'repair-registration'].includes(value.mode) ||
       !/^[0-9a-f-]{36}$/i.test(value.transactionId) || !validRecord(value.record, true) ||
       !(value.source === null || validRecord(value.source)) ||
       (value.version === 1 && !/^[a-f0-9]{64}$/.test(value.beforeRevision)) ||
       (value.version >= 2 && !(value.targetBefore === null || validRecord(value.targetBefore))) ||
+      (value.mode === 'adopt-copy' && (value.version !== 3 || value.source !== null ||
+        value.targetBefore !== null || !validMetadata(value.metadataBefore))) ||
       (value.version === 3 && (!validIdentity(value.record.fileIdentity) ||
         !['prepared', 'writing'].includes(value.phase) || value.phase === 'prepared' && value.mode !== 'initialize')))
     throw fail('PRECONDITION_FAILED', 'registry-corrupt')
@@ -363,7 +369,7 @@ function checkRecord(record, meta, identity, binding) {
 }
 
 // Protected read only: used before opening a busy store to locate its owner IPC.
-export async function findHostDomain({ store, registryRoot } = {}) {
+export async function findHostDomain({ store, registryRoot, verifyOwner } = {}) {
   const path = await canonicalStorePath(store)
   const dir = await secureDirectory(registryRoot, false)
   const registry = await readRegistry(dir)
@@ -377,10 +383,38 @@ export async function findHostDomain({ store, registryRoot } = {}) {
     // retain a deleted path's creation time when that path is quickly
     // recreated. In either case, verify the DSH registration before attach.
     if (process.platform === 'win32' || found.fileIdentity.birthtimeNs === undefined) {
-      const meta = await readMetadataSnapshot(path)
-      if (!sameIdentity(observedIdentity, await fileIdentity(path)) || !meta ||
-          meta.domainId !== found.domainId || meta.registrationId !== found.registrationId)
-        throw fail('CONFLICT', 'domain-registration-mismatch')
+      let lease
+      try { lease = await acquireStoreLock(path) }
+      catch (error) { if (error.code !== 'CONFLICT') throw error }
+      try {
+        if (lease) {
+          const meta = await readMetadataSnapshot(path)
+          if (!meta || meta.domainId !== found.domainId || meta.registrationId !== found.registrationId)
+            throw fail('CONFLICT', 'domain-registration-mismatch')
+        } else {
+          // Never copy an actively written database to discover its owner.
+          // The authenticated generation handshake proves the registration;
+          // a protected registry entry alone is only a candidate, not proof.
+          if (typeof verifyOwner !== 'function') throw fail('CONFLICT', 'owner-unreachable')
+          const controller = new AbortController()
+          let timer
+          try {
+            const work = Promise.resolve().then(() => verifyOwner({ ...found,
+              dataDomainRef: found.domainId, signal: controller.signal }))
+            const expired = new Promise((resolve, reject) => {
+              timer = setTimeout(() => {
+                controller.abort()
+                reject(fail('CONFLICT', 'owner-unreachable'))
+              }, process.platform === 'win32' ? 30_000 : 5000)
+            })
+            const owner = await Promise.race([work, expired])
+            if (owner?.dataDomainRef !== found.domainId || owner?.registrationId !== found.registrationId)
+              throw fail('CONFLICT', 'domain-registration-mismatch')
+          } finally { clearTimeout(timer); controller.abort() }
+        }
+        if (!sameIdentity(observedIdentity, await fileIdentity(path)))
+          throw fail('CONFLICT', 'domain-registration-mismatch')
+      } finally { lease?.release() }
     }
   }
   return found
@@ -406,6 +440,9 @@ export async function createHostDomain({ store, ownerConfigBinding, registryRoot
     if (intent) {
       if (intent.record.ownerConfigBinding !== binding) throw fail('CONFLICT', 'owner-config-mismatch')
       const { committed: alreadyCommitted } = intendedRecord(registry, intent, identity)
+      if (intent.mode === 'adopt-copy' && !alreadyCommitted &&
+          findByDomain(registry, intent.metadataBefore.domainId))
+        throw fail('CONFLICT', 'domain-registration-mismatch')
       if (!alreadyCommitted && intent.source) {
         await assertSourceIntentFree(dir, intent.source, path)
         if (intent.source.canonicalStore.localeCompare(path) < 0) {
@@ -434,7 +471,8 @@ export async function createHostDomain({ store, ownerConfigBinding, registryRoot
         throw fail('CONFLICT', 'domain-registration-mismatch')
       if (!current && intent.mode === 'initialize' ||
           intent.mode === 'copy' && current && intent.source && same(current,
-            { domainId: intent.source.domainId, registrationId: intent.source.registrationId, bindingVersion: 1 })) {
+            { domainId: intent.source.domainId, registrationId: intent.source.registrationId, bindingVersion: 1 }) ||
+          intent.mode === 'adopt-copy' && same(current, intent.metadataBefore)) {
         if (intent.version === 3) await durableReplace(dir, intentFile(intent), { ...intent, phase: 'writing' })
         await withMetadata(path, async (value, table) => {
           if (!same(value, current)) throw fail('CONFLICT', 'domain-registration-mismatch')
@@ -510,16 +548,16 @@ export async function createHostDomain({ store, ownerConfigBinding, registryRoot
   } finally { sourceLease?.release(); registryLock.release() }
 }
 
-// Only a saved v3 prepared target may be addressed without its missing parent.
-// The registry lease fences all initialization/replay writers; no store or lock
-// file is recreated merely to abandon an operation that never attempted a write.
+// A saved v3 initialization may be diagnosed without its missing parent.
+// The registry lease fences initialization/replay writers. Only prepared intents
+// can be abandoned; writing intents retain evidence and require manual recovery.
 async function recoveryPath(store, dir) {
   try { return { path: await canonicalStorePath(store), missingParent: false } }
   catch (error) {
     if (error.code !== 'INVALID_ARGUMENT') throw error
     const path = resolve(store)
     const intent = await readIntent(dir, path)
-    if (!intent || intent.version !== 3 || intent.mode !== 'initialize' || intent.phase !== 'prepared' ||
+    if (!intent || intent.version !== 3 || intent.mode !== 'initialize' || !['prepared', 'writing'].includes(intent.phase) ||
         intent.record.canonicalStore !== path || await fileIdentity(path)) throw error
     return { path, missingParent: true }
   }
@@ -551,8 +589,12 @@ async function observation(path, dir, lease, missingParent = false) {
   const diagnosticRevision = hash({ ...observed, registryRevision: undefined,
     intent: intent ? hash(intent) : null })
   const availableModes = canAbandon ? ['abandon-initialization'] : !lease ? [] :
-    problem === 'store-replaced-in-place' ? ['refresh-identity'] : []
-  return { ...observed, diagnosticRevision, availableModes }
+    problem === 'store-replaced-in-place' ? ['refresh-identity'] :
+    problem === 'registration-missing' ? ['adopt-copy'] : []
+  const manualRecovery = intent?.mode === 'initialize' && !identity && !canAbandon
+    ? { reason: 'initialization-target-missing', transactionId: intent.transactionId,
+      action: 'restore-original-or-use-new-path' } : null
+  return { ...observed, diagnosticRevision, availableModes, manualRecovery }
 }
 export async function inspectHostDomain({ store, registryRoot } = {}) {
   if (!store || typeof store !== 'string') throw fail('INVALID_ARGUMENT', 'invalid-store')
@@ -595,7 +637,7 @@ export async function inspectHostDomain({ store, registryRoot } = {}) {
 
 export async function recoverHostDomain({ store, mode, expectedDiagnostic, confirm, ownerConfigBinding,
   verifySourceRetired, registryRoot } = {}) {
-  if (!['migrate', 'copy', 'refresh-identity', 'abandon-initialization'].includes(mode) ||
+  if (!['migrate', 'copy', 'adopt-copy', 'refresh-identity', 'abandon-initialization'].includes(mode) ||
       typeof store !== 'string' || !store || !expectedDiagnostic || confirm !== true)
     throw fail('INVALID_ARGUMENT', 'invalid-recovery-request')
   const dir = await secureDirectory(registryRoot, true)
@@ -660,6 +702,13 @@ export async function recoverHostDomain({ store, mode, expectedDiagnostic, confi
       if (actual.problem !== 'store-replaced-in-place' || !actual.atPath ||
           actual.atPath.domainId !== meta.domainId || actual.atPath.registrationId !== meta.registrationId)
         throw fail('CONFLICT', 'domain-registration-mismatch')
+    } else if (mode === 'adopt-copy') {
+      if (actual.problem !== 'registration-missing' || actual.atPath || source ||
+          findByStore(registry, path) || findByDomain(registry, meta.domainId))
+        throw fail('CONFLICT', 'domain-registration-mismatch')
+      // The missing machine-local registry cannot prove ownership continuity.
+      // Adopt content under a fresh identity, never restore the inherited one.
+      meta = { domainId: uuid(), registrationId: uuid(), bindingVersion: 1 }
     } else if (mode === 'migrate' || mode === 'copy') {
       if (actual.problem !== 'domain-at-other-path' || !source || source.canonicalStore === path)
         throw fail('CONFLICT', 'domain-registration-mismatch')
@@ -696,9 +745,10 @@ export async function recoverHostDomain({ store, mode, expectedDiagnostic, confi
       throw fail('CONFLICT', 'diagnostic-changed')
     const record = registryRecord(meta, path, actual.fileIdentity, binding)
     const intent = { version: 3, mode, transactionId: uuid(), phase: 'writing', targetBefore: actual.atPath ?? null,
-      source: mode === 'refresh-identity' ? null : source ?? null, record }
+      source: mode === 'refresh-identity' ? null : source ?? null, record,
+      ...(mode === 'adopt-copy' ? { metadataBefore: actual.metadata } : {}) }
     await durableReplace(dir, intentFile(intent), intent)
-    if (mode === 'copy') await withMetadata(path, async (current, table) => {
+    if (mode === 'copy' || mode === 'adopt-copy') await withMetadata(path, async (current, table) => {
       if (!same(current, actual.metadata)) throw fail('CONFLICT', 'domain-registration-mismatch')
       await table.put(key, meta)
     })

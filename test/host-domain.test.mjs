@@ -26,7 +26,8 @@ test('initializes a DSH host domain and protected registry once', async t => {
   const f = await fixture(t)
   const one = await create(f)
   const firstId = one.dataDomainRef
-  assert.equal((await findHostDomain(f)).domainId, firstId)
+  assert.equal((await findHostDomain({ ...f, verifyOwner: async () => ({ dataDomainRef: firstId,
+    registrationId: one.registrationId }) })).domainId, firstId)
   await assert.rejects(create(f), error => error.code === 'CONFLICT')
   one.storeLease.release()
   const two = await create(f)
@@ -385,4 +386,176 @@ test('concurrent processes serialize registry updates without losing domains', a
   const registry = JSON.parse(await readFile(join(hostRegistryDirectory(f.registryRoot), 'domains.json')))
   assert.equal(registry.domains.length, stores.length)
   assert.deepEqual(new Set(registry.domains.map(item => item.domainId)), new Set(ids))
+})
+
+// D01.H04: importing a data directory onto a machine with no registry is an
+// explicit copy, not silent restoration of the source machine's identity.
+test('adopt-copy recovers missing registration with fresh IDs and preserved content', async t => {
+  const f = await fixture(t)
+  const original = await create(f)
+  original.storeLease.release()
+  const { DatabaseSync } = await import('node:sqlite')
+  const db = new DatabaseSync(f.store)
+  db.exec('CREATE TABLE preserved_content (id TEXT PRIMARY KEY, value TEXT); INSERT INTO preserved_content VALUES (\'record-1\', \'retained\')')
+  db.close()
+  const registryRoot = join(f.dir, 'new-machine')
+  const target = { store: f.store, registryRoot }
+  const before = await inspectHostDomain(target)
+  assert.equal(before.problem, 'registration-missing')
+  assert.deepEqual(before.availableModes, ['adopt-copy'])
+  await assert.rejects(createHostDomain({ ...target, ownerConfigBinding: config }),
+    error => error.details.reason === 'domain-registration-mismatch')
+  await assert.rejects(recoverHostDomain({ ...target, mode: 'adopt-copy', confirm: true,
+    expectedDiagnostic: before.diagnosticRevision }), error => error.details.reason === 'owner-config-mismatch')
+  const result = await recoverHostDomain({ ...target, mode: 'adopt-copy', confirm: true,
+    expectedDiagnostic: before.diagnosticRevision, ownerConfigBinding: config })
+  assert.notEqual(result.dataDomainRef, original.dataDomainRef)
+  assert.notEqual(result.registrationId, original.registrationId)
+  const opened = await createHostDomain({ ...target, ownerConfigBinding: config })
+  assert.equal(opened.dataDomainRef, result.dataDomainRef)
+  opened.storeLease.release()
+  const retained = new DatabaseSync(f.store, { readOnly: true })
+  try { assert.deepEqual({ ...retained.prepare('SELECT * FROM preserved_content').get() },
+    { id: 'record-1', value: 'retained' }) } finally { retained.close() }
+})
+
+test('adopt-copy refuses an existing local domain, changed diagnostics and busy store', async t => {
+  const f = await fixture(t)
+  const original = await create(f)
+  original.storeLease.release()
+  const copy = join(f.dir, 'copy.sqlite')
+  await copyFile(f.store, copy)
+  const known = { store: copy, registryRoot: f.registryRoot }
+  const before = await inspectHostDomain(known)
+  await assert.rejects(recoverHostDomain({ ...known, mode: 'adopt-copy', confirm: true,
+    expectedDiagnostic: before.diagnosticRevision, ownerConfigBinding: config }),
+  error => error.details.reason === 'domain-registration-mismatch')
+  const fresh = { store: copy, registryRoot: join(f.dir, 'fresh-machine') }
+  const diagnosis = await inspectHostDomain(fresh)
+  await assert.rejects(recoverHostDomain({ ...fresh, mode: 'adopt-copy', confirm: true,
+    expectedDiagnostic: 'stale', ownerConfigBinding: config }), error => error.details.reason === 'diagnostic-changed')
+  const { acquireStoreLock } = await import('../src/store-lock.mjs')
+  const held = await acquireStoreLock(copy)
+  try {
+    await assert.rejects(recoverHostDomain({ ...fresh, mode: 'adopt-copy', confirm: true,
+      expectedDiagnostic: diagnosis.diagnosticRevision, ownerConfigBinding: config }), error => error.code === 'CONFLICT')
+  } finally { held.release() }
+})
+
+test('adopt-copy journal replays only the exact observed old metadata', async t => {
+  const f = await fixture(t)
+  const original = await create(f)
+  original.storeLease.release()
+  const registryRoot = join(f.dir, 'adoption')
+  const { ensurePrivateDirectory } = await import('../src/host-permissions.mjs')
+  const dir = hostRegistryDirectory(registryRoot)
+  const { mkdir } = await import('node:fs/promises')
+  await mkdir(registryRoot)
+  await ensurePrivateDirectory(dir)
+  const originalRegistry = JSON.parse(await readFile(join(hostRegistryDirectory(f.registryRoot), 'domains.json')))
+  const record = originalRegistry.domains[0]
+  const ids = { domainId: '252c3b8e-753f-4451-b937-bcb203801090',
+    registrationId: '252c3b8e-753f-4451-b937-bcb203801091', bindingVersion: 1 }
+  const intent = { version: 3, mode: 'adopt-copy', phase: 'writing',
+    transactionId: '252c3b8e-753f-4451-b937-bcb203801092', source: null, targetBefore: null,
+    metadataBefore: { domainId: original.dataDomainRef, registrationId: original.registrationId, bindingVersion: 1 },
+    record: { ...record, domainId: ids.domainId, registrationId: ids.registrationId } }
+  await createPrivateFile(join(dir, intentName(f.store)), `${JSON.stringify(intent)}\n`)
+  const reopened = await createHostDomain({ store: f.store, registryRoot, ownerConfigBinding: config })
+  assert.equal(reopened.dataDomainRef, ids.domainId)
+  reopened.storeLease.release()
+  assert.equal((await findHostDomain({ store: f.store, registryRoot })).registrationId, ids.registrationId)
+  await assert.rejects(readFile(join(dir, intentName(f.store))), { code: 'ENOENT' })
+})
+
+test('missing writing target exposes manual recovery without abandoning its evidence', async t => {
+  const f = await fixture(t)
+  const first = await create(f)
+  first.storeLease.release()
+  const dir = hostRegistryDirectory(f.registryRoot)
+  const registryPath = join(dir, 'domains.json')
+  const registry = JSON.parse(await readFile(registryPath))
+  const record = registry.domains.pop()
+  await writeFile(registryPath, `${JSON.stringify(registry)}\n`)
+  const intentPath = join(dir, intentName(f.store))
+  const intent = { version: 3, mode: 'initialize', phase: 'writing',
+    transactionId: '252c3b8e-753f-4451-b937-bcb203801093', source: null, targetBefore: null, record }
+  await createPrivateFile(intentPath, `${JSON.stringify(intent)}\n`)
+  await rm(f.store)
+  const diagnosis = await inspectHostDomain(f)
+  assert.equal(diagnosis.problem, 'pending-intent')
+  assert.deepEqual(diagnosis.availableModes, [])
+  assert.deepEqual(diagnosis.manualRecovery, { reason: 'initialization-target-missing',
+    transactionId: intent.transactionId, action: 'restore-original-or-use-new-path' })
+  await assert.rejects(recoverHostDomain({ ...f, mode: 'abandon-initialization', confirm: true,
+    expectedDiagnostic: diagnosis.diagnosticRevision }), error => error.details.reason === 'domain-registration-mismatch')
+  assert.deepEqual(JSON.parse(await readFile(intentPath)), intent)
+  const fresh = await create(f, join(f.dir, 'fresh.sqlite'))
+  assert.notEqual(fresh.dataDomainRef, first.dataDomainRef)
+  fresh.storeLease.release()
+})
+
+test('busy metadata verification uses bounded owner proof instead of a database backup', async t => {
+  const f = await fixture(t)
+  const first = await create(f)
+  const registryPath = join(hostRegistryDirectory(f.registryRoot), 'domains.json')
+  const registry = JSON.parse(await readFile(registryPath))
+  delete registry.domains[0].fileIdentity.birthtimeNs // exercise the Windows path on all platforms
+  await writeFile(registryPath, `${JSON.stringify(registry)}\n`)
+  try {
+    await assert.rejects(findHostDomain(f), error => error.details.reason === 'owner-unreachable')
+    await assert.rejects(findHostDomain({ ...f, verifyOwner: async () => ({
+      dataDomainRef: first.dataDomainRef, registrationId: 'wrong' }) }),
+    error => error.details.reason === 'domain-registration-mismatch')
+    let signal
+    const record = await findHostDomain({ ...f, verifyOwner: async found => {
+      signal = found.signal
+      assert.equal(found.canonicalStore, f.store)
+      assert.equal(found.registrationId, first.registrationId)
+      return { dataDomainRef: first.dataDomainRef, registrationId: first.registrationId }
+    } })
+    assert.equal(record.domainId, first.dataDomainRef)
+    assert.equal(signal.aborted, true)
+  } finally { first.storeLease.release() }
+})
+
+test('owner proof is bounded even when the verifier never settles', async t => {
+  const f = await fixture(t)
+  const first = await create(f)
+  const registryPath = join(hostRegistryDirectory(f.registryRoot), 'domains.json')
+  const registry = JSON.parse(await readFile(registryPath))
+  delete registry.domains[0].fileIdentity.birthtimeNs
+  await writeFile(registryPath, `${JSON.stringify(registry)}\n`)
+  let signal
+  try {
+    await assert.rejects(findHostDomain({ ...f, verifyOwner: async found => {
+      signal = found.signal
+      return new Promise(() => {})
+    } }), error => error.details.reason === 'owner-unreachable')
+    assert.equal(signal.aborted, true)
+  } finally { first.storeLease.release() }
+})
+
+test('an active writer does not prevent attach and proof cannot hide file replacement', async t => {
+  const f = await fixture(t)
+  const first = await create(f)
+  const registryPath = join(hostRegistryDirectory(f.registryRoot), 'domains.json')
+  const registry = JSON.parse(await readFile(registryPath))
+  delete registry.domains[0].fileIdentity.birthtimeNs
+  await writeFile(registryPath, `${JSON.stringify(registry)}\n`)
+  const { DatabaseSync } = await import('node:sqlite')
+  const db = new DatabaseSync(f.store)
+  db.exec('CREATE TABLE write_probe (id INTEGER); BEGIN EXCLUSIVE; INSERT INTO write_probe VALUES (1)')
+  try {
+    const record = await findHostDomain({ ...f, verifyOwner: async () => ({
+      dataDomainRef: first.dataDomainRef, registrationId: first.registrationId }) })
+    assert.equal(record.domainId, first.dataDomainRef)
+  } finally { db.exec('ROLLBACK'); db.close() }
+  try {
+    await assert.rejects(findHostDomain({ ...f, verifyOwner: async () => {
+      await rm(f.store)
+      await writeFile(f.store, 'replacement')
+      return { dataDomainRef: first.dataDomainRef, registrationId: first.registrationId }
+    } }), error => error.details.reason === 'domain-registration-mismatch')
+  } finally { first.storeLease.release() }
 })

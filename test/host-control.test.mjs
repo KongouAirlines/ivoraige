@@ -447,3 +447,58 @@ test('owner P04 state and notices stay out of public sessions', async t => {
   assert.throws(() => events.publish('host.changed', { ownerOnly: true, legacyData: { secret: true } }),
     { code: 'INVALID_ARGUMENT' })
 })
+
+
+test('a late release rejection replaces timeout diagnostics without retrying uncertain release', async () => {
+  let rejectRelease, entered, releases = 0
+  const started = new Promise(resolve => { entered = resolve })
+  const pending = new Promise((_, reject) => { rejectRelease = reject })
+  const control = host({ releaseStore: () => { releases++; entered(); return pending } })
+  const accepted = control.exit({ expectedGeneration: generation, budgetMs: 200 })
+  await started
+  await control.waitForAttempt()
+  assert.equal(op(control, accepted.operationId).reason, 'deadline-exceeded')
+  assert.equal(control.state().storeOwnership, 'unknown')
+  rejectRelease(Object.assign(new Error('release failed'), { details: { reason: 'lock-release-failed' } }))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(op(control, accepted.operationId).reason, 'lock-release-failed')
+  assert.equal(op(control, accepted.operationId).blockers[0].reason, 'lock-release-failed')
+  assert.equal(op(control, accepted.operationId).blockers[0].recovery, 'manual-recovery')
+  control.exit({ expectedGeneration: generation, budgetMs: 200 })
+  await control.waitForAttempt()
+  assert.equal(releases, 1)
+  assert.equal(control.state().storeOwnership, 'unknown')
+})
+
+test('real owner IPC retries discovery cleanup after store release without releasing twice', async t => {
+  const { mkdtemp, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const { createHostTransport, connectHostTransport } = await import('../src/host-transport.mjs')
+  const { ensurePrivateDirectory } = await import('../src/host-permissions.mjs')
+  const directory = await mkdtemp(join(tmpdir(), 'host-retry-'))
+  let releases = 0, cleanups = 0
+  const control = host({ releaseStore: () => { releases++ }, cleanupDiscovery: () => {
+    if (++cleanups === 1) throw new Error('discovery temporarily unavailable')
+  } })
+  const transport = createHostTransport({ directory, dataDomainRef: 'domain-1', generation,
+    lifetime: 'resident', getState: () => control.state(),
+    handleControl: (action, params) => control[action]({ ...params, expectedGeneration: generation }) })
+  try {
+    await ensurePrivateDirectory(directory)
+    try { await transport.start() } catch (error) {
+      if (!process.env.CI && ['EPERM', 'EACCES'].includes(error.code)) return t.skip('Local sandbox does not permit Unix socket listening')
+      throw error
+    }
+    const client = await connectHostTransport({ directory, dataDomainRef: 'domain-1' })
+    const first = await client.request('exit', { budgetMs: 1000 })
+    await control.waitForAttempt()
+    assert.equal(control.state().storeOwnership, 'released')
+    assert.equal(op(control, first.operationId).status, 'blocked')
+    await client.request('exit', { budgetMs: 1000 })
+    await control.waitForAttempt()
+    assert.equal(releases, 1)
+    assert.equal(cleanups, 2)
+    assert.ok(control.finalizationReceipt())
+  } finally { await transport.close(); await rm(directory, { recursive: true, force: true }) }
+})
