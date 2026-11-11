@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { createCleanup } from './fixtures/cleanup.mjs'
 import assert from 'node:assert/strict'
 import { copyFile, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -55,8 +56,10 @@ test('accepted export requires targetLang at the entry boundary', () => {
 test('CLI accepts source content mode without a target language', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-source-cli-'))
   const store = join(directory, 'records.sqlite')
-  t.after(() => rm(directory, { recursive: true, force: true }))
+  const cleanup = createCleanup(t)
+  cleanup(() => rm(directory, { recursive: true, force: true }))
   const app = await createApp({ store })
+  cleanup(() => app.dispose())
   const { document } = await app.records.importDocument({ format: 'txt', content: 'Original source.' },
     { sourceId: 'cli:source', language: 'en' })
   await app.dispose()

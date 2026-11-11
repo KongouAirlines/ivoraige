@@ -16,7 +16,7 @@
 
 - HTTP API 前缀 `/api`，当前版本 `"apiVersion": "2.0"`。所有响应 JSON 顶层含 `apiVersion` 字段；CLI `--json` 输出与 REST 响应**同一份序列化结构**（schema 共用 zod 定义，CLI 只是换 stdout）。
 - 破坏性变更升级 `apiVersion` 并保留旧版本端点至少一个次版本；新增可选字段不算破坏。
-- MCP tools 的参数复用同一份 zod schema（当前使用 `@modelcontextprotocol/server` 2.3.1 注册），业务结果复用内核操作的 `apiVersion` 字段与数据结构，命名 `ivoraige_<verb>`，见 §6。
+- MCP tools 的参数复用同一份 zod schema（当前使用 `@modelcontextprotocol/server` 2.4.0 注册），业务结果复用内核操作的 `apiVersion` 字段与数据结构，命名 `ivoraige_<verb>`，见 §6。
 
 ### 1.2 认证与安全（照搬 DSH 凭据体系）
 
@@ -92,6 +92,9 @@ interface Revision {
   origin: "machine" | "human" | "imported";
   status: "draft" | "accepted" | "superseded";
   modelId?: string; promptVersion?: string; reuseKey: string;
+  promptTrace?: { templateId: string; version: string; contentId: string; source: string;
+    pluginId: string; featureId: string; configurationId: string; protocolVersion: string;
+    fallback?: { from: string; reason: string } }; // 当前新增；历史修订可缺省
   createdAt: ISODate;
 }
 
@@ -106,6 +109,7 @@ interface Task {
   stats: TaskStats;                     // 见下
   artifacts: Artifact[];
   warnings?: string[];                  // 已完成导出产物的非阻断提示，持久化且重启后可查
+  promptSelection?: object;              // 当前逐单位翻译任务使用的提示词快照；旧任务可缺省
   label?: string;                        // 导入完成前标识来源
   result?: { document: Document; deduplicated: boolean; warnings: string[] }; // 成功的导入任务
   createdAt: ISODate; updatedAt: ISODate;
@@ -270,6 +274,14 @@ CLI 对应 `components status|catalog|credential --token-env NAME|credential-cle
 
 独立启动器默认使用用户数据目录，`--data-dir` 可覆盖；同一目录已有工作台时复用实例。仅启动器会提供 `GET /api/instance` 的随机实例标识，用于排除遗留端口记录；它不是授权凭据，服务仍仅监听本机回环地址。
 
+### 3.9 当前逐单位翻译提示词库（0.1.0 增量）
+
+共享 operation 入口 `POST /api/operations/{operation}` 增加 `getPromptLibrary`（空请求，返回 `{ library: { features, templates, bindings, selectedModel } }`）、`copyPrompt`（`sourceId?`, `sourceVersion?`, `name?` → `{ template }`）、`updatePrompt`（`id`, `expectedVersion`, `style?`, `name?` → `{ template }`）、`bindPrompt`（`pluginId`, `featureId`, `configurationId`, `docId?`, `templateId` → `{ binding }`）、`restorePrompt`（前述身份字段但无 `templateId` → `{ restored: true }`）与 `resolvePrompt`（身份字段及可选 `templateId` → `{ selection }`）。CLI 对应 `prompts list|copy|update|bind|restore|resolve --set JSON`；`prompts` 等于 `prompts list`。这些操作复用当前 CLI／HTTP／MCP operation schema 和错误信封，不新增 API 版本。
+
+现有 `translate` 请求允许可选 `promptTemplateId`；CLI 对应 `translate ... --prompt TEMPLATE_ID`。旧请求无需新增字段；未指定本次模板时依次采用文档绑定、全局绑定、兼容内置默认，仅在没有自定义绑定时直接采用内置默认。绑定按插件、功能和模型连接配置摘要确定；当前支持全局与文档绑定，不声明尚未实现的项目模型。优先级是本次、文档、全局、兼容内置默认。失效绑定回退同功能内置默认，并在 selection 记录 `fallback`；显式本次模板失效返回 `NOT_FOUND` 或 `PRECONDITION_FAILED`。缺少插件功能返回 `COMPONENT_MISSING`。任务开始处理第一个单位时保存实际模板内容，恢复沿用该内容；连接变更则失败而不改用另一配置。修订的 `promptTrace` 记录模板 ID、版本、内容摘要、来源、连接配置摘要和翻译协议版本；无该追溯的既有机器修订不作为带提示词追溯的新调用的复用来源。冻结快照与历史修订语义不变。
+
+Records 域的 prompt 字段写入前先将 DSH unit 版本从 1／2 提升到 3，包含任务的单次模板 ID、固定选择及修订追溯；旧读者不能将新增字段剥除后写回。只读旧记录和普通旧字段写入仍按原版本运行。提示词库单独使用同一 SQLite 中的 DSH 域，不另建并行状态文件。
+
 ## 4. SSE 事件类型
 
 `data:` 行为 JSON，`event:` 为类型名：
@@ -333,11 +345,15 @@ resources：`ivoraige://docs/{docId}`、`ivoraige://docs/{docId}/units/{unitId}?
 |---|---|---|---|
 | `handshake` | `{ protocolVersion }` | capabilities | 版本不匹配 → 内核报 COMPONENT_MISSING 并提示升级 sidecar |
 | `configure` | `{ modelDirs: Record<string,string>, options }` | `{}` | 权重目录在此注入（§8），sidecar 不自行下载 |
-| `parse` | `{ path, options }` | `{ doc: ParsedDoc }` | 大文档通过 `progress` 通知报进度 |
+| `parse` | `{ path, options }` | `{ doc: ParsedDoc }`（现有 BabelDOC）；独立来源插件可声明私有落盘引用结果 | 大文档通过 `progress` 通知报进度 |
 | `rebuild` | `{ docRef, revisionsRef, out, format }` | `{ path }` | 输入为内核落盘的临时 JSON 文件路径（避免 stdio 传大对象），输出为文件路径 |
 | `shutdown` | `{}` | — | 内核退出/释放时调用 |
 
 通知：`{"method":"progress","params":{"stage","done","total"}}` → 映射为 `task.progress` 事件。
+
+MinerU 纯解析插件沿用协议版本 1 的 `handshake → configure → parse → shutdown` 与同一进程/取消边界。`handshake.capabilities` 声明 `parse:["pdf"]`、空 `rebuild`；`configure` 核对本地 MinerU 4.0.10 与决定保存结构的 DocVortex 0.6.21，设置 Hugging Face/Transformers 离线开关并在 Python 层拦截常用 socket 入口，不自动安装或下载权重；这些措施不保证阻断所有网络路径，也不是操作系统级网络沙箱。其 `parse` 使用 `options:{outputDir,tier,ocrMode}`，`outputDir` 是宿主为单次导入创建的临时目录。响应中的 `doc:{engineVersion,schema,schemaVersion}` 是**该插件的私有已保存结果引用确认**，不是 BabelDOC 的 `ParsedDoc`，也不能直接作为通用 IR；Node 来源插件核对响应与已保存 MiddleJson 的 producer 版本后读取 `outputDir` 的完整 `middle_json.json`、`structured_content.json`、`markdown.md`、原件与 `images/`，检查块身份，再投影通用 units 和资源清单。成功持久化后，插件将其转入按 store 隔离的受管目录；失败/取消只在 sidecar 子进程确认退出后清理本次临时目录。资源完整性与受管路径在来源插件边界校验。这个私有响应不扩大其他 sidecar 的结果契约，也不提供 MinerU PDF renderer。
+
+MinerU runner 对已知运行时版本错误以 `-32002` 返回私有 `error.data:{component:"mineru"|"docvortex",reason:"missing"|"incompatible"}`。宿主只将这组枚举映射为固定公开消息；其他诊断与原始路径仅保留在本地错误原因中。这个数据字段不改变其他 sidecar 的错误契约。
 
 当前 BabelDOC `rebuild` 响应的 `evidence.warnings: string[]` 经输出适配器传给内核，随成功写入的 `Artifact.warnings` 和 `Task.warnings` 原子持久化；`task.succeeded` 事件也携带提示。CLI 的任务 JSON、HTTP 任务／产物查询及 WebUI 任务／产物提示均可读取，重启后保留。提示不使任务失败，不改写快照。内核输出适配器兼容原有字符串／Buffer 返回值，也接受 `{ content: string | Buffer, warnings?: string[] }`，没有提示的文本输出无需变更。
 
@@ -354,6 +370,14 @@ BabelDOC `parse` 按来源位置关联回调与完成后的 tracker payload；tr
 stdout 与 stderr 独立，无法以写入顺序推断接收顺序。成功和常驻进程的错误响应均不等待 stderr 或进程退出。无响应的崩溃、超时、协议错误沿用已有终止／清理等待，在 `close`（stdio 已关闭）后把会话 stderr 尾部作为本地 cause；这是会话级尽力诊断，可能含先前日志，不表示逐请求关联，也不保证强杀前尚未刷出的数据。已有底层 cause 优先保留。取消和主动关闭保留原有干净错误。崩溃消息只含退出状态，不含 stderr 内容。
 
 当前 BabelDOC sidecar 在源码环境使用单独 Python 3.13 环境及 `--pdf-config`，Windows 独立发行使用 PyInstaller 目录组件，由组件设置记录装配；两者共用同一 stdio 协议。PDF 组件首次操作时验证，缺失不妨碍文本工作台启动。进程常驻复用，崩溃后单个请求最多重新启动一次，仍失败则任务 failed。MinerU 与 BabelDOC **分两个 sidecar 可执行文件**（解析与重建独立缺失、独立升级）是后续目标。当前只开放 BabelDOC 原生文本捕获与单语 PDF 回放；双语格式不是已公布能力。
+
+#### 0.1.x 身份与能力扩展门禁（待实现）
+
+[四接口 RFC](../0.1.x/control-admission-rfc.md#首版-pdf-的身份就绪与版本保留)需要证明实际组件/引擎身份与细分能力。现有 v1 已返回 `capabilities.parse/rebuild`，但没有实际 BabelDOC 版本或完整语言路由声明；本段不改变当前请求/结果 schema 或 `PROTOCOL_VERSION`。
+
+- 优先评估兼容的可选结果字段或独立探测，并将身份与已校验包内容绑定；字段名称/schema 在实现 PR 固定。额外字段本身不要求版本递增；旧宿主必须实测能够忽略，新宿主不能在旧侧车缺字段时猜测能力。
+- 新 host + 旧 sidecar：保留有证据的 v1 既有能力；需要精确身份/新增能力而证据缺失时明确 unavailable/恢复阻塞。新 host + 新 sidecar：核对清单、实际内容和探测结果，冲突拒绝。旧 host + 新 sidecar：仅在既有 v1 方法、结果与错误语义兼容的证据下允许；不能把新增必需语义伪装成可选字段。
+- 改变必需字段、方法或旧语义且不兼容时，另定协议版本、兼容范围与升级提示。版本不匹配仍在业务副作用前拒绝；不静默降级。缺字段、未知字段、未知能力、来源冲突、版本不匹配和旧/新两端组合均为实现验收项。
 
 ### 7.2 与内核 IR 的对齐
 

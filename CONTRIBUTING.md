@@ -10,7 +10,7 @@ For bugs, include the version or commit, platform, expected and observed behavio
 and steps to reproduce. Use small original or authorized samples, without private
 documents or credentials. Report vulnerabilities through [SECURITY.md](SECURITY.md).
 
-Use Node.js `>=24.22.1 <25 || >=26.12.1 <27` with npm. Later stable
+Use Node.js **26.13.0** (`.node-version`) with npm by default. Node 24 is compatibility-only; the runtime range remains `>=24.22.1 <25 || >=26.12.1 <27`. Later stable
 patches within either supported major are suitable for source work; Node 25
 and future majors are outside the current supported range:
 
@@ -20,6 +20,8 @@ npm run setup:dsh
 npm test
 npm run smoke:package
 ```
+
+CI runs the locked dependency set on Node.js 26.13.0 across Linux, macOS and Windows. Node 24 remains in the runtime support range but has no CI job.
 
 See the [development guide](docs/plan/0.1.0/development-guide.md) and, for PDF work,
 [PDF development](docs/plan/0.1.0/pdf-development.md). Default tests use a mock

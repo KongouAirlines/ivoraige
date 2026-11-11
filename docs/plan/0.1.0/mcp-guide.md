@@ -1,10 +1,10 @@
 # 0.1.0 MCP 使用指南
 
-ivoraige 的 MCP 入口把已装插件贡献的内核能力提供给本机 AI 客户端。当前代码使用官方 TypeScript MCP SDK `@modelcontextprotocol/server` 2.3.1 和 `@modelcontextprotocol/node` 2.1.1，提供 stdio 与 Streamable HTTP；文档工具参数沿用 CLI／HTTP 的内核 schema。工具和资源随插件装卸更新，因此客户端发现到的列表以正在运行的实例为准。本页对应 `0.1.0` 源码；旧 `0.1.0-dev.0` Windows 附件不代表本页的 MCP 交付范围。Windows 上曾完成官方 SDK 双 transport 测试及 DSH 0.2.0-rc.2 的真实 HTTP 客户端闭环，证据见下方阶段记录；其他客户端需按其配置方式验证。
+ivoraige 的 MCP 入口把已装插件贡献的内核能力提供给本机 AI 客户端。当前代码使用官方 TypeScript MCP SDK `@modelcontextprotocol/server` 2.4.0 和 `@modelcontextprotocol/node` 2.1.2，提供 stdio 与 Streamable HTTP；文档工具参数沿用 CLI／HTTP 的内核 schema。工具和资源随插件装卸更新，因此客户端发现到的列表以正在运行的实例为准。本页对应 `0.1.0` 源码；旧 `0.1.0-dev.0` Windows 附件不代表本页的 MCP 交付范围。Windows 上曾完成官方 SDK 双 transport 测试及 DSH 0.2.0-rc.2 的真实 HTTP 客户端闭环，证据见下方阶段记录；其他客户端需按其配置方式验证。
 
 ## 连接方式
 
-目前不提供预构建下载包，请使用源码构建；需要 Node.js `>=24.22.1 <25 || >=26.12.1 <27`，并先按[开发指南](development-guide.md)完成依赖和 DSH 构建。源码运行可使用这两个受支持主版本内更新的稳定补丁版。从仓库运行时，命令可写成 `node C:/path/to/ivoraige/src/cli.mjs`；安装包含 MCP 的 npm 包后使用 `ivoraige` 命令。以下示例中的路径都要换成服务器上的实际绝对路径。
+目前不提供预构建下载包，请使用源码构建；默认使用 Node.js 26.13.0，Node 24 仅保留兼容（支持范围 `>=24.22.1 <25 || >=26.12.1 <27`），并先按[开发指南](development-guide.md)完成依赖和 DSH 构建。源码运行可使用这两个受支持主版本内更新的稳定补丁版。从仓库运行时，命令可写成 `node C:/path/to/ivoraige/src/cli.mjs`；安装包含 MCP 的 npm 包后使用 `ivoraige` 命令。以下示例中的路径都要换成服务器上的实际绝对路径。
 
 **连接已经运行的工作台**：常驻服务 `ivoraige serve --store C:/data/ivoraige/store.sqlite` 默认在 `http://127.0.0.1:8787/mcp` 提供 Streamable HTTP。桌面启动器也默认在其实际监听端口的 `/mcp` 提供同一入口；它会在启动时输出服务 URL。HTTP MCP、WebUI 和 HTTP CLI 共用该进程的内核、数据库、设置与任务。`ivoraige serve --no-mcp` 关闭 MCP 入口。为保证本机访问边界，HTTP 服务只允许回环监听，并检查 Host 与 Origin；当前没有非回环认证配置。
 

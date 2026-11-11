@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { spawn, spawnSync } from 'node:child_process'
-import { cp, mkdir, stat, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { basename, join, resolve, sep } from 'node:path'
 
 if (process.platform !== 'win32') throw new Error('Distribution smoke requires Windows')
@@ -73,7 +73,10 @@ const runtimeProbe = spawnSync(runtime, ['-p', 'process.versions.node'], {
 assert.ifError(runtimeProbe.error)
 assert.equal(runtimeProbe.status, 0, `Packaged runtime probe failed: ${runtimeProbe.stderr}`)
 evidence.nodeVersion = runtimeProbe.stdout.trim()
-assert.equal(evidence.nodeVersion, '26.12.1', 'Portable smoke must use the validated bundled Node release')
+assert.equal(evidence.nodeVersion, '26.13.0', 'Portable smoke must use the validated bundled Node release')
+evidence.nodeSha256 = digest(await readFile(runtime))
+assert.equal(evidence.nodeSha256, '14319838b3f355e0398c13569a90270bce4fc68f25189f58c59b03dadae0e6d5',
+  'Portable runtime must match the official Windows x64 Node.js executable')
 
 async function makePdfFixture(path) {
   const stream = 'BT /F1 18 Tf 72 720 Td (The sample remained stable.) Tj ET\n'

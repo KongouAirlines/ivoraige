@@ -31,6 +31,7 @@ const taskSchema = z.object({
       z.object({ input: z.number().nullable(), output: z.number().nullable() })) }),
   artifacts: z.array(z.unknown()), createdAt: z.string(), updatedAt: z.string(),
   warnings: z.array(z.string()).optional(),
+  promptTemplateId: z.string().optional(), promptSelection: z.record(z.string(), z.unknown()).optional(),
   profileId: z.string().optional(), error: z.object({ stage: z.string(), unitId: z.string().optional(), message: z.string(), traceId: z.string().optional() }).optional(),
 })
 const operationTaskSchema = taskSchema.omit({ mode: true, unitIds: true, checkpoints: true, profileId: true })
@@ -75,6 +76,7 @@ const recordSchema = z.object({
     sourceText: z.string(), context: z.string().optional(), locator: generic.optional(), translatable: z.boolean() })),
   revisions: z.array(z.object({ id: z.string(), unitId: z.string(), targetLang: z.string(), text: z.string(),
     origin: z.enum(['human', 'machine', 'imported']), modelId: z.string().optional(), promptVersion: z.string().optional(),
+    promptTrace: generic.optional(),
     reuseKey: z.string(), basis: generic, createdAt: z.string() })),
   latest: z.record(z.string(), z.string()), accepted: z.record(z.string(), z.string()),
   constraints: z.record(z.string(), generic), snapshots: z.array(z.object({ id: z.string(), docId: z.string(),
@@ -106,14 +108,18 @@ const spec = version => StorageDomain.defineDomain({ name: 'ivoraige_records', v
 export class Records {
   static inject = ['storageDomain']
 
-  constructor(ctx, { storageVersion = 2, activateRetention } = {}) {
-    if (![1, 2].includes(storageVersion) ||
+  constructor(ctx, { storageVersion = 2, activateRetention, activatePromptTrace } = {}) {
+    if (![1, 2, 3].includes(storageVersion) ||
         (storageVersion === 1 && typeof activateRetention !== 'function') ||
-        (activateRetention !== undefined && typeof activateRetention !== 'function')) {
+        (activateRetention !== undefined && typeof activateRetention !== 'function') ||
+        (activatePromptTrace !== undefined && typeof activatePromptTrace !== 'function')) {
       throw new KernelError('INVALID_ARGUMENT', 'Records storage version and retention activation are invalid')
     }
     this.ctx = ctx
     this.activateRetention = activateRetention ?? (() => {})
+    this.activatePromptTrace = activatePromptTrace ?? (storageVersion === 3 ? () => {} : () => {
+      throw new KernelError('PRECONDITION_FAILED', 'Prompt trace requires a Records storage gate')
+    })
     this.leases = new Map()
     this.artifactLeases = new Map()
     this.deletingArtifacts = new Set()
@@ -184,6 +190,8 @@ export class Records {
       assertJson(next)
       recordSchema.parse(next)
       if (documentRequiresRetention(next)) this.activateRetention()
+      if (next.revisions.some(revision => revision.promptTrace) ||
+          next.tasks?.some(task => task.promptTemplateId || task.promptSelection)) this.activatePromptTrace()
       return next
     })
   }
@@ -411,12 +419,18 @@ export class Records {
     const { record, unit } = this.locateUnit(unitId)
     return clone(this.basis(record, unit, targetLang))
   }
-  findReusable(unitId, { targetLang } = {}) {
+  findReusable(unitId, { targetLang, promptTrace } = {}) {
     const basis = this.getBasis(unitId, { targetLang })
     const { record: local, unit } = this.locateUnit(unitId)
     const localAccepted = local.revisions.find(revision =>
       revision.id === local.accepted[keyFor(unitId, targetLang)])
-    if (localAccepted && sameBasis(localAccepted.basis, basis) &&
+    const matchingPrompt = revision => !promptTrace || revision.origin !== 'machine' ||
+      (revision.promptTrace?.contentId === promptTrace.contentId &&
+        revision.promptTrace?.configurationId === promptTrace.configurationId &&
+        revision.promptTrace?.pluginId === promptTrace.pluginId &&
+        revision.promptTrace?.featureId === promptTrace.featureId &&
+        revision.promptTrace?.protocolVersion === promptTrace.protocolVersion)
+    if (localAccepted && matchingPrompt(localAccepted) && sameBasis(localAccepted.basis, basis) &&
       this.applicable(local, unit, localAccepted)) return this.viewRevision(local, localAccepted)
     const candidates = this.reuse.get(basis.reuseKey) ?? []
     for (const { docId, revisionId } of candidates) {
@@ -424,18 +438,20 @@ export class Records {
       const revision = record?.revisions.find(r => r.id === revisionId)
       const sourceUnit = record?.units.find(item => item.id === revision?.unitId)
       if (revision && sourceUnit && record.accepted[keyFor(revision.unitId, revision.targetLang)] === revisionId &&
-          sameBasis(revision.basis, basis) && this.applicable(record, sourceUnit, revision)) {
+          matchingPrompt(revision) && sameBasis(revision.basis, basis) && this.applicable(record, sourceUnit, revision)) {
         return this.viewRevision(record, revision)
       }
     }
     return null
   }
 
-  async createTranslationTask(docId, { targetLang, unitIds, mode = 'fast', profileId } = {}) {
+  async createTranslationTask(docId, { targetLang, unitIds, mode = 'fast', profileId, promptTemplateId } = {}) {
     await this.ready
     required(language(targetLang), 'targetLang must be a real BCP-47 tag')
     required(['fast', 'careful'].includes(mode), 'Invalid translation mode')
     required(profileId === undefined, 'Translation profiles are deferred')
+    required(promptTemplateId === undefined || (typeof promptTemplateId === 'string' && promptTemplateId.trim()),
+      'promptTemplateId must be a nonempty string')
     required(unitIds === undefined || (Array.isArray(unitIds) &&
       unitIds.every(unitId => typeof unitId === 'string') && new Set(unitIds).size === unitIds.length),
     'unitIds must be a unique string array')
@@ -450,6 +466,7 @@ export class Records {
       const ordered = current.units.filter(unit => selected.includes(unit.id)).map(unit => unit.id)
       const timestamp = now()
       created = { id: `${docId}.${id()}`, kind: 'translate', docId, targetLang, mode,
+        ...(promptTemplateId ? { promptTemplateId } : {}),
         unitIds: ordered, state: 'queued',
         progress: { stage: 'translate', done: 0, total: ordered.length }, cursor: 0,
         checkpoints: [], stats: { stageDurationsMs: {}, llmCalls: 0, reusedUnits: 0,
@@ -616,6 +633,7 @@ export class Records {
       required(result && typeof result.text === 'string' && result.text.trim(), 'Translation text must be nonempty')
       required(result.modelId === undefined || typeof result.modelId === 'string', 'Invalid modelId')
       required(result.promptVersion === undefined || typeof result.promptVersion === 'string', 'Invalid promptVersion')
+      required(result.promptTrace === undefined || (result.promptTrace && typeof result.promptTrace === 'object'), 'Invalid promptTrace')
       if (result.tokens !== undefined) required(result.tokens &&
         ['input', 'output'].every(key => result.tokens[key] === null ||
           (Number.isSafeInteger(result.tokens[key]) && result.tokens[key] >= 0)), 'Invalid token usage')
@@ -642,8 +660,8 @@ export class Records {
         throw new KernelError('CONFLICT', 'Revision changed during translation',
           { latestRevisionId: latestId, acceptedRevisionId: acceptedId })
       }
-      let textValue, origin = 'machine', modelId, promptVersion, reused = false, sameUnit = false
-      if (result) ({ text: textValue, modelId, promptVersion } = result)
+      let textValue, origin = 'machine', modelId, promptVersion, promptTrace, reused = false, sameUnit = false
+      if (result) ({ text: textValue, modelId, promptVersion, promptTrace } = result)
       else {
         // An absent source keeps the existing applicability error; ambiguous
         // identities still fail closed instead of selecting an arbitrary owner.
@@ -659,12 +677,14 @@ export class Records {
         }
         textValue = candidate.text; origin = candidate.origin; modelId = candidate.modelId
         promptVersion = candidate.promptVersion; reused = true
+        promptTrace = candidate.promptTrace
         sameUnit = sourceDocId === docId && candidate.unitId === unitId
       }
       revision = sameUnit ? current.revisions.find(item => item.id === reusedRevisionId) :
         { id: `${docId}.${unit.order.toString(36)}.${id()}`, unitId, targetLang: task.targetLang,
         text: textValue, origin, ...(modelId ? { modelId } : {}),
         ...(promptVersion ? { promptVersion } : {}), reuseKey: basis.reuseKey, basis, createdAt: now() }
+      if (!sameUnit && promptTrace) revision.promptTrace = clone(promptTrace)
       const stats = clone(task.stats)
       if (reused) stats.reusedUnits++
       else {

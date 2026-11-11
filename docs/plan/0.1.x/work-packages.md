@@ -20,8 +20,8 @@
 | P02 | 解析产物、原文快照及旧记录兼容 | P01、Q01 | 分支验证通过、待集成：[证据](evidence/foundation-p02.md)、[PR #48](https://github.com/KongouAirlines/ivoraige/pull/48)、[CI](https://github.com/KongouAirlines/ivoraige/actions/runs/39910273600) | [基础契约与正确性](packages/foundation.md#p02) |
 | P03 | 适配器身份/格式分离与导入编排 | P01、P02 | 分支验证通过、待集成：[证据](evidence/foundation-p03.md)、[PR #49](https://github.com/KongouAirlines/ivoraige/pull/49)、[PR 检查](https://github.com/KongouAirlines/ivoraige/pull/49/checks) | [基础契约与正确性](packages/foundation.md#p03) |
 | P04 | 操作注册、跨域事件及入口收口 | P03；删除入口依赖 Q02 | 分支验证通过、待集成；[分支](https://github.com/KongouAirlines/ivoraige/tree/codex/0.1.x-operation-entries)、[证据](evidence/foundation-p04.md#indexed-resource-ownership-and-review-corrections-2026-10-31) |  [基础契约与正确性](packages/foundation.md#p04) |
-| P05 | 独立官方插件包与安装恢复 | P04；兼容范围定案前完成运行时基线复评（不要求升级） | 草案 | [基础契约与正确性](packages/foundation.md#p05) |
-| P06 | MinerU 纯解析插件 | P05、验证 V01–V04 | 草案 | [PDF 与独立分发](packages/pdf.md#p06) |
+| P05 | 独立官方插件包与安装恢复 | P04；兼容范围定案前完成运行时基线复评（不要求升级） | 分支局部实现，安装事务/归档待验 | [基础契约与正确性](packages/foundation.md#p05)；[局部证据](evidence/mineru-source-p05-p06.md) |
+| P06 | MinerU 纯解析插件 | P05、验证 V01–V04 | Linux CPU/flash 原创两样本实测导入/来源导出；质量、安装闭包待验 | [PDF 与独立分发](packages/pdf.md#p06)；[局部证据](evidence/mineru-source-p05-p06.md) |
 | P07 | 第二同类插件与主体稳定性证明 | P06 后冻结的契约 | 草案 | [PDF 与独立分发](packages/pdf.md#p07) |
 | P08 | PDF 依赖闭包与独立分发 | 清单核对可并行；成包依赖 P05 | 草案 | [PDF 与独立分发](packages/pdf.md#p08) |
 | P09 | MinerU 自身重建及同译文 PDF 对照 | P06；受影响包依赖 P08 | 草案 | [PDF 与独立分发](packages/pdf.md#p09) |
@@ -32,7 +32,7 @@
 | D04 | 现有 host/browser 性能和故障基线 | [测量协议](desktop.md)；可并行 | 草案 | [桌面生命周期](packages/desktop.md#d04) |
 | D05 | 桌面候选探针、选型及集成验收 | D01–D04；正式壳依赖稳定接口 | 草案 | [桌面生命周期](packages/desktop.md#d05) |
 | W01 | 能力/产物/来源契约与默认链的真实组合证明 | P02、P03、P04；独立插件证据接 P05 | 草案 | [可组合工作流](packages/workflows.md#w01) |
-| W02 | 可保存模板/实例版本、运行追溯与局部重跑 | W01；紧接基础，复用 P02/P04/P05 | 草案 | [可组合工作流](packages/workflows.md#w02) |
+| W02 | 可保存模板/实例版本、运行追溯与局部重跑 | 完整工作流依赖 W01，复用 P02/P04/P05；[admission-text@1](packages/workflows.md#w02-admission-text) 先行仅需现有 Records/Tasks/P04，外部另接 I01.shared | 草案 | [可组合工作流](packages/workflows.md#w02)；[W-V02.admission-text](validation/workflows.md#w-v02-admission-text) |
 | W03 | 内容优先工作台与卡片/参数编辑 | W01、W02、D03；发布管理 UI 子交付 W03.publish-ui@1 另接 I01.callable@1；自动销毁另依赖 D02 | 草案 | [可组合工作流](packages/workflows.md#w03) |
 | W04 | 高级节点图编辑与无损视图切换 | W02、W03；不作为真实组合保存的前置 | 草案 | [可组合工作流](packages/workflows.md#w04) |
 | U01 | 独立普通翻译、可选即时预览、局部候选与修订交互 | P04；仅预览切片另需 U02 模型/连接与预览设置交付（[U-V02.preview-settings](validation/ui.md#u-v02-preview-settings)），普通页不等 U02；保留既有 Records/翻译服务；预览独立选用已有配置模型，内置引擎/语言包及 #39 非前置，转项目另接 W02 | 草案 | [普通翻译与管理 UI](packages/ui.md#u01) |

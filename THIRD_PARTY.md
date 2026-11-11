@@ -21,6 +21,19 @@ metadata and license files accompany the component; asset provenance and
 full notices are in `sidecars/babeldoc/asset-licenses/`. These artifacts remain
 separate from the base application and are installed only when PDF is selected.
 
+The optional `plugins/mineru/` package contains only ivoraige's MIT-licensed
+JavaScript/Python protocol bridge. It does **not** bundle MinerU, DocVortex,
+Python wheels, model weights, fonts, native libraries or downloaded assets.
+The bridge requires the local MinerU **4.0.10** SDK and disables network access
+while parsing. [MinerU's 4.0.10 license](https://github.com/opendatalab/MinerU/blob/mineru-4.0.10-released/LICENSE.md)
+is Apache 2.0 with additional commercial-threshold and online-service
+attribution terms, published as `LicenseRef-MinerU-Open-Source-License` in its
+[package metadata](https://github.com/opendatalab/MinerU/blob/mineru-4.0.10-released/pyproject.toml).
+This is not BabelDOC's license. The actual MinerU Python/native/model/font
+closure and a separately distributable installed package have not been audited
+or accepted for release. The optional DSH peer in the source package is a
+compatibility declaration, not a second bundled DSH runtime.
+
 All GitHub Releases and their assets were withdrawn on 2026-10-19; no release
 packages are currently available for download. The historical audit of the
 `v0.1.0-dev.0` Windows/PDF release found gaps in
@@ -31,8 +44,8 @@ for the exact artifacts and F-B conditions to revisit before distributing new
 binaries. Withdrawal does not repair the old archives, and the Node bundle
 notice fix described below does not establish coverage for a complete distribution.
 
-The Windows portable base build is pinned to Node.js 26.12.1 and its upstream license
-(`scripts/NODE-LICENSE-v26.12.1.txt`), production npm dependencies and generated
+The Windows portable base build is pinned to Node.js 26.13.0 and its upstream license
+(`scripts/NODE-LICENSE-v26.13.0.txt`), production npm dependencies and generated
 DSH/WebUI notices. The component installer uses `tar` 7.5.22 under its ISC
 license; its package and transitive notices remain in the production dependency
 tree. Build scripts and pinned lockfiles are included in the source repository;
@@ -70,7 +83,7 @@ historical experiment dependency directories are not a supported substitute.
 The dependency lockfile fixes `@earendil-works/pi-ai` 0.87.1,
 `@standard-schema/spec` 1.1.0, `@eslint-community/regexpp` 4.12.2,
 `ajv` 8.20.0, `chokidar` 4.0.3, `esbuild` 0.28.2, `js-yaml` 4.3.2,
-`resolve.exports` 2.0.3, `semver` 7.8.5, `yaml` 2.9.0, `zod` 4.4.3,
+`resolve.exports` 2.0.3, `semver` 7.8.6, `yaml` 2.9.1, `zod` 4.6.7,
 `react` 18.3.1 and `react-dom` 18.3.1, plus their transitive dependencies.
 These dependencies come from the pinned DSH source used in the build closure:
 `credentials-local` imports `yaml` and `chokidar`; `config-editor` imports both
@@ -110,7 +123,12 @@ reference and DSH model settings, while explicit translation configuration
 remains available for examples and tests. When a provider omits usage, the
 business task records unknown (`null`) rather than zero.
 
-The MCP entry uses the official `@modelcontextprotocol/server` 2.3.1 and
-`@modelcontextprotocol/node` 2.1.1 packages (Apache-2.0), kept as production
-npm dependencies with their license files. The official client 2.3.1 is a
+The MCP entry uses the official `@modelcontextprotocol/server` 2.4.0 and
+`@modelcontextprotocol/node` 2.1.2 packages (Apache-2.0), kept as production
+npm dependencies with their license files. The official client 2.4.0 is a
 development-only dependency for protocol and package acceptance tests.
+
+The lockfile also fixes `fast-uri` 3.1.9 in the AJV closure and
+`@hono/node-server` 2.1.6 / `hono` 4.13.17 for the MCP Node transport. Their
+upstream license files remain in the installed packages; bundled notices follow
+actual build inputs.

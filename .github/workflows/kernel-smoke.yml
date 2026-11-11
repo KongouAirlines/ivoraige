@@ -15,10 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        node: ['24.22.1']
-        include:
-          - os: windows-latest
-            node: '26.12.1'
+        node: ['26.13.0']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v5
@@ -27,6 +24,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - name: PDF distribution inventory fixtures
+        run: python -m unittest discover -s test -p audit_pdf_closure_test.py
       - run: python -m unittest discover -s sidecars/babeldoc -p test_server.py
       - name: Release archive audit fixtures
         run: python -m unittest discover -s test -p audit_release_archives_test.py
