@@ -10,7 +10,7 @@ import sys
 from io import StringIO
 import tempfile
 import unittest
-from contextlib import nullcontext
+from contextlib import chdir, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -20,6 +20,13 @@ from layout_fit import LAYOUT_FIT_POLICY, fitted_layout_scope
 
 
 class LayoutFitTests(unittest.TestCase):
+    def component_builder(self):
+        root = Path(__file__).resolve().parents[2]
+        spec = importlib.util.spec_from_file_location("component_builder", root / "scripts/build-pdf-component.py")
+        build = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(build)
+        return build
+
     def engine(self):
         box = lambda y=0: SimpleNamespace(x=0, y=y, x2=100, y2=20)
 
@@ -96,6 +103,46 @@ class LayoutFitTests(unittest.TestCase):
         self.assertEqual(result.returncode, 2)
         self.assertIn("build a fresh matching sidecar", result.stderr)
 
+    def test_component_build_keeps_the_current_interpreter_path(self):
+        build = self.component_builder()
+        current = Path(sys.executable).absolute()
+        self.assertEqual(build.require_build_python(str(current)), current)
+        with chdir(current.parent):
+            self.assertEqual(build.require_build_python(current.name), current)
+        with patch.object(build.sys, "executable", ""):
+            with self.assertRaisesRegex(RuntimeError, "Cannot identify"):
+                build.require_build_python(str(current))
+
+    def test_component_build_rejects_another_environment_before_side_effects(self):
+        build = self.component_builder()
+        with tempfile.TemporaryDirectory() as directory:
+            other = Path(directory) / "another-python"
+            other.write_text("not the active interpreter", encoding="utf-8")
+            with patch.object(sys, "argv", [str(build.__file__), "--python", str(other)]), \
+                 patch.object(build, "run") as run, \
+                 patch.object(build.shutil, "rmtree") as remove, \
+                 patch.dict(sys.modules, {"babeldoc": None, "pymupdf": None, "PyInstaller": None}):
+                with self.assertRaisesRegex(RuntimeError, "--python must name the interpreter running this script"):
+                    build.main()
+                run.assert_not_called()
+                remove.assert_not_called()
+
+    def test_component_build_does_not_collapse_virtual_environment_aliases(self):
+        build = self.component_builder()
+        with tempfile.TemporaryDirectory() as directory:
+            first = Path(directory) / "first-python"
+            second = Path(directory) / "second-python"
+            try:
+                first.symlink_to(sys.executable)
+                second.symlink_to(sys.executable)
+            except OSError as error:
+                self.skipTest(f"Executable symlinks are unavailable: {error}")
+            self.assertTrue(first.samefile(second))
+            with patch.object(build.sys, "executable", str(first)):
+                self.assertEqual(build.require_build_python(str(first)), first)
+                with self.assertRaisesRegex(RuntimeError, "same environment"):
+                    build.require_build_python(str(second))
+
     def test_plans_are_object_scoped_consumed_once_and_not_shared_between_calls(self):
         Engine, first = self.engine()
         _, second = self.engine()
@@ -123,9 +170,7 @@ class LayoutFitTests(unittest.TestCase):
 
     def test_component_stages_the_exact_layout_policy_source(self):
         root = Path(__file__).resolve().parents[2]
-        spec = importlib.util.spec_from_file_location("component_builder", root / "scripts/build-pdf-component.py")
-        build = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(build)
+        build = self.component_builder()
         with tempfile.TemporaryDirectory() as directory:
             stage = Path(directory)
             source = root / "sidecars/babeldoc"

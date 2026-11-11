@@ -117,6 +117,23 @@ def stage_sidecar_sources(source: Path, stage: Path) -> None:
         shutil.copyfile(source / name, stage / name)
 
 
+def require_build_python(requested: str) -> Path:
+    """Keep validation, package discovery and PyInstaller in one environment."""
+    if not sys.executable:
+        raise RuntimeError("Cannot identify the Python interpreter running this build")
+    # Do not resolve symlinks or use samefile: separate virtual environments can
+    # point at the same executable while loading different packages and licenses.
+    current = os.path.abspath(sys.executable)
+    selected = os.path.abspath(requested)
+    if os.path.normcase(selected) != os.path.normcase(current):
+        raise RuntimeError(
+            "--python must name the interpreter running this script; "
+            "start the build with that interpreter so validation and PyInstaller "
+            "use the same environment"
+        )
+    return Path(current)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--python", required=True)
@@ -124,7 +141,7 @@ def main() -> None:
     args = parser.parse_args()
     if args.reuse_pyinstaller_build:
         parser.error("--reuse-pyinstaller-build cannot verify the new layout policy; build a fresh matching sidecar")
-    python = Path(args.python).resolve()
+    python = require_build_python(args.python)
     import platform
 
     if sys.platform != "win32" or platform.machine().lower() not in {"amd64", "x86_64"}:
