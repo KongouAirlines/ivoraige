@@ -3,16 +3,182 @@
 
 """Fast preflight tests; no BabelDOC import, model, or asset download."""
 
+import importlib.util
 import json
+import subprocess
+import sys
 from io import StringIO
 import tempfile
 import unittest
-from contextlib import nullcontext
+from contextlib import chdir, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import server
+from layout_fit import LAYOUT_FIT_POLICY, fitted_layout_scope
+
+
+class LayoutFitTests(unittest.TestCase):
+    def component_builder(self):
+        root = Path(__file__).resolve().parents[2]
+        spec = importlib.util.spec_from_file_location("component_builder", root / "scripts/build-pdf-component.py")
+        build = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(build)
+        return build
+
+    def engine(self):
+        box = lambda y=0: SimpleNamespace(x=0, y=y, x2=100, y2=20)
+
+        class Engine:
+            bottom = -22
+            calls = 0
+
+            def _layout_typesetting_units(self, units, bounds, scale, line_skip, paragraph):
+                return [], bounds.y < 0 and scale <= .7
+
+            def _get_optimal_scale(self, paragraph, page, units):
+                self._layout_typesetting_units(units, box(-20), .7, 1.3, paragraph)
+                return .7
+
+            def get_max_bottom_space(self, bounds, page):
+                return self.bottom
+
+            def retypeset_with_precomputed_scale(self, paragraph, page, units, scale):
+                self.calls += 1
+                return self._layout_typesetting_units(units, paragraph.box, scale, 1.3, paragraph)[1]
+
+        return Engine, SimpleNamespace(box=box())
+
+    def test_reuses_fit_box_only_after_rechecking_space_and_still_runs_fit(self):
+        Engine, paragraph = self.engine()
+        engine = Engine()
+        with fitted_layout_scope(Engine):
+            scale = engine._get_optimal_scale(paragraph, None, [])
+            self.assertEqual(paragraph.box.y, 0, "dry run must not mutate source geometry")
+            self.assertTrue(engine.retypeset_with_precomputed_scale(paragraph, None, [], scale))
+            self.assertEqual(paragraph.box.y, -20)
+            self.assertEqual(engine.calls, 1)
+
+    def test_new_obstacle_or_changed_paragraph_or_global_scale_uses_original_path(self):
+        for change in ("obstacle", "geometry", "scale"):
+            with self.subTest(change=change):
+                Engine, paragraph = self.engine()
+                engine = Engine()
+                with fitted_layout_scope(Engine):
+                    scale = engine._get_optimal_scale(paragraph, None, [])
+                    if change == "obstacle": engine.bottom = -5
+                    if change == "geometry": paragraph.box.x2 = 80
+                    if change == "scale": scale = .65
+                    self.assertFalse(engine.retypeset_with_precomputed_scale(paragraph, None, [], scale))
+                    self.assertEqual(paragraph.box.y, 0)
+                    self.assertEqual(engine.calls, 1)
+
+    def test_disabled_policy_and_lifecycle_restore_original_methods(self):
+        Engine, paragraph = self.engine()
+        original = (Engine._get_optimal_scale, Engine._layout_typesetting_units,
+                    Engine.retypeset_with_precomputed_scale)
+        engine = Engine()
+        with fitted_layout_scope(Engine, False):
+            scale = engine._get_optimal_scale(paragraph, None, [])
+            self.assertFalse(engine.retypeset_with_precomputed_scale(paragraph, None, [], scale))
+        with self.assertRaisesRegex(RuntimeError, "invented"):
+            with fitted_layout_scope(Engine):
+                raise RuntimeError("invented")
+        self.assertEqual(original, (Engine._get_optimal_scale, Engine._layout_typesetting_units,
+                                  Engine.retypeset_with_precomputed_scale))
+
+    def test_policy_identity_keeps_legacy_configs_and_rejects_unknown_policy(self):
+        legacy = server.capture_config(None, 5)
+        self.assertNotIn("layoutFitPolicy", legacy)
+        self.assertEqual(server.capture_config(None, 5, layout_fit_policy=LAYOUT_FIT_POLICY),
+                         {**legacy, "layoutFitPolicy": LAYOUT_FIT_POLICY})
+        with self.assertRaisesRegex(server.SidecarError, "policy unsupported"):
+            server.capture_config(None, 5, layout_fit_policy="invented")
+
+    def test_component_build_refuses_unverified_old_executable_reuse(self):
+        build = Path(__file__).resolve().parents[2] / "scripts/build-pdf-component.py"
+        result = subprocess.run([sys.executable, str(build), "--python", sys.executable,
+                                 "--reuse-pyinstaller-build"], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("build a fresh matching sidecar", result.stderr)
+
+    def test_component_build_keeps_the_current_interpreter_path(self):
+        build = self.component_builder()
+        current = Path(sys.executable).absolute()
+        self.assertEqual(build.require_build_python(str(current)), current)
+        with chdir(current.parent):
+            self.assertEqual(build.require_build_python(current.name), current)
+        with patch.object(build.sys, "executable", ""):
+            with self.assertRaisesRegex(RuntimeError, "Cannot identify"):
+                build.require_build_python(str(current))
+
+    def test_component_build_rejects_another_environment_before_side_effects(self):
+        build = self.component_builder()
+        with tempfile.TemporaryDirectory() as directory:
+            other = Path(directory) / "another-python"
+            other.write_text("not the active interpreter", encoding="utf-8")
+            with patch.object(sys, "argv", [str(build.__file__), "--python", str(other)]), \
+                 patch.object(build, "run") as run, \
+                 patch.object(build.shutil, "rmtree") as remove, \
+                 patch.dict(sys.modules, {"babeldoc": None, "pymupdf": None, "PyInstaller": None}):
+                with self.assertRaisesRegex(RuntimeError, "--python must name the interpreter running this script"):
+                    build.main()
+                run.assert_not_called()
+                remove.assert_not_called()
+
+    def test_component_build_does_not_collapse_virtual_environment_aliases(self):
+        build = self.component_builder()
+        with tempfile.TemporaryDirectory() as directory:
+            first = Path(directory) / "first-python"
+            second = Path(directory) / "second-python"
+            try:
+                first.symlink_to(sys.executable)
+                second.symlink_to(sys.executable)
+            except OSError as error:
+                self.skipTest(f"Executable symlinks are unavailable: {error}")
+            self.assertTrue(first.samefile(second))
+            with patch.object(build.sys, "executable", str(first)):
+                self.assertEqual(build.require_build_python(str(first)), first)
+                with self.assertRaisesRegex(RuntimeError, "same environment"):
+                    build.require_build_python(str(second))
+
+    def test_plans_are_object_scoped_consumed_once_and_not_shared_between_calls(self):
+        Engine, first = self.engine()
+        _, second = self.engine()
+        engine = Engine()
+        with fitted_layout_scope(Engine):
+            scale = engine._get_optimal_scale(first, None, [])
+            # Equal geometry alone does not authorize a plan for another object/owner.
+            self.assertFalse(engine.retypeset_with_precomputed_scale(second, None, [], scale))
+            self.assertFalse(Engine().retypeset_with_precomputed_scale(first, None, [], scale))
+            self.assertTrue(engine.retypeset_with_precomputed_scale(first, None, [], scale))
+            first.box.y = 0
+            self.assertFalse(engine.retypeset_with_precomputed_scale(first, None, [], scale))
+            engine._get_optimal_scale(first, None, [])
+        with fitted_layout_scope(Engine):
+            self.assertFalse(engine.retypeset_with_precomputed_scale(first, None, [], scale))
+
+    def test_optional_layout_runtime_gate_checks_all_version_axes(self):
+        from test_layout_engine import require_layout_runtime
+        require_layout_runtime("0.6.4", "1.26.7", (3, 13, 5))
+        for versions in (("0.7.1", "1.26.7", (3, 13)),
+                         ("0.6.4", "1.26.8", (3, 13)),
+                         ("0.6.4", "1.26.7", (3, 12))):
+            with self.subTest(versions=versions), self.assertRaisesRegex(RuntimeError, "requires"):
+                require_layout_runtime(*versions)
+
+    def test_component_stages_the_exact_layout_policy_source(self):
+        root = Path(__file__).resolve().parents[2]
+        build = self.component_builder()
+        with tempfile.TemporaryDirectory() as directory:
+            stage = Path(directory)
+            source = root / "sidecars/babeldoc"
+            build.stage_sidecar_sources(source, stage)
+            self.assertEqual({item.name for item in stage.iterdir()},
+                             {"server.py", "layout_fit.py", "requirements.lock", "LICENSE", "COPYING"})
+            for item in stage.iterdir():
+                self.assertEqual(item.read_bytes(), (source / item.name).read_bytes())
 
 
 class BindingTests(unittest.TestCase):
@@ -66,6 +232,7 @@ class BindingTests(unittest.TestCase):
             def capture(_source, config, mode):
                 self.assertEqual(mode, "capture")
                 self.assertEqual(config["sourceLanguage"], "zh-CN")
+                self.assertEqual(config["layoutFitPolicy"], LAYOUT_FIT_POLICY)
                 self.assertEqual(server.engine_pair(config["sourceLanguage"]), ("zh", "en"))
                 return [call], [paragraph], []
 
@@ -120,6 +287,20 @@ class BindingTests(unittest.TestCase):
             with patch.object(server, "run_engine", side_effect=replay):
                 result = server.rebuild(params)
             self.assertEqual(result["evidence"]["modelRequests"], 0)
+            # Old bindings keep their original policy; new captures pin the fix.
+            Path(params["out"]).unlink()
+            binding["captureConfig"] = server.capture_config(None, 5, "zh-Hans", LAYOUT_FIT_POLICY)
+            write("zh-Hans", "en")
+            with patch.object(server, "run_engine", side_effect=replay) as engine:
+                result = server.rebuild(params)
+            self.assertEqual(engine.call_args.args[1]["layoutFitPolicy"], LAYOUT_FIT_POLICY)
+            self.assertEqual(result["evidence"]["modelRequests"], 0)
+            binding["captureConfig"]["layoutFitPolicy"] = "unknown"
+            write("zh-Hans", "en")
+            with patch.object(server, "run_engine") as engine:
+                with self.assertRaisesRegex(server.SidecarError, "policy unsupported"):
+                    server.rebuild(params)
+                engine.assert_not_called()
 
     def test_null_noncallback_structure_keeps_location_and_body(self):
         structure = {'key': 'layout', 'page': 0, 'bbox': [0, 0, 1, 1],

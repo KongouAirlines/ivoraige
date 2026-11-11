@@ -111,12 +111,37 @@ def smoke(executable: Path, cwd: Path, asset_dir: Path) -> dict:
         return {"handshake": lines[0]["result"], "configureWithAssets": configure, "stderr": result.stderr[-1000:]}
 
 
+def stage_sidecar_sources(source: Path, stage: Path) -> None:
+    """Include the readable sidecar and its local policy module in the component."""
+    for name in ("server.py", "layout_fit.py", "requirements.lock", "LICENSE", "COPYING"):
+        shutil.copyfile(source / name, stage / name)
+
+
+def require_build_python(requested: str) -> Path:
+    """Keep validation, package discovery and PyInstaller in one environment."""
+    if not sys.executable:
+        raise RuntimeError("Cannot identify the Python interpreter running this build")
+    # Do not resolve symlinks or use samefile: separate virtual environments can
+    # point at the same executable while loading different packages and licenses.
+    current = os.path.abspath(sys.executable)
+    selected = os.path.abspath(requested)
+    if os.path.normcase(selected) != os.path.normcase(current):
+        raise RuntimeError(
+            "--python must name the interpreter running this script; "
+            "start the build with that interpreter so validation and PyInstaller "
+            "use the same environment"
+        )
+    return Path(current)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--python", required=True)
     parser.add_argument("--reuse-pyinstaller-build", action="store_true")
     args = parser.parse_args()
-    python = Path(args.python).resolve()
+    if args.reuse_pyinstaller_build:
+        parser.error("--reuse-pyinstaller-build cannot verify the new layout policy; build a fresh matching sidecar")
+    python = require_build_python(args.python)
     import platform
 
     if sys.platform != "win32" or platform.machine().lower() not in {"amd64", "x86_64"}:
@@ -180,8 +205,7 @@ def main() -> None:
     if missing_hyperscan_libs:
         raise RuntimeError(f"PyInstaller output omits hyperscan DLLs; rebuild without --reuse-pyinstaller-build: {missing_hyperscan_libs}")
     shutil.copytree(built, stage, dirs_exist_ok=True)
-    for name in ("server.py", "requirements.lock", "LICENSE", "COPYING"):
-        shutil.copyfile(ROOT / "sidecars/babeldoc" / name, stage / name)
+    stage_sidecar_sources(ROOT / "sidecars/babeldoc", stage)
     (stage / "README.md").write_text(
         "BabelDOC sidecar 0.6.4 for Windows x64. Install the separate asset archive under ./assets before PDF capture.\n",
         encoding="utf-8",

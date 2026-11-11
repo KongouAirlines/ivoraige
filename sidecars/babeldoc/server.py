@@ -24,6 +24,8 @@ from contextlib import redirect_stdout
 from dataclasses import asdict
 from pathlib import Path
 
+from layout_fit import LAYOUT_FIT_POLICY, fitted_layout_scope
+
 PROTOCOL_VERSION = 1
 ENGINE_VERSION = "0.6.4"
 PYMUPDF_VERSION = "1.26.7"
@@ -395,7 +397,7 @@ def engine_pair(source):
     return ("en", "zh") if source == "en" else ("zh", "en")
 
 
-def capture_config(pages, min_text_length, source="en"):
+def capture_config(pages, min_text_length, source="en", layout_fit_policy=None):
     engine_pair(source)
     config = {
         "babeldoc": ENGINE_VERSION,
@@ -412,6 +414,9 @@ def capture_config(pages, min_text_length, source="en"):
     # English bindings written before language routing have no sourceLanguage.
     if source != "en":
         config["sourceLanguage"] = source
+    if layout_fit_policy is not None:
+        require(layout_fit_policy == LAYOUT_FIT_POLICY, "PDF layout fit policy unsupported")
+        config["layoutFitPolicy"] = layout_fit_policy
     return config
 
 
@@ -506,6 +511,7 @@ def _run_engine(
     const.get_cache_file_path = cache_path
     from babeldoc.docvision.doclayout import OnnxModel
     from babeldoc.format.pdf.document_il.midend.il_translator import ILTranslator
+    from babeldoc.format.pdf.document_il.midend.typesetting import Typesetting
     from babeldoc.format.pdf import high_level
     from babeldoc.format.pdf.translation_config import (
         TranslationConfig,
@@ -652,7 +658,9 @@ def _run_engine(
 
             socket.socket.connect = local_only
             try:
-                with redirect_stdout(sys.stderr):
+                with fitted_layout_scope(
+                    Typesetting, config_id.get("layoutFitPolicy") == LAYOUT_FIT_POLICY
+                ), redirect_stdout(sys.stderr):
                     result = high_level.translate(config)
             finally:
                 socket.socket.connect = original_connect
@@ -760,7 +768,7 @@ def parse(params):
         "PDF capture supports only en, zh, zh-CN or zh-Hans",
     )
     pages, min_length = validate_options(options)
-    config = capture_config(pages, min_length, options["language"])
+    config = capture_config(pages, min_length, options["language"], LAYOUT_FIT_POLICY)
     send(
         {
             "jsonrpc": "2.0",
@@ -962,7 +970,7 @@ def rebuild(params):
     config = binding.get("captureConfig")
     require(
         isinstance(config, dict)
-        and config == capture_config(config.get("pages"), config.get("minTextLength"), document["language"]),
+        and config == capture_config(config.get("pages"), config.get("minTextLength"), document["language"], config.get("layoutFitPolicy")),
         "Capture configuration changed",
     )
     raw_records = binding.get("records")
