@@ -476,7 +476,11 @@ test('real owner IPC retries discovery cleanup after store release without relea
   const { join } = await import('node:path')
   const { createHostTransport, connectHostTransport } = await import('../src/host-transport.mjs')
   const { ensurePrivateDirectory } = await import('../src/host-permissions.mjs')
-  const directory = await mkdtemp(join(tmpdir(), 'host-retry-'))
+  // mkdtemp inherits the temporary parent's Windows ACL. Keep it only as a
+  // container; let ensurePrivateDirectory create the actual owner directory
+  // with a protected current-user ACL instead of weakening verification.
+  const temporaryRoot = await mkdtemp(join(tmpdir(), 'host-retry-'))
+  const directory = join(temporaryRoot, 'control')
   let releases = 0, cleanups = 0
   const control = host({ releaseStore: () => { releases++ }, cleanupDiscovery: () => {
     if (++cleanups === 1) throw new Error('discovery temporarily unavailable')
@@ -500,5 +504,5 @@ test('real owner IPC retries discovery cleanup after store release without relea
     assert.equal(releases, 1)
     assert.equal(cleanups, 2)
     assert.ok(control.finalizationReceipt())
-  } finally { await transport.close(); await rm(directory, { recursive: true, force: true }) }
+  } finally { await transport.close(); await rm(temporaryRoot, { recursive: true, force: true }) }
 })
