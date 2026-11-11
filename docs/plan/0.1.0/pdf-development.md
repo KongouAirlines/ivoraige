@@ -2,6 +2,8 @@
 
 本页面向源码开发与回归验收；准备完成后的日常操作请看 [PDF 使用指南](pdf-guide.md)。
 
+新捕获固定独立的 `captureConfig.underscoreLinePolicy: ascii-base-v2`，同一标记用于捕获与回放的局部下划线分行。v2使用同字体字形的名义框判断基线，避免将正常字形墨迹高度差当成基线错位；已保存的v1仍使用原视觉中心门槛，缺少标记的旧绑定保留原引擎方法。它与 `layoutFitPolicy` 分别校验，旧/v1/v2组合均可回放，未知值拒绝。需要匹配源码 sidecar，冻结绑定不会自动升级；独立组件必须重新构建并携带 `underscore_line.py`。专项测试与范围见[下划线分行记录](../0.1.x/evidence/pdf-underscore-line-0.1.0.md)。
+
 布局预检策略需要配套源码 sidecar。新捕获固定 `captureConfig.layoutFitPolicy: fit-box-v1`，旧绑定缺少标记时保留原路径。Windows 组件必须重新构建；`--reuse-pyinstaller-build` 暂拒绝旧可执行文件复用，避免源文件已更新而打包程序仍未包含策略。新组件尚未在本阶段构建验收。行为与测试见[布局预检记录](../0.1.x/evidence/pdf-layout-fit-0.1.0.md)。
 
 组件构建脚本的 `--python` 必须与启动该脚本的解释器路径一致，使版本检查、依赖与许可收集、PyInstaller 执行使用同一环境；不一致时在加载构建依赖或清理输出前拒绝。PowerShell 构建入口已按此方式调用。手动运行时应使用目标环境的 Python 启动脚本，并将同一路径传给 `--python`；不要通过解析符号链接把虚拟环境解释器替换成底层 Python。

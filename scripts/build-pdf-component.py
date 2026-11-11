@@ -112,8 +112,8 @@ def smoke(executable: Path, cwd: Path, asset_dir: Path) -> dict:
 
 
 def stage_sidecar_sources(source: Path, stage: Path) -> None:
-    """Include the readable sidecar and its local policy module in the component."""
-    for name in ("server.py", "layout_fit.py", "requirements.lock", "LICENSE", "COPYING"):
+    """Include the readable sidecar and its local policy modules in the component."""
+    for name in ("server.py", "layout_fit.py", "underscore_line.py", "requirements.lock", "LICENSE", "COPYING"):
         shutil.copyfile(source / name, stage / name)
 
 
