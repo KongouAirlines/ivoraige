@@ -1,0 +1,44 @@
+# CI execution and coverage audit (0.1.x)
+
+## Decision
+
+Reduce duplicate execution and bound failure time before removing distinct acceptance coverage. The main-branch baseline for this audit is `cc3ca266`.
+
+- Run the native Node 26.13.0 matrix for every pull request, including stacked PRs whose base is not main. Ordinary feature pushes no longer start a second identical matrix.
+- Retain push validation on main, `release/**`, and `v*` tags, plus `merge_group: checks_requested` for merge-queue candidates. Manual `workflow_dispatch` permits explicit branch diagnostics. A conflicted PR can be unable to start its merge-candidate workflow; a manual head run is diagnostic only, not evidence that its eventual merge candidate passed.
+- Cancel superseded PR runs by PR number. Do not cancel main, release, tag or merge-queue runs when a later event arrives. No repository protection or required-check setting is changed; native job display names remain stable.
+- Keep three platforms and fail-fast disabled. They exercise different path aliases, ACL/permissions, SQLite file lifetime, archive tools and process behavior. A successful Linux run does not substitute for these boundaries.
+- Separate build, regression tests and install/reinstall acceptance into named steps in the existing jobs. This improves failure attribution without adding parallel jobs that repeat dependency installation and builds.
+- Bound each top-level Node test at 120 seconds, its CI step at 10 minutes, package acceptance at 10 minutes, setup/build at 5 minutes each, and the job at 25 minutes. Python fixture steps each have 3 minutes. These limits fail the check; they do not convert timeouts to passes or skip assertions. Revisit using actual healthy timings if suite cost changes.
+- Cache npm downloads using setup-node's lockfile-based cache. Continue `npm ci`; never cache installed node_modules or bypass lockfile validation.
+
+## Redundancy decisions
+
+| Work | Decision and coverage retained |
+| --- | --- |
+| Feature push plus PR matrix | Remove duplicate feature-push trigger; retain PR merge-candidate, integration and release validation. This removes one three-platform run per ordinary feature update, not a promised percentage reduction in wall-clock latency. |
+| LF/CRLF injected cleanup fixtures | Execute each of the three real failure probes once. The former two variants were both normalized to identical LF source before execution. Check both normalization inputs in-process, retain actual application disposal/global restoration/directory-removal assertions. Six child processes become three. |
+| ZIP license member lookup | Enumerate the unchanged archive once, outside the license loop. Keep every license member-presence and byte comparison and every later mutated-archive rejection. |
+| Package static HTTP probes | Reuse first response bodies for PDF guide and release metadata assertions instead of fetching each twice. Keep status, content-type, nonempty-body and semantic assertions. |
+| Public import API vs packaged CLI/HTTP/MCP | Retain: different public entry boundaries and installed dependency closure. |
+| Source tests vs tarball install | Retain: source-tree success does not prove the published file/dependency set works. |
+| Second install in independent path | Retain: proves data/settings/frozen snapshot/export bytes survive same-version replacement; not equivalent to first install. |
+| Three-platform Python inventory/archive tests | Retain: real case collisions, links/reparse points, permission errors and archive programs have platform-dependent behavior. |
+| Pure UI state/mock tests on three OSes | Potential future optimization, but no measured material cost justifies a brittle exclusion list now. The native job already needs the same checkout/build. |
+| Documentation paths | No blanket skip: schemas/fixtures, generated guides, packaged documentation and license files can affect executable or distributable behavior. Introduce a narrow prose-only classifier only with evidence and a stable required gate. |
+
+## Healthy runtime evidence and interpretation
+
+The successful [#97 PR run](https://github.com/KongouAirlines/ivoraige/actions/runs/42948796506) used approximately 88 seconds on macOS, 106 on Ubuntu and 335 on Windows. Windows's test step was about 85 seconds and package acceptance about 207. Its [push duplicate](https://github.com/KongouAirlines/ivoraige/actions/runs/42948789550) used another 83/80/315 seconds: roughly 16.8 runner-minutes together, versus about 5.6 minutes elapsed for the PR matrix. These are different metrics.
+
+The heavier [#93 run](https://github.com/KongouAirlines/ivoraige/actions/runs/42776446644) used about 604 seconds on Windows (219 test, 330 package acceptance), while Linux/macOS took about 62/118 seconds. Earlier six-hour Windows runs were hung-process failures, not normal execution cost. Shortening their failure bound is not a speedup of successful tests.
+
+The audit does not claim a whole-history failure percentage or measured post-change native speedup. Retaining a full current matrix is intentional; later splitting or selecting heavy package scenarios should follow measured change-risk coverage, not move all expensive tests to nightly by default.
+
+## Remaining boundaries
+
+Package acceptance includes local install and same-version reinstall; it is not a real PDF/GUI quality test, a separate ordinary-account Windows security test, or a release/distribution approval. Existing pending HostControl and plugin PRs must retain their own regression cases when integrating this workflow change. The one-off account/service experiment is not added to routine CI.
+
+## Local validation
+
+On Linux with Node 26.13.0: build passed; the full Node suite passed (637 tests, 635 passed, 2 existing platform skips); Python inventory/sidecar/archive suites passed (16/26/4); isolated package install/reinstall smoke passed. The final concurrency and timeout-test refinements passed their six focused tests. Native Windows/macOS results remain required from the pull-request matrix; local success is not a cross-account acceptance claim.

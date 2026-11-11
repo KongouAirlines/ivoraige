@@ -61,9 +61,11 @@ for (const [file, name, trigger, directory] of [
   ['resource-access', 'shutdown keeps storage owned', '  await entered\n', 'dir'],
   ['source-mode', 'CLI accepts source content', "  const { document } = await app.records.importDocument", 'directory'],
 ]) {
-  for (const lineEnding of ['LF', 'CRLF']) test(`actual ${name} fixture cleans after an injected body failure (${lineEnding})`, async () => {
+  test(`actual ${name} fixture cleans after an injected body failure`, async () => {
     let source = await readFile(new URL(`./${file}.test.mjs`, import.meta.url), 'utf8')
-    if (lineEnding === 'CRLF') source = source.replace(/\r?\n/g, '\r\n')
+    // Check both checkout representations cheaply; execute the identical normalized fixture once.
+    const normalized = source.replaceAll('\r\n', '\n')
+    assert.equal(source.replace(/\r?\n/g, '\r\n').replaceAll('\r\n', '\n'), normalized)
     // Git may check JavaScript out with CRLF; injection anchors use LF.
     source = source.replaceAll('\r\n', '\n')
     const start = source.indexOf(`test('${name}`)
