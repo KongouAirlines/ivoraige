@@ -181,3 +181,19 @@ these Linux results. No live PDF fidelity, cross-account acceptance or binary
 redistribution claim is added.
 The 87-file isolated package smoke also passed after setting a writable local
 npm cache; its first attempt could not create this executor's default cache.
+
+## Review follow-up (2026-11-11)
+
+Host profile readers now coexist across distinct stores. Startup preparation and
+recovery serialize behind the writer gate; live readers retain SQLite read
+transactions, and installation requires an exclusive transaction. Profile locks
+are never unlinked. Old binaries must not modify a profile used by these readers.
+The validator probe handoff remains exclusive and unchanged.
+
+pnpm 11.25.0 is a locked development dependency; its script runs through the
+current Node executable, avoiding global PATH assumptions and Windows script
+launch differences. Missing external pnpm is COMPONENT_MISSING before staging.
+Read-only list no longer prepares or recovers a profile. CLI option keys are
+explicit; managed configs replace/remove their own exact entries; source cleanup
+preserves current and rollback references. Rollback refuses post-operation config
+changes unless explicitly confirmed. No record/source-data deletion is added.

@@ -1,22 +1,77 @@
 // A stopped-host lease, shared by AppBoot and offline package recovery.
 import { mkdir, cp, readFile, rm, rename, lstat, realpath } from 'node:fs/promises'
 import { realpathSync } from 'node:fs'
+import { DatabaseSync } from 'node:sqlite'
+import { KernelError } from './errors.mjs'
 import { join, resolve } from 'node:path'
 import { acquireStoreLock } from './store-lock.mjs'
 import { writeFileAtomic, awaitTreeGone, treeAlive } from '../dist/dsh.mjs'
 
 const leases = new WeakSet()
+function profileConflict(directory, cause) {
+  return new KernelError('CONFLICT', `Settings profile is in use: ${directory}. Stop hosts using these settings before changing installed plugins.`, { directory }, { cause })
+}
+function usersLock(directory, mode) {
+  let db
+  try {
+    db = new DatabaseSync(join(directory, '.plugin-users.sqlite'), { timeout: 0 })
+    // DELETE journaling is required: WAL readers do not exclude a writer.
+    if (db.prepare('PRAGMA journal_mode').get().journal_mode !== 'delete')
+      throw new Error('Profile coordination requires SQLite DELETE journal mode')
+    db.exec(mode === 'write' ? 'BEGIN EXCLUSIVE' : 'BEGIN')
+    if (mode === 'read') db.prepare('SELECT count(*) FROM sqlite_schema').get()
+  } catch (error) {
+    try { db?.close() } catch {}
+    if ([5, 6].includes(error.errcode & 0xff)) throw profileConflict(directory, error)
+    throw error
+  }
+  return { release() { if (db) { db.close(); db = undefined } } }
+}
+async function gate(directory) {
+  try { return await acquireStoreLock(join(directory, '.plugin-profile')) }
+  catch (error) { if (error.code === 'CONFLICT') throw profileConflict(directory, error); throw error }
+}
+// Serialize preparation/recovery under the old writer gate, then retain only
+// a shared SQLite read transaction for the host lifetime. Never unlink locks.
+export async function acquireHostProfile(directory, prepare) {
+  directory = resolve(directory)
+  await mkdir(directory, { recursive: true })
+  directory = await realpath(directory)
+  const lock = await gate(directory)
+  let users, probe
+  try {
+    let writable = true
+    try { users = usersLock(directory, 'write') }
+    catch (error) { if (error.code !== 'CONFLICT') throw error; writable = false; users = usersLock(directory, 'read') }
+    if (writable) {
+      probe = await acquireProbe(directory)
+      await recoverProfile(directory)
+      await prepare(directory)
+      users.release()
+      users = usersLock(directory, 'read')
+    } else {
+      // A prepared live host guarantees initialization is complete. Never
+      // perform package recovery or profile scaffolding under shared access.
+      if (await exists(join(directory, '.plugin-transaction')) || await exists(join(directory, '.plugin-manager', 'run.json')))
+        throw profileConflict(directory)
+    }
+    const lease = { directory, release() { leases.delete(lease); users?.release(); users = undefined } }
+    return lease
+  } catch (error) { users?.release(); throw error }
+  finally { probe?.release(); lock.release() }
+}
 export async function acquireProfile(directory) {
   directory = resolve(directory)
   await mkdir(directory, { recursive: true })
   directory = await realpath(directory)
-  const lock = await acquireStoreLock(join(directory, '.plugin-profile'))
-  let probe
-  try { probe = await acquireProbe(directory) } catch (error) { lock.release(); throw error }
+  const lock = await gate(directory)
+  let probe, users
+  try { users = usersLock(directory, 'write'); probe = await acquireProbe(directory) }
+  catch (error) { users?.release(); lock.release(); throw error }
   const lease = { directory,
     releaseProbe() { probe?.release(); probe = undefined },
     async reacquireProbe() { probe ??= await acquireProbe(directory) },
-    release() { leases.delete(lease); probe?.release(); lock.release() },
+    release() { leases.delete(lease); probe?.release(); users.release(); lock.release() },
   }
   leases.add(lease)
   return lease
@@ -29,7 +84,13 @@ export function ownsProfile(lease, directory) {
   try { return lease.directory === realpathSync.native(resolve(directory)) }
   catch { return false }
 }
-const files = ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.patch.yml', 'node_modules']
+async function configBaseline(directory) {
+  const state = {}
+  for (const name of ['cordis.patch.yml', '.plugin-config.json'])
+    state[name] = await readFile(join(directory, name), 'utf8').catch(error => { if (error.code === 'ENOENT') return null; throw error })
+  return JSON.stringify(state)
+}
+const files = ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'cordis.patch.yml', '.plugin-config.json', 'node_modules']
 const journal = directory => join(directory, '.plugin-transaction')
 async function exists(path) {
   try { await lstat(path); return true } catch (error) { if (error.code === 'ENOENT') return false; throw error }
@@ -86,14 +147,20 @@ export async function commitProfile(directory) {
   const obsolete = join(directory, '.plugin-obsolete')
   await rm(obsolete, { recursive: true, force: true })
   if (await exists(previous)) await rename(previous, obsolete)
+  await writeFileAtomic(join(journal(directory), 'post-config'), await configBaseline(directory), { mode: 0o600 })
   await rename(journal(directory), previous)
   // Cleanup is outside the transaction's commit point. Leave harmless obsolete
   // bytes for a later cleanup if removal fails; do not report committed work as failed.
   await rm(obsolete, { recursive: true, force: true }).catch(() => {})
 }
-export async function rollbackProfile(directory) {
+export async function rollbackProfile(directory, { allowConfigOverwrite = false } = {}) {
   const previous = join(directory, '.plugin-previous')
   if (!await exists(join(previous, 'ready'))) throw new Error('No previous complete plugin package set')
+  let committedConfig
+  try { committedConfig = await readFile(join(previous, 'post-config'), 'utf8') } catch (error) { if (error.code !== 'ENOENT') throw error }
+  const currentConfig = await configBaseline(directory)
+  if (!allowConfigOverwrite && (committedConfig === undefined || committedConfig !== currentConfig))
+    throw new KernelError('PRECONDITION_FAILED', 'Profile configuration changed since the plugin operation (or has no recorded baseline). Back it up and explicitly set allowConfigOverwrite to roll back.')
   // Obsolete cleanup may have been interrupted after a completed commit. It
   // is not an interrupted-commit rollback point when explicitly consuming previous.
   await rm(join(directory, '.plugin-obsolete'), { recursive: true, force: true })
