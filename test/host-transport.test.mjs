@@ -403,7 +403,7 @@ test('business saturation reserves transport capacity for management actions', a
     generation: 'g', lifetime: 'resident', getState: () => state,
     handleControl: action => ({ action }),
     handleBusiness: async () => { count++; await waiting; return {} } })
-  const pending = []
+  const pending = [], failures = []
   try {
     try { await host.start() }
     catch (error) {
@@ -416,7 +416,7 @@ test('business saturation reserves transport capacity for management actions', a
       { code: 'CONFLICT' })
     const client = await connectHostTransport({ directory, dataDomainRef: 'd', expectedRegistrationId: 'registration-a' })
     for (let i = 0; i < 56; i++) {
-      pending.push(client.request('business', { method: 'slow', input: {} }))
+      pending.push(client.request('business', { method: 'slow', input: {} }).catch(error => { failures.push(error) }))
       const end = performance.now() + 5000
       while (count < i + 1 && performance.now() < end) await new Promise(resolve => setTimeout(resolve, 5))
       assert.equal(count, i + 1)
@@ -429,6 +429,7 @@ test('business saturation reserves transport capacity for management actions', a
     release()
     await Promise.allSettled(pending)
     await host.cleanupDiscovery(); await host.close()
+    assert.deepEqual(failures, [])
   }
 }))
 
