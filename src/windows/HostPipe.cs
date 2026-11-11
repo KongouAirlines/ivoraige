@@ -187,7 +187,12 @@ public static class HostPipe {
                         // Keep one live instance at all times so another
                         // process cannot substitute a new pipe between clients.
                         Pending = NewPipe(Address, false);
-                        if (Peers.Count >= 64) { stream.Dispose(); continue; }
+                        // Outgoing client endpoints may live in this same helper.
+                        // Count inbound peers only, otherwise loopback clients
+                        // halve the server budget and consume its management reserve.
+                        int inbound = 0;
+                        foreach (var candidate in Peers.Values) if (candidate.Server != null) inbound++;
+                        if (inbound >= 64) { stream.Dispose(); continue; }
                         // Close also holds Gate before draining Peers. Publish
                         // and arm this peer before Close can acknowledge.
                         peer = new Peer { Id = "p" + Interlocked.Increment(ref Sequence), Server = Id, Stream = stream };
