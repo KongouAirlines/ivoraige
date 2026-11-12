@@ -50,10 +50,16 @@ class FrozenDependencyTests(unittest.TestCase):
 
     def test_native_runtime_version_matches_the_full_lock(self):
         root = Path(__file__).parents[1]
-        lock = (root / "sidecars/babeldoc/requirements.lock").read_text().splitlines()
+        lock = (root / "sidecars/babeldoc/requirements.lock").read_text(encoding="utf-8").splitlines()
         self.assertEqual(component_builder.COMPONENT_VERSION, builder.VERSION)
         self.assertIn(f"babeldoc=={builder.VERSION}", lock)
-        self.assertIn('version = "' + builder.VERSION + '"', builder.PATCH.read_text())
+        self.assertIn('version = "' + builder.VERSION + '"', builder.PATCH.read_text(encoding="utf-8"))
+
+    def test_native_runtime_version_does_not_depend_on_windows_locale(self):
+        # Emulate the Windows ANSI default even on UTF-8 development hosts.
+        with patch("pathlib.io.text_encoding",
+                   side_effect=lambda encoding, *args: "cp1252" if encoding is None else encoding):
+            self.test_native_runtime_version_matches_the_full_lock()
 
     def test_legacy_frozen_output_cannot_masquerade_as_upgraded_runtime(self):
         for stdout in ("", "[]", "{}", '{"pillow":"13.0.0"}'):
@@ -64,7 +70,7 @@ class FrozenDependencyTests(unittest.TestCase):
 
     def test_active_lock_pins_fixed_pillow(self):
         root = Path(__file__).parents[1]
-        self.assertIn("pillow==13.0.0", (root / "sidecars/babeldoc/requirements.lock").read_text().splitlines())
+        self.assertIn("pillow==13.0.0", (root / "sidecars/babeldoc/requirements.lock").read_text(encoding="utf-8").splitlines())
         self.assertEqual(component_builder.PILLOW_VERSION, "13.0.0")
 
     def test_frozen_probe_requires_the_python_313_baseline(self):
