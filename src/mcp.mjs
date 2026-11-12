@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import { McpServer, ResourceTemplate, ProtocolError, createMcpHandler } from '@modelcontextprotocol/server'
 import { toNodeHandler } from '@modelcontextprotocol/node'
 import { serveStdio, StdioServerTransport } from '@modelcontextprotocol/server/stdio'
@@ -18,12 +19,42 @@ function resourceError(error) {
   return new ProtocolError(code, body.error.message, body)
 }
 
-export function createMcpServer(app, { signal, listChanged = true, watchRegistry = true } = {}) {
+function enabledRegistry(app) {
   const entry = app.ctx?.get('ivoraige.mcpEntry')
-  if (app.ctx && (!entry || entry.closing))
+  if (app.ctx && (!entry || entry.closing) || !app.mcp)
     throw new KernelError('COMPONENT_MISSING', 'MCP entry is not enabled or is closing')
-  const registry = app.mcp
-  if (!registry) throw new KernelError('COMPONENT_MISSING', 'MCP entry is not enabled')
+  return app.mcp
+}
+
+export async function ownerMcp(app, method, input = {}, { signal } = {}) {
+  const registry = enabledRegistry(app)
+  if (method === 'mcp.describe') return {
+    tools: [...registry.tools].map(([name, definition]) => ({ name,
+      description: definition.description,
+      inputSchema: definition.inputSchema ? z.toJSONSchema(definition.inputSchema, { target: 'draft-7' }) :
+        { type: 'object', properties: {} },
+      ...(definition.annotations ? { annotations: definition.annotations } : {}) })),
+    resources: [...registry.resources].map(([name, definition]) => ({ name,
+      template: definition.template, ...(definition.metadata ? { metadata: definition.metadata } : {}) })),
+  }
+  if (method === 'mcp.call') {
+    const tool = registry.tools.get(input.name)
+    if (!tool) throw new KernelError('NOT_FOUND', 'MCP tool not found')
+    return tool.invoke(input.input, { signal })
+  }
+  if (method === 'mcp.read') {
+    const resource = registry.resources.get(input.name)
+    if (!resource) throw new KernelError('NOT_FOUND', 'MCP resource not found')
+    const variables = new ResourceTemplate(resource.template, { list: undefined }).uriTemplate.match(input.uri)
+    if (!variables) throw new KernelError('INVALID_ARGUMENT', 'MCP resource URI mismatch')
+    return resource.read(new URL(input.uri), variables, { signal })
+  }
+  throw new KernelError('INVALID_ARGUMENT', 'Unknown MCP owner request')
+}
+
+export function createMcpServer(app, { signal, listChanged = true, watchRegistry = true } = {}) {
+  const registry = enabledRegistry(app)
+  const entry = app.ctx?.get('ivoraige.mcpEntry')
   const server = new McpServer({ name: 'ivoraige', version: packageInfo.version },
     { capabilities: { tools: { listChanged }, resources: { listChanged } } })
   const activeTools = new Map(), activeResources = new Map()

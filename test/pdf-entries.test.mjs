@@ -1,3 +1,4 @@
+import './fixtures/host-test-env.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
@@ -25,7 +26,7 @@ test('PDF config resolves relative assets and preserves bare commands and litera
 
 test('CLI rejects local PDF config on remote invocation', async t => {
   let out = '', err = ''
-  const code = await runCli(['--url', 'http://127.0.0.1:1', '--pdf-config', 'pdf.json', 'capabilities', '--json'], {
+  const code = await runCli(['--store', 'unused-store.sqlite', '--url', 'http://127.0.0.1:1', '--pdf-config', 'pdf.json', 'capabilities', '--json'], {
     stdout: { write: text => { out += text } }, stderr: { write: text => { err += text } },
   })
   assert.equal(code, 2)
@@ -196,9 +197,9 @@ for await (const line of createInterface({ input: process.stdin })) {
   assert.equal(await readFile(marker, 'utf8'), 'parse')
   output = ''; error = ''
   code = await runCli(['--store', store, 'documents', document.id, '--json'], sink)
-  assert.equal(code, 3, error)
-  assert.equal(JSON.parse(output).error.details.reason, 'owner-config-mismatch',
-    'a different PDF composition must not silently reopen the store')
+  assert.equal(code, 0, error)
+  assert.equal(JSON.parse(output).document.id, document.id,
+    'a stopped owner may reopen with a different runtime PDF composition')
   output = ''; error = ''
   code = await runCli(['--store', store, '--pdf-config', config, 'documents', document.id, '--json'], sink)
   assert.equal(code, 0, error)

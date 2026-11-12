@@ -92,6 +92,9 @@ interface Revision {
   origin: "machine" | "human" | "imported";
   status: "draft" | "accepted" | "superseded";
   modelId?: string; promptVersion?: string; reuseKey: string;
+  promptTrace?: { templateId: string; version: string; contentId: string; source: string;
+    pluginId: string; featureId: string; configurationId: string; protocolVersion: string;
+    fallback?: { from: string; reason: string } }; // 当前新增；历史修订可缺省
   createdAt: ISODate;
 }
 
@@ -106,6 +109,7 @@ interface Task {
   stats: TaskStats;                     // 见下
   artifacts: Artifact[];
   warnings?: string[];                  // 已完成导出产物的非阻断提示，持久化且重启后可查
+  promptSelection?: object;              // 当前逐单位翻译任务使用的提示词快照；旧任务可缺省
   label?: string;                        // 导入完成前标识来源
   result?: { document: Document; deduplicated: boolean; warnings: string[] }; // 成功的导入任务
   createdAt: ISODate; updatedAt: ISODate;
@@ -268,7 +272,15 @@ CLI 对应 `components status|catalog|credential --token-env NAME|credential-cle
 
 0.1.0 清单契约：`version` 必须是严格 SemVer（允许 prerelease 与 build metadata，不接受 `v` 前缀、范围或不完整版本），每个 `(id, platform, arch)` 只允许一个候选版本；不同平台可并列。catalog 和本地／远程安装均在读取清单时拒绝重复候选，不由数组顺序隐式选版本。入口仍不提供版本选择参数。普通安装在下载／激活前按 SemVer 优先级比较当前有效已选组件，拒绝更旧版本并保留原选择；允许升级和同版本修复。build metadata 不改变优先级。未提供显式降级／rollback 操作。
 
-独立启动器默认使用用户数据目录，`--data-dir` 可覆盖；同一目录已有工作台时复用实例。仅启动器会提供 `GET /api/instance` 的随机实例标识，用于排除遗留端口记录；它不是授权凭据，服务仍仅监听本机回环地址。
+独立启动器默认使用用户数据目录，`--data-dir` 可覆盖；同一目录已有工作台时复用实例。当前启动器不提供 `GET /api/instance`；owner 发现和配对由本机宿主注册与认证机制完成，服务仍仅监听本机回环地址。
+
+### 3.9 当前逐单位翻译提示词库（0.1.0 增量）
+
+共享 operation 入口 `POST /api/operations/{operation}` 增加 `getPromptLibrary`（空请求，返回 `{ library: { features, templates, bindings, selectedModel } }`）、`copyPrompt`（`sourceId?`, `sourceVersion?`, `name?` → `{ template }`）、`updatePrompt`（`id`, `expectedVersion`, `style?`, `name?` → `{ template }`）、`bindPrompt`（`pluginId`, `featureId`, `configurationId`, `docId?`, `templateId` → `{ binding }`）、`restorePrompt`（前述身份字段但无 `templateId` → `{ restored: true }`）与 `resolvePrompt`（身份字段及可选 `templateId` → `{ selection }`）。CLI 对应 `prompts list|copy|update|bind|restore|resolve --set JSON`；`prompts` 等于 `prompts list`。这些操作复用当前 CLI／HTTP／MCP operation schema 和错误信封，不新增 API 版本。
+
+现有 `translate` 请求允许可选 `promptTemplateId`；CLI 对应 `translate ... --prompt TEMPLATE_ID`。旧请求无需新增字段；未指定本次模板时依次采用文档绑定、全局绑定、兼容内置默认，仅在没有自定义绑定时直接采用内置默认。绑定按插件、功能和模型连接配置摘要确定；当前支持全局与文档绑定，不声明尚未实现的项目模型。优先级是本次、文档、全局、兼容内置默认。失效绑定回退同功能内置默认，并在 selection 记录 `fallback`；显式本次模板失效返回 `NOT_FOUND` 或 `PRECONDITION_FAILED`。缺少插件功能返回 `COMPONENT_MISSING`。任务开始处理第一个单位时保存实际模板内容，恢复沿用该内容；连接变更则失败而不改用另一配置。修订的 `promptTrace` 记录模板 ID、版本、内容摘要、来源、连接配置摘要和翻译协议版本；无该追溯的既有机器修订不作为带提示词追溯的新调用的复用来源。冻结快照与历史修订语义不变。
+
+Records 域的 prompt 字段写入前先将 DSH unit 版本从 1／2 提升到 3，包含任务的单次模板 ID、固定选择及修订追溯；旧读者不能将新增字段剥除后写回。只读旧记录和普通旧字段写入仍按原版本运行。提示词库单独使用同一 SQLite 中的 DSH 域，不另建并行状态文件。
 
 ## 4. SSE 事件类型
 
@@ -290,12 +302,12 @@ CLI 对应 `components status|catalog|credential --token-env NAME|credential-cle
 ## 5. CLI 输出协议
 
 - `--json` 时 stdout 输出与该操作对应的 REST 响应体**逐字节同构**（同一序列化函数）。
-- 长任务：`ivoraige translate --json-events` 输出 NDJSON，每行一个 §4 事件对象；脚本可逐行消费。
+- 自持本地内核的长任务：`ivoraige translate --json-events` 输出 NDJSON，每行一个 §4 事件对象；附加到常驻 owner 时不支持 `--json-events`，应轮询 `task`。CLI 相对 `import --path`、`export --out`、`components local --path` 由 CLI 按调用者工作目录转为绝对路径后传给 owner。`--store` 选择本机 owner；`--url` 仅核验其 HTTP origin，不能单独远程连接。
 - 退出码映射见 §1.3；stderr 只写人类可读提示，脚本不应解析。
 
 ## 6. MCP tools 映射
 
-**当前实现（0.1.0 开发阶段）**：CLI `mcp --stdio` 独立启动持有数据库的内核；常驻 `serve` 与桌面启动器默认在 `/mcp` 提供 Streamable HTTP，`serve --no-mcp` 可关闭。两种传输使用同一内核操作和参数 schema。MCP tool 成功结果以 `structuredContent` 返回完整业务对象，并在文本 content 中提供其 JSON；业务失败设置 `isError: true`，`structuredContent` 为与 REST／CLI 共用的 `{ apiVersion, error: { code, message, details } }`。输入 schema 不符由 MCP SDK 返回协议级校验错误，不保证包装为业务错误。资源读取失败返回 MCP 协议错误，并附公开的业务错误信息：`NOT_FOUND` 映射为 `-32002`，`INVALID_ARGUMENT` 映射为 `-32602`，其余失败映射为 `-32603`；业务错误对象保留在协议错误的 data 中。
+**当前实现（0.1.0 开发阶段）**：CLI `mcp --stdio --store FILE` 仅附加已有常驻 owner；`serve` 的 Streamable HTTP `/mcp` 默认关闭，需显式 `--mcp-enabled` 开启。两种传输使用同一内核操作和参数 schema。MCP tool 成功结果以 `structuredContent` 返回完整业务对象，并在文本 content 中提供其 JSON；业务失败设置 `isError: true`，`structuredContent` 为与 REST／CLI 共用的 `{ apiVersion, error: { code, message, details } }`。输入 schema 不符由 MCP SDK 返回协议级校验错误，不保证包装为业务错误。资源读取失败返回 MCP 协议错误，并附公开的业务错误信息：`NOT_FOUND` 映射为 `-32002`，`INVALID_ARGUMENT` 映射为 `-32602`，其余失败映射为 `-32603`；业务错误对象保留在协议错误的 data 中。
 
 MCP 是可选入口服务 `ivoraige.mcp`，不拥有文档或 PDF 业务逻辑。能力插件通过 `registry.registerTool(name, { description, inputSchema, invoke(input, { signal }) })` 与 `registry.registerResource(name, { template, metadata, read(uri, variables) })` 注册，并把注销函数交给 Cordis `ctx.effect()`；插件卸载时已注册能力从后续查询中移除。stdio 通过连接内 SDK 通知；现代 HTTP 协议通过 SDK 的 `subscriptions/listen` 通道向已订阅客户端推送工具／资源列表变化，注册表订阅随 HTTP 服务关闭而释放。旧协议无状态 HTTP 不支持跨请求通知，声明 `listChanged: false`，客户端应主动重新查询列表。`createApp({ mcp: false })` 不装配此入口；`serve` 的 `mcp: false`／CLI `--no-mcp` 关闭 HTTP 挂载。当前文档／任务工具由内核操作插件贡献，组件工具由可选组件插件贡献；格式能力仍由既有输入／输出适配器提供，MCP 运行时不识别特定 PDF 引擎。
 
@@ -333,11 +345,17 @@ resources：`ivoraige://docs/{docId}`、`ivoraige://docs/{docId}/units/{unitId}?
 |---|---|---|---|
 | `handshake` | `{ protocolVersion }` | capabilities | 版本不匹配 → 内核报 COMPONENT_MISSING 并提示升级 sidecar |
 | `configure` | `{ modelDirs: Record<string,string>, options }` | `{}` | 权重目录在此注入（§8），sidecar 不自行下载 |
-| `parse` | `{ path, options }` | `{ doc: ParsedDoc }` | 大文档通过 `progress` 通知报进度 |
-| `rebuild` | `{ docRef, revisionsRef, out, format }` | `{ path }` | 输入为内核落盘的临时 JSON 文件路径（避免 stdio 传大对象），输出为文件路径 |
+| `parse` | `{ path, options }` | `{ doc: ParsedDoc }`（现有 BabelDOC）；独立来源插件可声明私有落盘引用结果 | 大文档通过 `progress` 通知报进度 |
+| `rebuild` | `{ docRef, revisionsRef, out, format }`（现有 BabelDOC）；独立输出插件可声明私有参数 | `{ path }`（现有 BabelDOC）；独立输出插件可声明私有结果 | BabelDOC 输入为内核落盘的临时 JSON 文件路径（避免 stdio 传大对象） |
 | `shutdown` | `{}` | — | 内核退出/释放时调用 |
 
 通知：`{"method":"progress","params":{"stage","done","total"}}` → 映射为 `task.progress` 事件。
+
+MinerU 插件沿用协议版本 1 的 `handshake → configure → parse/rebuild → shutdown` 与同一进程/取消边界。`handshake.capabilities` 声明 `parse:["pdf"]` 和 `rebuild:["pdf"]`；`configure` 核对本地 MinerU 4.0.10 与决定保存结构的 DocVortex 0.6.21，设置 Hugging Face/Transformers 离线开关并在 Python 层拦截常用 socket 入口，不自动安装或下载权重；这些措施不保证阻断所有网络路径，也不是操作系统级网络沙箱。其 `parse` 使用 `options:{outputDir,tier,ocrMode}`，`outputDir` 是宿主为单次导入创建的临时目录。响应中的 `doc:{engineVersion,schema,schemaVersion}` 是**该插件的私有已保存结果引用确认**，不是 BabelDOC 的 `ParsedDoc`，也不能直接作为通用 IR；Node 来源插件核对响应与已保存 MiddleJson 的 producer 版本后读取 `outputDir` 的完整 `middle_json.json`、`structured_content.json`、`markdown.md`、原件与 `images/`，检查块身份，再投影通用 units 和资源清单。成功持久化后，插件将其转入按 store 隔离的受管目录；失败/取消只在 sidecar 子进程确认退出后清理本次临时目录。资源完整性与受管路径在来源插件边界校验。
+
+MinerU 的**私有** `rebuild` 参数为 `{bundlePath,files,replacements,outputPath,layout:"original"}`，成功结果为 `{sha256,size}`。Node 适配器先核对冻结快照的 MinerU 来源、存档 MiddleJson/structured 投影及受管文件清单；原文模式逐字节返回存档 `source.pdf`，不启动 Python。接受译文模式仅把冻结修订的单位定位、原文和译文送往 sidecar。Python 再核对 MinerU 4.0.10、DocVortex 0.6.21、`docvortex.middle` 2.0、所有文件摘要与块定位；只有确认为单个纯文本 span 且原文一致的块可替换。`asset_resolver` 只读清单内已验证的图片字节。由于 DocVortex 会将图片读取或解码失败转为占位 PDF，sidecar 记录 resolver 失败并收集该固定版本的 `pdf_image_unavailable` 诊断，两者有任一项就在写文件前拒绝成功响应。`render_pdf` 使用原有 MiddleJson 的 `PdfLayout.ORIGINAL`，成功结果写入本次独占临时目录并由 Node 核对摘要/大小后交给通用产物存储；旧冻结快照不受后续修订影响。复杂行内结构拒绝，不依赖翻译模型，不做跨引擎重建。该参数/结果不改变 BabelDOC `rebuild` 的请求契约。
+
+MinerU runner 对已知运行时版本错误以 `-32002` 返回私有 `error.data:{component:"mineru"|"docvortex",reason:"missing"|"incompatible"}`。宿主只将这组枚举映射为固定公开消息；其他诊断与原始路径仅保留在本地错误原因中。这个数据字段不改变其他 sidecar 的错误契约。
 
 当前 BabelDOC `rebuild` 响应的 `evidence.warnings: string[]` 经输出适配器传给内核，随成功写入的 `Artifact.warnings` 和 `Task.warnings` 原子持久化；`task.succeeded` 事件也携带提示。CLI 的任务 JSON、HTTP 任务／产物查询及 WebUI 任务／产物提示均可读取，重启后保留。提示不使任务失败，不改写快照。内核输出适配器兼容原有字符串／Buffer 返回值，也接受 `{ content: string | Buffer, warnings?: string[] }`，没有提示的文本输出无需变更。
 
@@ -353,7 +371,7 @@ BabelDOC `parse` 按来源位置关联回调与完成后的 tracker payload；tr
 
 stdout 与 stderr 独立，无法以写入顺序推断接收顺序。成功和常驻进程的错误响应均不等待 stderr 或进程退出。无响应的崩溃、超时、协议错误沿用已有终止／清理等待，在 `close`（stdio 已关闭）后把会话 stderr 尾部作为本地 cause；这是会话级尽力诊断，可能含先前日志，不表示逐请求关联，也不保证强杀前尚未刷出的数据。已有底层 cause 优先保留。取消和主动关闭保留原有干净错误。崩溃消息只含退出状态，不含 stderr 内容。
 
-当前 BabelDOC sidecar 在源码环境使用单独 Python 3.13 环境及 `--pdf-config`，Windows 独立发行使用 PyInstaller 目录组件，由组件设置记录装配；两者共用同一 stdio 协议。PDF 组件首次操作时验证，缺失不妨碍文本工作台启动。进程常驻复用，崩溃后单个请求最多重新启动一次，仍失败则任务 failed。MinerU 与 BabelDOC **分两个 sidecar 可执行文件**（解析与重建独立缺失、独立升级）是后续目标。当前只开放 BabelDOC 原生文本捕获与单语 PDF 回放；双语格式不是已公布能力。
+当前 BabelDOC sidecar 在源码环境使用单独 Python 3.13 环境及 `--pdf-config`，Windows 独立发行使用 PyInstaller 目录组件，由组件设置记录装配；两者共用同一 stdio 协议。PDF 组件首次操作时验证，缺失不妨碍文本工作台启动。进程常驻复用，崩溃后单个请求最多重新启动一次，仍失败则任务 failed。可选 MinerU 源码包由另一 Python runner 提供解析及实验性同引擎回放，但未有独立发行组件；将解析与重建做成可分别缺失、独立升级的组件仍是后续目标。BabelDOC 保持原生文本捕获与单语 PDF 回放；双语和跨引擎回放均不是已公布能力。
 
 #### 0.1.x 身份与能力扩展门禁（待实现）
 
@@ -411,6 +429,6 @@ Q02 event and entry detail: `task.abandoned` carries `{ taskId }` after a failed
 
 The existing API_VERSION `2.0`, CLI aliases, HTTP REST aliases and MCP tool names are preserved. A registered operation is validated once by the kernel catalog, including MCP argument errors; result payloads are checked as JSON data against the operation result schema. The internal generic invocation adapters are CLI `call OPERATION --set JSON`, HTTP `POST /api/operations/{operationId}` and MCP `ivoraige_op_{operationId}` for contributed operations without an existing alias. They do not establish the complete stable external client/authentication API.
 
-The facade owns the top-level `apiVersion` field and sets it to `2.0` after validating the business result; a contribution cannot replace it through its result schema or payload. A self-owned local generic CLI call refuses operations declared long-running or task-cancellable before admission (also with `--no-wait`); use a waiting CLI alias or a persistent host via `--url` / a caller-supplied app. HTTP path identifiers use one percent-decoding boundary; malformed encodings return `400 INVALID_ARGUMENT`.
+The facade owns the top-level `apiVersion` field and sets it to `2.0` after validating the business result; a contribution cannot replace it through its result schema or payload. A self-owned local generic CLI call refuses operations declared long-running or task-cancellable before admission (also with `--no-wait`); use a waiting CLI alias or a resident owner selected by `--store` / a caller-supplied app. HTTP path identifiers use one percent-decoding boundary; malformed encodings return `400 INVALID_ARGUMENT`.
 
 `GET /api/events/state` accepts optional `docId`, `taskId` or `componentId` scope and first emits `state.ready` with `{subscriptionId,generation,scope,barrierRevision}`. The live session is read through `GET /api/state?subscriptionId=...`, returning the v2 envelope plus the same identity and `{stateRevision,state}`. `state.invalidated` notices above the applied revision trigger refetch on the same session. `resync-required`, disconnect, changed generation/scope and bounded-buffer overflow require a new subscription and snapshot. Transport backpressure pauses writes until `drain`, then resumes from the bounded session buffer without repeating accepted frames; buffer overflow still requires resynchronization. State is a public summary, not replayable events or a complete atomic workbench text copy. The previous task SSE endpoints retain their existing `{type,data}` projection.

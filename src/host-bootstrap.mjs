@@ -3,7 +3,6 @@ import { randomUUID, createHash } from 'node:crypto'
 import { lstat, realpath, stat } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { KernelError } from './errors.mjs'
-import { z } from 'zod'
 import { createHostDomain, findHostDomain, hostRegistryDirectory } from './host-domain.mjs'
 import { HostControl } from './host-control.mjs'
 import { createHostTransport, connectHostTransport } from './host-transport.mjs'
@@ -13,7 +12,7 @@ import { inspectRetentionDomain } from './retention-domain.mjs'
 // Retain ambiguous leases even when construction never returned an app.
 // Garbage collection must not accidentally admit a second writer.
 const unconfirmedLeases = new Set()
-const fail = (code, reason) => new KernelError(code, reason, { reason })
+const fail = (code, reason, details = {}) => new KernelError(code, reason, { reason, ...details })
 
 async function canonicalDirectory(path) {
   if (path === undefined) return null
@@ -58,6 +57,15 @@ export async function hostConfigBinding(options) {
   }
 }
 
+export function persistentHostBinding(binding) {
+  return { settingsDir: binding.settingsDir, componentDir: binding.componentDir }
+}
+
+function bindingDifferences(actual, expected) {
+  return [...new Set([...Object.keys(actual ?? {}), ...Object.keys(expected ?? {})])]
+    .filter(key => JSON.stringify(actual?.[key]) !== JSON.stringify(expected?.[key])).sort()
+}
+
 function facade(client) {
   const invoke = (method, input = {}, { signal } = {}) => client.request('business', { method, input }, { signal })
   return { reused: true, attached: client.attached, generation: client.generation,
@@ -85,7 +93,7 @@ export async function attachHost({ store, registryRoot, binding } = {}) {
     const info = await client.request('transportInfo')
     if (JSON.stringify(info.ownerConfigBinding) !== JSON.stringify(binding)) {
       client.close()
-      throw fail('CONFLICT', 'owner-config-mismatch')
+      throw fail('CONFLICT', 'owner-config-mismatch', { fields: bindingDifferences(info.ownerConfigBinding, binding) })
     }
   }
   return facade(client)
@@ -126,12 +134,15 @@ export async function createOwnedApp(options, { compose, lifetime, attach }) {
           !['ENOENT', 'ECONNREFUSED'].includes(error.code)) throw error
     }
   }
-  // Output location is a live assembly choice, not durable domain identity.
-  // A stopped owner can reopen with a relocated export root; live attach still
+  // Runtime/output configuration is not durable domain identity.
+  // A stopped owner can reopen with changed runtime options; live attach still
   // compares the full binding and cannot silently switch the existing writer.
-  const { exportDir: _exportDir, ...persistentBinding } = binding
+  const persistentBinding = persistentHostBinding(binding)
+  // Upgrade an older full-configuration binding only when the caller proves
+  // the exact old configuration. Never guess across a changed identity.
+  const { exportDir: _exportDir, ...legacyOwnerConfigBinding } = binding
   let domain
-  try { domain = await createHostDomain({ store, ownerConfigBinding: persistentBinding, registryRoot },
+  try { domain = await createHostDomain({ store, ownerConfigBinding: persistentBinding, legacyOwnerConfigBinding, registryRoot },
     { prepareStore: inspectRetentionDomain }) }
   catch (error) {
     if (!attach || error.code !== 'CONFLICT' || error.details?.reason) throw error
@@ -255,31 +266,8 @@ export async function createOwnedApp(options, { compose, lifetime, attach }) {
       waitForAttempt: () => control.waitForAttempt(),
       handleBusiness: async (method, input, { signal } = {}) => {
         if (!method.startsWith('mcp.')) return app.operations.invoke(method, input, { signal })
-        const registry = app.mcp
-        if (!registry) throw fail('COMPONENT_MISSING', 'mcp-unavailable')
-        if (method === 'mcp.describe') return {
-          tools: [...registry.tools].map(([name, definition]) => ({ name,
-            description: definition.description,
-            inputSchema: definition.inputSchema ? z.toJSONSchema(definition.inputSchema, { target: 'draft-7' }) :
-              { type: 'object', properties: {} },
-            ...(definition.annotations ? { annotations: definition.annotations } : {}) })),
-          resources: [...registry.resources].map(([name, definition]) => ({ name,
-            template: definition.template, ...(definition.metadata ? { metadata: definition.metadata } : {}) })),
-        }
-        if (method === 'mcp.call') {
-          const tool = registry.tools.get(input.name)
-          if (!tool) throw fail('NOT_FOUND', 'mcp-tool-absent')
-          return tool.invoke(input.input, { signal })
-        }
-        if (method === 'mcp.read') {
-          const resource = registry.resources.get(input.name)
-          if (!resource) throw fail('NOT_FOUND', 'mcp-resource-absent')
-          const { ResourceTemplate } = await import('@modelcontextprotocol/server')
-          const variables = new ResourceTemplate(resource.template, { list: undefined }).uriTemplate.match(input.uri)
-          if (!variables) throw fail('INVALID_ARGUMENT', 'mcp-resource-uri-mismatch')
-          return resource.read(new URL(input.uri), variables, { signal })
-        }
-        throw fail('INVALID_ARGUMENT', 'invalid-request')
+        const { ownerMcp } = await import('./mcp.mjs')
+        return ownerMcp(app, method, input, { signal })
       },
     })
     await transport.start()

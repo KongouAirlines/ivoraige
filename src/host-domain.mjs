@@ -103,7 +103,9 @@ function validMetadata(value) {
 function validRecord(value, allowMissingIdentity = false) {
   return isObject(value) && /^[0-9a-f-]{36}$/i.test(value.domainId) && /^[0-9a-f-]{36}$/i.test(value.registrationId) &&
     typeof value.canonicalStore === 'string' && (validIdentity(value.fileIdentity) || allowMissingIdentity && value.fileIdentity === null) &&
-    /^[a-f0-9]{64}$/.test(value.ownerConfigBinding) && value.status === 'completed'
+    /^[a-f0-9]{64}$/.test(value.ownerConfigBinding) && value.status === 'completed' &&
+    (value.ownerConfigFields === undefined || isObject(value.ownerConfigFields) &&
+      Object.values(value.ownerConfigFields).every(digest => /^[a-f0-9]{64}$/.test(digest)))
 }
 function parseRegistry(raw) {
   if (raw === null) return { schemaVersion: 1, domains: [] }
@@ -367,6 +369,16 @@ async function readMetadataSnapshot(path) {
   } catch (error) { throw metadataError(error)
   } finally { try { source?.close() } finally { await rm(tempDir, { recursive: true, force: true }) } }
 }
+function bindingFields(value) {
+  return isObject(value) ? Object.fromEntries(Object.entries(value).map(([name, item]) => [name, hash(item)])) : undefined
+}
+function bindingMismatch(record, expected) {
+  const fields = bindingFields(expected)
+  const previous = record.ownerConfigFields
+  return fail('CONFLICT', 'owner-config-mismatch', { fields: previous && fields
+    ? [...new Set([...Object.keys(previous), ...Object.keys(fields)])].filter(name => previous[name] !== fields[name]).sort()
+    : ['legacyBinding'], ...(previous ? {} : { recovery: 'Restart once with the original configuration to upgrade the legacy binding' }) })
+}
 function checkRecord(record, meta, identity, binding) {
   if (!meta || !identity || record.domainId !== meta.domainId || record.registrationId !== meta.registrationId ||
       !sameIdentity(record.fileIdentity, identity)) throw fail('CONFLICT', 'domain-registration-mismatch')
@@ -427,10 +439,11 @@ export async function findHostDomain({ store, registryRoot, verifyOwner } = {}) 
 
 // Return an already-held StoreLock lease. The caller must retain it until all
 // writers are disposed; it is never acquired from an arbitrary caller object.
-export async function createHostDomain({ store, ownerConfigBinding, registryRoot, verifySourceRetired } = {}, { prepareStore } = {}) {
+export async function createHostDomain({ store, ownerConfigBinding, legacyOwnerConfigBinding, registryRoot, verifySourceRetired } = {}, { prepareStore } = {}) {
   if (!store || typeof store !== 'string') throw fail('INVALID_ARGUMENT', 'invalid-store')
   const path = await canonicalStorePath(store)
   const binding = bindingDigest(ownerConfigBinding)
+  const legacyBinding = legacyOwnerConfigBinding === undefined ? undefined : bindingDigest(legacyOwnerConfigBinding)
   const dir = await secureDirectory(registryRoot, true)
   const registryLock = await acquireRegistryLockBounded(dir)
   let storeLease, sourceLease
@@ -446,7 +459,8 @@ export async function createHostDomain({ store, ownerConfigBinding, registryRoot
     await prepareStore?.(path)
     let identity = await fileIdentity(path)
     if (intent) {
-      if (intent.record.ownerConfigBinding !== binding) throw fail('CONFLICT', 'owner-config-mismatch')
+      if (intent.record.ownerConfigBinding !== binding && intent.record.ownerConfigBinding !== legacyBinding)
+        throw bindingMismatch(intent.record, ownerConfigBinding)
       const { committed: alreadyCommitted } = intendedRecord(registry, intent, identity)
       if (intent.mode === 'adopt-copy' && !alreadyCommitted &&
           findByDomain(registry, intent.metadataBefore.domainId))
@@ -505,9 +519,13 @@ export async function createHostDomain({ store, ownerConfigBinding, registryRoot
     const meta = await readMetadataSnapshot(path)
     identity = await fileIdentity(path)
     if (existing) {
-      checkRecord(existing, meta, identity, binding)
-      if (existing.fileIdentity.birthtimeNs === undefined && identity.birthtimeNs !== undefined)
-        await durableReplace(dir, REGISTRY, replaceRecord(active, { ...existing, fileIdentity: identity }))
+      if (existing.ownerConfigBinding !== binding && existing.ownerConfigBinding !== legacyBinding)
+        throw bindingMismatch(existing, ownerConfigBinding)
+      checkRecord(existing, meta, identity, existing.ownerConfigBinding)
+      if (existing.ownerConfigBinding !== binding || !existing.ownerConfigFields ||
+          existing.fileIdentity.birthtimeNs === undefined && identity.birthtimeNs !== undefined)
+        await durableReplace(dir, REGISTRY, replaceRecord(active, { ...existing, fileIdentity: identity,
+          ownerConfigBinding: binding, ownerConfigFields: bindingFields(ownerConfigBinding) }))
       return { dataDomainRef: meta.domainId, registrationId: meta.registrationId,
         canonicalStore: path, fileIdentity: identity, ownerConfigBinding: binding, storeLease }
     }
@@ -520,7 +538,7 @@ export async function createHostDomain({ store, ownerConfigBinding, registryRoot
     if (!identity || !sameIdentity(identity, await fileIdentity(path)))
       throw fail('CONFLICT', 'domain-registration-mismatch')
     const proposed = { domainId: uuid(), registrationId: uuid(), bindingVersion: 1 }
-    const record = registryRecord(proposed, path, identity, binding)
+    const record = { ...registryRecord(proposed, path, identity, binding), ownerConfigFields: bindingFields(ownerConfigBinding) }
     initIntent = { version: 3, mode: 'initialize', transactionId: uuid(),
       phase: 'prepared', targetBefore: null, source: null, record }
     // A durable write-start barrier separates provable no-write preparation

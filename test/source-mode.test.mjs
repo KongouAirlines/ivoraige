@@ -1,4 +1,6 @@
+import './fixtures/host-test-env.mjs'
 import test from 'node:test'
+import { createCleanup } from './fixtures/cleanup.mjs'
 import assert from 'node:assert/strict'
 import { copyFile, mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'

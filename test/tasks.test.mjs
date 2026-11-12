@@ -55,6 +55,18 @@ async function document(f, sourceId = 'paper:1') {
   return (await f.records.importDocument(source, { sourceId, language: 'en' })).document
 }
 
+test('embedded Records without a prompt storage gate rejects new prompt fields atomically', async t => {
+  const f = await fixture(t)
+  const doc = await document(f)
+  await assert.rejects(f.records.createTranslationTask(doc.id,
+    { targetLang: 'zh-CN', promptTemplateId: 'chosen' }), { code: 'PRECONDITION_FAILED' })
+  assert.equal(f.records.listTasks({ docId: doc.id }).length, 0)
+  const task = await f.records.createTranslationTask(doc.id, { targetLang: 'zh-CN' })
+  await assert.rejects(f.records.updateTask(task.id, current => ({ ...current,
+    promptSelection: { prompt: { contentId: 'new' } } })), { code: 'PRECONDITION_FAILED' })
+  assert.equal(f.records.getTask(task.id).promptSelection, undefined)
+})
+
 test('fast task commits accepted revisions and reuse skips model calls', async t => {
   const f = await fixture(t)
   const doc = await document(f)

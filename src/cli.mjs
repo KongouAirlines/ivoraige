@@ -5,16 +5,16 @@ import { defaultDataDirectory } from './data-directory.mjs'
 import { mkdir, readFile, stat } from 'node:fs/promises'
 import { realpathSync } from 'node:fs'
 import { createApp, startHost } from './app.mjs'
-import { attachHost, hostConfigBinding } from './host-bootstrap.mjs'
+import { attachHost, hostConfigBinding, persistentHostBinding } from './host-bootstrap.mjs'
 import { inspectHostDomain, recoverHostDomain } from './host-domain.mjs'
 import { serve } from './http.mjs'
 import { serialize, errorEnvelope } from './protocol.mjs'
 import { KernelError } from './errors.mjs'
 
-const usage = `ivoraige [--url URL | --store FILE] [--pdf-config FILE] [--json] COMMAND [arguments] [options]
+const usage = `ivoraige [--store FILE] [--url URL] [--pdf-config FILE] [--json] COMMAND [arguments] [options]
 Commands: import, documents, units, unit, revisions, edit, accept, unaccept,
   translate, export, snapshots, artifacts, tasks, task, pause, resume, cancel, abandon,
-  settings, capabilities, components, call, serve, mcp, host, help
+  settings, prompts, capabilities, components, call, serve, mcp, host, help
 Internal operations: call OPERATION --set JSON
 MCP: mcp --stdio [--store FILE] attaches an existing resident owner; HTTP MCP is off by default
 Host: host state|drain|exit|operation ID; host domain inspect|recover --mode copy --expected-diagnostic HASH --confirm
@@ -22,6 +22,9 @@ Components: status, catalog, credential --token-env NAME, install, local --path 
 Common options: --target-lang LANG, --json, --json-events, --no-wait, --url URL, --store FILE, --pdf-config FILE
 Export: --format md,json --content-mode source|accepted-translation [--target-lang LANG]
 Import/export: --adapter ID selects a registered source/output adapter
+--url verifies the HTTP origin of the resident owner selected by --store; it is not a standalone remote connection.
+CLI file paths (--path, --out) are resolved against this process's working directory before owner invocation.
+--json-events works only with a self-owned local kernel; attached tasks require polling.
 `
 
 function parse(argv) {
@@ -31,7 +34,7 @@ function parse(argv) {
     'path', 'format', 'adapter', 'source-id', 'external-ref', 'source-lang', 'title', 'target-lang', 'cursor',
     'limit', 'origin', 'filter', 'text', 'base-revision', 'expected-accepted', 'mode',
     'units', 'out', 'snapshot', 'on-missing-accepted', 'state', 'kind', 'set', 'ref', 'value', 'token-env',
-    'file-action', 'content-mode', 'registry-root', 'budget-ms', 'expected-generation', 'expected-diagnostic'])
+    'prompt', 'file-action', 'content-mode', 'registry-root', 'budget-ms', 'expected-generation', 'expected-diagnostic'])
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i]
     if (!token.startsWith('--')) { positional.push(token); continue }
@@ -70,13 +73,21 @@ function route(command, args, o) {
           'POST', '/api/components/credential']
         case 'credential-clear': return ['componentCredentialClear', {}, 'DELETE', '/api/components/credential']
         case 'install': return ['componentInstall', { id: 'babeldoc' }, 'POST', '/api/components/install']
-        case 'local': return ['componentLocal', { path: required(o.path, '--path manifest') }, 'POST', '/api/components/local']
+        case 'local': return ['componentLocal', { path: resolve(required(o.path, '--path manifest')) }, 'POST', '/api/components/local']
         case 'task': return ['componentTask', { taskId: required(args[1], 'component task ID') }, 'GET', `/api/components/tasks/${segment(args[1])}`]
         case 'cancel': return ['componentCancel', { taskId: required(args[1], 'component task ID') }, 'POST', `/api/components/tasks/${segment(args[1])}/cancel`]
         default: throw new KernelError('INVALID_ARGUMENT', 'Unknown components command')
       }
     }
-    case 'import': return ['importDocument', { path: o.path ?? required(args[0], 'file path'),
+    case 'prompts': {
+      const action = args[0] ?? 'list'
+      const input = o.set ? parseSettingsJson(o.set) : {}
+      const names = { list: 'getPromptLibrary', copy: 'copyPrompt', update: 'updatePrompt',
+        bind: 'bindPrompt', restore: 'restorePrompt', resolve: 'resolvePrompt' }
+      if (!names[action]) throw new KernelError('INVALID_ARGUMENT', 'Unknown prompts command')
+      return [names[action], input, 'POST', `/api/operations/${names[action]}`]
+    }
+    case 'import': return ['importDocument', { path: resolve(o.path ?? required(args[0], 'file path')),
       format: o.format, adapterId: o.adapter, sourceId: o['source-id'], externalRef: o['external-ref'],
       language: required(o['source-lang'], '--source-lang'), title: o.title, origin: 'cli' }, 'POST', '/api/documents/import']
     case 'documents': return args[0] ? ['getDocument', { docId }, 'GET', `/api/documents/${segment(docId)}`] :
@@ -94,7 +105,7 @@ function route(command, args, o) {
     case 'unaccept': return ['unaccept', { unitId: required(unitId, 'unit ID'), targetLang: required(targetLang, '--target-lang'),
       expectedAcceptedRevisionId: o['expected-accepted'] ?? null }, 'POST', `/api/units/${segment(unitId)}/unaccept`]
     case 'translate': return ['translate', { docId: required(docId, 'document ID'), targetLang: required(targetLang, '--target-lang'),
-      mode: o.mode, unitIds: o.units?.split(',') }, 'POST', `/api/documents/${segment(docId)}/translate`]
+      mode: o.mode, unitIds: o.units?.split(','), promptTemplateId: o.prompt }, 'POST', `/api/documents/${segment(docId)}/translate`]
     case 'export': {
       const formats = required(o.format, '--format').split(',')
       if ((o.out || o.adapter) && formats.length !== 1)
@@ -103,7 +114,7 @@ function route(command, args, o) {
       contentMode: o['content-mode'],
       targetLang: o['content-mode'] === 'source' ? targetLang : required(targetLang, '--target-lang'),
       outputs: formats.map(format => ({ format, ...(o.adapter ? { adapterId: o.adapter } : {}),
-        ...(o.out ? { out: o.out } : {}) })),
+        ...(o.out ? { out: resolve(o.out) } : {}) })),
       snapshotId: o.snapshot, onMissingAccepted: o['on-missing-accepted'] }, 'POST', `/api/documents/${segment(docId)}/export`]
     }
     case 'snapshots': return args[1] === 'delete' ? ['deleteSnapshot',
@@ -215,6 +226,8 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
     mcpStdio = command === 'mcp' && !!o.stdio
     if (o.stdio && command !== 'mcp') throw new KernelError('INVALID_ARGUMENT', '--stdio is only supported by mcp')
     if (command === 'help' || o.help) { stdout.write(usage); return 0 }
+    if (o.url && !o.store)
+      throw new KernelError('INVALID_ARGUMENT', '--url requires an explicit --store to select the resident owner')
     if (suppliedApp && (['serve', 'mcp'].includes(command) ||
         ['url', 'store', 'settings-dir', 'export-dir', 'pdf-config'].some(key => o[key] !== undefined)))
       throw new KernelError('INVALID_ARGUMENT', 'A supplied host owns its configuration; use business commands without host options')
@@ -237,7 +250,7 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
         let result
         if (positional[1] === 'inspect') result = await inspectHostDomain({ store, registryRoot })
         else if (positional[1] === 'recover') {
-          const { exportDir: _outputLocation, ...ownerConfigBinding } = await hostConfigBinding(await localOptions())
+          const ownerConfigBinding = persistentHostBinding(await hostConfigBinding(await localOptions()))
           result = await recoverHostDomain({ store, registryRoot,
             mode: o.mode, expectedDiagnostic: o['expected-diagnostic'], confirm: o.confirm === true,
             ownerConfigBinding })
@@ -298,6 +311,11 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
       try { app = await attachHost({ store: options.store, registryRoot: options.registryRoot,
         binding: await hostConfigBinding(options) }) }
       catch (error) {
+        if (o.url && (['owner-absent', 'owner-unreachable'].includes(error.details?.reason) ||
+            ['ENOENT', 'ECONNREFUSED'].includes(error.code)))
+          throw new KernelError('PRECONDITION_FAILED',
+            '--url requires a resident owner for the selected --store; run launch or serve first',
+            { reason: 'owner-required' })
         if (o.url || !['owner-absent', 'owner-unreachable'].includes(error.details?.reason) &&
             !['ENOENT', 'ECONNREFUSED'].includes(error.code)) throw error
         app = await createApp(options)

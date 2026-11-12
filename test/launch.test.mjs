@@ -1,8 +1,10 @@
+import './fixtures/host-test-env.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, readFile } from 'node:fs/promises'
+import { mkdtemp, rm, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { fileURLToPath } from 'node:url'
 import { launch } from '../src/launch.mjs'
 import { runCli } from '../src/cli.mjs'
 
@@ -71,13 +73,41 @@ test('first launch keeps text usable without PDF and reuses the same running wor
   assert.equal(second.reused, true)
   assert.equal(second.url, first.url)
   assert.equal(opened.length, 2)
-  assert.ok(opened.every(url => url.startsWith(`${first.url}/#owner=`)))
+  assert.ok(opened.every(url => url.startsWith('file://') && !url.includes('owner=') && !url.includes(first.url)))
   assert.notEqual(opened[0], opened[1])
+  for (const page of opened) {
+    const file = fileURLToPath(page)
+    const html = await readFile(file, 'utf8')
+    assert.match(html, /location\.replace\("http:\/\/127\.0\.0\.1:[0-9]+\/#owner=/)
+    if (process.platform !== 'win32') assert.equal((await stat(file)).mode & 0o777, 0o600)
+  }
   await second.close()
+  await assert.rejects(readFile(fileURLToPath(opened[1])))
   assert.equal((await fetch(`${first.url}/api/capabilities`)).status, 401)
   const status = await first.app.operations.invoke('componentStatus')
   assert.equal(status.credentialConfigured, false)
   assert.equal(status.installed, null)
+})
+
+test('failed browser opener removes the private pairing page and does not expose its credential', async t => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'ivoraige-launch-failed-opener-'))
+  t.after(() => rm(dataDir, { recursive: true, force: true }))
+  let page
+  try {
+    await assert.rejects(launch({ dataDir, opener: async url => {
+      page = fileURLToPath(url)
+      await Promise.resolve()
+      throw new Error('opener unavailable')
+    } }), /opener unavailable/)
+  } catch (error) {
+    if (!process.env.CI && ['EPERM', 'EACCES'].includes(error.actual?.code) && error.actual?.syscall === 'listen') {
+      t.skip('Local sandbox does not permit owner socket listening')
+      return
+    }
+    throw error
+  }
+  assert.ok(page)
+  await assert.rejects(readFile(page))
 })
 
 test('program restart preserves accepted text and frozen output in the user directory', async t => {

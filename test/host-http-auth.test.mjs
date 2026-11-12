@@ -50,7 +50,7 @@ test('HTTP private routes require paired owner cookie and CSRF', async t => {
   const app = ownerApp()
   let server
   try {
-    try { server = await serve(app, { port: 0, instance: { id: 'public-id' } }) }
+    try { server = await serve(app, { port: 0 }) }
     catch (error) {
       if (!process.env.CI && ['EPERM', 'EACCES'].includes(error.code)) {
         t.skip('Local sandbox does not permit loopback listening'); return
@@ -79,17 +79,19 @@ test('HTTP private routes require paired owner cookie and CSRF', async t => {
     const { csrfToken } = await exchanged.json()
     assert.equal((await request('/api/host/session', { method: 'POST', headers: { Origin: origin,
       'Content-Type': 'application/json' }, body: JSON.stringify({ credential }) })).status, 401)
-    assert.equal((await request('/api/host/state?expectedGeneration=generation-a',
-      { headers: { Cookie: cookie } })).status, 200)
-    assert.equal((await request('/api/instance', { headers: { Cookie: cookie } })).status, 200)
-    assert.equal((await request('/api/host/drain', { method: 'POST', headers: { Cookie: cookie, Origin: origin,
-      'Content-Type': 'application/json' }, body: JSON.stringify({ expectedGeneration: 'generation-a',
-      budgetMs: 100 }) })).status, 403)
-    assert.equal((await request('/api/host/drain', { method: 'POST', headers: { Cookie: cookie, Origin: origin,
-      'X-Ivoraige-CSRF': csrfToken, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ expectedGeneration: 'generation-a', budgetMs: 100 }) })).status, 200)
-    assert.equal((await request('/api/host/state?expectedGeneration=wrong',
-      { headers: { Cookie: cookie } })).status, 409)
+    const control = (action, params = {}, token = csrfToken, generation = 'generation-a') =>
+      request('/api/host-control', { method: 'POST', headers: { Cookie: cookie, Origin: origin,
+        ...(token ? { 'X-Ivoraige-CSRF': token } : {}), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ interfaceVersion: 'HostControl@1', minor: 0, requestId: 'test-request',
+          action, expectedGeneration: generation, params }) })
+    assert.equal((await control('state', {}, null)).status, 403)
+    const state = await control('state')
+    assert.equal(state.status, 200)
+    assert.equal((await state.json()).requestId, 'test-request')
+    assert.equal((await control('drain', { budgetMs: 100 })).status, 200)
+    assert.equal((await control('state', {}, csrfToken, 'wrong')).status, 409)
+    assert.equal((await request('/api/host/state', { headers: { Cookie: cookie } })).status, 404)
+    assert.equal((await request('/api/instance', { headers: { Cookie: cookie } })).status, 404)
     assert.equal((await request('/api/host/session/refresh', { method: 'POST',
       headers: { Cookie: cookie } })).status, 403)
     assert.equal((await request('/api/host/session/refresh', { method: 'POST',
@@ -99,9 +101,7 @@ test('HTTP private routes require paired owner cookie and CSRF', async t => {
     assert.equal(refreshed.status, 200)
     const nextToken = (await refreshed.json()).csrfToken
     assert.notEqual(nextToken, csrfToken)
-    assert.equal((await request('/api/host/drain', { method: 'POST', headers: { Cookie: cookie, Origin: origin,
-      'X-Ivoraige-CSRF': csrfToken, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ expectedGeneration: 'generation-a', budgetMs: 100 }) })).status, 403)
+    assert.equal((await control('drain', { budgetMs: 100 })).status, 403)
     app.state.storeOwnership = 'released'
     assert.equal((await request('/api/instance', { headers: { Cookie: cookie } })).status, 401)
   } finally { await server?.close() }

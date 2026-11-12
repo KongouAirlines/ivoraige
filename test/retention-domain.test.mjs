@@ -1,3 +1,4 @@
+import './fixtures/host-test-env.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
@@ -114,6 +115,44 @@ test('new store starts at domain 2; old domain 1 permits normal writes until fir
   await f.close()
   await assertOldReaderRejects(f.store)
   assert.equal((await f.reopen()).records.record(doc.id).artifacts[0].id, item.id)
+})
+
+test('a prompt run override fences older Records readers before its task row is saved', async t => {
+  const f = await fixture(t)
+  const doc = await document(f.app)
+  assert.equal(version(f.store), 2)
+  const task = await f.app.records.createTranslationTask(doc.id,
+    { targetLang: 'zh-CN', promptTemplateId: 'chosen-template' })
+  assert.equal(version(f.store), 3)
+  assert.equal(f.app.records.getTask(task.id).promptTemplateId, 'chosen-template')
+  await f.close()
+  const ctx = new Context()
+  try {
+    await ctx.plugin(Storage)
+    await ctx.plugin(StorageSqlite, { path: f.store })
+    await ctx.plugin(StorageDomain, { backend: 'sqlite' })
+    const oldSpec = StorageDomain.defineDomain({ name: 'ivoraige_records', version: 2,
+      layout: 'per-record', tables: { documents: StorageDomain.domainTable(z.unknown()),
+        imports: StorageDomain.domainTable(z.unknown()) } })
+    await assert.rejects(ctx.get('storageDomain').open(oldSpec), error =>
+      error.code === 'version-mismatch' && /stamped version 3/.test(error.message))
+  } finally { await ctx.fiber.dispose() }
+  assert.equal((await f.reopen()).records.getTask(task.id).promptTemplateId, 'chosen-template')
+})
+
+test('implicit prompt selection fences old readers; records without prompt fields stay at version 2', async t => {
+  const f = await fixture(t)
+  const doc = await document(f.app)
+  const task = await f.app.records.createTranslationTask(doc.id, { targetLang: 'zh-CN' })
+  assert.equal(version(f.store), 2)
+  await f.app.records.updateTask(task.id, current => ({ ...current,
+    promptSelection: { prompt: { contentId: 'test' } } }))
+  assert.equal(version(f.store), 3)
+  await f.close()
+  stamp(f.store, 2) // Simulate a prompt row under a stale header.
+  assert.equal(version(f.store), 2)
+  assert.equal((await f.reopen()).records.getTask(task.id).promptSelection.prompt.contentId, 'test')
+  assert.equal(version(f.store), 3)
 })
 
 test('domain promotion precedes the Q02 row put and remains safe after a failed put', async t => {

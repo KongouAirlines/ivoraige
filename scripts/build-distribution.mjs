@@ -63,6 +63,7 @@ try {
   delete installEnv.NPM_CONFIG_ALLOW_SCRIPTS
   run(process.execPath, [npmCli, 'ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: appDir, env: installEnv })
   await cp(join(root, 'src'), join(appDir, 'src'), { recursive: true })
+  await cp(join(root, 'plugins'), join(appDir, 'plugins'), { recursive: true })
   const distDir = join(appDir, 'dist')
   await mkdir(distDir, { recursive: true })
   for (const name of ['dsh.mjs', 'DSH-LICENSE.txt', 'THIRD_PARTY_LICENSES.txt']) {

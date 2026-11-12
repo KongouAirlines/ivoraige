@@ -16,6 +16,8 @@ The following project-owned modules are licensed under the MIT License:
   src/tasks.mjs
   src/translation-model.mjs
   src/adapters/*.mjs
+  plugins/mineru/index.mjs
+  plugins/mineru/runner.py
 
 These modules implement translation, document records, frozen exports and
 format adapters. They currently ship in the main package. Shared registries,

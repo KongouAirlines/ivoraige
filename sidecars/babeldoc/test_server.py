@@ -3,19 +3,278 @@
 
 """Fast preflight tests; no BabelDOC import, model, or asset download."""
 
+import importlib.util
 import json
+import subprocess
+import sys
 from io import StringIO
 import tempfile
 import unittest
-from contextlib import nullcontext
+from contextlib import chdir, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import server
+from underscore_line import (UNDERSCORE_LINE_POLICY, UNDERSCORE_LINE_POLICY_V2,
+                             _candidate_bounds,
+                             split_paragraph_with_underscore_bounds, underscore_line_scope)
+from layout_fit import LAYOUT_FIT_POLICY, fitted_layout_scope
+
+
+class LayoutFitTests(unittest.TestCase):
+    def component_builder(self):
+        root = Path(__file__).resolve().parents[2]
+        spec = importlib.util.spec_from_file_location("component_builder", root / "scripts/build-pdf-component.py")
+        build = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(build)
+        return build
+
+    def engine(self):
+        box = lambda y=0: SimpleNamespace(x=0, y=y, x2=100, y2=20)
+
+        class Engine:
+            bottom = -22
+            calls = 0
+
+            def _layout_typesetting_units(self, units, bounds, scale, line_skip, paragraph):
+                return [], bounds.y < 0 and scale <= .7
+
+            def _get_optimal_scale(self, paragraph, page, units):
+                self._layout_typesetting_units(units, box(-20), .7, 1.3, paragraph)
+                return .7
+
+            def get_max_bottom_space(self, bounds, page):
+                return self.bottom
+
+            def retypeset_with_precomputed_scale(self, paragraph, page, units, scale):
+                self.calls += 1
+                return self._layout_typesetting_units(units, paragraph.box, scale, 1.3, paragraph)[1]
+
+        return Engine, SimpleNamespace(box=box())
+
+    def test_reuses_fit_box_only_after_rechecking_space_and_still_runs_fit(self):
+        Engine, paragraph = self.engine()
+        engine = Engine()
+        with fitted_layout_scope(Engine):
+            scale = engine._get_optimal_scale(paragraph, None, [])
+            self.assertEqual(paragraph.box.y, 0, "dry run must not mutate source geometry")
+            self.assertTrue(engine.retypeset_with_precomputed_scale(paragraph, None, [], scale))
+            self.assertEqual(paragraph.box.y, -20)
+            self.assertEqual(engine.calls, 1)
+
+    def test_new_obstacle_or_changed_paragraph_or_global_scale_uses_original_path(self):
+        for change in ("obstacle", "geometry", "scale"):
+            with self.subTest(change=change):
+                Engine, paragraph = self.engine()
+                engine = Engine()
+                with fitted_layout_scope(Engine):
+                    scale = engine._get_optimal_scale(paragraph, None, [])
+                    if change == "obstacle": engine.bottom = -5
+                    if change == "geometry": paragraph.box.x2 = 80
+                    if change == "scale": scale = .65
+                    self.assertFalse(engine.retypeset_with_precomputed_scale(paragraph, None, [], scale))
+                    self.assertEqual(paragraph.box.y, 0)
+                    self.assertEqual(engine.calls, 1)
+
+    def test_disabled_policy_and_lifecycle_restore_original_methods(self):
+        Engine, paragraph = self.engine()
+        original = (Engine._get_optimal_scale, Engine._layout_typesetting_units,
+                    Engine.retypeset_with_precomputed_scale)
+        engine = Engine()
+        with fitted_layout_scope(Engine, False):
+            scale = engine._get_optimal_scale(paragraph, None, [])
+            self.assertFalse(engine.retypeset_with_precomputed_scale(paragraph, None, [], scale))
+        with self.assertRaisesRegex(RuntimeError, "invented"):
+            with fitted_layout_scope(Engine):
+                raise RuntimeError("invented")
+        self.assertEqual(original, (Engine._get_optimal_scale, Engine._layout_typesetting_units,
+                                  Engine.retypeset_with_precomputed_scale))
+
+    def test_policy_identity_keeps_legacy_configs_and_rejects_unknown_policy(self):
+        legacy = server.capture_config(None, 5)
+        self.assertNotIn("layoutFitPolicy", legacy)
+        self.assertEqual(server.capture_config(None, 5, layout_fit_policy=LAYOUT_FIT_POLICY),
+                         {**legacy, "layoutFitPolicy": LAYOUT_FIT_POLICY})
+        with self.assertRaisesRegex(server.SidecarError, "policy unsupported"):
+            server.capture_config(None, 5, layout_fit_policy="invented")
+        self.assertNotIn("underscoreLinePolicy", legacy)
+        self.assertEqual(server.capture_config(None, 5, underscore_line_policy=UNDERSCORE_LINE_POLICY),
+                         {**legacy, "underscoreLinePolicy": UNDERSCORE_LINE_POLICY})
+        with self.assertRaisesRegex(server.SidecarError, "policy unsupported"):
+            server.capture_config(None, 5, underscore_line_policy="invented")
+
+    def test_component_build_refuses_unverified_old_executable_reuse(self):
+        build = Path(__file__).resolve().parents[2] / "scripts/build-pdf-component.py"
+        result = subprocess.run([sys.executable, str(build), "--python", sys.executable,
+                                 "--reuse-pyinstaller-build"], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("build a fresh matching sidecar", result.stderr)
+
+    def test_component_build_keeps_the_current_interpreter_path(self):
+        build = self.component_builder()
+        current = Path(sys.executable).absolute()
+        self.assertEqual(build.require_build_python(str(current)), current)
+        with chdir(current.parent):
+            self.assertEqual(build.require_build_python(current.name), current)
+        with patch.object(build.sys, "executable", ""):
+            with self.assertRaisesRegex(RuntimeError, "Cannot identify"):
+                build.require_build_python(str(current))
+
+    def test_component_build_rejects_another_environment_before_side_effects(self):
+        build = self.component_builder()
+        with tempfile.TemporaryDirectory() as directory:
+            other = Path(directory) / "another-python"
+            other.write_text("not the active interpreter", encoding="utf-8")
+            with patch.object(sys, "argv", [str(build.__file__), "--python", str(other)]), \
+                 patch.object(build, "run") as run, \
+                 patch.object(build.shutil, "rmtree") as remove, \
+                 patch.dict(sys.modules, {"babeldoc": None, "pymupdf": None, "PyInstaller": None}):
+                with self.assertRaisesRegex(RuntimeError, "--python must name the interpreter running this script"):
+                    build.main()
+                run.assert_not_called()
+                remove.assert_not_called()
+
+    def test_component_build_does_not_collapse_virtual_environment_aliases(self):
+        build = self.component_builder()
+        with tempfile.TemporaryDirectory() as directory:
+            first = Path(directory) / "first-python"
+            second = Path(directory) / "second-python"
+            try:
+                first.symlink_to(sys.executable)
+                second.symlink_to(sys.executable)
+            except OSError as error:
+                self.skipTest(f"Executable symlinks are unavailable: {error}")
+            self.assertTrue(first.samefile(second))
+            with patch.object(build.sys, "executable", str(first)):
+                self.assertEqual(build.require_build_python(str(first)), first)
+                with self.assertRaisesRegex(RuntimeError, "same environment"):
+                    build.require_build_python(str(second))
+
+    def test_plans_are_object_scoped_consumed_once_and_not_shared_between_calls(self):
+        Engine, first = self.engine()
+        _, second = self.engine()
+        engine = Engine()
+        with fitted_layout_scope(Engine):
+            scale = engine._get_optimal_scale(first, None, [])
+            # Equal geometry alone does not authorize a plan for another object/owner.
+            self.assertFalse(engine.retypeset_with_precomputed_scale(second, None, [], scale))
+            self.assertFalse(Engine().retypeset_with_precomputed_scale(first, None, [], scale))
+            self.assertTrue(engine.retypeset_with_precomputed_scale(first, None, [], scale))
+            first.box.y = 0
+            self.assertFalse(engine.retypeset_with_precomputed_scale(first, None, [], scale))
+            engine._get_optimal_scale(first, None, [])
+        with fitted_layout_scope(Engine):
+            self.assertFalse(engine.retypeset_with_precomputed_scale(first, None, [], scale))
+
+    def test_optional_layout_runtime_gate_checks_all_version_axes(self):
+        from test_layout_engine import require_layout_runtime
+        require_layout_runtime("0.6.4", "1.26.7", (3, 13, 5))
+        for versions in (("0.7.1", "1.26.7", (3, 13)),
+                         ("0.6.4", "1.26.8", (3, 13)),
+                         ("0.6.4", "1.26.7", (3, 12))):
+            with self.subTest(versions=versions), self.assertRaisesRegex(RuntimeError, "requires"):
+                require_layout_runtime(*versions)
+
+    def test_component_stages_the_exact_layout_and_underscore_policy_sources(self):
+        root = Path(__file__).resolve().parents[2]
+        build = self.component_builder()
+        with tempfile.TemporaryDirectory() as directory:
+            stage = Path(directory)
+            source = root / "sidecars/babeldoc"
+            build.stage_sidecar_sources(source, stage)
+            self.assertEqual({item.name for item in stage.iterdir()},
+                             {"server.py", "layout_fit.py", "underscore_line.py", "requirements.lock", "LICENSE", "COPYING"})
+            for item in stage.iterdir():
+                self.assertEqual(item.read_bytes(), (source / item.name).read_bytes())
 
 
 class BindingTests(unittest.TestCase):
+    def test_v2_nominal_baseline_distinguishes_ink_shape_and_rejects_bad_boxes(self):
+        def glyph(symbol, x, visual_y, nominal_y):
+            visual = SimpleNamespace(x=x, x2=x + .8, y=visual_y, y2=visual_y + 1)
+            nominal = SimpleNamespace(x=x, x2=x + .8, y=nominal_y, y2=nominal_y + 1)
+            return SimpleNamespace(char_unicode=symbol, vertical=False, xobj_id=1,
+                pdf_style=SimpleNamespace(font_id="F", font_size=12),
+                visual_bbox=SimpleNamespace(box=visual), box=nominal)
+        chars = [glyph("X", 0, 8, 8), glyph("_", 1, 0, 8),
+                 glyph("Y", 2, 8, 8)]
+        chars[0].visual_bbox.box.y2 = 11
+        chars[2].visual_bbox.box.y2 = 14
+        bounds = lambda char: (char.visual_bbox.box.y, char.visual_bbox.box.y2)
+        self.assertEqual(_candidate_bounds(chars, bounds), {})
+        self.assertEqual(_candidate_bounds(chars, bounds, UNDERSCORE_LINE_POLICY_V2),
+                         {id(chars[1]): (8, 14)})
+        chars[1].box.y = 6
+        self.assertEqual(_candidate_bounds(chars, bounds, UNDERSCORE_LINE_POLICY_V2), {})
+        chars[1].box.y = 8
+        for bad in (float("nan"), float("inf"), -1):
+            chars[1].box.y2 = bad
+            self.assertEqual(_candidate_bounds(chars, bounds, UNDERSCORE_LINE_POLICY_V2), {})
+        with self.assertRaisesRegex(ValueError, "Unsupported underscore line policy"):
+            _candidate_bounds(chars, bounds, "unrecognized")
+
+    def test_underscore_bound_guard_is_local_and_requires_ascii_letter_neighbors(self):
+        def glyph(symbol, x, y, *, font="F"):
+            box = SimpleNamespace(x=x, x2=x + 0.8, y=y, y2=y + 1)
+            return SimpleNamespace(
+                char_unicode=symbol, vertical=False, xobj_id=1,
+                pdf_style=SimpleNamespace(font_id=font, font_size=10),
+                visual_bbox=SimpleNamespace(box=box),
+            )
+        bounds = lambda char: (char.visual_bbox.box.y, char.visual_bbox.box.y2)
+        chars = [glyph("X", 0, 8), glyph("_", 1, 0), glyph("Y", 2, 8)]
+        self.assertEqual(UNDERSCORE_LINE_POLICY, "ascii-base-v1")
+        self.assertEqual(_candidate_bounds(chars, bounds), {id(chars[1]): (8, 9)})
+        self.assertEqual(chars[1].visual_bbox.box.y, 0)
+        self.assertEqual(_candidate_bounds([chars[0], None, chars[1], chars[2]], bounds), {})
+        for right in (glyph("2", 2, 8), glyph("+", 2, 8), glyph("ב", 2, 8),
+                      glyph("Y", 2, 8, font="G")):
+            self.assertEqual(_candidate_bounds([chars[0], chars[1], right], bounds), {})
+        for invalid in (float("nan"), float("inf"), -1):
+            damaged = glyph("_", 1, 0)
+            damaged.visual_bbox.box.x2 = invalid
+            self.assertEqual(_candidate_bounds([chars[0], damaged, chars[2]], bounds), {})
+        self.assertEqual(_candidate_bounds(chars, lambda char: (float("nan"), 9)), {})
+
+    def test_underscore_scope_restores_class_method(self):
+        class Finder:
+            def _split_paragraph_into_lines(self, paragraph, formula_font_ids):
+                return "original"
+
+        original = Finder._split_paragraph_into_lines
+        with underscore_line_scope(Finder, enabled=False):
+            self.assertIs(Finder._split_paragraph_into_lines, original)
+        with self.assertRaisesRegex(ValueError, "synthetic"):
+            with underscore_line_scope(Finder):
+                self.assertIsNot(Finder._split_paragraph_into_lines, original)
+                raise ValueError("synthetic")
+        self.assertIs(Finder._split_paragraph_into_lines, original)
+
+    def test_underscore_instance_bounds_restore_when_upstream_split_raises(self):
+        def glyph(value, x, y):
+            return SimpleNamespace(char_unicode=value, vertical=False, xobj_id=1,
+                pdf_style=SimpleNamespace(font_id="F", font_size=10),
+                visual_bbox=SimpleNamespace(box=SimpleNamespace(x=x, x2=x+.8, y=y, y2=y+1)))
+        chars = [glyph("X", 0, 8), glyph("_", 1, 0), glyph("Y", 2, 8)]
+        paragraph = SimpleNamespace(pdf_paragraph_composition=[
+            SimpleNamespace(pdf_character=char) for char in chars])
+        class Finder:
+            def _get_effective_y_bounds(self, char):
+                return char.visual_bbox.box.y, char.visual_bbox.box.y2
+        for own_override in (False, True):
+            finder = Finder()
+            if own_override:
+                finder._get_effective_y_bounds = lambda char: (char.visual_bbox.box.y, char.visual_bbox.box.y2)
+            original = finder._get_effective_y_bounds
+            def fail(finder, paragraph, fonts):
+                self.assertEqual(finder._get_effective_y_bounds(chars[1]), (8, 9))
+                raise ValueError("invented split failure")
+            with self.assertRaisesRegex(ValueError, "invented"):
+                split_paragraph_with_underscore_bounds(finder, paragraph, set(), fail)
+            self.assertEqual(finder._get_effective_y_bounds, original)
+            self.assertEqual("_get_effective_y_bounds" in vars(finder), own_override)
+
     def test_capture_summary_counts_overlapping_audit_and_empty_units(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
             path = Path(directory) / "invented.pdf"
@@ -66,6 +325,8 @@ class BindingTests(unittest.TestCase):
             def capture(_source, config, mode):
                 self.assertEqual(mode, "capture")
                 self.assertEqual(config["sourceLanguage"], "zh-CN")
+                self.assertEqual(config["layoutFitPolicy"], LAYOUT_FIT_POLICY)
+                self.assertEqual(config["underscoreLinePolicy"], UNDERSCORE_LINE_POLICY_V2)
                 self.assertEqual(server.engine_pair(config["sourceLanguage"]), ("zh", "en"))
                 return [call], [paragraph], []
 
@@ -120,6 +381,36 @@ class BindingTests(unittest.TestCase):
             with patch.object(server, "run_engine", side_effect=replay):
                 result = server.rebuild(params)
             self.assertEqual(result["evidence"]["modelRequests"], 0)
+            # Old bindings keep their original policy; new captures pin the fix.
+            Path(params["out"]).unlink()
+            binding["captureConfig"] = server.capture_config(None, 5, "zh-Hans", LAYOUT_FIT_POLICY)
+            write("zh-Hans", "en")
+            with patch.object(server, "run_engine", side_effect=replay) as engine:
+                result = server.rebuild(params)
+            self.assertEqual(engine.call_args.args[1]["layoutFitPolicy"], LAYOUT_FIT_POLICY)
+            self.assertEqual(result["evidence"]["modelRequests"], 0)
+            for underscore_policy in (UNDERSCORE_LINE_POLICY, UNDERSCORE_LINE_POLICY_V2):
+                for layout_policy in (None, LAYOUT_FIT_POLICY):
+                    Path(params["out"]).unlink()
+                    binding["captureConfig"] = server.capture_config(
+                        None, 5, "zh-Hans", layout_policy, underscore_policy)
+                    write("zh-Hans", "en")
+                    with patch.object(server, "run_engine", side_effect=replay) as engine:
+                        server.rebuild(params)
+                    self.assertEqual(engine.call_args.args[1]["underscoreLinePolicy"], underscore_policy)
+            binding["captureConfig"]["layoutFitPolicy"] = "unknown"
+            write("zh-Hans", "en")
+            with patch.object(server, "run_engine") as engine:
+                with self.assertRaisesRegex(server.SidecarError, "policy unsupported"):
+                    server.rebuild(params)
+                engine.assert_not_called()
+            binding["captureConfig"]["layoutFitPolicy"] = LAYOUT_FIT_POLICY
+            binding["captureConfig"]["underscoreLinePolicy"] = "unknown"
+            write("zh-Hans", "en")
+            with patch.object(server, "run_engine") as engine:
+                with self.assertRaisesRegex(server.SidecarError, "policy unsupported"):
+                    server.rebuild(params)
+                engine.assert_not_called()
 
     def test_null_noncallback_structure_keeps_location_and_body(self):
         structure = {'key': 'layout', 'page': 0, 'bbox': [0, 0, 1, 1],
@@ -223,6 +514,95 @@ class BindingTests(unittest.TestCase):
                          [{"token": "<b1>", "text": "<b1>"},
                           {"token": "<b1>", "text": "<b1>"}])
 
+    def test_many_unique_literal_anchors_do_not_recurse(self):
+        count = 1200
+        request = "START " + "".join(f"<b{i}> K{i} " for i in range(count)) + "END"
+        source = "START " + "".join(f"x K{i} " for i in range(count)) + "END"
+        uncertain = []
+        mapped = server.display_mapping(request, source, uncertain=uncertain)
+        self.assertEqual(mapped, [
+            {"token": f"<b{i}>", "text": "x"} for i in range(count)
+        ])
+        self.assertEqual(uncertain, [])
+
+    def test_repeated_anchors_without_complete_match_have_bounded_fallback(self):
+        request = "A " + "".join(f"<b{i}> a " for i in range(8)) + "END"
+        source = "A " + "x a " * 40 + "missing"
+        payloads = [{"type": "formula", "placeholder": "<b0>",
+                     "formula_chars": "retained formula"}]
+        uncertain = []
+        with patch.object(server, "DISPLAY_MAPPING_MAX_CANDIDATES", 300):
+            mapped = server.display_mapping(request, source, payloads, uncertain)
+        self.assertEqual(mapped[0], {"token": "<b0>", "text": "retained formula"})
+        self.assertEqual(mapped[1], {"token": "<b1>", "text": "<b1>"})
+        self.assertEqual(len(mapped), 8)
+        self.assertIn("literal alignment search limit reached", uncertain)
+        self.assertIn("<b0> (payload)", uncertain)
+        self.assertIn("<b1> (literal token)", uncertain)
+
+    def test_search_character_budget_also_falls_back(self):
+        uncertain = []
+        with patch.object(server, "DISPLAY_MAPPING_MAX_SEARCH_CHARS", 2):
+            mapped = server.display_mapping("A <b1> B <b2> C", "A x B y C",
+                                            uncertain=uncertain)
+        self.assertEqual(mapped, [{"token": "<b1>", "text": "<b1>"},
+                                  {"token": "<b2>", "text": "<b2>"}])
+        self.assertEqual(uncertain, ["literal alignment search limit reached",
+                                     "<b1> (literal token)", "<b2> (literal token)"])
+
+    def test_budget_exhaustion_discards_a_complete_but_unproven_solution(self):
+        request = "A <b1> B <b2> C"
+        source = "A x B y B z C"
+        payloads = [{"type": "formula", "placeholder": "<b1>",
+                     "formula_chars": "retained formula"}]
+        # Both limits allow the first complete alignment, but stop the search
+        # before it can discover the second one and disprove uniqueness.
+        for limit, budget in (("DISPLAY_MAPPING_MAX_CANDIDATES", 1),
+                              ("DISPLAY_MAPPING_MAX_SEARCH_CHARS", len(source) - 2)):
+            with self.subTest(limit=limit), patch.object(server, limit, budget):
+                uncertain = []
+                mapped = server.display_mapping(request, source, payloads, uncertain)
+                self.assertEqual(mapped, [
+                    {"token": "<b1>", "text": "retained formula"},
+                    {"token": "<b2>", "text": "<b2>"},
+                ])
+                self.assertEqual(uncertain, ["literal alignment search limit reached",
+                                             "<b1> (payload)", "<b2> (literal token)"])
+
+    def test_alignment_copies_only_a_proven_unique_result(self):
+        class CountedSource(str):
+            def __new__(cls, value):
+                instance = super().__new__(cls, value)
+                instance.slices = []
+                return instance
+
+            def __getitem__(self, key):
+                if isinstance(key, slice):
+                    self.slices.append(key)
+                return super().__getitem__(key)
+
+        # Repeated late anchors used to copy the long prefix on every dead end.
+        # Keep the fixture small and count slices rather than stressing memory.
+        source = CountedSource("x" * 10_000 + "A" * 200 + "Z")
+        mapped = server.display_mapping("<b0>A<b1>MISSING<b2>Z", source)
+        self.assertEqual([item["text"] for item in mapped], ["<b0>", "<b1>", "<b2>"])
+        self.assertEqual(source.slices, [])
+
+        for limit, budget in ((None, None), ("DISPLAY_MAPPING_MAX_CANDIDATES", 1),
+                              ("DISPLAY_MAPPING_MAX_SEARCH_CHARS", 6)):
+            with self.subTest(limit=limit, budget=budget):
+                source = CountedSource("xAyAzZ")
+                scope = patch.object(server, limit, budget) if limit else nullcontext()
+                with scope:
+                    mapped = server.display_mapping("<b0>A<b1>Z", source)
+                self.assertEqual([item["text"] for item in mapped], ["<b0>", "<b1>"])
+                self.assertEqual(source.slices, [])
+
+        source = CountedSource("xAyZ")
+        self.assertEqual(server.display_mapping("<b0>A<b1>Z", source),
+                         [{"token": "<b0>", "text": "x"}, {"token": "<b1>", "text": "y"}])
+        self.assertEqual(source.slices, [slice(0, 1), slice(2, 3)])
+
     def test_completed_callbacks_keep_payloads_by_location(self):
         first = {"key": "p0:first", "preparedInput": "A <b1> B",
                  "placeholderPayloads": [{"type": "formula", "placeholder": "<b1>",
@@ -266,6 +646,24 @@ class BindingTests(unittest.TestCase):
             self.assertEqual(record["placeholders"],
                              [{"token": "<b1>", "text": "x"}, {"token": "<b2>", "text": "y"}])
             self.assertIn(f"page 1, {key} used fallback", parsed["doc"]["warnings"][0])
+
+    def test_capture_records_alignment_limit_warning(self):
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
+            path = Path(directory) / "formula.pdf"
+            path.write_bytes(b"%PDF-1.7\n")
+            paragraph = {"page": 0, "bbox": [1, 2, 3, 4], "key": "p0:limit",
+                         "sourceUnicode": "A x B y C", "layoutLabel": "plain text"}
+            call = {**paragraph, "requestText": "A <b1> B <b2> C",
+                    "placeholderPayloads": []}
+            with patch.object(server, "DISPLAY_MAPPING_MAX_SEARCH_CHARS", 2), \
+                 patch.object(server, "run_engine", return_value=([call], [paragraph], [])), \
+                 patch.object(server, "unbound_pdf_lines", return_value=[]):
+                parsed = server.parse({"path": str(path), "options": {"language": "en"}})
+            self.assertEqual(parsed["doc"]["sourceBinding"]["records"][0]["placeholders"],
+                             [{"token": "<b1>", "text": "<b1>"},
+                              {"token": "<b2>", "text": "<b2>"}])
+            self.assertTrue(any("p0:limit used fallback: literal alignment search limit reached"
+                                in warning for warning in parsed["doc"]["warnings"]))
 
     def test_rebuild_preflight_rejects_changed_source_and_placeholders(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:

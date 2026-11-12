@@ -3,6 +3,7 @@
 
 import { Service, BlockAssembler } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
+import { modelConfigurationId, promptContentId, TRANSLATION_FEATURE } from './prompt-library.mjs'
 
 export const PROMPT_VERSION = 'scientific-translation-v3'
 
@@ -58,7 +59,7 @@ function requestEnvelope(value, sourceLang, targetLang) {
 export class TranslationModel extends Service {
   static inject = ['llm']
 
-  constructor(ctx, { provider, model, timeoutMs = 120_000, select } = {}) {
+  constructor(ctx, { provider, model, timeoutMs = 120_000, select, route } = {}) {
     super(ctx, 'ivoraige.translationModel')
     if (select !== undefined && typeof select !== 'function') {
       throw new KernelError('INVALID_ARGUMENT', 'select must be a function')
@@ -67,15 +68,31 @@ export class TranslationModel extends Service {
       throw new KernelError('INVALID_ARGUMENT', 'select cannot be combined with provider or model')
     }
     this.select = select
+    this.route = route
     this.provider = select ? null : requiredString(provider, 'provider')
     this.model = select ? null : requiredString(model, 'model')
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
       throw new KernelError('INVALID_ARGUMENT', 'timeoutMs must be a positive integer')
     }
     this.timeoutMs = timeoutMs
+    const prompts = ctx.get('ivoraige.prompts')
+    if (prompts) ctx.effect(() => prompts.register(TRANSLATION_FEATURE))
   }
 
-  preflight({ basis, signal } = {}) {
+  configuration() {
+    const selection = this.select?.() ?? (this.select ? null :
+      { provider: this.provider, model: this.model, timeoutMs: this.timeoutMs })
+    if (!selection) return null
+    const provider = requiredString(selection.provider, 'provider')
+    const model = requiredString(selection.model, 'model')
+    const timeoutMs = selection.timeoutMs ?? this.timeoutMs
+    if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)
+      throw new KernelError('INVALID_ARGUMENT', 'timeoutMs must be a positive integer')
+    return { provider, model, timeoutMs,
+      configurationId: modelConfigurationId({ provider, model, route: this.route?.(provider) ?? {} }) }
+  }
+
+  async preflight({ basis, signal, docId, promptTemplateId, pinned } = {}) {
     if (!basis || typeof basis !== 'object' || Array.isArray(basis)) {
       throw new KernelError('INVALID_ARGUMENT', 'basis must be an object')
     }
@@ -94,20 +111,33 @@ export class TranslationModel extends Service {
     }
     if (signal?.aborted) throw upstreamFailure(true, 'Model translation canceled')
 
-    const selection = this.select?.() ?? (this.select ? null :
-      { provider: this.provider, model: this.model, timeoutMs: this.timeoutMs })
-    if (!selection) throw new KernelError('COMPONENT_MISSING', 'No translation model configured')
-    const provider = requiredString(selection.provider, 'provider')
-    const model = requiredString(selection.model, 'model')
-    const timeoutMs = selection.timeoutMs ?? this.timeoutMs
-    if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
-      throw new KernelError('INVALID_ARGUMENT', 'timeoutMs must be a positive integer')
-    }
-    return { provider, model, timeoutMs }
+    return this.resolvePromptSelection({ docId, promptTemplateId, pinned })
   }
 
-  async translate({ basis, signal } = {}) {
-    const { provider, model, timeoutMs } = this.preflight({ basis, signal })
+  async resolvePromptSelection({ docId, promptTemplateId, pinned } = {}) {
+    const selection = this.configuration()
+    if (!selection) throw new KernelError('COMPONENT_MISSING', 'No translation model configured')
+    const { provider, model, timeoutMs, configurationId } = selection
+    const prompts = this.ctx.get('ivoraige.prompts')
+    const prompt = pinned?.prompt ?? (prompts ? await prompts.resolve({ ...TRANSLATION_FEATURE,
+      configurationId, docId, templateId: promptTemplateId }) : undefined)
+    if (pinned?.prompt && promptContentId(pinned.prompt.template) !== pinned.prompt.contentId)
+      throw new KernelError('PRECONDITION_FAILED', 'Pinned prompt content changed')
+    if (pinned?.prompt && (pinned.promptTrace?.protocolVersion !== PROMPT_VERSION ||
+        pinned.promptTrace?.contentId !== pinned.prompt.contentId))
+      throw new KernelError('PRECONDITION_FAILED', 'Pinned translation prompt protocol changed')
+    if (pinned && (pinned.provider !== provider || pinned.model !== model ||
+        pinned.configurationId !== configurationId))
+      throw new KernelError('PRECONDITION_FAILED', 'Model configuration changed since task admission')
+    return { provider, model, timeoutMs, configurationId, prompt,
+      ...(prompt ? { promptTrace: { templateId: prompt.template.id, version: prompt.template.version,
+        contentId: prompt.contentId, source: prompt.source, pluginId: prompt.pluginId,
+        featureId: prompt.featureId, configurationId: prompt.configurationId, protocolVersion: PROMPT_VERSION,
+        ...(prompt.fallback ? { fallback: prompt.fallback } : {}) } } : {}) }
+  }
+
+  async translate({ basis, signal, docId, promptTemplateId, pinned } = {}) {
+    const { provider, model, timeoutMs, prompt, promptTrace } = await this.preflight({ basis, signal, docId, promptTemplateId, pinned })
     const { sourceText, sourceLang, targetLang, effectiveContext, effectiveTarget } = basis
     const timeout = AbortSignal.timeout(timeoutMs)
     const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout
@@ -119,7 +149,9 @@ export class TranslationModel extends Service {
         model,
         system: SYSTEM_PROMPT,
         messages: [{ role: 'user', content: [{ type: 'text', text: JSON.stringify({
-          sourceLang, targetLang, effectiveContext, effectiveTarget, sourceText,
+          sourceLang, targetLang, effectiveContext,
+          effectiveTarget: prompt?.template.style ? { ...effectiveTarget, stylePreference: prompt.template.style } : effectiveTarget,
+          sourceText,
         }) }] }],
         signal: requestSignal,
       })) {
@@ -153,6 +185,7 @@ export class TranslationModel extends Service {
       text,
       modelId: `${provider}/${model}`,
       promptVersion: PROMPT_VERSION,
+      ...(promptTrace ? { promptTrace } : {}),
       tokens: { input: count(assembler.usage?.inputTokens), output: count(assembler.usage?.outputTokens) },
     }
   }

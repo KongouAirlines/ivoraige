@@ -1,3 +1,4 @@
+import './fixtures/host-test-env.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -117,8 +118,11 @@ test('component and business work share the pinned unowned quota without reporti
   app.components.performInstall = async () => { await install.promise; return { restartRequired: false } }
   let calls = 0
   const translation = app.ctx.get('ivoraige.translationModel')
+  translation.configuration = () => ({ provider: 'fixture', model: 'quota', timeoutMs: 1_000,
+    configurationId: 'fixture-quota' })
   translation.preflight = async () => {}
-  translation.translate = async () => { calls++; modelEntered.resolve(); await model.promise; return { text: '译文' } }
+  translation.translate = async ({ pinned }) => { calls++; modelEntered.resolve(); await model.promise;
+    return { text: '译文', promptTrace: pinned?.promptTrace } }
   const { document } = await app.records.importDocument({ format: 'txt', content: 'Source.' },
     { sourceId: 'quota', language: 'en' })
   const update = app.records.updateTask.bind(app.records)

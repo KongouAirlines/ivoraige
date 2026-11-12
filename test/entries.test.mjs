@@ -1,3 +1,4 @@
+import './fixtures/host-test-env.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
@@ -370,7 +371,7 @@ test('CLI rejects non-object settings JSON before local initialization or remote
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-settings-json-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const fetch = t.mock.method(globalThis, 'fetch', () => { throw new Error('Unexpected request') })
-  for (const options of [['--store', join(directory, 'store.sqlite')], ['--url', 'http://127.0.0.1:1']]) {
+  for (const options of [['--store', join(directory, 'store.sqlite')], ['--store', join(directory, 'store.sqlite'), '--url', 'http://127.0.0.1:1']]) {
     for (const input of ['null', '[]', '[1]', '"text"', '42', 'true', 'false', '{broken']) {
       let out = '', err = ''
       const code = await runCli([...options, '--json', 'settings', '--set', input], {

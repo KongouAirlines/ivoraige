@@ -1,35 +1,63 @@
 name: Kernel distribution smoke
 
 on:
+  # A PR validates its merge candidate once on each platform. Feature-branch
+  # pushes no longer duplicate that matrix. Keep integration/release checks.
   push:
+    branches: [main, 'release/**']
+    tags: ['v*']
   pull_request:
+  merge_group:
+    types: [checks_requested]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  # Never cancel a main/release/tag or merge-queue integration run.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   package-smoke:
-    name: ${{ matrix.os }} / Node ${{ matrix.node }}
+    name: ${{ matrix.os }} / Node 26.13.0
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        node: ['26.13.0']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v5
         with:
-          node-version: ${{ matrix.node }}
+          node-version: '26.13.0'
+          cache: npm
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
-      - run: python -m unittest discover -s sidecars/babeldoc -p test_server.py
+      - name: PDF distribution inventory fixtures
+        timeout-minutes: 3
+        run: python -m unittest discover -s test -p audit_pdf_closure_test.py
+      - name: PDF sidecar unit tests (no engine)
+        timeout-minutes: 3
+        run: python -m unittest discover -s sidecars/babeldoc -p test_server.py
       - name: Release archive audit fixtures
+        timeout-minutes: 3
         run: python -m unittest discover -s test -p audit_release_archives_test.py
-      - run: npm ci
-      - run: npm run setup:dsh
-      - run: npm test
-        timeout-minutes: 15
-      - run: npm run smoke:package
+      - name: Install locked dependencies
+        timeout-minutes: 5
+        run: npm ci
+      - name: Prepare pinned DSH source
+        timeout-minutes: 5
+        run: npm run setup:dsh
+      - name: Build kernel and web assets
+        timeout-minutes: 5
+        run: npm run build
+      - name: Kernel and cross-platform regression tests
+        timeout-minutes: 10
+        run: npm run test:ci
+      - name: Isolated package install and reinstall acceptance
+        timeout-minutes: 10
+        run: npm run smoke:package

@@ -1,3 +1,4 @@
+import './fixtures/host-test-env.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -110,4 +111,16 @@ test('unconfirmed pinned backend disposal blocks release instead of trusting Cor
     await app.ctx.fiber.dispose()
   }
   await app.dispose()
+})
+
+test('stopped owner may change runtime configuration but not durable directories', async t => {
+  const { app, options } = await fixture(t)
+  const id = app.dataDomainRef
+  await app.dispose()
+  const next = await createApp({ ...options, pdf: { command: process.execPath, args: [], timeoutMs: 23456 } })
+  assert.equal(next.dataDomainRef, id)
+  await next.dispose()
+  await assert.rejects(createApp({ ...options, settingsDir: join(options.registryRoot, 'different-settings') }),
+    error => error.details?.reason === 'owner-config-mismatch' &&
+      error.details.fields.includes('settingsDir') && !JSON.stringify(error.details).includes('different-settings'))
 })

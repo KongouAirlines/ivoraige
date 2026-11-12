@@ -167,7 +167,7 @@ function stateEvents(req, res, app, scope, activeEvents) {
 }
 
 async function listenHttp(app, { host = '127.0.0.1', port = 8787, staticDir, allowedHosts = [],
-  instance, mcp = false, authorizeOwner } = {}) {
+  mcp = false, authorizeOwner } = {}) {
   if (!loopback(host)) throw new KernelError('INVALID_ARGUMENT',
     'Non-loopback listening requires DSH token authentication, which is not configured')
   if (!Number.isInteger(port) || port < 0 || port > 65535)
@@ -248,35 +248,7 @@ async function listenHttp(app, { host = '127.0.0.1', port = 8787, staticDir, all
           requestId: request.requestId, ...(key ? { [key]: result } : result) })
         return
       }
-      if (app.host && pathname.startsWith('/api/host/') && pathname !== '/api/host/session') {
-        const action = pathname.slice('/api/host/'.length)
-        if (!['state', 'operation', 'drain', 'exit'].includes(action) ||
-            req.method !== (['state', 'operation'].includes(action) ? 'GET' : 'POST'))
-          throw new KernelError('NOT_FOUND', 'Route not found')
-        if (req.method === 'GET' && [...url.searchParams.keys()].length !== new Set(url.searchParams.keys()).size)
-          throw new KernelError('INVALID_ARGUMENT', 'Duplicate host control parameter', { reason: 'invalid-request' })
-        const params = req.method === 'GET' ? Object.fromEntries(url.searchParams) : await readBody(req)
-        const fields = action === 'state' ? ['expectedGeneration'] : action === 'operation' ?
-          ['expectedGeneration', 'operationId'] : ['expectedGeneration', 'budgetMs']
-        if (Object.keys(params).length !== fields.length || fields.some(field => !Object.hasOwn(params, field)))
-          throw new KernelError('INVALID_ARGUMENT', 'Invalid host control request', { reason: 'invalid-request' })
-        if (params.expectedGeneration !== app.host.generation) throw new KernelError('CONFLICT',
-          'Host generation changed', { reason: 'stale-generation' })
-        if (['drain', 'exit'].includes(action) && (!Number.isInteger(params.budgetMs) ||
-            params.budgetMs < 1 || params.budgetMs > 120_000))
-          throw new KernelError('INVALID_ARGUMENT', 'Invalid host control budget', { reason: 'invalid-request' })
-        if (action === 'operation' && (typeof params.operationId !== 'string' ||
-            !/^[A-Za-z0-9_.:-]{1,128}$/.test(params.operationId)))
-          throw new KernelError('INVALID_ARGUMENT', 'Invalid host operation ID', { reason: 'invalid-request' })
-        const result = await app.host.handleControl(action, params)
-        send(res, 200, { apiVersion: '2.0', ...(action === 'state' || action === 'operation'
-          ? { [action]: result } : result) })
-        return
-      }
       if (pathname === '/mcp' && mcpEndpoint) { await mcpEndpoint.handle(req, res); return }
-      if (req.method === 'GET' && pathname === '/api/instance' && instance) {
-        send(res, 200, instance); return
-      }
       if (req.method === 'GET' && pathname === '/api/events/state') {
         stateEvents(req, res, app, Object.fromEntries(url.searchParams), activeEvents); return
       }

@@ -1,4 +1,6 @@
+import './fixtures/host-test-env.mjs'
 import test from 'node:test'
+import { createCleanup } from './fixtures/cleanup.mjs'
 import assert from 'node:assert/strict'
 import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -10,14 +12,16 @@ import { syncBuiltinESMExports } from 'node:module'
 
 async function fixture(t, options = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'ivoraige-p04-resource-'))
+  const cleanup = createCleanup(t)
+  cleanup(() => rm(dir, { recursive: true, force: true }))
   const app = await createApp({ store: join(dir, 'store.sqlite'), ...options })
-  t.after(async () => { await app.dispose(); await rm(dir, { recursive: true, force: true }) })
+  cleanup(() => app.dispose())
   const { document } = await app.records.importDocument({ format: 'txt', content: 'Synthetic opaque identity.' }, { language: 'en' })
-  return { app, dir, document }
+  return { app, dir, document, cleanup }
 }
 
 test('resource ownership uses stored opaque unit, revision, task and artifact identity', async t => {
-  const { app, document } = await fixture(t)
+  const { app, document, cleanup } = await fixture(t)
   const docId = document.id
   const unitId = 'unit-opaque-without-owner', revisionId = 'revision:opaque', taskId = 'import.not-an-import', artifactId = 'artifact:opaque'
   await app.records.update(docId, row => ({ ...row, units: row.units.map(unit => ({ ...unit, id: unitId })) }))
@@ -39,7 +43,7 @@ test('resource ownership uses stored opaque unit, revision, task and artifact id
   const good = await unitResource.read(new URL('ivoraige://docs/' + docId + '/units/' + unitId + '?targetLang=zh'), { docId, unitId, targetLang: 'zh' })
   assert.match(good.contents[0].text, /unit-opaque-without-owner/)
   await assert.rejects(unitResource.read(new URL('ivoraige://docs/wrong/units/' + unitId + '?targetLang=zh'), { docId: 'wrong', unitId, targetLang: 'zh' }), { code: 'NOT_FOUND' })
-  const server = await serve(app, { port: 0 }); t.after(() => server.close())
+  const server = await serve(app, { port: 0 }); cleanup(() => server.close())
   const download = await fetch(server.url + '/api/artifacts/' + encodeURIComponent(artifactId) + '/download')
   assert.equal(download.status, 200)
   assert.equal(await download.text(), (await app.resources.readArtifact(artifactId)).bytes.toString())
@@ -48,10 +52,10 @@ test('resource ownership uses stored opaque unit, revision, task and artifact id
 })
 
 test('HTTP and MCP share artifact read size policy and release leases on failure', async t => {
-  const { app, document } = await fixture(t, { maxArtifactBytes: 1 })
+  const { app, document, cleanup } = await fixture(t, { maxArtifactBytes: 1 })
   const exported = await app.exporter.exportDocument(document.id, { contentMode: 'source', outputs: [{ format: 'md' }] })
   const artifactId = exported.artifacts[0].id
-  const server = await serve(app, { port: 0 }); t.after(() => server.close())
+  const server = await serve(app, { port: 0 }); cleanup(() => server.close())
   const response = await fetch(server.url + '/api/artifacts/' + artifactId + '/download')
   assert.equal(response.status, 412)
   assert.equal((await response.json()).error.code, 'PRECONDITION_FAILED')
@@ -61,7 +65,7 @@ test('HTTP and MCP share artifact read size policy and release leases on failure
 })
 
 test('download disconnect while resource acquisition awaits cannot strand a real Records lease', async t => {
-  const { app, document } = await fixture(t)
+  const { app, document, cleanup } = await fixture(t)
   const item = (await app.exporter.exportDocument(document.id, { contentMode: 'source', outputs: [{ format: 'md' }] })).artifacts[0]
   let release, entered, disconnected, cleaned
   const enteredPromise = new Promise(r => { entered = r }), disconnectedPromise = new Promise(r => { disconnected = r })
@@ -74,7 +78,8 @@ test('download disconnect while resource acquisition awaits cannot strand a real
     options.signal.addEventListener('abort', disconnected, { once: true })
     entered(); await gate; return resource
   }
-  const server = await serve(app, { port: 0 }); t.after(() => server.close())
+  const server = await serve(app, { port: 0 }); cleanup(() => server.close())
+  cleanup(() => release())
   const controller = new AbortController()
   const response = fetch(server.url + '/api/artifacts/' + item.id + '/download', { signal: controller.signal })
   await enteredPromise
@@ -89,7 +94,7 @@ test('download disconnect while resource acquisition awaits cannot strand a real
 })
 
 test('the shared resource file-stat await releases its lease after a real download disconnect', { timeout: 5000 }, async t => {
-  const { app, document } = await fixture(t)
+  const { app, document, cleanup } = await fixture(t)
   const item = (await app.exporter.exportDocument(document.id, { contentMode: 'source', outputs: [{ format: 'md' }] })).artifacts[0]
   const gate = () => { let resolve; const promise = new Promise(r => { resolve = r }); return { promise, resolve } }
   const entered = gate(), resume = gate(), aborted = gate(), released = gate()
@@ -104,6 +109,7 @@ test('the shared resource file-stat await releases its lease after a real downlo
     options.signal.addEventListener('abort', aborted.resolve, { once: true })
     return openResource(id, options)
   }
+  const server = await serve(app, { port: 0 }); cleanup(() => server.close())
   const originalOpen = fs.promises.open
   fs.promises.open = async (...args) => {
     const file = await originalOpen(...args)
@@ -114,8 +120,7 @@ test('the shared resource file-stat await releases its lease after a real downlo
     return file
   }
   syncBuiltinESMExports()
-  t.after(() => { fs.promises.open = originalOpen; syncBuiltinESMExports(); resume.resolve() })
-  const server = await serve(app, { port: 0 }); t.after(() => server.close())
+  cleanup(() => { fs.promises.open = originalOpen; syncBuiltinESMExports(); resume.resolve() })
   const controller = new AbortController()
   const request = fetch(server.url + '/api/artifacts/' + item.id + '/download', { signal: controller.signal })
   await entered.promise
@@ -128,7 +133,7 @@ test('the shared resource file-stat await releases its lease after a real downlo
 })
 
 test('shutdown keeps storage owned when a resource file-stat acquisition misses its drain deadline', { timeout: 5000 }, async t => {
-  const { app, dir, document } = await fixture(t)
+  const { app, dir, document, cleanup } = await fixture(t)
   const item = (await app.exporter.exportDocument(document.id, { contentMode: 'source', outputs: [{ format: 'md' }] })).artifacts[0]
   let enter, resume
   const entered = new Promise(r => { enter = r }), blocked = new Promise(r => { resume = r })
@@ -142,7 +147,7 @@ test('shutdown keeps storage owned when a resource file-stat acquisition misses 
     return file
   }
   syncBuiltinESMExports()
-  t.after(() => { fs.promises.open = originalOpen; syncBuiltinESMExports(); resume() })
+  cleanup(() => { fs.promises.open = originalOpen; syncBuiltinESMExports(); resume() })
   const pending = app.resources.openArtifact(item.id).catch(error => error)
   await entered
   await assert.rejects(app.dispose({ budgetMs: 10 }), error =>
