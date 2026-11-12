@@ -1,7 +1,7 @@
 import './fixtures/host-test-env.mjs'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { runCli } from '../src/cli.mjs'
@@ -18,7 +18,8 @@ function capture() {
 
 test('CLI resolves owner-side filesystem arguments from caller cwd', async () => {
   const originalCwd = process.cwd()
-  const cwd = await mkdtemp(join(tmpdir(), 'ivoraige-cli-cwd-'))
+  // chdir/getcwd resolves system aliases such as macOS /var -> /private/var.
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), 'ivoraige-cli-cwd-')))
   const { app, calls, stream } = capture()
   try {
     process.chdir(cwd)
