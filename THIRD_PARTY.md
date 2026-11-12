@@ -7,11 +7,11 @@ kernel. The retired MVP service remains on `codex/archive-mvp-0.0.0`
 not the current source package version.
 
 The optional PDF sidecar is separate from the Node bundle. Its pinned Python
-runtime installs BabelDOC 0.6.4 and PyMuPDF 1.26.7 from
+runtime installs the derived BabelDOC 0.7.1+ivoraige.1 and PyMuPDF 1.26.7 from
 `sidecars/babeldoc/requirements.lock`. The main npm package excludes the Python
 plugin, its setup script, Python environments, wheels, model weights and
 downloaded assets. Plugin source remains in the repository and is included
-in the separate PDF component with its own AGPL notice. The installed BabelDOC 0.6.4 metadata declares
+in the separate PDF component with its own AGPL notice. The upstream BabelDOC 0.7.1 metadata declares
 `AGPL-3.0`; PyMuPDF 1.26.7 declares dual `GNU AFFERO GPL 3.0 or Artifex
 Commercial License`. Before redistributing a bundled sidecar or Python
 dependencies, review the upstream license texts, notices and distribution
@@ -20,6 +20,13 @@ obligations. The Windows installation stage packages a separate PyInstaller
 metadata and license files accompany the component; asset provenance and
 full notices are in `sidecars/babeldoc/asset-licenses/`. These artifacts remain
 separate from the base application and are installed only when PDF is selected.
+
+The derived source bridge and exact official base revision are recorded in
+[its patch notice](sidecars/babeldoc/patches/0.7.1/README.md). Rust parser limits
+are unchanged. The wheel includes a Cargo CycloneDX SBOM in addition to its
+AGPL license; that inventory is not a complete set of native dependency license
+texts. New binaries require a separate native-license and platform audit. The
+Linux development wheel uses glibc 2.34, not the official wheel's 2.28 baseline.
 
 The optional `plugins/mineru/` package contains only ivoraige's MIT-licensed
 JavaScript/Python protocol bridge. It does **not** bundle MinerU, DocVortex,

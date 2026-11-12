@@ -2,9 +2,9 @@
 
 本页面向源码开发与回归验收；准备完成后的日常操作请看 [PDF 使用指南](pdf-guide.md)。
 
-新捕获固定独立的 `captureConfig.underscoreLinePolicy: ascii-base-v2`，同一标记用于捕获与回放的局部下划线分行。v2使用同字体字形的名义框判断基线，避免将正常字形墨迹高度差当成基线错位；已保存的v1仍使用原视觉中心门槛，缺少标记的旧绑定保留原引擎方法。它与 `layoutFitPolicy` 分别校验，旧/v1/v2组合均可回放，未知值拒绝。需要匹配源码 sidecar，冻结绑定不会自动升级；独立组件必须重新构建并携带 `underscore_line.py`。专项测试与范围见[下划线分行记录](../0.1.x/evidence/pdf-underscore-line-0.1.0.md)。
+配套源码使用 `0.7.1+ivoraige.3` 原生派生运行时。新捕获同时固定 `captureConfig.underscoreLinePolicy: ascii-alnum-base-v1` 和 `captureConfig.layoutFitPolicy: fit-box-v1`；相同标记用于捕获与回放，运行时必须提供匹配的原生能力标记。下划线修正使用邻近同字体、字号、名义基线的 ASCII 字母或数字墨迹范围，只影响临时分行。布局策略保留预试排框和比例，复用前重新检查当前原框、比例及可用空间，再执行正常 fit 检查。旧 Python monkeypatch 不用于此运行时。
 
-布局预检策略需要配套源码 sidecar。新捕获固定 `captureConfig.layoutFitPolicy: fit-box-v1`，旧绑定缺少标记时保留原路径。Windows 组件必须重新构建；`--reuse-pyinstaller-build` 暂拒绝旧可执行文件复用，避免源文件已更新而打包程序仍未包含策略。新组件尚未在本阶段构建验收。行为与测试见[布局预检记录](../0.1.x/evidence/pdf-layout-fit-0.1.0.md)。
+旧 0.6.4、`0.7.1+ivoraige.1` 与 `.2` 绑定仍可读取，但不能由新 renderer 回放译文 PDF；需重新导入并人工核对接受修订，不能修改版本字段冒充兼容。Windows 组件必须重新构建，`--reuse-pyinstaller-build` 仍拒绝旧可执行文件复用。本阶段构建和回归证据见[原生集成记录](../0.1.x/evidence/babeldoc-native-fit-0.1.x.md)，早期 Python 实验保留为历史证据，不算原生验收。
 
 组件构建脚本的 `--python` 必须与启动该脚本的解释器路径一致，使版本检查、依赖与许可收集、PyInstaller 执行使用同一环境；不一致时在加载构建依赖或清理输出前拒绝。PowerShell 构建入口已按此方式调用。手动运行时应使用目标环境的 Python 启动脚本，并将同一路径传给 `--python`；不要通过解析符号链接把虚拟环境解释器替换成底层 Python。
 
@@ -25,9 +25,13 @@ npm run build
 ./scripts/setup-pdf.ps1
 ```
 
-`setup-pdf.ps1` 用 uv 建立已忽略的 `evaluation/runs/pdf-runtime/.venv`，安装 `sidecars/babeldoc/requirements.lock` 锁定的 Python 3.13、BabelDOC 0.6.4 和 PyMuPDF 1.26.7 依赖，并运行 BabelDOC `--warmup` 下载／校验所需字体、CMap、tiktoken 与布局模型到用户默认的 `~/.cache/babeldoc`。首次 warmup 需要网络且耗时；普通导入和导出不会安装或下载。再次运行脚本会复用环境和缓存；`./scripts/setup-pdf.ps1 -CheckOnly` 只检查版本及必需资产。若组件缺失，PDF 任务报告 `COMPONENT_MISSING`，TXT／Markdown 仍可使用。
+先按 [0.7.1 源码构建与迁移指南](../0.1.x/babeldoc-0.7.1.md)准备派生 wheel。官方原样 wheel 不支持本 sidecar 的位置桥。Windows/macOS 派生成包尚未验收。
+
+`setup-pdf.ps1` 用 uv 建立已忽略的 `evaluation/runs/pdf-runtime/.venv`，安装 `sidecars/babeldoc/requirements.lock` 锁定的 Python 3.13、BabelDOC 0.7.1+ivoraige.3 和 PyMuPDF 1.26.7 依赖，并运行 BabelDOC `--warmup` 下载／校验所需字体、CMap、tiktoken 与布局模型到用户默认的 `~/.cache/babeldoc`。首次 warmup 需要网络且耗时；普通导入和导出不会安装或下载。再次运行脚本会复用环境和缓存；`./scripts/setup-pdf.ps1 -CheckOnly` 只检查版本及必需资产。若组件缺失，PDF 任务报告 `COMPONENT_MISSING`，TXT／Markdown 仍可使用。
 
 [Windows 配置示例](../../../examples/pdf-windows.json)的路径相对于配置文件解析：`command` 指向上述虚拟环境的 `python.exe`，`args` 指向仓库内的 `sidecars/babeldoc/server.py`。未配置 `modelDirs` 时使用 BabelDOC 默认缓存。若使用其他目录，可在 JSON 中添加 `modelDirs.babeldoc`（缓存根目录）或 `modelDirs.doclayout-yolo`（模型文件）；这些路径同样相对于配置文件。`options.workDir` 可指定可写的绝对目录。不要把模型凭据写进 PDF 配置。
+
+当前完整 lock 固定 Pillow **13.0.0**。既有环境需重新安装；源码预检和 setup 的版本检查会拒绝旧 Pillow。冻结组件需重建，构建脚本核对实际 executable 内的 Python 3.13、BabelDOC、PyMuPDF 和 Pillow，而不是只信构建机或复制的 lock。历史依赖快照保留原值，不作为安装输入。详见 [Pillow 13.0.0 证据](../0.1.x/evidence/pillow-13.0.0.md)。
 
 ## 启动与操作
 

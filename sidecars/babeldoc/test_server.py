@@ -5,6 +5,7 @@
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 from io import StringIO
@@ -16,13 +17,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import server
-from underscore_line import (UNDERSCORE_LINE_POLICY, UNDERSCORE_LINE_POLICY_V2,
-                             _candidate_bounds,
-                             split_paragraph_with_underscore_bounds, underscore_line_scope)
-from layout_fit import LAYOUT_FIT_POLICY, fitted_layout_scope
 
 
-class LayoutFitTests(unittest.TestCase):
+class SidecarBuildTests(unittest.TestCase):
     def component_builder(self):
         root = Path(__file__).resolve().parents[2]
         spec = importlib.util.spec_from_file_location("component_builder", root / "scripts/build-pdf-component.py")
@@ -30,79 +27,19 @@ class LayoutFitTests(unittest.TestCase):
         spec.loader.exec_module(build)
         return build
 
-    def engine(self):
-        box = lambda y=0: SimpleNamespace(x=0, y=y, x2=100, y2=20)
-
-        class Engine:
-            bottom = -22
-            calls = 0
-
-            def _layout_typesetting_units(self, units, bounds, scale, line_skip, paragraph):
-                return [], bounds.y < 0 and scale <= .7
-
-            def _get_optimal_scale(self, paragraph, page, units):
-                self._layout_typesetting_units(units, box(-20), .7, 1.3, paragraph)
-                return .7
-
-            def get_max_bottom_space(self, bounds, page):
-                return self.bottom
-
-            def retypeset_with_precomputed_scale(self, paragraph, page, units, scale):
-                self.calls += 1
-                return self._layout_typesetting_units(units, paragraph.box, scale, 1.3, paragraph)[1]
-
-        return Engine, SimpleNamespace(box=box())
-
-    def test_reuses_fit_box_only_after_rechecking_space_and_still_runs_fit(self):
-        Engine, paragraph = self.engine()
-        engine = Engine()
-        with fitted_layout_scope(Engine):
-            scale = engine._get_optimal_scale(paragraph, None, [])
-            self.assertEqual(paragraph.box.y, 0, "dry run must not mutate source geometry")
-            self.assertTrue(engine.retypeset_with_precomputed_scale(paragraph, None, [], scale))
-            self.assertEqual(paragraph.box.y, -20)
-            self.assertEqual(engine.calls, 1)
-
-    def test_new_obstacle_or_changed_paragraph_or_global_scale_uses_original_path(self):
-        for change in ("obstacle", "geometry", "scale"):
-            with self.subTest(change=change):
-                Engine, paragraph = self.engine()
-                engine = Engine()
-                with fitted_layout_scope(Engine):
-                    scale = engine._get_optimal_scale(paragraph, None, [])
-                    if change == "obstacle": engine.bottom = -5
-                    if change == "geometry": paragraph.box.x2 = 80
-                    if change == "scale": scale = .65
-                    self.assertFalse(engine.retypeset_with_precomputed_scale(paragraph, None, [], scale))
-                    self.assertEqual(paragraph.box.y, 0)
-                    self.assertEqual(engine.calls, 1)
-
-    def test_disabled_policy_and_lifecycle_restore_original_methods(self):
-        Engine, paragraph = self.engine()
-        original = (Engine._get_optimal_scale, Engine._layout_typesetting_units,
-                    Engine.retypeset_with_precomputed_scale)
-        engine = Engine()
-        with fitted_layout_scope(Engine, False):
-            scale = engine._get_optimal_scale(paragraph, None, [])
-            self.assertFalse(engine.retypeset_with_precomputed_scale(paragraph, None, [], scale))
-        with self.assertRaisesRegex(RuntimeError, "invented"):
-            with fitted_layout_scope(Engine):
-                raise RuntimeError("invented")
-        self.assertEqual(original, (Engine._get_optimal_scale, Engine._layout_typesetting_units,
-                                  Engine.retypeset_with_precomputed_scale))
-
-    def test_policy_identity_keeps_legacy_configs_and_rejects_unknown_policy(self):
-        legacy = server.capture_config(None, 5)
-        self.assertNotIn("layoutFitPolicy", legacy)
-        self.assertEqual(server.capture_config(None, 5, layout_fit_policy=LAYOUT_FIT_POLICY),
-                         {**legacy, "layoutFitPolicy": LAYOUT_FIT_POLICY})
-        with self.assertRaisesRegex(server.SidecarError, "policy unsupported"):
-            server.capture_config(None, 5, layout_fit_policy="invented")
-        self.assertNotIn("underscoreLinePolicy", legacy)
-        self.assertEqual(server.capture_config(None, 5, underscore_line_policy=UNDERSCORE_LINE_POLICY),
-                         {**legacy, "underscoreLinePolicy": UNDERSCORE_LINE_POLICY})
-        with self.assertRaisesRegex(server.SidecarError, "policy unsupported"):
-            server.capture_config(None, 5, underscore_line_policy="invented")
+    def test_policy_identity_pins_native_algorithms_and_rejects_legacy(self):
+        config = server.capture_config(None, 5)
+        self.assertEqual(config["layoutFitPolicy"], server.LAYOUT_FIT_POLICY)
+        self.assertEqual(config["underscoreLinePolicy"], server.UNDERSCORE_LINE_POLICY)
+        self.assertEqual(server.capture_config(None, 5,
+            layout_fit_policy=server.LAYOUT_FIT_POLICY,
+            underscore_line_policy=server.UNDERSCORE_LINE_POLICY), config)
+        for policy in ("invented", "fit-box-v2"):
+            with self.assertRaisesRegex(server.SidecarError, "policy unsupported"):
+                server.capture_config(None, 5, layout_fit_policy=policy)
+        for policy in ("ascii-base-v1", "ascii-base-v2", "invented"):
+            with self.assertRaisesRegex(server.SidecarError, "policy unsupported"):
+                server.capture_config(None, 5, underscore_line_policy=policy)
 
     def test_component_build_refuses_unverified_old_executable_reuse(self):
         build = Path(__file__).resolve().parents[2] / "scripts/build-pdf-component.py"
@@ -151,32 +88,9 @@ class LayoutFitTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "same environment"):
                     build.require_build_python(str(second))
 
-    def test_plans_are_object_scoped_consumed_once_and_not_shared_between_calls(self):
-        Engine, first = self.engine()
-        _, second = self.engine()
-        engine = Engine()
-        with fitted_layout_scope(Engine):
-            scale = engine._get_optimal_scale(first, None, [])
-            # Equal geometry alone does not authorize a plan for another object/owner.
-            self.assertFalse(engine.retypeset_with_precomputed_scale(second, None, [], scale))
-            self.assertFalse(Engine().retypeset_with_precomputed_scale(first, None, [], scale))
-            self.assertTrue(engine.retypeset_with_precomputed_scale(first, None, [], scale))
-            first.box.y = 0
-            self.assertFalse(engine.retypeset_with_precomputed_scale(first, None, [], scale))
-            engine._get_optimal_scale(first, None, [])
-        with fitted_layout_scope(Engine):
-            self.assertFalse(engine.retypeset_with_precomputed_scale(first, None, [], scale))
 
-    def test_optional_layout_runtime_gate_checks_all_version_axes(self):
-        from test_layout_engine import require_layout_runtime
-        require_layout_runtime("0.6.4", "1.26.7", (3, 13, 5))
-        for versions in (("0.7.1", "1.26.7", (3, 13)),
-                         ("0.6.4", "1.26.8", (3, 13)),
-                         ("0.6.4", "1.26.7", (3, 12))):
-            with self.subTest(versions=versions), self.assertRaisesRegex(RuntimeError, "requires"):
-                require_layout_runtime(*versions)
 
-    def test_component_stages_the_exact_layout_and_underscore_policy_sources(self):
+    def test_component_stages_only_current_native_sidecar_sources(self):
         root = Path(__file__).resolve().parents[2]
         build = self.component_builder()
         with tempfile.TemporaryDirectory() as directory:
@@ -184,96 +98,220 @@ class LayoutFitTests(unittest.TestCase):
             source = root / "sidecars/babeldoc"
             build.stage_sidecar_sources(source, stage)
             self.assertEqual({item.name for item in stage.iterdir()},
-                             {"server.py", "layout_fit.py", "underscore_line.py", "requirements.lock", "LICENSE", "COPYING"})
+                             {"server.py", "requirements.lock", "LICENSE", "COPYING"})
             for item in stage.iterdir():
                 self.assertEqual(item.read_bytes(), (source / item.name).read_bytes())
 
 
+class NativeBridgeTests(unittest.TestCase):
+    def test_duplicate_text_is_bound_by_indices_not_callback_order(self):
+        inventory = server.SourceInventory()
+        items = [{"pageIndex": 0, "paragraphIndex": i, "page": 7,
+                  "bbox": [10, y, 100, y + 20], "sourceUnicode": "Repeated source",
+                  "layoutLabel": "plain text"} for i, y in enumerate((50, 100))]
+        inventory.load(json.dumps(items))
+        def context(index):
+            return {"ivoraigeSource": {"version": 1, "pageIndex": 0,
+                "paragraphIndex": index, "preparedInput": "Repeated source",
+                "placeholderPayloadsJson": "[]"}}
+        second = inventory.locate("Repeated source", context(1))
+        first = inventory.locate("Repeated source", context(0))
+        self.assertEqual(second["bbox"][1], 100)
+        self.assertEqual(first["bbox"][1], 50)
+        self.assertEqual(first["page"], 7)
+        self.assertNotEqual(first["key"], second["key"])
+        with self.assertRaisesRegex(server.SidecarError, "differs from callback"):
+            inventory.locate("Changed source", context(0))
+        with self.assertRaisesRegex(server.SidecarError, "absent from source inventory"):
+            inventory.locate("Repeated source", context(2))
+        with self.assertRaisesRegex(server.SidecarError, "context missing"):
+            inventory.locate("Repeated source", {})
+        inventory.load("[]")
+        with self.assertRaisesRegex(server.SidecarError, "absent from source inventory"):
+            inventory.locate("Repeated source", context(0))
+
+    def test_inventory_retains_uncalled_null_and_rejects_malformed_locations(self):
+        inventory = server.SourceInventory()
+        item = {"pageIndex": 0, "paragraphIndex": 0, "page": 0,
+                "bbox": [0, 0, 10, 10], "sourceUnicode": None, "layoutLabel": None}
+        self.assertIsNone(inventory.load(json.dumps([item]))[0]["sourceUnicode"])
+        for records in ([item, item], [{**item, "bbox": [0, 0, float("inf"), 10]}],
+                        [{**item, "page": True}], [{**item, "sourceUnicode": 1}]):
+            with self.assertRaises(server.SidecarError):
+                inventory.load(json.dumps(records))
+
+    def test_inventory_requires_box_even_for_textless_or_uncalled_paragraphs(self):
+        for source in (None, "", "Repeated source"):
+            for missing in (False, True):
+                with self.subTest(source=source, missing=missing):
+                    inventory = server.SourceInventory()
+                    item = {"pageIndex": 0, "paragraphIndex": 3, "page": 7,
+                            "bbox": None, "sourceUnicode": source, "layoutLabel": "unknown"}
+                    if missing:
+                        del item["bbox"]
+                    valid = {**item, "paragraphIndex": 2, "bbox": [0, 0, 10, 10]}
+                    with self.assertRaisesRegex(server.SidecarError,
+                            r"no bounding box at indices \(0, 3\); unsupported source inventory"):
+                        inventory.load(json.dumps([valid, item]))
+                    self.assertEqual(inventory.positions, {})
+        # A textless retained layout paragraph still has its real box, not a
+        # fabricated zero box or an index-derived substitute location.
+        item.update(bbox=[10, 50, 100, 70], sourceUnicode=None)
+        position = server.SourceInventory().load(json.dumps([item]))[0]
+        self.assertEqual(position["bbox"], [10, 50, 100, 70])
+        self.assertIsNone(position["sourceUnicode"])
+
+    def test_inventory_rejects_partial_nonfinite_or_malformed_box(self):
+        for box in ([], [0, 0, 10], [0, 0, 10, 10, 10], {}, "0,0,10,10",
+                    [None, 0, 10, 10], [0, False, 10, 10], [0, 0, "10", 10],
+                    [0, 0, float("nan"), 10], [0, 0, float("inf"), 10]):
+            with self.subTest(box=box):
+                item = {"pageIndex": 0, "paragraphIndex": 0, "page": 0,
+                        "bbox": box, "sourceUnicode": None, "layoutLabel": None}
+                with self.assertRaisesRegex(server.SidecarError, "Invalid native source box"):
+                    server.SourceInventory().load(json.dumps([item]))
+
+    def test_handcrafted_inventory_rejects_integer_overflow_as_sidecar_error(self):
+        for value in (10 ** 400, -(10 ** 400)):
+            with self.subTest(value=value):
+                inventory = server.SourceInventory()
+                item = {"pageIndex": 0, "paragraphIndex": 0, "page": 0,
+                        "bbox": [0, 0, value, 10], "sourceUnicode": "Synthetic source",
+                        "layoutLabel": "plain text"}
+                with self.assertRaisesRegex(server.SidecarError, "Invalid native source box"):
+                    inventory.load(json.dumps([item]))
+                self.assertEqual(inventory.positions, {})
+
+    def test_socket_connect_and_connect_ex_are_guarded_and_restored(self):
+        import socket
+        for method in ("connect", "connect_ex"):
+            original = getattr(socket.socket, method)
+            with server.loopback_only_network():
+                with self.assertRaisesRegex(server.SidecarError, "Network access disabled"):
+                    getattr(socket.socket, method)(None, ("example.com", 443))
+            self.assertIs(getattr(socket.socket, method), original)
+
+    def test_runtime_requires_both_derived_distribution_and_native_marker(self):
+        fake_babeldoc = SimpleNamespace(const=SimpleNamespace(__version__="0.7.1"),
+                                      _rust_il=SimpleNamespace(
+                                          ivoraige_source_bridge_version=1,
+                                          ivoraige_layout_fit_policy=server.LAYOUT_FIT_POLICY,
+                                          ivoraige_underscore_line_policy=server.UNDERSCORE_LINE_POLICY))
+        with patch.dict("sys.modules", {"pymupdf": SimpleNamespace(VersionBind="1.26.7"),
+                                         "PIL": SimpleNamespace(Image=SimpleNamespace(__version__=server.PILLOW_VERSION)),
+                                         "babeldoc": fake_babeldoc}), \
+             patch.object(server.sys, "version_info", (3, 13)):
+            with patch.object(server, "package_version", return_value="0.7.1"):
+                with self.assertRaisesRegex(server.SidecarError, "derived runtime"):
+                    server.runtime()
+            with patch.object(server, "package_version", return_value=server.ENGINE_VERSION):
+                server.runtime()
+                fake_babeldoc._rust_il = SimpleNamespace()
+                with self.assertRaisesRegex(server.SidecarError, "source bridge v1 missing"):
+                    server.runtime()
+                fake_babeldoc._rust_il.ivoraige_source_bridge_version = 1
+                with self.assertRaisesRegex(server.SidecarError, "fit-box-v1 layout policy missing"):
+                    server.runtime()
+                fake_babeldoc._rust_il.ivoraige_layout_fit_policy = server.LAYOUT_FIT_POLICY
+                with self.assertRaisesRegex(server.SidecarError, "underscore policy missing"):
+                    server.runtime()
+
+    def test_runtime_rejects_wrong_python_before_importing_engine(self):
+        with patch.object(server.sys, "version_info", (3, 12)), \
+             patch.dict("sys.modules", {"babeldoc": None}):
+            with self.assertRaisesRegex(server.SidecarError, "Python 3.13 required"):
+                server.runtime()
+
+    def test_runtime_rejects_unsafe_pillow_and_reports_loaded_versions(self):
+        image = SimpleNamespace(__version__="12.3.0")
+        fake_babeldoc = SimpleNamespace(const=SimpleNamespace(__version__="0.7.1"),
+                                      _rust_il=SimpleNamespace(
+                                          ivoraige_source_bridge_version=1,
+                                          ivoraige_layout_fit_policy=server.LAYOUT_FIT_POLICY,
+                                          ivoraige_underscore_line_policy=server.UNDERSCORE_LINE_POLICY))
+        with patch.dict("sys.modules", {"PIL": SimpleNamespace(Image=image),
+                                         "pymupdf": SimpleNamespace(VersionBind="1.26.7"),
+                                         "babeldoc": fake_babeldoc}), \
+                patch.object(server.sys, "version_info", (3, 13)), \
+                patch.object(server, "package_version", return_value=server.ENGINE_VERSION):
+            with self.assertRaisesRegex(server.SidecarError, "Pillow 13.0.0 required") as error:
+                server.runtime()
+            self.assertEqual(error.exception.code, -32002)
+            self.assertEqual(error.exception.kind, "COMPONENT_MISSING")
+            image.__version__ = server.PILLOW_VERSION
+            versions = server.runtime_versions()
+            self.assertEqual(versions["pillow"], "13.0.0")
+            self.assertEqual(versions["babeldoc"], server.ENGINE_VERSION)
+            self.assertEqual(versions["pymupdf"], server.PYMUPDF_VERSION)
+            self.assertEqual(versions["sourceBridge"], 1)
+            self.assertEqual(versions["layoutFitPolicy"], server.LAYOUT_FIT_POLICY)
+            self.assertEqual(versions["underscoreLinePolicy"], server.UNDERSCORE_LINE_POLICY)
+
+    def test_old_binding_fails_before_resolving_source_or_running_engine(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            doc = root / "doc.json"
+            frozen = root / "frozen.json"
+            doc.write_text(json.dumps({"document": {"language": "en"},
+                "sourceBinding": {"adapterId": "babeldoc", "engineVersion": "0.6.4",
+                    "sourcePath": "/missing/original.pdf"}}))
+            frozen.write_text("{}")
+            with patch.object(server, "run_engine") as engine:
+                with self.assertRaisesRegex(server.SidecarError, "re-import.*reconcile accepted revisions"):
+                    server.rebuild({"format": "pdf", "docRef": str(doc), "revisionsRef": str(frozen)})
+                engine.assert_not_called()
+
+    def test_previous_derived_bindings_also_require_explicit_reimport(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            doc, frozen = root / "doc.json", root / "frozen.json"
+            frozen.write_text("{}")
+            for version in ("0.7.1+ivoraige.1", "0.7.1+ivoraige.2"):
+                with self.subTest(version=version):
+                    doc.write_text(json.dumps({"document": {"language": "en"},
+                        "sourceBinding": {"adapterId": "babeldoc", "engineVersion": version,
+                            "sourcePath": "/missing/original.pdf"}}))
+                    with patch.object(server, "run_engine") as engine:
+                        with self.assertRaisesRegex(server.SidecarError, "re-import.*reconcile accepted revisions"):
+                            server.rebuild({"format": "pdf", "docRef": str(doc), "revisionsRef": str(frozen)})
+                        engine.assert_not_called()
+
+    def test_capture_config_enables_parser_limits_and_versions_bridge(self):
+        config = server.capture_config(None, 5)
+        self.assertTrue(config["parserResourceLimits"])
+        self.assertEqual(config["sourceBridge"], 1)
+        self.assertEqual(config["babeldoc"], "0.7.1+ivoraige.3")
+        self.assertEqual(config["layoutFitPolicy"], "fit-box-v1")
+        self.assertEqual(config["underscoreLinePolicy"], "ascii-alnum-base-v1")
+
+    def test_scoped_native_policies_restore_environment_even_on_error(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(ValueError, "synthetic"):
+                with server.native_policy_scope(server.capture_config(None, 5)):
+                    self.assertEqual(os.environ["IVORAIGE_FIT_BOX_V1"], "1")
+                    self.assertEqual(os.environ["IVORAIGE_ASCII_ALNUM_BASE_V1"], "1")
+                    raise ValueError("synthetic")
+            self.assertNotIn("IVORAIGE_FIT_BOX_V1", os.environ)
+            self.assertNotIn("IVORAIGE_ASCII_ALNUM_BASE_V1", os.environ)
+            os.environ["IVORAIGE_FIT_BOX_V1"] = "earlier"
+            os.environ["IVORAIGE_ASCII_ALNUM_BASE_V1"] = "previous"
+            with server.native_policy_scope(server.capture_config(None, 5)):
+                self.assertEqual(os.environ["IVORAIGE_FIT_BOX_V1"], "1")
+                self.assertEqual(os.environ["IVORAIGE_ASCII_ALNUM_BASE_V1"], "1")
+            self.assertEqual(os.environ["IVORAIGE_FIT_BOX_V1"], "earlier")
+            self.assertEqual(os.environ["IVORAIGE_ASCII_ALNUM_BASE_V1"], "previous")
+            for field in ("layoutFitPolicy", "underscoreLinePolicy"):
+                with self.subTest(field=field):
+                    config = {**server.capture_config(None, 5), field: "legacy"}
+                    with self.assertRaisesRegex(server.SidecarError, "policy unsupported"):
+                        with server.native_policy_scope(config):
+                            pass
+
+
 class BindingTests(unittest.TestCase):
-    def test_v2_nominal_baseline_distinguishes_ink_shape_and_rejects_bad_boxes(self):
-        def glyph(symbol, x, visual_y, nominal_y):
-            visual = SimpleNamespace(x=x, x2=x + .8, y=visual_y, y2=visual_y + 1)
-            nominal = SimpleNamespace(x=x, x2=x + .8, y=nominal_y, y2=nominal_y + 1)
-            return SimpleNamespace(char_unicode=symbol, vertical=False, xobj_id=1,
-                pdf_style=SimpleNamespace(font_id="F", font_size=12),
-                visual_bbox=SimpleNamespace(box=visual), box=nominal)
-        chars = [glyph("X", 0, 8, 8), glyph("_", 1, 0, 8),
-                 glyph("Y", 2, 8, 8)]
-        chars[0].visual_bbox.box.y2 = 11
-        chars[2].visual_bbox.box.y2 = 14
-        bounds = lambda char: (char.visual_bbox.box.y, char.visual_bbox.box.y2)
-        self.assertEqual(_candidate_bounds(chars, bounds), {})
-        self.assertEqual(_candidate_bounds(chars, bounds, UNDERSCORE_LINE_POLICY_V2),
-                         {id(chars[1]): (8, 14)})
-        chars[1].box.y = 6
-        self.assertEqual(_candidate_bounds(chars, bounds, UNDERSCORE_LINE_POLICY_V2), {})
-        chars[1].box.y = 8
-        for bad in (float("nan"), float("inf"), -1):
-            chars[1].box.y2 = bad
-            self.assertEqual(_candidate_bounds(chars, bounds, UNDERSCORE_LINE_POLICY_V2), {})
-        with self.assertRaisesRegex(ValueError, "Unsupported underscore line policy"):
-            _candidate_bounds(chars, bounds, "unrecognized")
 
-    def test_underscore_bound_guard_is_local_and_requires_ascii_letter_neighbors(self):
-        def glyph(symbol, x, y, *, font="F"):
-            box = SimpleNamespace(x=x, x2=x + 0.8, y=y, y2=y + 1)
-            return SimpleNamespace(
-                char_unicode=symbol, vertical=False, xobj_id=1,
-                pdf_style=SimpleNamespace(font_id=font, font_size=10),
-                visual_bbox=SimpleNamespace(box=box),
-            )
-        bounds = lambda char: (char.visual_bbox.box.y, char.visual_bbox.box.y2)
-        chars = [glyph("X", 0, 8), glyph("_", 1, 0), glyph("Y", 2, 8)]
-        self.assertEqual(UNDERSCORE_LINE_POLICY, "ascii-base-v1")
-        self.assertEqual(_candidate_bounds(chars, bounds), {id(chars[1]): (8, 9)})
-        self.assertEqual(chars[1].visual_bbox.box.y, 0)
-        self.assertEqual(_candidate_bounds([chars[0], None, chars[1], chars[2]], bounds), {})
-        for right in (glyph("2", 2, 8), glyph("+", 2, 8), glyph("ב", 2, 8),
-                      glyph("Y", 2, 8, font="G")):
-            self.assertEqual(_candidate_bounds([chars[0], chars[1], right], bounds), {})
-        for invalid in (float("nan"), float("inf"), -1):
-            damaged = glyph("_", 1, 0)
-            damaged.visual_bbox.box.x2 = invalid
-            self.assertEqual(_candidate_bounds([chars[0], damaged, chars[2]], bounds), {})
-        self.assertEqual(_candidate_bounds(chars, lambda char: (float("nan"), 9)), {})
 
-    def test_underscore_scope_restores_class_method(self):
-        class Finder:
-            def _split_paragraph_into_lines(self, paragraph, formula_font_ids):
-                return "original"
 
-        original = Finder._split_paragraph_into_lines
-        with underscore_line_scope(Finder, enabled=False):
-            self.assertIs(Finder._split_paragraph_into_lines, original)
-        with self.assertRaisesRegex(ValueError, "synthetic"):
-            with underscore_line_scope(Finder):
-                self.assertIsNot(Finder._split_paragraph_into_lines, original)
-                raise ValueError("synthetic")
-        self.assertIs(Finder._split_paragraph_into_lines, original)
-
-    def test_underscore_instance_bounds_restore_when_upstream_split_raises(self):
-        def glyph(value, x, y):
-            return SimpleNamespace(char_unicode=value, vertical=False, xobj_id=1,
-                pdf_style=SimpleNamespace(font_id="F", font_size=10),
-                visual_bbox=SimpleNamespace(box=SimpleNamespace(x=x, x2=x+.8, y=y, y2=y+1)))
-        chars = [glyph("X", 0, 8), glyph("_", 1, 0), glyph("Y", 2, 8)]
-        paragraph = SimpleNamespace(pdf_paragraph_composition=[
-            SimpleNamespace(pdf_character=char) for char in chars])
-        class Finder:
-            def _get_effective_y_bounds(self, char):
-                return char.visual_bbox.box.y, char.visual_bbox.box.y2
-        for own_override in (False, True):
-            finder = Finder()
-            if own_override:
-                finder._get_effective_y_bounds = lambda char: (char.visual_bbox.box.y, char.visual_bbox.box.y2)
-            original = finder._get_effective_y_bounds
-            def fail(finder, paragraph, fonts):
-                self.assertEqual(finder._get_effective_y_bounds(chars[1]), (8, 9))
-                raise ValueError("invented split failure")
-            with self.assertRaisesRegex(ValueError, "invented"):
-                split_paragraph_with_underscore_bounds(finder, paragraph, set(), fail)
-            self.assertEqual(finder._get_effective_y_bounds, original)
-            self.assertEqual("_get_effective_y_bounds" in vars(finder), own_override)
 
     def test_capture_summary_counts_overlapping_audit_and_empty_units(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
@@ -303,9 +341,9 @@ class BindingTests(unittest.TestCase):
             self.assertEqual(len(coverage["uncalled"]), 3)
             self.assertIn("Separate extracted line", [unit["sourceText"] for unit in parsed["units"]])
 
-    def test_language_route_keeps_legacy_config_and_exact_chinese_source(self):
-        legacy = server.capture_config(None, 5)
-        self.assertNotIn("sourceLanguage", legacy)
+    def test_language_route_keeps_english_config_and_exact_chinese_source(self):
+        english = server.capture_config(None, 5)
+        self.assertNotIn("sourceLanguage", english)
         self.assertEqual(server.engine_pair("en"), ("en", "zh"))
         for source in ("zh", "zh-CN", "zh-Hans"):
             self.assertEqual(server.engine_pair(source), ("zh", "en"))
@@ -325,8 +363,8 @@ class BindingTests(unittest.TestCase):
             def capture(_source, config, mode):
                 self.assertEqual(mode, "capture")
                 self.assertEqual(config["sourceLanguage"], "zh-CN")
-                self.assertEqual(config["layoutFitPolicy"], LAYOUT_FIT_POLICY)
-                self.assertEqual(config["underscoreLinePolicy"], UNDERSCORE_LINE_POLICY_V2)
+                self.assertEqual(config["layoutFitPolicy"], server.LAYOUT_FIT_POLICY)
+                self.assertEqual(config["underscoreLinePolicy"], server.UNDERSCORE_LINE_POLICY)
                 self.assertEqual(server.engine_pair(config["sourceLanguage"]), ("zh", "en"))
                 return [call], [paragraph], []
 
@@ -381,30 +419,31 @@ class BindingTests(unittest.TestCase):
             with patch.object(server, "run_engine", side_effect=replay):
                 result = server.rebuild(params)
             self.assertEqual(result["evidence"]["modelRequests"], 0)
-            # Old bindings keep their original policy; new captures pin the fix.
-            Path(params["out"]).unlink()
-            binding["captureConfig"] = server.capture_config(None, 5, "zh-Hans", LAYOUT_FIT_POLICY)
-            write("zh-Hans", "en")
-            with patch.object(server, "run_engine", side_effect=replay) as engine:
-                result = server.rebuild(params)
-            self.assertEqual(engine.call_args.args[1]["layoutFitPolicy"], LAYOUT_FIT_POLICY)
-            self.assertEqual(result["evidence"]["modelRequests"], 0)
-            for underscore_policy in (UNDERSCORE_LINE_POLICY, UNDERSCORE_LINE_POLICY_V2):
-                for layout_policy in (None, LAYOUT_FIT_POLICY):
-                    Path(params["out"]).unlink()
-                    binding["captureConfig"] = server.capture_config(
-                        None, 5, "zh-Hans", layout_policy, underscore_policy)
+            # A same-version binding with absent or legacy policy fields must
+            # not masquerade as the native renderer's capture configuration.
+            for field, old in (("layoutFitPolicy", None),
+                               ("underscoreLinePolicy", None),
+                               ("underscoreLinePolicy", "ascii-base-v1"),
+                               ("underscoreLinePolicy", "ascii-base-v2")):
+                with self.subTest(field=field, old=old):
+                    binding["captureConfig"] = server.capture_config(None, 5, "zh-Hans")
+                    if old is None:
+                        del binding["captureConfig"][field]
+                    else:
+                        binding["captureConfig"][field] = old
                     write("zh-Hans", "en")
-                    with patch.object(server, "run_engine", side_effect=replay) as engine:
-                        server.rebuild(params)
-                    self.assertEqual(engine.call_args.args[1]["underscoreLinePolicy"], underscore_policy)
+                    with patch.object(server, "run_engine") as engine:
+                        with self.assertRaisesRegex(server.SidecarError, "Capture configuration changed|policy unsupported"):
+                            server.rebuild(params)
+                        engine.assert_not_called()
+            binding["captureConfig"] = server.capture_config(None, 5, "zh-Hans")
             binding["captureConfig"]["layoutFitPolicy"] = "unknown"
             write("zh-Hans", "en")
             with patch.object(server, "run_engine") as engine:
                 with self.assertRaisesRegex(server.SidecarError, "policy unsupported"):
                     server.rebuild(params)
                 engine.assert_not_called()
-            binding["captureConfig"]["layoutFitPolicy"] = LAYOUT_FIT_POLICY
+            binding["captureConfig"]["layoutFitPolicy"] = server.LAYOUT_FIT_POLICY
             binding["captureConfig"]["underscoreLinePolicy"] = "unknown"
             write("zh-Hans", "en")
             with patch.object(server, "run_engine") as engine:
@@ -603,23 +642,6 @@ class BindingTests(unittest.TestCase):
                          [{"token": "<b0>", "text": "x"}, {"token": "<b1>", "text": "y"}])
         self.assertEqual(source.slices, [slice(0, 1), slice(2, 3)])
 
-    def test_completed_callbacks_keep_payloads_by_location(self):
-        first = {"key": "p0:first", "preparedInput": "A <b1> B",
-                 "placeholderPayloads": [{"type": "formula", "placeholder": "<b1>",
-                                           "formula_chars": "x"}]}
-        second = {"key": "p0:second", "preparedInput": "A <b1> B",
-                  "placeholderPayloads": [{"type": "formula", "placeholder": "<b1>",
-                                            "formula_chars": "y"}]}
-        calls = [{"key": "p0:second", "requestText": "A <b1> B"},
-                 {"key": "p0:first", "requestText": "A <b1> B"}]
-        server.complete_callbacks(calls, [first, second])
-        self.assertEqual(calls[0]["placeholderPayloads"][0]["formula_chars"], "y")
-        self.assertEqual(calls[1]["placeholderPayloads"][0]["formula_chars"], "x")
-
-        second["preparedInput"] = "changed"
-        server.complete_callbacks(calls, [first, second])
-        self.assertEqual(calls[0]["placeholderPayloads"], [])
-        self.assertIn("tracker missing or changed", calls[0]["payloadWarning"])
 
     def test_pdf_text_check_keeps_punctuation_and_checks_formulas(self):
         records = [{"unitId": "u1", "page": 0, "text": "A x... B",
