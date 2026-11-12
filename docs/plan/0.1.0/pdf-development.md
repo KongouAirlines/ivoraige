@@ -2,6 +2,12 @@
 
 本页面向源码开发与回归验收；准备完成后的日常操作请看 [PDF 使用指南](pdf-guide.md)。
 
+新捕获固定独立的 `captureConfig.underscoreLinePolicy: ascii-base-v2`，同一标记用于捕获与回放的局部下划线分行。v2使用同字体字形的名义框判断基线，避免将正常字形墨迹高度差当成基线错位；已保存的v1仍使用原视觉中心门槛，缺少标记的旧绑定保留原引擎方法。它与 `layoutFitPolicy` 分别校验，旧/v1/v2组合均可回放，未知值拒绝。需要匹配源码 sidecar，冻结绑定不会自动升级；独立组件必须重新构建并携带 `underscore_line.py`。专项测试与范围见[下划线分行记录](../0.1.x/evidence/pdf-underscore-line-0.1.0.md)。
+
+布局预检策略需要配套源码 sidecar。新捕获固定 `captureConfig.layoutFitPolicy: fit-box-v1`，旧绑定缺少标记时保留原路径。Windows 组件必须重新构建；`--reuse-pyinstaller-build` 暂拒绝旧可执行文件复用，避免源文件已更新而打包程序仍未包含策略。新组件尚未在本阶段构建验收。行为与测试见[布局预检记录](../0.1.x/evidence/pdf-layout-fit-0.1.0.md)。
+
+组件构建脚本的 `--python` 必须与启动该脚本的解释器路径一致，使版本检查、依赖与许可收集、PyInstaller 执行使用同一环境；不一致时在加载构建依赖或清理输出前拒绝。PowerShell 构建入口已按此方式调用。手动运行时应使用目标环境的 Python 启动脚本，并将同一路径传给 `--python`；不要通过解析符号链接把虚拟环境解释器替换成底层 Python。
+
 当前 PDF 路线处理**原生文本英文 PDF → 中文单语 PDF**。导入后可在同一工作台翻译、人工修改和接受译文，再从冻结快照生成 PDF、Markdown、JSON。PDF 来源绑定由 BabelDOC 自身捕获；导出回放只读取已接受译文，不请求翻译模型。扫描件 OCR、双语 PDF、MinerU 跨引擎映射及三系统独立打包仍待验证。
 
 来源适配器可选的同步 `validateSourceLanguage(language)` 在选中后、排队导入前校验声明的源语言；PDF 直接解析也在启动 sidecar 前校验。输出适配器可选的同步 `validateExport({ contentMode, targetLang, provenance })` 在具体输出选中时校验冻结文档来源与目标语言；它必须仅检查数据、不得访问 Cordis context、模型或产生副作用。`Tasks` 导出准入、`Exporter` 直接导出及任务恢复都复用输出注册表检查。无导出模式的裸适配器查询和格式发现不执行此校验；来源模式的 PDF 原件导出仍独立于目标语言。0.1.0 既有 API 请求形状及存储 schema 不变，超出能力的已选 PDF 请求在创建导出快照与任务前返回 `PRECONDITION_FAILED`。
@@ -52,6 +58,10 @@ node src/cli.mjs --url http://127.0.0.1:8787 export DOC_ID --target-lang zh-CN -
 取消导入会停止捕获；中断且未提交的导入需重新上传，不能暂停后续传。重启会核对已经提交的文档并恢复导入结果。取消导出不会删除此前已完成的格式产物，其他格式可从同一快照重新导出。组件修复或配置更改后请重启服务，再进行 PDF 处理。
 
 公式占位符必须保留原顺序。导入按来源位置关联回调与引擎 payload；能唯一对齐原文时使用对齐得到的显示内容，否则使用 BabelDOC 的公式字符、富文本成对 token 的空显示，未知 token 保留字面形式。回退会在文档警告中列出页码、位置和 token，不会阻止导入或翻译。旧记录的 null／缺失显示在回放诊断中也保留字面 token。回放仍核对来源请求和 token 顺序；`skip` 必须逐字使用来源请求。BabelDOC 可能缩写连续标点，PDF 文本提取未匹配时会在导出证据中提示目检，不据此判定导出失败。当前没有手工修改来源绑定的界面。
+
+占位符对齐搜索有工作量上限；字符预算在每次 `find` 前计入整个剩余源字符串长度，是保守的搜索上界估算，不是实际扫描字符数。因此，即使锚点唯一且命中很早，超长的密集输入也可能提前用尽预算；重复文字也可能使唯一对齐无法在上限内确定。达到上限时，新导入使用上述 payload／字面 token 回退，并在文档警告中标明搜索达到上限。已有来源绑定和冻结快照不会被改写。此保护只处理密集占位符的映射可靠性，不证明 PDF 字体、排版、文本覆盖或页面视觉效果。
+
+密集占位符、搜索预算及分支集成的合成回归见[显示映射记录](../0.1.x/evidence/pdf-display-mapping-0.1.0.md)。
 
 导出默认要求可译单元全部接受。CLI 的 `--on-missing-accepted skip`（API 的 `onMissingAccepted: "skip"`）允许部分审校后导出：缺少接受修订的单元保留原文，PDF、Markdown、JSON 继续共用同一冻结决策，不调用模型补译。PDF 中的原文会参与 BabelDOC 排版回放，并非逐像素复制源页面。
 

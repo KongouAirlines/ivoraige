@@ -40,7 +40,7 @@ PYTHONPATH=src .venv/bin/python -m samplelib.cli compare baselines/structure.jso
 ## 如何交接输入和结果
 
 1. 选定样本库提交和样本编号，核对该版本记录的原始字节哈希、来源、使用限制和预期。保持原件只读；测试工作目录和输出放在版本控制之外。
-2. PDF 组件准备目前仅验证 Windows x64；样本库 macOS 验收不代表 macOS 已验证 ivoraige PDF 路线。跨平台交接须保留原始字节哈希、主机与版本记录。在 ivoraige 的明确提交上，按已有入口运行需要验证的阶段。PDF 组件准备和当前支持范围见 [PDF 开发参考](../0.1.0/pdf-development.md)。目前的英文 PDF 路线不能因为样本库有中文、西班牙文或扫描件，就视为已支持这些输入。
+2. 仓库提供的 PDF 开发准备脚本面向 Windows x64；其他主机的本地实测应逐项记录，不能从样本库的 macOS 验收推断 ivoraige PDF 验收。跨平台交接保留原始字节哈希、主机与版本记录。在 ivoraige 的明确提交上，按已有入口运行需要验证的阶段。当前 BabelDOC 源码已支持英文和中文声明与语言路由；中文→英文仍缺真实引擎／视觉验收，扫描件 OCR 不在已验证范围。以[能力表](../0.1.0/capabilities.md)及具体提交的实测记录为准，不因样本存在就扩大支持范围。
 3. 记录系统、引擎及适配器版本、配置标识、复现命令和各阶段结果。分别报告解析、导入、重启后的记录读取、翻译及导出；没有运行的阶段写明未运行。异常或崩溃属于失败，不应改写成正常拒绝。
 4. 需要使用样本库的 `assess` 时，按上述格式文档整理**实际流程产生**的观察文件。ivoraige 没有内置的 samplelib 观察报告导出器，本轮不实施该接口；需要时沿开放的 #13 另立工作包，不取消长期事项。不能直接把 ivoraige 的普通 JSON 导出或样本库参考解析报告当作该接口的结果。
 
@@ -54,6 +54,28 @@ PYTHONPATH=src .venv/bin/python -m samplelib.cli assess \
 `assess` 检查已有观察，不执行翻译。它检查状态、语言标签、非空结果、数字和占位符等约束，不能证明语义、阅读顺序或排版正确。仅测试清单的部分样本时，不要直接运行 `assess`，应保留独立的逐文件验证日志。它不接受相对所选清单的子集，缺少 ID 会以退出码 2 拒绝；填入 `not_run` 也不能算翻译通过。即使观察齐全，也须先确认清单预期适用于所测路线；不要补造未测结果。
 
 固定基线默认 `catalog.json` 有 28 项，目标语言为 20 项 `de`、8 项 `zh`，其中要求翻译 `complete` 的分别为 16、6 项，还包含 DOCX 和西班牙文、中文来源。`assess` 精确比较状态和语言标签，因此该默认全清单不能作为 ivoraige 当前原生文本英文 PDF → 简体中文（`zh-CN`）路线的通过门槛。此路线继续使用逐文件日志，不把预期不适用误判为翻译回归，也不得为通过检查把 `zh-CN` 改标成 `zh`。CLI 可独立选择 `zh`，但它与 `zh-CN` 是不同修订作用域，不能混用。需要路线匹配的清单与预期时，在样本库另立事项；`--manifest` 仍可选择合法且适用的清单，本文不修改样本预期。
+
+## 冻结导出库存的跨仓库 smoke
+
+样本库 [PR #13](https://github.com/KongouAirlines/translate-source-lib/pull/13) 的 `ivoraige-exports` 是单独的离线检查入口，不读取默认清单，也不替代 `assess`。接口依据固定提交 `0473e60da9040684b1d49035048d13a05e803091`；使用前核对本机版本是否包含该命令。它对照同一文档的原文模式与译文模式 JSON，检查单位、顺序、来源绑定和保留文字，报告不包含正文。说明见样本库[冻结导出检查](https://github.com/KongouAirlines/translate-source-lib/blob/0473e60da9040684b1d49035048d13a05e803091/docs/frozen-export-audit.md)。
+
+ivoraige 的 `scripts/smoke-sample-library.mjs` 使用原创 Markdown、真实 SQLite 记录、人工接受修订和实际导出任务，生成 `revision`、`skip`、`keepOriginal` 三种决策，关闭并重开内核，核对冻结重放字节一致，再调用显式指定的外部样本库源码。它不下载私库、不读取语料、不安装依赖，也不调用翻译模型。普通 `npm test` 检查本仓库 smoke 与临时合成 CLI 的衔接；完整跨仓库检查需手动执行。缺少 Python 3.9+ 时，只跳过依赖合成 CLI 的测试；显式执行脚本不会跳过失败。
+
+在两个仓库均已按各自说明准备的前提下，从 ivoraige 根目录运行以下 POSIX 示例：
+
+```sh
+npm run build
+node scripts/smoke-sample-library.mjs \
+  --samplelib-root /absolute/translate-source-lib \
+  --python /absolute/translate-source-lib/.venv/bin/python \
+  --output ./evaluation/runs/sample-library-0.1.x
+```
+
+Windows 使用该虚拟环境实际的 `python.exe` 路径和本机 shell 换行语法；此新增 smoke 尚未在 Windows 实机运行。脚本用 Python `-I` 隔离外部 `PYTHONPATH`，只从指定根目录的 `src/samplelib` 加载并核对实际包入口及 CLI 文件；缺失或来源不符会失败。依赖仍由选用的 Python 环境提供。`--output` 必须是尚不存在的目录。已有目录会被拒绝，既不覆盖旧结果，也不将旧报告当作本次成功。失败保留已经生成的诊断产物；仅内核和 samplelib 都成功时才创建 `summary.json`。重跑换用新的版本化运行目录。
+
+`kernel-check.json` 记录内核检查，`samplelib-report.json` 记录外部工具检查，`samplelib-module.json` 记录实际加载的包和 CLI 文件，`summary.json` 汇总成功结果。每次外部调用还保存 `samplelib-execution.json`（退出码、信号、启动或超时错误）及有大小上限的 `samplelib.stdout.log`、`samplelib.stderr.log`；分享前检查日志是否含有本机路径或私有信息。Git 来源标记区分仓库根目录、非仓库/嵌套提取目录的 `unknown`，以及 Git 命令出错的 `error`。只有所选目录本身是仓库根目录才记录提交及工作区变化；未知来源不是提交归属证明。Git 元数据子进程使用临时空配置文件隔离调用者的系统和全局配置，仍使用仓库自身配置，调用后清理临时文件，不修改用户配置。`ivoraige` 和 `samplelib` Git 状态在新建运行目录前采集，`samplelibAfter` 是外部执行后的再次采集；输出若置于样本库仓库内，后者可能只反映本次生成的文件。提交和工作区状态只是采样时的元数据，不证明执行中源码内容未改变，也不代替固定文件哈希；检出存在未提交改动时，复现需同时保留本地 diff。
+
+库存通过允许显式 `skip`，不表示全文已翻译。此 smoke 只证明原创 Markdown 的持久化、冻结导出和库存接口衔接，不能证明 PDF 捕获完整性、MinerU/OCR、翻译语义或视觉质量。观察报告导出器仍未实现。当前验证与限制见[跨仓库实施记录](evidence/sample-library-contract-0.1.0.md)。
 
 ## 怎样表述验证结论
 
