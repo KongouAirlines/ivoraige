@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { launch } from '../src/launch.mjs'
 import { runCli } from '../src/cli.mjs'
+import { createCleanup } from './fixtures/cleanup.mjs'
 
 async function launchInTest(t, options) {
   try { return await launch(options) }
@@ -35,27 +36,30 @@ test('a second launch reuses the resident owner and rejects a different composit
   })
 })
 
-test('component repository overrides are explicit but cannot rebind an existing domain', async t => {
+test('stopped owner accepts a repository override without rebinding its data domain', async t => {
+  const defer = createCleanup(t)
   const dataDir = await mkdtemp(join(tmpdir(), 'ivoraige-repository-'))
-  const otherDataDir = await mkdtemp(join(tmpdir(), 'ivoraige-repository-explicit-'))
+  defer(() => rm(dataDir, { recursive: true, force: true }))
   const previous = process.env.IVORAIGE_COMPONENTS_REPOSITORY
-  let running
-  t.after(async () => {
-    await running?.close()
+  defer(() => {
     if (previous === undefined) delete process.env.IVORAIGE_COMPONENTS_REPOSITORY
     else process.env.IVORAIGE_COMPONENTS_REPOSITORY = previous
-    await rm(dataDir, { recursive: true, force: true })
-    await rm(otherDataDir, { recursive: true, force: true })
   })
   process.env.IVORAIGE_COMPONENTS_REPOSITORY = 'example/components'
-  running = await launchInTest(t, { dataDir, open: false })
-  if (!running) return
-  assert.equal((await running.app.operations.invoke('componentStatus')).repository, 'example/components')
-  await running.close()
-  await assert.rejects(launch({ dataDir, open: false, components: { repository: 'explicit/components' } }),
-    error => error.code === 'CONFLICT' && error.details?.reason === 'owner-config-mismatch')
-  running = await launch({ dataDir: otherDataDir, open: false, components: { repository: 'explicit/components' } })
-  assert.equal((await running.app.operations.invoke('componentStatus')).repository, 'explicit/components')
+  const first = await launchInTest(t, { dataDir, open: false })
+  if (!first) return
+  defer(() => first.close())
+  assert.equal((await first.app.operations.invoke('componentStatus')).repository, 'example/components')
+  const domain = first.dataDomainRef
+  await first.close()
+  // Capture every successful launch before any assertions: an obsolete
+  // assert.rejects here leaked a resident owner and hung all three CI jobs.
+  const next = await launch({ dataDir, open: false, components: { repository: 'explicit/components' } })
+  defer(() => next.close())
+  assert.equal(next.reused, false)
+  assert.equal(next.dataDomainRef, domain)
+  assert.notEqual(next.generation, first.generation)
+  assert.equal((await next.app.operations.invoke('componentStatus')).repository, 'explicit/components')
 })
 
 test('first launch keeps text usable without PDF and reuses the same running workbench', async t => {
