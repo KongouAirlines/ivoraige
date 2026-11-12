@@ -57,7 +57,7 @@ class FrozenDependencyTests(unittest.TestCase):
 
     def test_native_runtime_version_does_not_depend_on_windows_locale(self):
         # Emulate the Windows ANSI default even on UTF-8 development hosts.
-        with patch("pathlib.io.text_encoding",
+        with patch("io.text_encoding",
                    side_effect=lambda encoding, *args: "cp1252" if encoding is None else encoding):
             self.test_native_runtime_version_matches_the_full_lock()
 
