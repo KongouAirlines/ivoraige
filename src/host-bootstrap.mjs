@@ -70,7 +70,9 @@ function facade(client) {
   const invoke = (method, input = {}, { signal } = {}) => client.request('business', { method, input }, { signal })
   return { reused: true, attached: client.attached, generation: client.generation,
     dataDomainRef: client.attached.dataDomainRef, client,
-    cli: { invoke }, operations: { invoke },
+    cli: { invoke: (operation, input = {}, { signal } = {}) =>
+      client.request('business', { method: 'cli.invoke', input: { operation, input } }, { signal }) },
+    operations: { invoke },
     dispose: async () => client.close(),
   }
 }
@@ -138,11 +140,8 @@ export async function createOwnedApp(options, { compose, lifetime, attach }) {
   // A stopped owner can reopen with changed runtime options; live attach still
   // compares the full binding and cannot silently switch the existing writer.
   const persistentBinding = persistentHostBinding(binding)
-  // Upgrade an older full-configuration binding only when the caller proves
-  // the exact old configuration. Never guess across a changed identity.
-  const { exportDir: _exportDir, ...legacyOwnerConfigBinding } = binding
   let domain
-  try { domain = await createHostDomain({ store, ownerConfigBinding: persistentBinding, legacyOwnerConfigBinding, registryRoot },
+  try { domain = await createHostDomain({ store, ownerConfigBinding: persistentBinding, registryRoot },
     { prepareStore: inspectRetentionDomain }) }
   catch (error) {
     if (!attach || error.code !== 'CONFLICT' || error.details?.reason) throw error
@@ -265,6 +264,10 @@ export async function createOwnedApp(options, { compose, lifetime, attach }) {
       getInfo: () => ({ ...httpInfo, ownerConfigBinding: binding }), handleControl,
       waitForAttempt: () => control.waitForAttempt(),
       handleBusiness: async (method, input, { signal } = {}) => {
+        if (method === 'cli.invoke') {
+          const { ownerCli } = await import('./cli-entry.mjs')
+          return ownerCli(app, input.operation, input.input, { signal })
+        }
         if (!method.startsWith('mcp.')) return app.operations.invoke(method, input, { signal })
         const { ownerMcp } = await import('./mcp.mjs')
         return ownerMcp(app, method, input, { signal })

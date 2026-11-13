@@ -23,3 +23,11 @@ Settings and component roots, component repository/release choices and PDF confi
 On Windows, owner IPC requires built-in Windows PowerShell 5.1 and .NET Framework with FullLanguage and `Add-Type` permitted. A fixed internal command supports the stock client Restricted execution policy without changing it. ConstrainedLanguage, AppLocker and WDAC restrictions still apply; if they prohibit the helper, use an organization-approved deployment rather than lowering the policy. A native helper creates a current-user-only named pipe, verifies the connected server and client identities, and refuses remote connections before passing HostControl frames. The protected generation capability remains an additional check. Missing or prohibited helper support fails closed; the application does not request elevation or change execution policy. Native security and separate-account acceptance must be checked against the exact build, not inferred from functional tests.
 
 An updated Windows client refuses an older owner whose pipe does not meet these native security checks. Stop that owner through its existing entry before starting the updated build; do not remove its lock or discovery files to force a second owner.
+
+### 浏览器启动限制
+
+浏览器打开程序失败时，启动器会报告警告并清理配对页，owner 继续运行，CLI/MCP 仍可使用。有浏览器的桌面会话中重新运行启动器可重新配对。附加启动器不会为了清理页面等待 30 秒；页面在私有目录内，过期后由下一次启动清理。
+
+Ubuntu snap/flatpak 浏览器可能无法读取隐藏数据目录中的配对页；此项尚未在目标桌面实测。可尝试非沙箱浏览器，或使用浏览器权限允许读取的数据目录。不要放宽目录权限或把配对凭据复制到命令行、公开链接。
+
+CLI 相对文件路径按调用者目录读取，默认文档 sourceId 保留原始路径参数，显式 sourceId 优先。附加 CLI 也遵守 owner 的 CLI entry 可用性与关闭状态。

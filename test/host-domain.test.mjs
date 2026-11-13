@@ -561,19 +561,14 @@ test('an active writer does not prevent attach and proof cannot hide file replac
   } finally { first.storeLease.release() }
 })
 
-test('legacy full binding upgrades only from exact prior configuration', async t => {
+test('full development binding is not silently migrated to a different configuration', async t => {
   const f = await fixture(t)
   const original = await create(f)
   original.storeLease.release()
   const minimal = { settingsDir: config.settingsDir, componentDir: config.componentRoot }
-  await assert.rejects(createHostDomain({ ...f, ownerConfigBinding: minimal,
-    legacyOwnerConfigBinding: { ...config, pdfSource: 'changed' } }),
-  error => error.details?.reason === 'owner-config-mismatch')
-  const upgraded = await createHostDomain({ ...f, ownerConfigBinding: minimal,
-    legacyOwnerConfigBinding: config })
-  assert.equal(upgraded.dataDomainRef, original.dataDomainRef)
-  upgraded.storeLease.release()
-  const reopened = await createHostDomain({ ...f, ownerConfigBinding: minimal })
+  await assert.rejects(createHostDomain({ ...f, ownerConfigBinding: minimal }),
+    error => error.details?.reason === 'owner-config-mismatch')
+  const reopened = await create(f)
   assert.equal(reopened.dataDomainRef, original.dataDomainRef)
   reopened.storeLease.release()
 })

@@ -232,3 +232,17 @@ the stronger session boundary instead of restoring the old shared cookie.
 - Synchronized lifecycle `e5ffb673a8ebf6e1c833501d25a441e435b35c94`, including foundation `26957a335a9f3b46ba0be9df922f5c94b81f33eb`, without dropping the entry finalization channel or Origin-bound POST CSRF refresh.
 - Retained the reviewed resident-unavailable error contract and broker outcome-unknown normalization with the expanded fixtures/tests.
 - Local Node 24.22.1 compatibility run: 677 tests, 649 passed, 28 platform/capability skips, zero failures. This is not Node 26 native CI or real cross-account acceptance. Earlier Unix socket permission limits still apply; native package smoke must be checked on this new head.
+
+## PR #93 后续审查修复（2026-11-13）
+
+- CLI 将读取路径解析为调用者目录下的绝对路径，同时保留原始参数生成的默认 sourceId。显式 sourceId 不变；重复导入仍按原身份和内容去重。
+- 浏览器配对页的清理定时器不再维持进程存活。附加启动器退出时不提前删除页面，留给浏览器异步读取；过期页面由下一次启动清理。
+- opener 失败会删除配对页并提示错误，但不会停止 owner。CLI/MCP 仍可使用；有桌面浏览器后重新运行启动器配对。
+- 附加 CLI 经 owner 的 CLI entry 执行，遵守未安装、关闭和取消生命周期，不再直接绕过到 operations。
+- 删除本分支未发布的完整配置绑定自动迁移。不同绑定仍拒绝打开，不自动删除注册信息或数据库；同一绑定缺失字段摘要时仍补写。已有开发登记需要先诊断并明确迁移，不要直接删除注册表。
+- Ubuntu snap/flatpak 浏览器读取配对文件尚未实机验证。尤其隐藏数据目录可能被浏览器沙箱拒绝读取；不可把普通本地 URL 当成授权绕过方式。可先使用非沙箱浏览器，或按浏览器权限选可读取的数据目录后重新配对，但这一替代路径仍需在目标桌面实测。
+- Windows 跨账户授权验收仍未通过；Linux 单机测试不能替代此证据。没有执行付费调用、部署或真实翻译/OCR 验收。
+
+本次本地验证：Node 24.22.1（兼容运行时），构建成功；7 个相关测试文件共 51 项，43 通过、8 跳过、0 失败。跳过项受 Unix socket listen EPERM 限制，含实际 owner 复用、opener 失败留存服务、附加 CLI 关闭回归；已申请提升仍受限。子进程配对页定时器退出、默认身份去重与直接 owner CLI 生命周期测试真实通过。Node 26 与目标桌面验证仍待补充。
+
+随后已在本地无冲突合入 main（9f135c8），重新构建并扩展到 9 个相关测试文件：58 项，50 通过、8 项仍因 socket 权限跳过、0 失败。未推送、未提交审查、未合并远端 PR。

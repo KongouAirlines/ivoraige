@@ -146,3 +146,5 @@ Operations may mount before Records and Tasks. After those services finish mount
 ### MCP request cancellation
 
 Disconnecting an MCP HTTP task poll releases its subscription and leaves the persistent task running. Concurrent polls remain independent; closing the endpoint stops its outstanding requests.
+
+If the desktop browser opener fails, the launcher reports a warning but keeps the local owner running for CLI/MCP. Re-run the launcher from a browser-enabled session to pair the workbench. Sandboxed Linux browsers may be unable to read the private pairing file; this desktop path remains unverified. See the [host control guide](docs/plan/0.1.x/host-control-guide.md#浏览器启动限制).

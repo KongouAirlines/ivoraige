@@ -88,7 +88,7 @@ function route(command, args, o) {
       return [names[action], input, 'POST', `/api/operations/${names[action]}`]
     }
     case 'import': return ['importDocument', { path: resolve(o.path ?? required(args[0], 'file path')),
-      format: o.format, adapterId: o.adapter, sourceId: o['source-id'], externalRef: o['external-ref'],
+      format: o.format, adapterId: o.adapter, sourceId: o['source-id'] ?? `path:${o.path ?? args[0]}`, externalRef: o['external-ref'],
       language: required(o['source-lang'], '--source-lang'), title: o.title, origin: 'cli' }, 'POST', '/api/documents/import']
     case 'documents': return args[0] ? ['getDocument', { docId }, 'GET', `/api/documents/${segment(docId)}`] :
       ['listDocuments', { ...paging, origin: o.origin, format: o.format }, 'GET', '/api/documents']
@@ -334,7 +334,7 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
       const operation = app.operationCatalog.get(name)
       if (operation.longRunning || operation.cancellable === 'task')
         throw new KernelError('INVALID_ARGUMENT',
-          'Local call cannot own a background task; use its waiting CLI alias or --url with a persistent host')
+          'Local call cannot own a background task; use its waiting CLI alias or a resident owner selected by --store')
     }
     const invoke = (operation, p) => app.cli.invoke(operation, clean(p), { signal: requestSignal })
     if (o['json-events'] && startsTask) {

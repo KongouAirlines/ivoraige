@@ -69,3 +69,15 @@ test('protected exit is accepted before finalization and retires the same genera
   assert.equal(app.host.control.state().storeOwnership, 'released')
   await assert.rejects(joined.client.request('state'), error => error.details?.reason === 'owner-unreachable')
 })
+
+test('attached CLI uses the owner entry rather than bypassing a closed entry', async t => {
+  const f = await resident(t)
+  if (!f) return
+  const joined = await attachHost(f.options)
+  t.after(() => joined.dispose())
+  assert.ok(await joined.cli.invoke('capabilities', {}))
+  f.app.cli.close()
+  await assert.rejects(joined.cli.invoke('capabilities', {}), { code: 'COMPONENT_MISSING' })
+  // Closing one entry does not remove the owner's generic operations facade.
+  assert.ok(await joined.operations.invoke('capabilities', {}))
+})

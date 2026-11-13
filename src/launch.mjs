@@ -49,6 +49,7 @@ export async function createBrowserPairingPage(dataDir, url, credential) {
   try {
     await createPrivateFile(path, html)
     timer = setTimeout(() => { void cleanup().catch(() => {}) }, pairingLifetimeMs)
+    timer.unref()
     return { url: pathToFileURL(path).href, cleanup }
   } catch (error) {
     await cleanup().catch(() => {})
@@ -70,7 +71,7 @@ export function openBrowser(url) {
 
 export async function launch({ dataDir = defaultDataDirectory(), open = true, port = 0,
   appRoot = process.env.IVORAIGE_APP_ROOT ?? (isSea() ? dirname(process.execPath) : resolve(import.meta.dirname, '..')),
-  components = {}, opener = openBrowser, registryRoot } = {}) {
+  components = {}, opener = openBrowser, stderr = process.stderr, registryRoot } = {}) {
   await mkdir(dataDir, { recursive: true })
   dataDir = await realpath(dataDir)
   const app = await startHost({ store: join(dataDir, 'store.sqlite'), settingsDir: join(dataDir, 'settings'),
@@ -89,7 +90,12 @@ export async function launch({ dataDir = defaultDataDirectory(), open = true, po
     if (open) {
       const bootstrap = app.reused ? await app.client.request('ownerBootstrap') : app.host.browserBootstrap()
       pairing = await createBrowserPairingPage(dataDir, url, bootstrap.credential)
-      await opener(pairing.url)
+      try { await opener(pairing.url) }
+      catch {
+        await pairing.cleanup()
+        pairing = undefined
+        stderr.write('Could not open the browser; the owner remains available to CLI and MCP. Run the launcher again from a browser-enabled environment to pair the workbench.\n')
+      }
     }
     return { app: app.reused ? undefined : app, url, reused: app.reused, dataDir,
       generation: app.generation, dataDomainRef: app.dataDomainRef,

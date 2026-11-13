@@ -93,27 +93,6 @@ test('first launch keeps text usable without PDF and reuses the same running wor
   assert.equal(status.installed, null)
 })
 
-test('failed browser opener removes the private pairing page and does not expose its credential', async t => {
-  const dataDir = await mkdtemp(join(tmpdir(), 'ivoraige-launch-failed-opener-'))
-  t.after(() => rm(dataDir, { recursive: true, force: true }))
-  let page
-  try {
-    await assert.rejects(launch({ dataDir, opener: async url => {
-      page = fileURLToPath(url)
-      await Promise.resolve()
-      throw new Error('opener unavailable')
-    } }), /opener unavailable/)
-  } catch (error) {
-    if (!process.env.CI && ['EPERM', 'EACCES'].includes(error.actual?.code) && error.actual?.syscall === 'listen') {
-      t.skip('Local sandbox does not permit owner socket listening')
-      return
-    }
-    throw error
-  }
-  assert.ok(page)
-  await assert.rejects(readFile(page))
-})
-
 test('program restart preserves accepted text and frozen output in the user directory', async t => {
   const dataDir = await mkdtemp(join(tmpdir(), 'ivoraige-launch-restart-'))
   let running
@@ -151,4 +130,21 @@ test('program restart preserves accepted text and frozen output in the user dire
       else process.env.IVORAIGE_STORE = previousStore
     }
   } finally { await running?.close(); await rm(dataDir, { recursive: true, force: true }) }
+})
+
+test('browser opener failure leaves the owner usable and removes the pairing page', async t => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'ivoraige-launch-opener-'))
+  let page, warning = ''
+  const running = await launchInTest(t, { dataDir,
+    opener: url => { page = url; throw new Error('no desktop opener') },
+    stderr: { write: text => { warning += text } } })
+  if (!running) { await rm(dataDir, { recursive: true, force: true }); return }
+  t.after(async () => { await running.close(); await rm(dataDir, { recursive: true, force: true }) })
+  assert.equal(running.reused, false)
+  assert.match(warning, /owner remains available/)
+  await assert.rejects(readFile(fileURLToPath(page)), { code: 'ENOENT' })
+  assert.ok(await running.app.cli.invoke('capabilities', {}))
+  const second = await launch({ dataDir, open: false })
+  assert.equal(second.reused, true)
+  await second.close()
 })

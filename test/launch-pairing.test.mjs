@@ -36,3 +36,17 @@ test('default browser opener rejects a spawn failure', { skip: process.platform 
     else process.env.PATH = previous
   }
 })
+
+test('pairing cleanup timer does not keep a completed launcher process alive', async t => {
+  const { execFile } = await import('node:child_process')
+  const { promisify } = await import('node:util')
+  const dataDir = await mkdtemp(join(tmpdir(), 'ivoraige-pairing-exit-'))
+  t.after(() => rm(dataDir, { recursive: true, force: true }))
+  const moduleUrl = new URL('../src/launch.mjs', import.meta.url).href
+  const { stdout } = await promisify(execFile)(process.execPath, ['--input-type=module', '-e',
+    `import { createBrowserPairingPage } from ${JSON.stringify(moduleUrl)};
+     const page = await createBrowserPairingPage(${JSON.stringify(dataDir)}, 'http://127.0.0.1:4321', 'test-secret');
+     console.log(page.url);`], { timeout: 5000 })
+  // Leaving the file is intentional: an asynchronous browser can still load it.
+  assert.match(await readFile(fileURLToPath(stdout.trim()), 'utf8'), /test-secret/)
+})

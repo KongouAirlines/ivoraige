@@ -377,7 +377,7 @@ function bindingMismatch(record, expected) {
   const previous = record.ownerConfigFields
   return fail('CONFLICT', 'owner-config-mismatch', { fields: previous && fields
     ? [...new Set([...Object.keys(previous), ...Object.keys(fields)])].filter(name => previous[name] !== fields[name]).sort()
-    : ['legacyBinding'], ...(previous ? {} : { recovery: 'Restart once with the original configuration to upgrade the legacy binding' }) })
+    : ['ownerConfigBinding'] })
 }
 function checkRecord(record, meta, identity, binding) {
   if (!meta || !identity || record.domainId !== meta.domainId || record.registrationId !== meta.registrationId ||
@@ -439,11 +439,10 @@ export async function findHostDomain({ store, registryRoot, verifyOwner } = {}) 
 
 // Return an already-held StoreLock lease. The caller must retain it until all
 // writers are disposed; it is never acquired from an arbitrary caller object.
-export async function createHostDomain({ store, ownerConfigBinding, legacyOwnerConfigBinding, registryRoot, verifySourceRetired } = {}, { prepareStore } = {}) {
+export async function createHostDomain({ store, ownerConfigBinding, registryRoot, verifySourceRetired } = {}, { prepareStore } = {}) {
   if (!store || typeof store !== 'string') throw fail('INVALID_ARGUMENT', 'invalid-store')
   const path = await canonicalStorePath(store)
   const binding = bindingDigest(ownerConfigBinding)
-  const legacyBinding = legacyOwnerConfigBinding === undefined ? undefined : bindingDigest(legacyOwnerConfigBinding)
   const dir = await secureDirectory(registryRoot, true)
   const registryLock = await acquireRegistryLockBounded(dir)
   let storeLease, sourceLease
@@ -459,7 +458,7 @@ export async function createHostDomain({ store, ownerConfigBinding, legacyOwnerC
     await prepareStore?.(path)
     let identity = await fileIdentity(path)
     if (intent) {
-      if (intent.record.ownerConfigBinding !== binding && intent.record.ownerConfigBinding !== legacyBinding)
+      if (intent.record.ownerConfigBinding !== binding)
         throw bindingMismatch(intent.record, ownerConfigBinding)
       const { committed: alreadyCommitted } = intendedRecord(registry, intent, identity)
       if (intent.mode === 'adopt-copy' && !alreadyCommitted &&
@@ -519,7 +518,7 @@ export async function createHostDomain({ store, ownerConfigBinding, legacyOwnerC
     const meta = await readMetadataSnapshot(path)
     identity = await fileIdentity(path)
     if (existing) {
-      if (existing.ownerConfigBinding !== binding && existing.ownerConfigBinding !== legacyBinding)
+      if (existing.ownerConfigBinding !== binding)
         throw bindingMismatch(existing, ownerConfigBinding)
       checkRecord(existing, meta, identity, existing.ownerConfigBinding)
       if (existing.ownerConfigBinding !== binding || !existing.ownerConfigFields ||
