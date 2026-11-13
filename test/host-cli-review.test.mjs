@@ -104,3 +104,24 @@ test('CLI identity explicitly supplied by the caller is not replaced', async () 
     { app, stdout: stream, stderr: stream }), 0)
   assert.equal(calls.at(-1).input.sourceId, 'stable-id')
 })
+
+test('self-owned generic task rejection recommends store-selected owner without URL fallback', async t => {
+  const { createApp } = await import('../src/app.mjs')
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-cli-task-guidance-'))
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  const store = join(directory, 'store.sqlite')
+  let stdout = '', stderr = ''
+  const code = await runCli(['--store', store, '--json', 'call', 'importDocument', '--set',
+    JSON.stringify({ path: join(directory, 'must-not-be-read.txt'), language: 'en' })], {
+    stdout: { write: value => { stdout += value } },
+    stderr: { write: value => { stderr += value } },
+  })
+  assert.equal(code, 2)
+  assert.equal(JSON.parse(stdout).error.code, 'INVALID_ARGUMENT')
+  assert.match(stderr, /waiting CLI alias or a resident owner selected by --store/)
+  assert.doesNotMatch(stderr, /--url/)
+  const app = await createApp({ store, settingsDir: join(directory, 'settings'),
+    components: { directory: join(directory, 'components') } })
+  try { assert.deepEqual(app.records.listTasks(), []) }
+  finally { await app.dispose() }
+})

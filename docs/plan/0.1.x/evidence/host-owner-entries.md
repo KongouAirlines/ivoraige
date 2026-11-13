@@ -246,3 +246,9 @@ the stronger session boundary instead of restoring the old shared cookie.
 本次本地验证：Node 24.22.1（兼容运行时），构建成功；7 个相关测试文件共 51 项，43 通过、8 跳过、0 失败。跳过项受 Unix socket listen EPERM 限制，含实际 owner 复用、opener 失败留存服务、附加 CLI 关闭回归；已申请提升仍受限。子进程配对页定时器退出、默认身份去重与直接 owner CLI 生命周期测试真实通过。Node 26 与目标桌面验证仍待补充。
 
 随后已在本地无冲突合入 main（9f135c8），重新构建并扩展到 9 个相关测试文件：58 项，50 通过、8 项仍因 socket 权限跳过、0 失败。未推送、未提交审查、未合并远端 PR。
+
+### CLI 提示契约回归补充
+
+383f0ee 的三平台 CI 在 p04-review-regressions 中失败：运行时已按审查将建议改为由 --store 选择常驻 owner，但该用例仍断言旧的 --url 文案。这是本次修复遗漏的测试更新，不回退正确的运行时行为。现已更新断言，并补独立回归：自持 generic task 在任务准入前拒绝，提示 --store，不再提示 --url，且没有写入任务记录。
+
+补充验证：Node 24.22.1 下 npm test（含构建）共 784 项，751 通过、33 跳过、0 失败；p04-review-regressions 的 4 项真实通过。跳过包括 Unix owner socket 受限项和 Windows 专属项；目标平台 CI 以新提交结果为准，未将本地结果称为三平台通过。

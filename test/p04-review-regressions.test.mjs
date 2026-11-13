@@ -60,7 +60,7 @@ test('self-owned generic task calls reject before admission while aliases and pe
       JSON.stringify({ docId: documents[0].id, targetLang: 'zh' })])
     assert.equal(result.code, 2)
     assert.equal(result.body.error.code, 'INVALID_ARGUMENT')
-    assert.match(result.stderr, /waiting CLI alias or --url/)
+    assert.match(result.stderr, /waiting CLI alias or a resident owner selected by --store/)
   }
   assert.equal(requests, 0)
   assert.equal((await cli([...host, 'call', 'listDocuments'])).body.items.length, 4)
