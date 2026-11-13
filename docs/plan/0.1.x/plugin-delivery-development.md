@@ -197,3 +197,14 @@ Read-only list no longer prepares or recovers a profile. CLI option keys are
 explicit; managed configs replace/remove their own exact entries; source cleanup
 preserves current and rollback references. Rollback refuses post-operation config
 changes unless explicitly confirmed. No record/source-data deletion is added.
+
+## 并发启动修正（2026-11-13）
+
+宿主争用准备 gate 时采用 20–50 ms 抖动重试，总等待上限 5 秒；
+不重试非冲突错误，不改变安装器的立即拒绝行为。回归用 4 个独立
+进程通过 IPC 屏障同时启动不同 store，覆盖空和已初始化 profile，
+全部成功后仍验证安装器不能写入。验证基于 Node 24.22.1 兼容线、
+Linux 和本地已有 DSH bundle；不代表 Node 26 或其他平台验收。
+
+合并 main 9f135c8 后重新构建 DSH/Web，profile-sharing、plugin-install、
+operation-catalog、mcp 四组共 55/55 通过。未执行原生 PDF/OCR、付费模型或跨平台验收。

@@ -3,6 +3,7 @@ import { basename, dirname, resolve } from 'node:path'
 import { createHash } from 'node:crypto'
 import { Service } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
+import { HostDeadline, waitForDeadline } from './host-deadline.mjs'
 import { sameDirectory } from './managed-path.mjs'
 
 // Both entry protocols read the same saved resource under the same Records lease.
@@ -20,7 +21,7 @@ export class ResourceAccess extends Service {
     ctx.effect(() => () => this.close())
   }
   artifact(artifactId, { retain = false, docId } = {}) {
-    if (this.closing) throw new KernelError('PRECONDITION_FAILED', 'Resource access is closing')
+    if (this.closing) throw new KernelError('PRECONDITION_FAILED', 'Host is draining', { reason: 'host-draining' })
     const records = this.ctx.get('ivoraige.records')
     const located = records.locateArtifact(artifactId, { docId })
     const artifact = located.artifact
@@ -46,18 +47,34 @@ export class ResourceAccess extends Service {
       if (!info.isFile()) throw new KernelError('NOT_FOUND', 'Artifact not found')
       if (this.maxArtifactBytes !== null && info.size > this.maxArtifactBytes)
         throw new KernelError('PRECONDITION_FAILED', 'Artifact exceeds configured read limit', { maxArtifactBytes: this.maxArtifactBytes })
-      if (this.closing) throw new KernelError('PRECONDITION_FAILED', 'Resource access is closing')
-      let closed
+      if (this.closing) throw new KernelError('PRECONDITION_FAILED', 'Host is draining', { reason: 'host-draining' })
+      let closed, completed = false
       const resource = { ...artifact, file, size: info.size, close: () => {
+        if (completed) return Promise.resolve()
         if (!closed) closed = (async () => {
-          try { await file.close() } finally { artifact.release?.(); this.opened.delete(resource) }
-        })()
+          await file.close()
+          artifact.release?.()
+          this.opened.delete(resource)
+          completed = true
+        })().catch(error => { closed = null; throw error })
         return closed
       } }
       this.opened.add(resource)
       return resource
     } catch (error) {
-      try { await file?.close() } finally { artifact.release?.() }
+      try { await file?.close() }
+      catch (closeError) {
+        // The handle may still own a reader. Keep its Records lease visible to
+        // close() so storage cannot be released on an unconfirmed file close.
+        const orphan = { close: async () => {
+          await file.close()
+          artifact.release?.()
+          this.opened.delete(orphan)
+        } }
+        this.opened.add(orphan)
+        throw closeError
+      }
+      artifact.release?.()
       if (['ENOENT', 'ENOTDIR'].includes(error.code)) throw new KernelError('NOT_FOUND', 'Artifact not found')
       throw error
     }
@@ -89,18 +106,23 @@ export class ResourceAccess extends Service {
       if (!['ENOENT', 'ENOTDIR'].includes(error.code)) throw error
     }
   }
-  async close() {
-    this.closing = true
-    let timer
-    try {
-      await Promise.race([
-        (async () => {
-          await Promise.allSettled([...this.pending])
-          await Promise.all([...this.opened].map(resource => resource.close()))
-        })(),
-        new Promise((_, reject) => { timer = setTimeout(() => reject(new KernelError(
-          'PRECONDITION_FAILED', 'Resource reads did not drain before the deadline')), this.drainTimeoutMs) }),
-      ])
-    } finally { clearTimeout(timer) }
+  stopAccepting() { this.closing = true }
+  async close({ deadline } = {}) {
+    this.stopAccepting()
+    if (this.drained) return
+    if (!this.closeTask) {
+      const work = (async () => {
+        await Promise.allSettled([...this.pending])
+        await Promise.all([...this.opened].map(resource => resource.close()))
+        this.drained = true
+      })()
+      this.closeTask = work.finally(() => { this.closeTask = null })
+    }
+    try { await waitForDeadline(this.closeTask, deadline ?? new HostDeadline(this.drainTimeoutMs)) }
+    catch (error) {
+      if (!deadline && error.details?.reason === 'deadline-exceeded')
+        throw new KernelError('PRECONDITION_FAILED', 'Resource reads did not drain before the deadline')
+      throw error
+    }
   }
 }

@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, rm, access } from 'node:fs/promises'
 import { join } from 'node:path'
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { createApp } from '../src/app.mjs'
 import { managePlugins, parsePluginOptions, resolvePnpm } from '../src/plugin-install.mjs'
@@ -50,4 +50,44 @@ test('pnpm development dependency works without a global executable', async () =
     const { execFileSync } = await import('node:child_process')
     assert.equal(execFileSync(resolved.command, [...resolved.prefix, '--version'], { encoding: 'utf8' }).trim(), '11.25.0')
   } finally { process.env.PATH = oldPath }
+})
+
+
+for (const initialized of [false, true]) test(`concurrent processes share ${initialized ? 'initialized' : 'empty'} profile`, { timeout: 30000 }, async t => {
+  const root = await mkdtemp(join(tmpdir(), 'profile-parallel-'))
+  const settingsDir = join(root, 'settings')
+  const children = []
+  t.after(async () => { for (const child of children) child.kill(); await rm(root, { recursive: true, force: true }) })
+  if (initialized) {
+    const app = await createApp({ store: join(root, 'init.sqlite'), settingsDir })
+    await app.dispose()
+  }
+  const script = `import { createApp } from ${JSON.stringify(new URL('../src/app.mjs', import.meta.url).href)};
+    process.send('ready');
+    process.once('message', async () => {
+      try {
+        const app = await createApp({ store: process.argv[1], settingsDir: process.argv[2] });
+        process.send('started');
+        process.once('message', async () => { await app.dispose(); process.disconnect(); });
+      } catch (error) { console.error(error); process.exit(1); }
+    });`
+  const ready = [], started = [], exited = []
+  for (let i = 0; i < 4; i++) {
+    const child = spawn(process.execPath, ['--input-type=module', '-e', script, join(root, `${i}.sqlite`), settingsDir], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] })
+    children.push(child)
+    let stderr = ''
+    child.stderr.on('data', data => { stderr += data })
+    ready.push(new Promise(resolve => child.on('message', message => { if (message === 'ready') resolve() })))
+    started.push(new Promise((resolve, reject) => {
+      child.on('message', message => { if (message === 'started') resolve() })
+      child.on('exit', code => { if (code !== 0) reject(new Error(stderr)) })
+    }))
+    exited.push(new Promise(resolve => child.on('exit', code => resolve({ code, stderr }))))
+  }
+  await Promise.all(ready)
+  for (const child of children) child.send('start')
+  await Promise.all(started)
+  await assert.rejects(acquireProfile(settingsDir), { code: 'CONFLICT' })
+  for (const child of children) child.send('close')
+  for (const result of await Promise.all(exited)) assert.equal(result.code, 0, result.stderr)
 })

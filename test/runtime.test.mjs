@@ -1,4 +1,5 @@
 import test from 'node:test'
+import { parse } from 'yaml'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { createServer } from 'node:http'
@@ -14,7 +15,8 @@ test('development, CI and portable defaults stay on the validated Node 26 releas
   const version = (await readFile(new URL('../.node-version', import.meta.url), 'utf8')).trim()
   assert.equal(version, '26.13.0')
   const workflow = await readFile(new URL('../.github/workflows/kernel-smoke.yml', import.meta.url), 'utf8')
-  assert.ok(workflow.includes(`node: ['${version}']`))
+  const setup = parse(workflow).jobs['package-smoke'].steps.find(step => step.uses?.startsWith('actions/setup-node@'))
+  assert.equal(setup.with['node-version'], version)
   for (const script of ['build-distribution', 'smoke-distribution']) {
     const source = await readFile(new URL(`../scripts/${script}.mjs`, import.meta.url), 'utf8')
     assert.ok(source.includes(`'${version}'`), script)

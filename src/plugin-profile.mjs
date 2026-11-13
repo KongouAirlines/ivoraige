@@ -8,6 +8,19 @@ import { acquireStoreLock } from './store-lock.mjs'
 import { writeFileAtomic, awaitTreeGone, treeAlive } from '../dist/dsh.mjs'
 
 const leases = new WeakSet()
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+async function hostGate(directory) {
+  const deadline = performance.now() + 5000
+  for (;;) {
+    try { return await gate(directory) }
+    catch (error) {
+      if (error.code !== 'CONFLICT') throw error
+      const remaining = deadline - performance.now()
+      if (remaining <= 0) throw error
+      await sleep(Math.min(remaining, 20 + Math.random() * 30))
+    }
+  }
+}
 function profileConflict(directory, cause) {
   return new KernelError('CONFLICT', `Settings profile is in use: ${directory}. Stop hosts using these settings before changing installed plugins.`, { directory }, { cause })
 }
@@ -37,7 +50,7 @@ export async function acquireHostProfile(directory, prepare) {
   directory = resolve(directory)
   await mkdir(directory, { recursive: true })
   directory = await realpath(directory)
-  const lock = await gate(directory)
+  const lock = await hostGate(directory)
   let users, probe
   try {
     let writable = true

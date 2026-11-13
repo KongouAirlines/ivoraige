@@ -1,0 +1,2086 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:ivoraige:design:HostControl:1.0",
+  "title": "HostControl@1 candidate 1.0 (design only)",
+  "description": "Candidate producer/request shape checks. Request is generic HostControl; OwnerIPCRequest/OwnerIPCFrame are a distinct protected local transport. Runtime tests must prove authentication, locks, generation matching, deadlines and crash consistency. Response clients tolerate additive fields and unknown reasons. RecoveryRequest is local-only.",
+  "$ref": "#/$defs/Request",
+  "$defs": {
+    "startRequest": {
+      "type": "object",
+      "properties": {
+        "interfaceVersion": {
+          "const": "HostControl@1"
+        },
+        "minor": {
+          "const": 0
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "action": {
+          "const": "start"
+        },
+        "params": {
+          "type": "object",
+          "properties": {
+            "dataDomainRef": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "lifetime": {
+              "enum": [
+                "resident",
+                "ephemeral"
+              ]
+            }
+          },
+          "required": [
+            "dataDomainRef",
+            "lifetime"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "interfaceVersion",
+        "minor",
+        "requestId",
+        "action",
+        "params"
+      ],
+      "additionalProperties": false
+    },
+    "attachRequest": {
+      "type": "object",
+      "properties": {
+        "interfaceVersion": {
+          "const": "HostControl@1"
+        },
+        "minor": {
+          "const": 0
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "action": {
+          "const": "attach"
+        },
+        "params": {
+          "type": "object",
+          "properties": {
+            "dataDomainRef": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "requiredLifetime": {
+              "enum": [
+                "resident",
+                "ephemeral"
+              ]
+            }
+          },
+          "required": [
+            "dataDomainRef",
+            "requiredLifetime"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "interfaceVersion",
+        "minor",
+        "requestId",
+        "action",
+        "params"
+      ],
+      "additionalProperties": false
+    },
+    "stateRequest": {
+      "type": "object",
+      "properties": {
+        "interfaceVersion": {
+          "const": "HostControl@1"
+        },
+        "minor": {
+          "const": 0
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "action": {
+          "const": "state"
+        },
+        "params": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        },
+        "expectedGeneration": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        }
+      },
+      "required": [
+        "interfaceVersion",
+        "minor",
+        "requestId",
+        "action",
+        "params",
+        "expectedGeneration"
+      ],
+      "additionalProperties": false
+    },
+    "drainRequest": {
+      "type": "object",
+      "properties": {
+        "interfaceVersion": {
+          "const": "HostControl@1"
+        },
+        "minor": {
+          "const": 0
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "action": {
+          "const": "drain"
+        },
+        "params": {
+          "type": "object",
+          "properties": {
+            "budgetMs": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 120000
+            }
+          },
+          "required": [
+            "budgetMs"
+          ],
+          "additionalProperties": false
+        },
+        "expectedGeneration": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        }
+      },
+      "required": [
+        "interfaceVersion",
+        "minor",
+        "requestId",
+        "action",
+        "params",
+        "expectedGeneration"
+      ],
+      "additionalProperties": false
+    },
+    "exitRequest": {
+      "type": "object",
+      "properties": {
+        "interfaceVersion": {
+          "const": "HostControl@1"
+        },
+        "minor": {
+          "const": 0
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "action": {
+          "const": "exit"
+        },
+        "params": {
+          "type": "object",
+          "properties": {
+            "budgetMs": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 120000
+            }
+          },
+          "required": [
+            "budgetMs"
+          ],
+          "additionalProperties": false
+        },
+        "expectedGeneration": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        }
+      },
+      "required": [
+        "interfaceVersion",
+        "minor",
+        "requestId",
+        "action",
+        "params",
+        "expectedGeneration"
+      ],
+      "additionalProperties": false
+    },
+    "operationRequest": {
+      "type": "object",
+      "properties": {
+        "interfaceVersion": {
+          "const": "HostControl@1"
+        },
+        "minor": {
+          "const": 0
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "action": {
+          "const": "operation"
+        },
+        "params": {
+          "type": "object",
+          "properties": {
+            "operationId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            }
+          },
+          "required": [
+            "operationId"
+          ],
+          "additionalProperties": false
+        },
+        "expectedGeneration": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        }
+      },
+      "required": [
+        "interfaceVersion",
+        "minor",
+        "requestId",
+        "action",
+        "params",
+        "expectedGeneration"
+      ],
+      "additionalProperties": false
+    },
+    "ownerBootstrapRequest": {
+      "type": "object",
+      "properties": {
+        "interfaceVersion": {
+          "const": "HostControl@1"
+        },
+        "minor": {
+          "const": 0
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "action": {
+          "const": "ownerBootstrap"
+        },
+        "params": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        },
+        "expectedGeneration": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        }
+      },
+      "required": [
+        "interfaceVersion",
+        "minor",
+        "requestId",
+        "action",
+        "params",
+        "expectedGeneration"
+      ],
+      "additionalProperties": false
+    },
+    "prepareForceExitRequest": {
+      "type": "object",
+      "properties": {
+        "interfaceVersion": {
+          "const": "HostControl@1"
+        },
+        "minor": {
+          "const": 0
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "action": {
+          "const": "prepareForceExit"
+        },
+        "params": {
+          "type": "object",
+          "properties": {
+            "operationId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            }
+          },
+          "required": [
+            "operationId"
+          ],
+          "additionalProperties": false
+        },
+        "expectedGeneration": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        }
+      },
+      "required": [
+        "interfaceVersion",
+        "minor",
+        "requestId",
+        "action",
+        "params",
+        "expectedGeneration"
+      ],
+      "additionalProperties": false
+    },
+    "forceExitRequest": {
+      "type": "object",
+      "properties": {
+        "interfaceVersion": {
+          "const": "HostControl@1"
+        },
+        "minor": {
+          "const": 0
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "action": {
+          "const": "forceExit"
+        },
+        "params": {
+          "type": "object",
+          "properties": {
+            "operationId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "challengeId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            "acknowledgeUnknownOutcome": {
+              "const": true
+            }
+          },
+          "required": [
+            "operationId",
+            "challengeId",
+            "acknowledgeUnknownOutcome"
+          ],
+          "additionalProperties": false
+        },
+        "expectedGeneration": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        }
+      },
+      "required": [
+        "interfaceVersion",
+        "minor",
+        "requestId",
+        "action",
+        "params",
+        "expectedGeneration"
+      ],
+      "additionalProperties": false
+    },
+    "Request": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/startRequest"
+        },
+        {
+          "$ref": "#/$defs/attachRequest"
+        },
+        {
+          "$ref": "#/$defs/stateRequest"
+        },
+        {
+          "$ref": "#/$defs/drainRequest"
+        },
+        {
+          "$ref": "#/$defs/exitRequest"
+        },
+        {
+          "$ref": "#/$defs/operationRequest"
+        },
+        {
+          "$ref": "#/$defs/ownerBootstrapRequest"
+        },
+        {
+          "$ref": "#/$defs/prepareForceExitRequest"
+        },
+        {
+          "$ref": "#/$defs/forceExitRequest"
+        }
+      ]
+    },
+    "Blocker": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "enum": [
+            "task",
+            "operation",
+            "worker",
+            "storage",
+            "registry",
+            "control"
+          ]
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "recovery": {
+          "enum": [
+            "wait",
+            "retry",
+            "repair",
+            "explicit-force",
+            "manual-recovery"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "ref",
+        "reason",
+        "recovery"
+      ],
+      "additionalProperties": true
+    },
+    "State": {
+      "type": "object",
+      "properties": {
+        "dataDomainRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "generation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "lifetime": {
+          "enum": [
+            "resident",
+            "ephemeral"
+          ]
+        },
+        "state": {
+          "enum": [
+            "starting",
+            "ready",
+            "draining",
+            "stopping",
+            "failed"
+          ]
+        },
+        "acceptingBusiness": {
+          "type": "boolean"
+        },
+        "stateRevision": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "synchronization": {
+          "enum": [
+            "p04",
+            "control-only"
+          ]
+        },
+        "operationId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "blockers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Blocker"
+          },
+          "maxItems": 100
+        },
+        "blockersTruncated": {
+          "type": "boolean"
+        },
+        "storeOwnership": {
+          "enum": [
+            "held",
+            "released",
+            "unknown"
+          ]
+        }
+      },
+      "required": [
+        "dataDomainRef",
+        "generation",
+        "lifetime",
+        "state",
+        "acceptingBusiness",
+        "stateRevision",
+        "synchronization",
+        "operationId",
+        "blockers",
+        "blockersTruncated",
+        "storeOwnership"
+      ],
+      "additionalProperties": true,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "ready"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "acceptingBusiness": {
+                "const": true
+              },
+              "storeOwnership": {
+                "const": "held"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "acceptingBusiness": {
+                "const": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "synchronization": {
+                "const": "p04"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "stateRevision": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "stateRevision": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "starting",
+                  "ready",
+                  "draining"
+                ]
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "storeOwnership": {
+                "enum": [
+                  "held",
+                  "unknown"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "ready"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "operationId": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "enum": [
+                  "draining",
+                  "stopping"
+                ]
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "operationId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[A-Za-z0-9_.:-]+$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "ControlOperation": {
+      "type": "object",
+      "properties": {
+        "operationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "generation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "intent": {
+          "enum": [
+            "drain",
+            "exit"
+          ]
+        },
+        "phase": {
+          "enum": [
+            "gate",
+            "admissions",
+            "work",
+            "resources",
+            "quiescent",
+            "storage",
+            "release"
+          ]
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "blocked",
+            "drained",
+            "completed"
+          ]
+        },
+        "remainingMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 120000
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "safeToExit": {
+          "type": "boolean"
+        },
+        "blockers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Blocker"
+          },
+          "maxItems": 100
+        },
+        "blockersTruncated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "operationId",
+        "generation",
+        "intent",
+        "phase",
+        "status",
+        "remainingMs",
+        "reason",
+        "safeToExit",
+        "blockers",
+        "blockersTruncated"
+      ],
+      "additionalProperties": true,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "drained"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "intent": {
+                "const": "drain"
+              },
+              "phase": {
+                "const": "quiescent"
+              },
+              "safeToExit": {
+                "const": true
+              },
+              "blockers": {
+                "maxItems": 0
+              },
+              "blockersTruncated": {
+                "const": false
+              },
+              "reason": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "blocked"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[A-Za-z0-9_.:-]+$"
+              },
+              "safeToExit": {
+                "const": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "intent": {
+                "const": "drain"
+              }
+            },
+            "required": [
+              "intent"
+            ]
+          },
+          "then": {
+            "properties": {
+              "phase": {
+                "enum": [
+                  "gate",
+                  "admissions",
+                  "work",
+                  "resources",
+                  "quiescent"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "safeToExit": {
+                "const": true
+              }
+            },
+            "required": [
+              "safeToExit"
+            ]
+          },
+          "then": {
+            "properties": {
+              "phase": {
+                "enum": [
+                  "quiescent",
+                  "storage",
+                  "release"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "completed"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "intent": {
+                "const": "exit"
+              },
+              "phase": {
+                "const": "release"
+              },
+              "safeToExit": {
+                "const": true
+              },
+              "reason": {
+                "type": "null"
+              },
+              "blockers": {
+                "maxItems": 0
+              },
+              "blockersTruncated": {
+                "const": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "pending"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "reason": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "pending"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "safeToExit": {
+                "const": false
+              }
+            }
+          }
+        }
+      ],
+      "description": "Only exit can complete after release and control cleanup. A live State lacks phase, so State/operation phase and physical process exit still require semantic checks."
+    },
+    "StateResponse": {
+      "type": "object",
+      "properties": {
+        "interfaceVersion": {
+          "const": "HostControl@1"
+        },
+        "minor": {
+          "const": 0
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "apiVersion": {
+          "const": "2.0"
+        },
+        "state": {
+          "$ref": "#/$defs/State"
+        }
+      },
+      "required": [
+        "interfaceVersion",
+        "minor",
+        "requestId",
+        "apiVersion",
+        "state"
+      ],
+      "additionalProperties": true
+    },
+    "OperationResponse": {
+      "type": "object",
+      "properties": {
+        "interfaceVersion": {
+          "const": "HostControl@1"
+        },
+        "minor": {
+          "const": 0
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "apiVersion": {
+          "const": "2.0"
+        },
+        "operation": {
+          "$ref": "#/$defs/ControlOperation"
+        }
+      },
+      "required": [
+        "interfaceVersion",
+        "minor",
+        "requestId",
+        "apiVersion",
+        "operation"
+      ],
+      "additionalProperties": true
+    },
+    "Accepted": {
+      "type": "object",
+      "properties": {
+        "interfaceVersion": {
+          "const": "HostControl@1"
+        },
+        "minor": {
+          "const": 0
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "apiVersion": {
+          "const": "2.0"
+        },
+        "accepted": {
+          "const": true
+        },
+        "generation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "operationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        }
+      },
+      "required": [
+        "interfaceVersion",
+        "minor",
+        "requestId",
+        "apiVersion",
+        "accepted",
+        "generation",
+        "operationId"
+      ],
+      "additionalProperties": true
+    },
+    "Attached": {
+      "type": "object",
+      "properties": {
+        "interfaceVersion": {
+          "const": "HostControl@1"
+        },
+        "minor": {
+          "const": 0
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "apiVersion": {
+          "const": "2.0"
+        },
+        "reused": {
+          "type": "boolean"
+        },
+        "dataDomainRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "generation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "supportedMinors": {
+          "type": "array",
+          "items": {
+            "const": 0
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "state": {
+          "$ref": "#/$defs/State"
+        }
+      },
+      "required": [
+        "interfaceVersion",
+        "minor",
+        "requestId",
+        "apiVersion",
+        "reused",
+        "dataDomainRef",
+        "generation",
+        "supportedMinors",
+        "state"
+      ],
+      "additionalProperties": true
+    },
+    "RecoveryRequest": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "recover"
+        },
+        "store": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mode": {
+          "enum": [
+            "migrate",
+            "copy",
+            "refresh-identity",
+            "abandon-initialization",
+            "adopt-copy"
+          ]
+        },
+        "expectedDiagnostic": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "confirm": {
+          "const": true
+        }
+      },
+      "required": [
+        "action",
+        "store",
+        "mode",
+        "expectedDiagnostic",
+        "confirm"
+      ],
+      "additionalProperties": false,
+      "description": "Local-only resolved command. Runtime enforces exact target-scoped diagnostic, ownership, source retirement, and intent preconditions."
+    },
+    "ExitObservation": {
+      "type": "object",
+      "properties": {
+        "dataDomainRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "generation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "operationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "observation": {
+          "enum": [
+            "stopped",
+            "unknown"
+          ]
+        },
+        "processExited": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "ownerReleased": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "cleanupOutcome": {
+          "enum": [
+            "confirmed",
+            "unknown"
+          ]
+        }
+      },
+      "required": [
+        "dataDomainRef",
+        "generation",
+        "operationId",
+        "observation",
+        "processExited",
+        "ownerReleased",
+        "cleanupOutcome"
+      ],
+      "additionalProperties": true,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "observation": {
+                "const": "stopped"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "processExited": {
+                "const": true
+              },
+              "ownerReleased": {
+                "const": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    "FinalizationReceipt": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "host.finalized"
+        },
+        "dataDomainRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "generation": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "operationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "storeOwnership": {
+          "const": "released"
+        }
+      },
+      "required": [
+        "type",
+        "dataDomainRef",
+        "generation",
+        "operationId",
+        "storeOwnership"
+      ],
+      "additionalProperties": true
+    },
+    "ErrorResponse": {
+      "type": "object",
+      "description": "External v2 error envelope. OwnerIPC failure adds only ok:false at frame level.",
+      "properties": {
+        "apiVersion": {
+          "const": "2.0"
+        },
+        "error": {
+          "$ref": "#/$defs/HostError"
+        }
+      },
+      "required": [
+        "apiVersion",
+        "error"
+      ],
+      "additionalProperties": true
+    },
+    "OwnerIPCRequest": {
+      "type": "object",
+      "description": "Protected local owner request. attach has no expectedGeneration; other actions bind the generation. capability is permitted only on this local frame and required by the Windows runtime.",
+      "properties": {
+        "interfaceVersion": {
+          "const": "HostControl@1"
+        },
+        "minor": {
+          "const": 0
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "action": {
+          "enum": [
+            "attach",
+            "state",
+            "drain",
+            "exit",
+            "operation",
+            "ownerBootstrap",
+            "prepareForceExit",
+            "forceExit",
+            "transportInfo",
+            "business",
+            "mcp.describe",
+            "mcp.call",
+            "mcp.read"
+          ]
+        },
+        "expectedGeneration": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z0-9_.:-]+$"
+        },
+        "params": {},
+        "capability": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "interfaceVersion",
+        "minor",
+        "requestId",
+        "action",
+        "params"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "attach"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "expectedGeneration"
+              ]
+            }
+          },
+          "else": {
+            "required": [
+              "expectedGeneration"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "attach"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {
+                  "dataDomainRef": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]+$"
+                  },
+                  "requiredLifetime": {
+                    "enum": [
+                      "resident",
+                      "ephemeral"
+                    ]
+                  }
+                },
+                "required": [
+                  "dataDomainRef",
+                  "requiredLifetime"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "state"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "drain"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {
+                  "budgetMs": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 120000
+                  }
+                },
+                "required": [
+                  "budgetMs"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "exit"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {
+                  "budgetMs": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 120000
+                  }
+                },
+                "required": [
+                  "budgetMs"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "operation"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {
+                  "operationId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]+$"
+                  }
+                },
+                "required": [
+                  "operationId"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "ownerBootstrap"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "prepareForceExit"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {
+                  "operationId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]+$"
+                  }
+                },
+                "required": [
+                  "operationId"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "forceExit"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {
+                  "operationId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]+$"
+                  },
+                  "challengeId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]+$"
+                  },
+                  "acknowledgeUnknownOutcome": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "operationId",
+                  "challengeId",
+                  "acknowledgeUnknownOutcome"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "transportInfo"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "business"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {
+                  "method": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]+$"
+                  },
+                  "input": {}
+                },
+                "required": [
+                  "method",
+                  "input"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "mcp.describe"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "mcp.call"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]+$"
+                  },
+                  "input": {}
+                },
+                "required": [
+                  "name",
+                  "input"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "action": {
+                "const": "mcp.read"
+              }
+            },
+            "required": [
+              "action"
+            ]
+          },
+          "then": {
+            "properties": {
+              "params": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "pattern": "^[A-Za-z0-9_.:-]+$"
+                  },
+                  "uri": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "variables": {
+                    "type": "object",
+                    "propertyNames": {
+                      "type": "string"
+                    },
+                    "additionalProperties": {
+                      "type": "string",
+                      "maxLength": 2048
+                    }
+                  }
+                },
+                "required": [
+                  "name",
+                  "uri",
+                  "variables"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        }
+      ]
+    },
+    "OwnerIPCFrame": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": true
+            },
+            "result": {}
+          },
+          "required": [
+            "ok",
+            "result"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "ok": {
+              "const": false
+            },
+            "apiVersion": {
+              "const": "2.0"
+            },
+            "error": {
+              "$ref": "#/$defs/HostError"
+            }
+          },
+          "required": [
+            "ok",
+            "apiVersion",
+            "error"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "HostError": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "enum": [
+            "INVALID_ARGUMENT",
+            "PRECONDITION_FAILED",
+            "CONFLICT",
+            "NOT_FOUND",
+            "UNAUTHORIZED",
+            "FORBIDDEN_HOST",
+            "AUTHENTICATION_REQUIRED",
+            "PERMISSION_DENIED",
+            "UPSTREAM_FAILURE",
+            "COMPONENT_MISSING",
+            "INTERNAL"
+          ]
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1
+        },
+        "details": {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9_.:-]+$",
+              "description": "Known reasons are listed in contract §8; clients must treat unknown values as unknown, not automatically retry."
+            },
+            "supportedMinors": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "details"
+      ],
+      "additionalProperties": true,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "details": {
+                "properties": {
+                  "reason": {
+                    "const": "interface-version-unsupported"
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
+              }
+            },
+            "required": [
+              "details"
+            ]
+          },
+          "then": {
+            "properties": {
+              "details": {
+                "required": [
+                  "supportedMinors"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "details": {
+                "properties": {
+                  "reason": {
+                    "enum": [
+                      "invalid-request"
+                    ]
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
+              }
+            },
+            "required": [
+              "details"
+            ]
+          },
+          "then": {
+            "properties": {
+              "code": {
+                "const": "INVALID_ARGUMENT"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "details": {
+                "properties": {
+                  "reason": {
+                    "enum": [
+                      "interface-version-unsupported",
+                      "registry-corrupt",
+                      "registry-unavailable",
+                      "domain-schema-unsupported",
+                      "host-draining",
+                      "force-unavailable",
+                      "host-not-ready",
+                      "owner-unavailable",
+                      "store-ownership-unknown",
+                      "source-retirement-unverified",
+                      "host-busy"
+                    ]
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
+              }
+            },
+            "required": [
+              "details"
+            ]
+          },
+          "then": {
+            "properties": {
+              "code": {
+                "const": "PRECONDITION_FAILED"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "details": {
+                "properties": {
+                  "reason": {
+                    "enum": [
+                      "stale-generation",
+                      "temporary-owner",
+                      "owner-unreachable",
+                      "domain-registration-mismatch",
+                      "owner-config-mismatch",
+                      "registry-intent-pending",
+                      "diagnostic-changed",
+                      "registry-busy",
+                      "outcome-unknown",
+                      "request-cancelled"
+                    ]
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
+              }
+            },
+            "required": [
+              "details"
+            ]
+          },
+          "then": {
+            "properties": {
+              "code": {
+                "const": "CONFLICT"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "details": {
+                "properties": {
+                  "reason": {
+                    "enum": [
+                      "owner-absent",
+                      "operation-absent"
+                    ]
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
+              }
+            },
+            "required": [
+              "details"
+            ]
+          },
+          "then": {
+            "properties": {
+              "code": {
+                "const": "NOT_FOUND"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

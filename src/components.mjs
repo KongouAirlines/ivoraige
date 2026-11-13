@@ -7,6 +7,7 @@ import { Transform } from 'node:stream'
 import { lt } from 'semver'
 import { Service } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
+import { waitForDeadline } from './host-deadline.mjs'
 import { waitForJob } from './job-wait.mjs'
 import { COMPONENT_SETTINGS_NS } from './component-settings.mjs'
 import { downloadAsset, extractVerifiedArchive, fetchRelease, findAsset, findComponent,
@@ -37,6 +38,7 @@ export class Components extends Service {
     this.fetcher = config.fetcher ?? fetch
     this.jobs = ctx.jobs
     this.tasks = new Map()
+    this.closing = false
     ctx.effect(() => this.jobs.events.subscribe({ owner: undefined }, event => {
       if (this.tasks.has(event.job?.id)) this.changed(event.job.id)
     }))
@@ -138,6 +140,7 @@ export class Components extends Service {
   }
 
   start(input) {
+    if (this.closing) throw new KernelError('PRECONDITION_FAILED', 'Host is draining', { reason: 'host-draining' })
     if ([...this.tasks.keys()].some(taskId => !terminal.has(this.jobs.get(taskId).status))) {
       throw new KernelError('CONFLICT', 'A component installation is already running')
     }
@@ -302,13 +305,25 @@ export class Components extends Service {
     return this.getTask(taskId)
   }
 
-  async close() {
+  stopAccepting() { this.closing = true }
+
+  async close({ deadline } = {}) {
+    this.stopAccepting()
+    if (this.drained) return
+    if (!this.closeTask) this.closeTask = this.drain(deadline).then(() => { this.drained = true }).finally(() => {
+      this.closeTask = null
+    })
+    await waitForDeadline(this.closeTask, deadline)
+  }
+
+  async drain(deadline) {
     for (const taskId of this.tasks.keys()) {
       const job = this.jobs.get(taskId)
       if (!terminal.has(job.status) && !this.tasks.get(taskId).committing) {
         this.jobs.kill(taskId, undefined, 'application closing')
       }
     }
-    await Promise.all([...this.tasks.keys()].map(taskId => waitForJob(this.jobs, taskId)))
+    await Promise.all([...this.tasks.keys()].map(taskId =>
+      waitForJob(this.jobs, taskId, deadline?.remainingMs() ?? 30_000)))
   }
 }
