@@ -47,3 +47,5 @@ git commit -s
 This adds `Signed-off-by: Your Name <you@example.org>` to the commit message.
 Use your own identity and sign off only contributions you can certify. The sign-off
 becomes part of public Git history; it is distinct from a cryptographic commit signature.
+
+Plugin delivery tests use pnpm 11.25.0 from the locked development dependencies installed by `npm ci`; no global pnpm is required. The installer launches that package through the current Node executable on every platform. Published source-package consumers install pnpm separately.

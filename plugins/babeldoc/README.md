@@ -2,6 +2,9 @@
 
 Optional, independently installed PDF source and frozen-output bridge for ivoraige
 host API 1. It registers source `babeldoc` (binding schema 1) and output `pdf`.
+This independent package is version `0.1.1`; both adapters report `0.1.1`.
+The host-bundled BabelDOC adapters remain `0.1.0` and cannot be mounted
+alongside these same-ID adapters.
 It shares the host's pinned DSH/Cordis runtime and obtains the NDJSON transport
 through `ivoraige.sidecarFactory`; `ivoraige.storePath` owns managed sources.
 No translation provider, model context, or credentials are passed to rebuild.
@@ -54,12 +57,19 @@ store or managed PDF resources. Keep those resources for saved documents.
 - Keep legacy `pdf` / installed `components` configuration on the original host
   path, or use this package alone. Mounting both registers `babeldoc` twice and
   fails explicitly; there is no silent replacement or automatic migration.
+- Documents and unfinished tasks pinned to an independent `0.1.0` adapter are
+  not silently relabeled as `0.1.1`. Keep the old package available to finish
+  them, or explicitly reimport with `0.1.1` and reconcile accepted revisions.
+  Saved snapshots remain readable, but source projections and PDF replay still
+  require a compatible installed adapter and binding. The package version,
+  adapter version, binding schema 1, and engine version are distinct identities.
 - New captures and translated replay require the exact derived engine version
   `0.7.1+ivoraige.2`, matching `captureConfig.babeldoc`, and
   `captureConfig.underscoreLinePolicy: ascii-alnum-base-v1`. Missing or different
   policy values are rejected. Existing `.1` and 0.6.4 bindings are never relabeled.
-  Their original-file source PDF and saved frozen MD/JSON remain readable,
-  without invoking the new runtime. Translated PDF requires its compatible
+  Their original-file source PDF and already saved frozen MD/JSON artifacts remain
+  readable without invoking the new runtime. A new MD/JSON export still needs
+  the compatible source projection adapter. Translated PDF requires its compatible
   renderer/runtime. To use `.2`, explicitly reimport the original and manually
   reconcile units and accepted revisions; there is no automatic revision migration.
 - The unchanged protocol is NDJSON JSON-RPC 2.0, protocol 1. Imports need no
@@ -83,8 +93,14 @@ ID 为 `pdf`，binding schema 与 sidecar protocol 均保持 1。通过宿主的
 或另一份 DSH/Cordis。须另行准备 `0.7.1+ivoraige.2` 派生运行时及资源，不能
 将官方原版 0.7.1、旧 `.1` 或 0.6.4 改标签冒充兼容。新捕获与译文 PDF
 要求精确版本和 `underscoreLinePolicy: ascii-alnum-base-v1`；旧 binding
-原件 PDF 与冻结 MD/JSON 仍可读。使用 `.2` 重建旧文档须显式重导入原件并人工
+原件 PDF 与已保存的冻结 MD/JSON 产物仍可读；重新导出 MD/JSON 需兼容的来源
+投影 adapter。使用 `.2` 重建旧文档须显式重导入原件并人工
 对齐单元及接受修订，不自动迁移。此同步不表示 #80 已修复或已验收。
+
+独立包与两个 adapter 的版本均为 `0.1.1`，宿主内置 adapter 仍为 `0.1.0`，
+同 ID 不可同时挂载。旧独立 `0.1.0` 所固定的文档及未完成任务不会自动改写为
+`0.1.1`；需保留旧包完成，或显式重导入并对齐已接受修订。包、adapter、binding
+schema 与引擎版本分别管理。
 
 停止宿主后使用上述本地安装命令，重启启用。`install` 和 `enable` 都必须
 在命令的 JSON 参数顶层传入与宿主一致的 `storePath`，不会从已保存配置猜测数据库。旧 `pdf/components` 路径与新包

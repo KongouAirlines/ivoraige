@@ -293,3 +293,19 @@ combined final tree on Node 26.13.0/Linux passes 635 with 2 conditional skips
 87-file isolated package smoke. Native three-platform CI on the new head is
 still required; these results add no real PDF fidelity, native engine
 redistribution, translation-quality or cross-account acceptance claim.
+
+## 审查与主线集成（2026-11-13）
+
+复用本地既有修复，适配器调用边界把独立包的已知公开 KernelError
+归一化为宿主错误，保留协议状态、CLI 退出码和任务消息；普通 Error
+仍按内部错误处理。覆盖继承、私有 receiver、冻结描述符和动态方法。
+独立 BabelDOC 包及 source/output 版本为 0.1.1，与内置 0.1.0 区分，
+绑定 schema 仍为 1，旧快照兼容限制见插件 README。
+双实现收口登记于 babeldoc-adapter-consolidation，不在本次删除内置路径。
+
+同步修正后的 #97 和 main 9f135c8 后，发现合成 sidecar fixture 搬到临时目录
+遗漏 main 新引入的 pdf-email-cases.mjs；现同时复制该依赖。
+重新构建 DSH/Web 后，专项六组 91/91；全量 813 项中 790 通过、23 跳过、
+0 失败。环境为 Linux、Node 24.22.1 兼容线；跳过项包括沙盒不支持的
+Unix socket、Windows 专项及发布归档条件。未重跑真实 PDF/OCR 或模型调用，
+不能据此宣称 Node 26、其他平台或生产翻译验收通过。

@@ -7,7 +7,7 @@ import { constants } from 'node:fs'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { SidecarClient } from '../sidecar.mjs'
 import { KernelError } from '../errors.mjs'
-import { readablePdfText, validatePdfTranslation } from './pdf-text.mjs'
+import { readablePdfText, renderPdfMarkdown, validatePdfTranslation } from './pdf-text.mjs'
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 const fail = message => { throw new KernelError('PRECONDITION_FAILED', message) }
@@ -264,6 +264,7 @@ export function Pdf(ctx, config) {
     validateSourceLanguage,
     validateTranslation: validatePdfTranslation,
     readableText: readablePdfText,
+    renderMarkdown: renderPdfMarkdown,
   }))
   ctx.effect(() => ctx.get('ivoraige.outputs').register({
     id: 'pdf', formats: ['pdf'],

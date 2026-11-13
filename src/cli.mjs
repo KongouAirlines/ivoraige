@@ -12,7 +12,7 @@ import { KernelError } from './errors.mjs'
 const usage = `ivoraige [--url URL | --store FILE] [--pdf-config FILE] [--json] COMMAND [arguments] [options]
 Commands: import, documents, units, unit, revisions, edit, accept, unaccept,
   translate, export, snapshots, artifacts, tasks, task, pause, resume, cancel, abandon,
-  settings, capabilities, components, call, serve, mcp, help
+  settings, prompts, capabilities, components, call, serve, mcp, help
 Internal operations: call OPERATION --set JSON
 MCP: mcp --stdio [--store FILE]; serve exposes /mcp unless --no-mcp
 Components: status, catalog, credential --token-env NAME, install, local --path MANIFEST, task ID, cancel ID
@@ -28,7 +28,7 @@ function parse(argv) {
     'path', 'format', 'adapter', 'source-id', 'external-ref', 'source-lang', 'title', 'target-lang', 'cursor',
     'limit', 'origin', 'filter', 'text', 'base-revision', 'expected-accepted', 'mode',
     'units', 'out', 'snapshot', 'on-missing-accepted', 'state', 'kind', 'set', 'ref', 'value', 'token-env',
-    'file-action', 'content-mode'])
+    'file-action', 'content-mode', 'prompt'])
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i]
     if (!token.startsWith('--')) { positional.push(token); continue }
@@ -73,6 +73,14 @@ function route(command, args, o) {
         default: throw new KernelError('INVALID_ARGUMENT', 'Unknown components command')
       }
     }
+    case 'prompts': {
+      const action = args[0] ?? 'list'
+      const input = o.set ? parseSettingsJson(o.set) : {}
+      const names = { list: 'getPromptLibrary', copy: 'copyPrompt', update: 'updatePrompt',
+        bind: 'bindPrompt', restore: 'restorePrompt', resolve: 'resolvePrompt' }
+      if (!names[action]) throw new KernelError('INVALID_ARGUMENT', 'Unknown prompts command')
+      return [names[action], input, 'POST', `/api/operations/${names[action]}`]
+    }
     case 'import': return ['importDocument', { path: o.path ?? required(args[0], 'file path'),
       format: o.format, adapterId: o.adapter, sourceId: o['source-id'], externalRef: o['external-ref'],
       language: required(o['source-lang'], '--source-lang'), title: o.title, origin: 'cli' }, 'POST', '/api/documents/import']
@@ -91,7 +99,7 @@ function route(command, args, o) {
     case 'unaccept': return ['unaccept', { unitId: required(unitId, 'unit ID'), targetLang: required(targetLang, '--target-lang'),
       expectedAcceptedRevisionId: o['expected-accepted'] ?? null }, 'POST', `/api/units/${segment(unitId)}/unaccept`]
     case 'translate': return ['translate', { docId: required(docId, 'document ID'), targetLang: required(targetLang, '--target-lang'),
-      mode: o.mode, unitIds: o.units?.split(',') }, 'POST', `/api/documents/${segment(docId)}/translate`]
+      mode: o.mode, unitIds: o.units?.split(','), promptTemplateId: o.prompt }, 'POST', `/api/documents/${segment(docId)}/translate`]
     case 'export': {
       const formats = required(o.format, '--format').split(',')
       if ((o.out || o.adapter) && formats.length !== 1)

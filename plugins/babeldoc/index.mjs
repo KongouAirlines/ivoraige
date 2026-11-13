@@ -43,6 +43,7 @@ async function cleanupPath(path, options, primary) {
   }
 }
 const ENGINE_VERSION = '0.7.1+ivoraige.2'
+const ADAPTER_VERSION = '0.1.1'
 const UNDERSCORE_LINE_POLICY = 'ascii-alnum-base-v1'
 const compatibleBinding = binding => binding?.engineVersion === ENGINE_VERSION &&
   binding.captureConfig?.babeldoc === ENGINE_VERSION &&
@@ -326,7 +327,7 @@ export function BabelDOCSource(ctx, config = {}) {
   ctx.effect(() => () => runtime.client.close())
   ctx.effect(() => ctx.get('ivoraige.parse').register({
     id: 'babeldoc',
-    version: '0.1.0', bindingSchemaVersion: 1,
+    version: ADAPTER_VERSION, bindingSchemaVersion: 1,
     formats: ['pdf'],
     inputKinds: ['bytes', 'managed-resource'], cancellable: true,
     importMode: 'queued',
@@ -341,7 +342,7 @@ export function BabelDOCSource(ctx, config = {}) {
   }))
   ctx.effect(() => ctx.get('ivoraige.outputs').register({
     id: 'pdf', formats: ['pdf'],
-    version: '0.1.0',
+    version: ADAPTER_VERSION,
     canRunUnavailable: contentMode => contentMode === 'source',
     supports: (binding, contentMode) => binding?.adapterId === 'babeldoc' &&
       (contentMode === 'source' || runtime.status.state !== 'unavailable'),

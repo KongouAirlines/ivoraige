@@ -42,18 +42,18 @@ node node_modules/ivoraige/src/launch.mjs
 
 已有验收覆盖旧 Windows 包及 `0.1.0` macOS npm 包的同版本替换；跨版本迁移需单独验证。组件按版本保存，不自动更新或清理旧版本。删除 Release 不会删除本机组件和用户数据。
 
-## Offline independent source plugins
+## 离线独立来源插件
 
-The core npm archive no longer contains `plugins/mineru/`. The same-repository
-`@ivoraige/mineru-source` package contains the MIT JavaScript/Python bridge,
-DSH declaration patch and its license, not MinerU, Python, native libraries or
-model weights. Pack it with `npm pack ./plugins/mineru --ignore-scripts`, then
-extract the resulting archive to a local directory. This is source delivery,
-not a ready-to-run PDF runtime or completion of the P08 license/resource audit.
+核心 npm 归档不再包含 `plugins/mineru/`。同仓库的 `@ivoraige/mineru-source`
+只包含 MIT 许可的 JavaScript/Python 桥接、DSH 声明和许可文件，不含 MinerU、
+Python、原生库或模型权重。使用 `npm pack ./plugins/mineru --ignore-scripts` 打包，
+再解压至本地目录。这是源码交付，不是开箱即用的 PDF 运行时，也不代表 P08 许可审计完成。
 
-Close every host using the settings directory before changing packages. Install
-`pnpm` (tested version 11.25.0) from its official distribution if it is not already available; package
-operations require its executable on PATH. From a source checkout after build:
+不同 store 可以共用同一个设置目录并同时运行。宿主持有共享读取租约；安装、移除、
+恢复和回滚需要独占写租约，必须先关闭使用该设置目录的全部宿主。
+并发启动会等待准备窗口，最多 5 秒；超时仍忙时返回 CONFLICT。安装器不等待活跃宿主退出。
+开发检出通过 `npm ci` 安装锁定的 pnpm 11.25.0；已发布归档的用户需要从官方安装 pnpm
+并放入 PATH。找不到时返回 `COMPONENT_MISSING`，不会先复制来源或开始安装事务。
 
 ```sh
 node src/plugin-install.mjs list /absolute/settings
@@ -65,37 +65,31 @@ node src/plugin-install.mjs recover /absolute/settings
 node src/plugin-install.mjs rollback /absolute/settings
 ```
 
-The installed npm package also exposes `ivoraige-plugins` with these arguments.
-Quote JSON according to your shell. `storePath` must be the same store used at
-host launch. Installation checks plugin activation without invoking a parser,
-translation model or downloading resources. Native runtime availability is
-checked by the adapter on use; an installed bridge is not evidence of working OCR.
+安装包还提供 `ivoraige-plugins` 命令。JSON 引号按当前 shell 调整。
+第四个参数只允许 `storePath`、`config` 和 `allowConfigOverwrite`，不能覆盖动作、
+目标目录或可执行程序。`storePath` 必须与宿主一致。安装时会验证插件激活，不调用解析器、
+翻译模型或下载资源。原生组件在实际使用时由适配器检查，桥接安装成功不代表 OCR 可用。
 
-Changes take effect on restart. An open host rejects changes. Failed installation
-restores the complete prior package set and profile configuration. Interrupted
-transactions recover before AppBoot; `recover` and `disable` work without a UI or
-loading optional plugins. `rollback` restores the last successful operation's
-previous package set and its configuration: later profile edits may be replaced.
-Records, snapshots, source data and credentials are not removed on uninstall.
-Keep them outside the profile's `node_modules` package directory. Immutable local
-package sources and the previous package snapshot are retained for recovery.
+`list` 只读现有 package.json，不创建设置目录、不恢复事务，并明确标注可能未包含并发或未完成的变化。
+其余操作重启生效。第一次启动在独占租约下完成脚手架和恢复；已有宿主共享设置时不会再次写入这些文件。
+安装失败恢复原包集合与配置。若残留 DSH 包进程仍活着，恢复会拒绝继续，应先确认并停止该进程。
+若诊断带 recoveryPending 和 validationPid，验证进程尚未退出；等待或确认停止该 PID 后再运行 recover。
+不要删除事务目录，也不要用旧宿主绕过所有权。
+嵌套插件贡献必须全部激活成功；需要停用时应停用整个包。
+不要在进程仍存活时手工删除锁文件或恢复目录。
 
-Only self-contained local packages for the exact pinned DSH commit and host API
-are supported. There is no registry marketplace, background update, dependency
-downloader, package-script execution or hot unload. The plugin uses host services;
-it must not ship its own DSH/Cordis runtime. Local-disk SQLite ownership and
-same-filesystem rename are required; network filesystems and physical power-loss
-durability are not validated. A surviving DSH package process blocks recovery
-until it exits. Older host binaries do not understand the profile lease: keep
-all hosts closed when using this entry.
+重复安装会替换本安装器记录的配置项；禁用保留配置，移除删除安装器管理的配置项，
+不会删除用户后来手工改过的项。回滚会恢复前一次包操作之前的配置；若配置已在操作后改动，
+或旧快照没有基线，默认拒绝覆盖。先备份并确认后可使用
+`rollback /absolute/settings unused '{"allowConfigOverwrite":true}'`。
+记录、快照、原始数据与凭据不在卸载范围，应放在 profile 的 node_modules 之外。
+`.plugin-packages/source-*` 只保留当前包集合、上次回滚点或未完成事务引用的版本，
+失败和提交后的清理不会删除这些仍被引用的来源；清理失败不改变已提交事务的结果。
 
-A future independent BabelDOC package retaining source id `babeldoc` and output
-id `pdf` must not also enable the legacy `pdf` option or component auto-discovery.
-Duplicate ownership is an explicit startup error; the partial context and store
-lease are released. Existing legacy-only PDF configuration remains supported.
+仅支持精确匹配固定 DSH 提交与 host API 的自包含本地包，没有市场、后台更新、依赖下载、
+安装脚本或热卸载。插件使用宿主服务，不能自带第二个 DSH/Cordis。租约依赖本地磁盘的
+SQLite 锁和同文件系统 rename，不覆盖网络文件系统或物理断电耐久性。旧二进制不理解
+新的共享 profile 租约，包操作前也必须停止所有旧宿主，不得混用旧安装器更改活跃 profile。
 
-If cancellation reports `recoveryPending`, a validation process has not exited.
-The diagnostic includes its PID. Let it exit or stop that specific process, then
-run `recover`; do not delete the transaction directory or launch an older host to
-bypass ownership. Nested plugin contributions must all activate successfully;
-disable the whole bundle rather than declaring dormant child entries.
+未来独立 BabelDOC 包仍使用来源 id `babeldoc` 和输出 id `pdf`，不能同时启用旧 `pdf`
+选项或自动发现。同身份重复注册会明确拒绝启动并释放部分上下文和 store 租约；旧适配器单独配置仍可使用。

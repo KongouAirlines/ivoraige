@@ -1,5 +1,6 @@
 import { Service } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
+import { HostDeadline, waitForDeadline } from './host-deadline.mjs'
 
 const missing = id => new KernelError('NOT_FOUND', 'Operation not found', { operation: id })
 const issues = error => error.issues.map(issue => ({ path: issue.path, message: issue.message }))
@@ -47,6 +48,13 @@ export class OperationCatalog extends Service {
     this.closing = false
     this.drained = false
     ctx.effect(() => () => this.close())
+  }
+
+  setHostControl(control) {
+    if (control !== null && (typeof control?.beginAdmission !== 'function' ||
+        typeof control?.assertAcceptingBusiness !== 'function'))
+      throw new KernelError('INVALID_ARGUMENT', 'Invalid host admission control')
+    this.hostControl = control
   }
 
   register({ id, inputSchema, resultSchema, requires = [], handler,
@@ -109,67 +117,78 @@ export class OperationCatalog extends Service {
   }
 
   async invoke(id, input = {}, { signal } = {}) {
-    if (this.closing) throw new KernelError('PRECONDITION_FAILED', 'Operation catalog is closing')
-    const entry = this.entries.get(id)
-    if (!entry) throw missing(id)
-    const parsed = entry.inputSchema.safeParse(input)
-    if (!parsed.success) throw new KernelError('INVALID_ARGUMENT', 'Invalid operation parameters',
-      { issues: issues(parsed.error) })
-    const controller = new AbortController()
-    const abort = () => controller.abort(signal?.reason)
-    if (signal?.aborted) abort()
-    else signal?.addEventListener('abort', abort, { once: true })
-    const call = { entry, controller }
-    this.active.add(call)
+    const releaseAdmission = this.hostControl?.beginAdmission()
     try {
-      if (entry.preflight) await entry.preflight(parsed.data)
-      if (this.closing || this.entries.get(id) !== entry || controller.signal.aborted) {
-        throw new KernelError('PRECONDITION_FAILED', 'Operation is no longer accepting requests',
-          { ...(controller.signal.aborted ? { canceled: true } : {}) })
+      if (this.closing) throw new KernelError('PRECONDITION_FAILED', 'Operation catalog is closing')
+      const entry = this.entries.get(id)
+      if (!entry) throw missing(id)
+      const parsed = entry.inputSchema.safeParse(input)
+      if (!parsed.success) throw new KernelError('INVALID_ARGUMENT', 'Invalid operation parameters',
+        { issues: issues(parsed.error) })
+      const controller = new AbortController()
+      const abort = () => controller.abort(signal?.reason)
+      if (signal?.aborted) abort()
+      else signal?.addEventListener('abort', abort, { once: true })
+      const call = { entry, controller }
+      this.active.add(call)
+      try {
+        if (entry.preflight) await entry.preflight(parsed.data)
+        this.hostControl?.assertAcceptingBusiness()
+        if (this.closing || this.entries.get(id) !== entry || controller.signal.aborted) {
+          throw new KernelError('PRECONDITION_FAILED', 'Operation is no longer accepting requests',
+            { ...(controller.signal.aborted ? { canceled: true } : {}) })
+        }
+        if (!this.available(entry)) throw new KernelError('COMPONENT_MISSING',
+          'Required operation capability is unavailable', { operation: id,
+            missing: entry.requires.filter(name => this.ctx.get(name) === undefined) })
+        // Admission protects preflight and the commit to a running call. The
+        // active-call set, not admission, owns the handler's remaining lifetime;
+        // otherwise drain would wait forever before close() could abort it.
+        releaseAdmission?.()
+        const result = await entry.handler(parsed.data, { signal: controller.signal })
+        assertData(result)
+        if (!result || Array.isArray(result) || typeof result !== 'object' ||
+            !entry.resultSchema.safeParse(result).success) {
+          throw new KernelError('INTERNAL', 'Operation returned an invalid result', { operation: id })
+        }
+        return result
+      } finally {
+        signal?.removeEventListener('abort', abort)
+        this.active.delete(call)
+        this.changedDrain()
       }
-      if (!this.available(entry)) throw new KernelError('COMPONENT_MISSING',
-        'Required operation capability is unavailable', { operation: id,
-          missing: entry.requires.filter(name => this.ctx.get(name) === undefined) })
-      const result = await entry.handler(parsed.data, { signal: controller.signal })
-      assertData(result)
-      if (!result || Array.isArray(result) || typeof result !== 'object' ||
-          !entry.resultSchema.safeParse(result).success) {
-        throw new KernelError('INTERNAL', 'Operation returned an invalid result', { operation: id })
-      }
-      return result
     } finally {
-      signal?.removeEventListener('abort', abort)
-      this.active.delete(call)
-      this.changedDrain()
+      releaseAdmission?.()
     }
   }
 
   changedDrain() {
     for (const wake of this.waiters ?? []) wake()
   }
-  async drain(select = () => true) {
-    const deadline = Date.now() + this.drainTimeoutMs
+  stopAccepting() { this.closing = true }
+  async drain(select = () => true, { deadline } = {}) {
+    const effectiveDeadline = deadline ?? new HostDeadline(this.drainTimeoutMs)
     while ([...this.active].some(select)) {
-      let wake, timer
+      let wake
       const pending = new Promise(resolve => { wake = resolve })
       this.waiters ??= new Set()
       this.waiters.add(wake)
       try {
-        const remaining = deadline - Date.now()
-        if (remaining <= 0) throw new KernelError('PRECONDITION_FAILED', 'Operation handlers did not drain before the deadline')
-        const timeout = new Promise((_, reject) => { timer = setTimeout(() => reject(new KernelError(
-          'PRECONDITION_FAILED', 'Operation handlers did not drain before the deadline')), remaining) })
-        await Promise.race([pending, timeout])
+        try { await waitForDeadline(pending, effectiveDeadline) }
+        catch (error) {
+          if (!deadline && error.details?.reason === 'deadline-exceeded')
+            throw new KernelError('PRECONDITION_FAILED', 'Operation handlers did not drain before the deadline')
+          throw error
+        }
       } finally {
-        clearTimeout(timer)
         this.waiters.delete(wake)
       }
     }
   }
-  async close() {
-    this.closing = true
+  async close({ deadline } = {}) {
+    this.stopAccepting()
     for (const call of this.active) call.controller.abort()
-    await this.drain()
+    await this.drain(() => true, { deadline })
     this.drained = true
   }
 }

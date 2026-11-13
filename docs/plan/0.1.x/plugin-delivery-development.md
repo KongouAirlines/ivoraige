@@ -14,6 +14,18 @@ package; only the host `dist/dsh.mjs` exports the manager's `runProfilePnpm`,
 atomic writer and run-tree helpers. `execa@10.0.0` and `undici@7.28.0` (MIT) close
 the newly reached upstream subprocess/proxy dependencies. No manager UI is loaded.
 
+Host API 1 accepts adapter callback failures whose thrown value is an `Error`
+of a `KernelError` class (the constructor need not be the host's), with a known
+public code, nonempty message, and optional object details. A generic `Error`
+with a copied code is not treated as a declared plugin failure. The
+host normalizes these at the Parse/Outputs callback boundary to its own
+`KernelError` before HTTP, CLI, and task handling; independent packages cannot
+share constructor identity with the host. Unknown codes and unexpected errors
+remain internal with a trace ID. This is a trusted installed-plugin contract,
+not a sandbox or permission to expose arbitrary internal failures. It preserves
+the existing wire codes/status/exit values in API 2.0 and avoids changing
+bundled adapters or requiring a new host service in independent packages.
+
 DSH's manager restores manifest/lockfiles after cancellation or installation
 failure, but that is not a complete package-directory rollback. Without HMR it
 reports restart-required, and running bundle removal can require stopping the
@@ -181,3 +193,30 @@ these Linux results. No live PDF fidelity, cross-account acceptance or binary
 redistribution claim is added.
 The 87-file isolated package smoke also passed after setting a writable local
 npm cache; its first attempt could not create this executor's default cache.
+
+## Review follow-up (2026-11-11)
+
+Host profile readers now coexist across distinct stores. Startup preparation and
+recovery serialize behind the writer gate; live readers retain SQLite read
+transactions, and installation requires an exclusive transaction. Profile locks
+are never unlinked. Old binaries must not modify a profile used by these readers.
+The validator probe handoff remains exclusive and unchanged.
+
+pnpm 11.25.0 is a locked development dependency; its script runs through the
+current Node executable, avoiding global PATH assumptions and Windows script
+launch differences. Missing external pnpm is COMPONENT_MISSING before staging.
+Read-only list no longer prepares or recovers a profile. CLI option keys are
+explicit; managed configs replace/remove their own exact entries; source cleanup
+preserves current and rollback references. Rollback refuses post-operation config
+changes unless explicitly confirmed. No record/source-data deletion is added.
+
+## 并发启动修正（2026-11-13）
+
+宿主争用准备 gate 时采用 20–50 ms 抖动重试，总等待上限 5 秒；
+不重试非冲突错误，不改变安装器的立即拒绝行为。回归用 4 个独立
+进程通过 IPC 屏障同时启动不同 store，覆盖空和已初始化 profile，
+全部成功后仍验证安装器不能写入。验证基于 Node 24.22.1 兼容线、
+Linux 和本地已有 DSH bundle；不代表 Node 26 或其他平台验收。
+
+合并 main 9f135c8 后重新构建 DSH/Web，profile-sharing、plugin-install、
+operation-catalog、mcp 四组共 55/55 通过。未执行原生 PDF/OCR、付费模型或跨平台验收。

@@ -3,15 +3,17 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
-import { readFile, realpath, mkdir, mkdtemp, cp, lstat } from 'node:fs/promises'
-import { join, resolve, basename, sep } from 'node:path'
-import { realpathSync } from 'node:fs'
+import { readFile, realpath, mkdir, mkdtemp, cp, lstat, rm, readdir, access } from 'node:fs/promises'
+import { join, resolve, basename, sep, delimiter, isAbsolute, dirname } from 'node:path'
+import { createRequire } from 'node:module'
+import { realpathSync, constants } from 'node:fs'
 import semver from 'semver'
 import { AppBoot, IVORAIGE_DSH_COMMIT, runProfilePnpm, writeFileAtomic } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
 import { ensureProfile } from './model-settings.mjs'
 import { acquireProfile, recoverProfile, snapshotProfile, commitProfile, rollbackProfile } from './plugin-profile.mjs'
 
+const require = createRequire(import.meta.url)
 const fail = (code, message) => { throw new KernelError(code, message) }
 export const pluginRuntime = Object.freeze({ hostApi: 1, dshCommit: IVORAIGE_DSH_COMMIT,
   cordisVersion: '4.0.4', dshVersion: AppBoot.getDshRuntimeVersion() })
@@ -48,21 +50,85 @@ function bundleRows(directory, manifest) {
   return rows
 }
 
+// Development uses the exact lockfile dependency, published consumers can use
+// an explicitly installed pnpm. Resolve before copying packages or journalling.
+export async function resolvePnpm(command) {
+  if (!command) {
+    try { return { command: process.execPath, prefix: [join(dirname(require.resolve('pnpm')), 'bin/pnpm.cjs')] } } catch { command = 'pnpm' }
+  }
+  const names = process.platform === 'win32' && !/\.[^/\\]+$/.test(command)
+    ? (process.env.PATHEXT ?? '.EXE;.CMD;.BAT').split(';').map(ext => command + ext) : [command]
+  const directories = isAbsolute(command) || /[/\\]/.test(command) ? [''] : (process.env.PATH ?? '').split(delimiter)
+  for (const directory of directories) for (const name of names) {
+    const candidate = resolve(directory, name)
+    try { await access(candidate, process.platform === 'win32' ? constants.F_OK : constants.X_OK); return { command: candidate, prefix: [] } } catch {}
+  }
+  throw new KernelError('COMPONENT_MISSING', 'pnpm is not installed. Run npm ci for development, or install pnpm 11.25.0 and put it on PATH.')
+}
+async function pruneSources(directory) {
+  const packages = join(directory, '.plugin-packages')
+  const retained = new Set()
+  // Treat unreadable or malformed references conservatively: no collection.
+  for (const base of [directory, join(directory, '.plugin-previous'), join(directory, '.plugin-transaction')]) {
+    let manifest
+    try { manifest = await manifestAt(base) } catch (error) { if (error.code === 'ENOENT') continue; return }
+    for (const value of Object.values(manifest.dependencies ?? {})) {
+      if (typeof value === 'string' && value.startsWith('file:')) retained.add(resolve(directory, value.slice(5)))
+    }
+  }
+  let entries
+  try { entries = await readdir(packages, { withFileTypes: true }) } catch (error) { if (error.code === 'ENOENT') return; throw error }
+  for (const entry of entries) if (entry.isDirectory() && entry.name.startsWith('source-')) {
+    const path = join(packages, entry.name)
+    if (!retained.has(path)) await rm(path, { recursive: true, force: true })
+  }
+}
+async function updateManagedConfig(directory, name, row) {
+  const path = join(directory, '.plugin-config.json')
+  let managed = {}
+  try { managed = JSON.parse(await readFile(path, 'utf8')) } catch (error) { if (error.code !== 'ENOENT') throw error }
+  const patchPath = join(directory, 'cordis.patch.yml')
+  let patches = AppBoot.loadOverlayPatches('dsh', patchPath)
+  const old = managed[name]
+  if (old) patches = patches.filter(item => JSON.stringify(item) !== JSON.stringify(old))
+  if (row) { patches.push(row); managed[name] = row } else delete managed[name]
+  await writeFileAtomic(patchPath, JSON.stringify(patches) + '\n', { mode: 0o600 })
+  await writeFileAtomic(path, JSON.stringify(managed) + '\n', { mode: 0o600 })
+}
+export function parsePluginOptions(configuration) {
+  const options = configuration ? JSON.parse(configuration) : {}
+  if (!options || typeof options !== 'object' || Array.isArray(options) ||
+      Object.keys(options).some(key => !['storePath', 'config', 'allowConfigOverwrite'].includes(key)))
+    fail('INVALID_ARGUMENT', 'Plugin options allow only storePath, config and allowConfigOverwrite')
+  if (options.allowConfigOverwrite !== undefined && typeof options.allowConfigOverwrite !== 'boolean')
+    fail('INVALID_ARGUMENT', 'allowConfigOverwrite must be boolean')
+  return options
+}
+
 /** All changes require a stopped host; data, credentials and record stores are never removed. */
 export async function managePlugins({ directory, action, packageDirectory, name, storePath, config,
-  signal, pnpmCommand = 'pnpm' } = {}) {
+  signal, pnpmCommand, allowConfigOverwrite = false } = {}) {
   if (typeof directory !== 'string' || !directory.trim()) fail('INVALID_ARGUMENT', 'A profile directory is required')
   directory = resolve(directory)
+  if (action === 'list') {
+    let manifest = {}
+    try { manifest = await manifestAt(directory) } catch (error) { if (error.code !== 'ENOENT') throw error }
+    return { runtime: pluginRuntime, observation: 'read-only; concurrent or incomplete changes may not be reflected',
+      plugins: manifest.dependencies ? AppBoot.readProfilePlugins({ binName: 'dsh', profileDir: directory, installAnchor: join(directory, 'package.json') }).dependencies : [] }
+  }
+  if (config !== undefined && (action !== 'install' || !config || typeof config !== 'object' || Array.isArray(config)))
+    fail('INVALID_ARGUMENT', 'config must be an install configuration object')
+  if (action === 'install' || action === 'remove') pnpmCommand = await resolvePnpm(pnpmCommand)
   const lease = await acquireProfile(directory)
   directory = lease.directory
   try {
     const recovered = await recoverProfile(directory)
     await ensureProfile(directory)
     const location = { binName: 'dsh', profileDir: directory, installAnchor: join(directory, 'package.json') }
-    if (action === 'list' || action === 'recover') return { recovered, runtime: pluginRuntime,
+    if (action === 'recover') return { recovered, runtime: pluginRuntime,
       plugins: AppBoot.readProfilePlugins(location).dependencies }
     if (action === 'rollback') {
-      await rollbackProfile(directory)
+      await rollbackProfile(directory, { allowConfigOverwrite })
       return { application: 'restart-required' }
     }
     if (!['install', 'enable', 'disable', 'remove'].includes(action)) fail('INVALID_ARGUMENT', 'Unknown plugin action')
@@ -105,10 +171,10 @@ export async function managePlugins({ directory, action, packageDirectory, name,
           installAnchor: location.installAnchor, cwd: directory }, args, {
           // Upstream repair invokes pnpm a second time using options.args, not
           // the primary argv. Keep every safety restriction on that shared prefix.
-          args: ['--config.offline=true', '--config.ignore-scripts=true',
+          args: [...pnpmCommand.prefix, '--config.offline=true', '--config.ignore-scripts=true',
             `--store-dir=${join(directory, '.plugin-store')}`, '--config.auto-install-peers=false',
             '--config.dedupe-peer-dependents=false', '--package-import-method=copy'],
-          command: pnpmCommand, execution: 'service', outputBytes: 32768, idleTimeoutMs: 30000,
+          command: pnpmCommand.command, execution: 'service', outputBytes: 32768, idleTimeoutMs: 30000,
           signal, activateNewBundles: false,
         })
         if (result.exitCode !== 0 || result.timedOut) fail('UPSTREAM_FAILURE', result.output || 'Offline package operation failed')
@@ -125,11 +191,9 @@ export async function managePlugins({ directory, action, packageDirectory, name,
         const rows = AppBoot.composeEntries([AppBoot.bundlePatchPaths(join(directory, 'node_modules', name), installed.dsh.bundle)
           .flatMap(file => AppBoot.loadOverlayPatches('dsh', file))])
         if (rows.length !== 1 || !rows[0].id) fail('INVALID_ARGUMENT', 'config requires a single-entry bundle')
-        const patchPath = join(directory, 'cordis.patch.yml')
-        const patches = AppBoot.loadOverlayPatches('dsh', patchPath)
-        patches.push({ id: rows[0].id, config })
-        await writeFileAtomic(patchPath, JSON.stringify(patches) + '\n', { mode: 0o600 })
+        await updateManagedConfig(directory, name, { id: rows[0].id, config })
       }
+      if (action === 'remove') await updateManagedConfig(directory, name)
       if (action === 'install' || action === 'enable') {
         const installed = await manifestAt(join(directory, 'node_modules', name))
         const ids = bundleRows(join(directory, 'node_modules', name), installed).map(row => row.id)
@@ -164,7 +228,7 @@ export async function managePlugins({ directory, action, packageDirectory, name,
       await recoverProfile(directory)
       throw error
     }
-  } finally { lease.release() }
+  } finally { await pruneSources(directory).catch(() => {}); lease.release() }
 }
 
 // Only operational recovery fields cross the CLI boundary; never dump causes
@@ -190,7 +254,7 @@ if (invokedAsCli()) {
   try {
     const [action, directory, target, configuration] = process.argv.slice(2)
     console.log(JSON.stringify(await managePlugins({ action, directory, name: target,
-      packageDirectory: target, ...(configuration ? JSON.parse(configuration) : {}) })))
+      packageDirectory: target, ...parsePluginOptions(configuration) })))
   } catch (error) {
     console.error(JSON.stringify(pluginDiagnostic(error)))
     process.exitCode = 1

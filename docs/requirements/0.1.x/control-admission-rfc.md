@@ -4,6 +4,8 @@
 
 目标是让最小托盘、WebUI 插件管理页、MCP/OpenAI 入口和保存工作流共享清楚的边界。四接口属于 ivoraige；Cordis 提供插件/服务装配、依赖和 effect 生命周期，DSH 提供经验证的基础服务。本文不设计第二套 Loader、任务系统、凭据库或通用事件总线。
 
+2026-11-09 后续设计：[HostControl@1 候选契约](host-control-contract.md)首先细化 A 的统一 owner、管理会话、数据域恢复和退出接口，附 schema 与验收拆分；仍未实现，不改变 B/C 及运行时迁移边界。
+
 ## 范围、依据与替代关系
 
 - 延续[组合契约](contracts.md)、[工作流模型](workflows.md)、[外部 API](external-api.md)及其[协议附录](external-protocol.md)。HostControl 汇总既有 HostSession/退出语义；EntryControl 细化[首版最小托盘](../../plan/0.1.x/desktop.md#首版最小托盘子集)；PluginDelivery 细化 P05/P08；RunAdmission 细化 W02/I01.callable@1。它们不是四个强制独立 npm 包。

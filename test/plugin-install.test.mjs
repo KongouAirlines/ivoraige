@@ -31,6 +31,7 @@ async function setup(t, beforeCleanup) {
 test('real offline pnpm install, shared AppBoot, disable/restart, enable, uninstall retain data', async t => {
   const { source, directory, manifest } = await setup(t)
   assert.equal((await managePlugins({ directory, action: 'list' })).plugins.length, 0)
+  await managePlugins({ directory, action: 'recover' })
   await writeFile(join(directory, 'user-data.txt'), 'keep')
   const installed = await managePlugins({ directory, action: 'install', packageDirectory: source })
   assert.equal(installed.application, 'restart-required')
@@ -51,7 +52,7 @@ test('real offline pnpm install, shared AppBoot, disable/restart, enable, uninst
 
 test('incompatibility and missing dependencies are diagnosed before mutation', async t => {
   const { source, directory, manifest } = await setup(t)
-  await managePlugins({ directory, action: 'list' })
+  await managePlugins({ directory, action: 'recover' })
   const before = await readFile(join(directory, 'package.json'), 'utf8')
   for (const [change, code] of [[{ dependencies: { missing: '1.0.0' } }, 'COMPONENT_MISSING'],
     [{ ivoraige: { hostApi: 2 } }, 'PRECONDITION_FAILED'],
@@ -129,7 +130,7 @@ test('legacy PDF and a profile-owned same-id source conflict explicitly and rele
 
 test('package command failure and pre-cancellation leave the previous complete profile', async t => {
   const { source, directory } = await setup(t)
-  await managePlugins({ directory, action: 'list' })
+  await managePlugins({ directory, action: 'recover' })
   const before = await readFile(join(directory, 'package.json'), 'utf8')
   await assert.rejects(managePlugins({ directory, action: 'install', packageDirectory: source,
     pnpmCommand: join(directory, 'missing-package-manager') }))
@@ -183,7 +184,7 @@ test('canonical profile aliases cannot bypass source/profile overlap rejection',
   await assert.rejects(managePlugins({ directory: alias, action: 'install', packageDirectory: nested }),
     error => error.code === 'INVALID_ARGUMENT' && /outside its profile/.test(error.message))
   const app = await bootModelSettings({ directory: alias })
-  await assert.rejects(managePlugins({ directory, action: 'list' }), { code: 'CONFLICT' })
+  assert.match((await managePlugins({ directory, action: 'list' })).observation, /read-only/)
   await app.dispose()
   assert.equal((await managePlugins({ directory, action: 'list' })).plugins.length, 0)
 })
@@ -325,7 +326,7 @@ test('plugin CLI runs through directory aliases and stays inert when imported', 
 test('borrowed profile lease accepts a canonical alias and recovers before boot', async t => {
   let lease
   const { root, directory } = await setup(t, () => lease?.release())
-  await managePlugins({ directory, action: 'list' })
+  await managePlugins({ directory, action: 'recover' })
   lease = await acquireProfile(directory)
   const alias = join(root, 'borrowed-profile-alias')
   await symlink(directory, alias, 'junction')
@@ -337,7 +338,7 @@ test('borrowed profile lease accepts a canonical alias and recovers before boot'
   assert.ok(app.settings)
   await app.dispose()
   // Disposal must not release ownership borrowed from the embedding caller.
-  await assert.rejects(managePlugins({ directory, action: 'list' }), { code: 'CONFLICT' })
+  assert.match((await managePlugins({ directory, action: 'list' })).observation, /read-only/)
   lease.release()
   assert.equal(ownsProfile(lease, alias), false)
   assert.equal((await managePlugins({ directory, action: 'list' })).plugins.length, 0)
@@ -372,7 +373,7 @@ test('death between commit renames preserves the previous complete rollback poin
   assert.equal((await managePlugins({directory,action:'recover'})).recovered, true)
   const installed = join(directory, 'node_modules', manifest.name, 'package.json')
   assert.equal(JSON.parse(await readFile(installed, 'utf8')).version, '0.1.1')
-  await managePlugins({directory,action:'rollback'})
+  await managePlugins({directory,action:'rollback',allowConfigOverwrite:true})
   assert.equal(JSON.parse(await readFile(installed, 'utf8')).version, '0.1.0')
 })
 
@@ -392,7 +393,7 @@ test('explicit rollback never promotes partially removed obsolete bytes', async 
 for (const busyAttempts of [[2], [2, 3]]) {
   test(`validation failure survives probe reacquisition schedule ${busyAttempts.join(',')}`, async t => {
     const { source, directory, manifest } = await setup(t)
-    await managePlugins({ directory, action: 'list' })
+    await managePlugins({ directory, action: 'recover' })
     const before = await readFile(join(directory, 'package.json'), 'utf8')
     await writeFile(join(source, 'index.mjs'), `function probe() {}
       probe.inject = ['originalValidationDependency']; export default probe`)
@@ -425,3 +426,32 @@ for (const busyAttempts of [[2], [2, 3]]) {
     }
   })
 }
+
+test('managed config is replaced, removed and not resurrected by reinstall; sources retain only rollback reachability', async t => {
+  const { source, directory, manifest } = await setup(t)
+  await managePlugins({ directory, action: 'install', packageDirectory: source, config: { location: 'one' } })
+  await managePlugins({ directory, action: 'install', packageDirectory: source, config: { location: 'two' } })
+  let patches = JSON.parse(await readFile(join(directory, 'cordis.patch.yml'), 'utf8'))
+  assert.deepEqual(patches.filter(row => row.id === 'delivery-probe'), [{ id: 'delivery-probe', config: { location: 'two' } }])
+  await managePlugins({ directory, action: 'remove', name: manifest.name })
+  patches = JSON.parse(await readFile(join(directory, 'cordis.patch.yml'), 'utf8'))
+  assert.equal(patches.some(row => row.id === 'delivery-probe'), false)
+  await managePlugins({ directory, action: 'install', packageDirectory: source })
+  assert.equal(JSON.parse(await readFile(join(directory, 'cordis.patch.yml'), 'utf8')).some(row => row.id === 'delivery-probe'), false)
+  const { readdir } = await import('node:fs/promises')
+  assert.equal((await readdir(join(directory, '.plugin-packages'))).filter(name => name.startsWith('source-')).length, 1)
+  await writeFile(join(source, 'index.mjs'), 'throw new Error("activation failure for cleanup")')
+  await assert.rejects(managePlugins({ directory, action: 'install', packageDirectory: source }))
+  assert.equal((await readdir(join(directory, '.plugin-packages'))).filter(name => name.startsWith('source-')).length, 1)
+})
+
+test('rollback refuses changed profile configuration without explicit overwrite', async t => {
+  const { source, directory, manifest } = await setup(t)
+  await managePlugins({ directory, action: 'install', packageDirectory: source })
+  await managePlugins({ directory, action: 'disable', name: manifest.name })
+  await writeFile(join(directory, 'cordis.patch.yml'), '[{"id":"manual-edit","config":{}}]\n')
+  await assert.rejects(managePlugins({ directory, action: 'rollback' }), { code: 'PRECONDITION_FAILED' })
+  assert.match(await readFile(join(directory, 'cordis.patch.yml'), 'utf8'), /manual-edit/)
+  await managePlugins({ directory, action: 'rollback', allowConfigOverwrite: true })
+  assert.doesNotMatch(await readFile(join(directory, 'cordis.patch.yml'), 'utf8'), /manual-edit/)
+})

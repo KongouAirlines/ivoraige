@@ -7,7 +7,10 @@ import { fileURLToPath } from 'node:url'
 import { Service } from '../dist/dsh.mjs'
 import { createApp } from '../src/app.mjs'
 import { serve } from '../src/http.mjs'
-import { placeholderTokens } from '../src/adapters/pdf-text.mjs'
+import { placeholderTokens, renderPdfMarkdown } from '../src/adapters/pdf-text.mjs'
+import { marked } from 'marked'
+import { JSDOM } from 'jsdom'
+import { pdfEmailCases } from './fixtures/pdf-email-cases.mjs'
 
 const engine = fileURLToPath(new URL('./fixtures/pdf-engine.mjs', import.meta.url))
 const originalBytes = '%PDF-FAKE-ORIGINAL\nA test source, not a real PDF.\n'
@@ -38,6 +41,7 @@ async function accept(app, docId, texts) {
   const units = app.records.listUnits(docId, { targetLang: 'zh-CN' })
   const revisions = []
   for (const [index, unit] of units.entries()) {
+    if (index >= texts.length) break
     const revision = await app.records.writeRevision(unit.id, {
       targetLang: 'zh-CN', text: texts[index], baseRevisionId: unit.draftRevisionId ?? unit.acceptedRevisionId ?? null,
     })
@@ -55,6 +59,300 @@ async function exported(app, docId, options) {
 }
 
 const outputs = [{ format: 'pdf' }, { format: 'md' }, { format: 'json' }]
+
+test('PDF Markdown expresses captured headings and keeps literal formula and identifier text visible', async t => {
+  const f = await fixture(t, 'markdown-structure')
+  const doc = await imported(f)
+  const units = f.app.records.listUnits(doc.id, { targetLang: 'zh-CN' })
+  assert.deepEqual(units.map(unit => unit.kind), ['heading', 'body', 'caption', 'formula'])
+  const source = await exported(f.app, doc.id, { contentMode: 'source', outputs: [{ format: 'md' }] })
+  const sourceBody = new JSDOM(marked.parse(await readFile(source.artifacts.md.path, 'utf8'))).window.document.body
+  assert.equal(sourceBody.querySelector('h2')?.textContent, 'Results_2026 a<b')
+  assert.equal(sourceBody.querySelector('p')?.textContent, '1. Metric_Total = x\\alpha & 5 < 7; <b2> &lt; 1.')
+  await accept(f.app, doc.id, ['Summary_2026 <b1>', '1. Metric_Total = x\\alpha & 5 < 7; <b2> &lt; 1.'])
+  const result = await exported(f.app, doc.id, { targetLang: 'zh-CN', outputs })
+  const md = await readFile(result.artifacts.md.path, 'utf8')
+  const json = JSON.parse(await readFile(result.artifacts.json.path, 'utf8'))
+  const body = new JSDOM(marked.parse(md)).window.document.body
+  assert.equal(body.querySelector('h2')?.textContent, 'Summary_2026 a<b')
+  assert.equal(body.querySelector('ol'), null)
+  assert.deepEqual([...body.querySelectorAll('p')].map(node => node.textContent),
+    ['1. Metric_Total = x\\alpha & 5 < 7; <b2> &lt; 1.', 'Figure_1: *literal* caption.', 'α_x_1 < y end'])
+  assert.deepEqual(json.units.map(unit => unit.text),
+    ['Summary_2026 a<b', '1. Metric_Total = x\\alpha & 5 < 7; <b2> &lt; 1.',
+      'Figure_1: *literal* caption.', 'α_x_1 < y end'])
+  assert.ok(result.task.artifacts.every(item => item.snapshotId === result.snapshotId))
+  assert.equal(result.task.stats.llmCalls, 0)
+  const revision = await f.app.records.writeRevision(units[0].id, { targetLang: 'zh-CN',
+    text: 'Later <b1>', baseRevisionId: f.app.records.getUnit(units[0].id,
+      { targetLang: 'zh-CN' }).accepted.id })
+  await f.app.records.acceptRevision(revision.id, { expectedAcceptedRevisionId:
+    f.app.records.getUnit(units[0].id, { targetLang: 'zh-CN' }).accepted.id })
+  const replay = await exported(f.app, doc.id, { targetLang: 'zh-CN', snapshotId: result.snapshotId, outputs })
+  for (const format of ['md', 'json', 'pdf']) {
+    assert.deepEqual(await readFile(replay.artifacts[format].path), await readFile(result.artifacts[format].path))
+  }
+})
+
+test('PDF Markdown keeps indented setext equals literal in body units', async t => {
+  const f = await fixture(t, 'markdown-setext')
+  const doc = await imported(f)
+  const result = await exported(f.app, doc.id,
+    { contentMode: 'source', outputs: [{ format: 'md' }, { format: 'json' }] })
+  const md = await readFile(result.artifacts.md.path, 'utf8')
+  const body = new JSDOM(marked.parse(md)).window.document.body
+  assert.deepEqual([...body.querySelectorAll('h1,h2,h3,h4,h5,h6')].map(node => node.textContent),
+    ['original.pdf'])
+  assert.deepEqual([...body.querySelectorAll('p')].map(node => node.textContent),
+    [0, 1, 2, 3, 4].map(n => `Line ${n}\n${' '.repeat(n)}===`))
+  const json = JSON.parse(await readFile(result.artifacts.json.path, 'utf8'))
+  assert.deepEqual(json.units.map(unit => unit.text),
+    [0, 1, 2, 3, 4].map(n => `Line ${n}\n${' '.repeat(n)}===`))
+  assert.ok(result.task.artifacts.every(item => item.snapshotId === result.snapshotId))
+  assert.equal(result.task.stats.llmCalls, 0)
+})
+
+test('PDF Markdown keeps mixed leading whitespace as visible prose', async t => {
+  const f = await fixture(t, 'markdown-indent')
+  const doc = await imported(f)
+  const result = await exported(f.app, doc.id,
+    { contentMode: 'source', outputs: [{ format: 'md' }, { format: 'json' }] })
+  const md = await readFile(result.artifacts.md.path, 'utf8')
+  const body = new JSDOM(marked.parse(md)).window.document.body
+  assert.equal(body.querySelector('pre,code'), null)
+  const json = JSON.parse(await readFile(result.artifacts.json.path, 'utf8'))
+  assert.deepEqual([...body.querySelectorAll('p')].map(node => node.textContent),
+    json.units.map(unit => unit.text))
+  assert.equal(result.task.stats.llmCalls, 0)
+})
+
+test('PDF Markdown bare URLs retain visible text and navigation target', async t => {
+  const f = await fixture(t, 'markdown-url')
+  const doc = await imported(f)
+  const result = await exported(f.app, doc.id,
+    { contentMode: 'source', outputs: [{ format: 'md' }, { format: 'json' }] })
+  const md = await readFile(result.artifacts.md.path, 'utf8')
+  const body = new JSDOM(marked.parse(md)).window.document.body
+  const json = JSON.parse(await readFile(result.artifacts.json.path, 'utf8'))
+  const paragraphs = [...body.querySelectorAll('p')]
+  assert.deepEqual(paragraphs.map(node => node.textContent), json.units.map(unit => unit.text))
+  assert.deepEqual(paragraphs.map(node => node.querySelector('a')?.getAttribute('href') ?? null), [
+    'https://example.com/a-b_c?key_name=1&x=2',
+    'https://example.com/a?x=&copy;',
+    'https://example.com/a_(b)',
+    'https://example.com/a-b',
+    'mailto:user-name_test@example.com',
+    'http://www.example.com/a-b_c',
+    'ftp://example.com/a-b_c',
+    'https://example.com/a-b',
+    'https://example.com/a%5Bb%5D(test)',
+    'https://example.com/a%5Cb',
+    'https://example.com/a_',
+    null,
+    'https://example.com/a-b',
+    null,
+    null,
+    null,
+    'https://example.com/a-b',
+    'https://example.com/a-b',
+    'https://example.com/a-b_c?x=1&y=2',
+    'https://example.com/a-b',
+    'mailto:help@example.com',
+    "mailto:o'connor@example.com",
+    "mailto:o'connor@example.com",
+    'https://[2001:db8::1]/a',
+    'https://[::1]:8080/a-b?x=1&y=2',
+    'ftp://[2001:db8::1]/a_b',
+    'https://[2001:db8::1]/a%5Bb%5D',
+    null,
+    'http://www.example.com/a-b',
+    'http://www.example.com/a-b_c?x=1&y=2',
+    'http://www.example.com/a-b',
+    'http://WWW.example.com/a-b_c',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    "mailto:o'connor@example.com",
+    "mailto:'o'connor@example.com",
+    "mailto:'help@example.com",
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    'mailto:help@example.com',
+    "mailto:o'connor@example.com",
+    "mailto:o'connor@example.com",
+    "mailto:'o'connor@example.com",
+    "mailto:'help@example.com",
+    "mailto:'help@example.com",
+    "mailto:'help@example.com",
+  ])
+  assert.ok([...body.querySelectorAll('a')].every(link => URL.canParse(link.getAttribute('href'))))
+  assert.equal(body.querySelector('pre,code'), null)
+  assert.ok(result.task.artifacts.every(item => item.snapshotId === result.snapshotId))
+  assert.equal(result.task.stats.llmCalls, 0)
+})
+
+test('PDF Markdown respects explicit URL boundaries and leaves invalid link candidates as text', async t => {
+  const f = await fixture(t, 'markdown-link-boundaries')
+  const doc = await imported(f)
+  const result = await exported(f.app, doc.id,
+    { contentMode: 'source', outputs: [{ format: 'md' }, { format: 'json' }] })
+  const md = await readFile(result.artifacts.md.path, 'utf8')
+  const body = new JSDOM(marked.parse(md)).window.document.body
+  const json = JSON.parse(await readFile(result.artifacts.json.path, 'utf8'))
+  const paragraphs = [...body.querySelectorAll('p')]
+  assert.deepEqual(paragraphs.map(node => node.textContent), json.units.map(unit => unit.text))
+  assert.deepEqual(paragraphs.map(node => [...node.querySelectorAll('a')]
+    .map(link => link.getAttribute('href'))), [
+    ['https://example.com/a!'],
+    ['https://example.com/a?'],
+    ['https://example.com/a;'],
+    ['https://example.com/a.'],
+    ['https://example.com/a:'],
+    ['https://example.com/a,'],
+    ['https://example.com/a)'],
+    ['https://example.com/a%5D'],
+    ['https://example.com/a?q=why?'],
+    ['ftp://example.com/a;'],
+    ['http://www.example.com/a!'],
+    ['https://example.com/a'],
+    ['https://example.com/a'],
+    ['https://example.com/a'],
+    ['https://example.com/a'],
+    ['https://example.com/a'],
+    [], [], [], [], [], [], [],
+    [], [], [], [],
+    ['mailto:user_name@example.com'],
+    ['mailto:user@example.com'],
+    ['mailto:other@example.com'],
+    ['http://www.example.com.'],
+    ['http://www.example.com./a'],
+    [],
+  ])
+  assert.ok(result.task.artifacts.every(item => item.snapshotId === result.snapshotId))
+  assert.equal(result.task.stats.llmCalls, 0)
+})
+
+test('PDF Markdown validates complete email candidates without changing recipients', async t => {
+  const f = await fixture(t, 'markdown-email')
+  const doc = await imported(f)
+  const options = { contentMode: 'source', outputs: [{ format: 'md' }, { format: 'json' }] }
+  const result = await exported(f.app, doc.id, options)
+  const md = await readFile(result.artifacts.md.path, 'utf8')
+  const json = JSON.parse(await readFile(result.artifacts.json.path, 'utf8'))
+  const body = new JSDOM(marked.parse(md)).window.document.body
+  const paragraphs = [...body.querySelectorAll('p')]
+  assert.deepEqual(json.units.map(unit => unit.text), pdfEmailCases.map(([source]) => source))
+  assert.equal(paragraphs.length, pdfEmailCases.length)
+  for (const [index, [source, hrefs]] of pdfEmailCases.entries()) {
+    assert.equal(paragraphs[index].textContent, source, `visible source ${index}`)
+    assert.deepEqual([...paragraphs[index].querySelectorAll('a')].map(a => a.getAttribute('href')),
+      hrefs, `destinations ${index}: ${source}`)
+  }
+  assert.equal(body.querySelector('script,img,iframe,object,form'), null)
+  for (const link of body.querySelectorAll('a')) {
+    const url = new URL(link.getAttribute('href'))
+    assert.ok(['http:', 'https:', 'ftp:', 'mailto:'].includes(url.protocol))
+    if (url.protocol === 'mailto:') {
+      assert.equal(url.search, '')
+      assert.equal(url.hash, '')
+    }
+  }
+  assert.ok(result.task.artifacts.every(item => item.snapshotId === result.snapshotId))
+  assert.equal(result.task.stats.llmCalls, 0)
+  await f.restart()
+  const replay = await exported(f.app, doc.id, { ...options, snapshotId: result.snapshotId })
+  for (const format of ['md', 'json']) {
+    assert.deepEqual(await readFile(replay.artifacts[format].path), await readFile(result.artifacts[format].path))
+  }
+  assert.equal(replay.task.stats.llmCalls, 0)
+})
+
+test('PDF Markdown preserves numeric literals in document titles, headings and setext body text', () => {
+  const cases = [
+    ['mAP 0.95@0.5 on COCO', []],
+    ['CPU 2.4@3.0GHz', []],
+    ['3.2@scale results', []],
+    ['10.1000/abc@def', []],
+    ['1. item', []],
+    ['  12. item', []],
+    ['Line one\n1. item', []],
+    ['1.user@example.com', ['mailto:1.user@example.com']],
+    ['123@example.com', ['mailto:123@example.com']],
+    ['1.2@example.com', ['mailto:1.2@example.com']],
+  ]
+  for (const context of ['body', 'heading', 'document-title', 'setext-body']) {
+    for (const [text, hrefs] of cases) {
+      const isTitle = context === 'document-title'
+      const kind = context === 'heading' ? 'heading' : 'body'
+      const source = context === 'setext-body' ? `${text}\n ===` : text
+      const md = renderPdfMarkdown({ sourceBinding: { adapterId: 'babeldoc', records: [{}] },
+        snapshot: { id: 'numeric-literal', revisionSetHash: 'numeric-literal' },
+        document: { title: isTitle ? source : 'Numeric literal' },
+        units: isTitle ? [] : [{ unit: { order: 0, kind }, text: source }] })
+      const body = new JSDOM(marked.parse(md)).window.document.body
+      const content = body.querySelector(isTitle ? 'h1' : kind === 'heading' ? 'h2' : 'p')
+      // Document titles and captured headings flatten line breaks; body prose keeps them.
+      assert.equal(content.textContent, isTitle || kind === 'heading' ? source.replace(/\n/g, ' ') : source,
+        `${context}: ${text}`)
+      assert.deepEqual([...content.querySelectorAll('a')].map(a => a.getAttribute('href')), hrefs,
+        `${context} destinations: ${text}`)
+      assert.equal(body.querySelectorAll('h1').length, 1)
+      assert.equal(body.querySelectorAll('h2,h3,h4,h5,h6').length, kind === 'heading' ? 1 : 0)
+      assert.equal(body.querySelector('ol, ul, pre, code'), null)
+    }
+  }
+})
+
+test('PDF Markdown flattens Unicode heading separators without changing body text', () => {
+  const cases = [
+    ['LF', '\n', ' ', '\n'],
+    ['CR', '\r', ' ', '\n'],
+    ['CRLF', '\r\n', ' ', '\n'],
+    ['line separator', '\u2028', ' ', '\u2028'],
+    ['paragraph separator', '\u2029', ' ', '\u2029'],
+    ['mixed separators', '\r\n\u2028\u2029\n', ' ', '\n\u2028\u2029\n'],
+    ['next line control', '\u0085', '\u0085', '\u0085'],
+  ]
+  for (const [label, separator, headingSeparator, bodySeparator] of cases) {
+    const title = `Deep${separator}Learning`
+    const heading = `Results${separator}and Discussion`
+    const text = `Metric${separator}1. item`
+    const md = renderPdfMarkdown({ sourceBinding: { adapterId: 'babeldoc', records: [{}, {}] },
+      snapshot: { id: 'heading-separators', revisionSetHash: 'heading-separators' },
+      document: { title }, units: [
+        { unit: { order: 0, kind: 'heading' }, text: heading },
+        { unit: { order: 1, kind: 'body' }, text },
+      ] })
+    const body = new JSDOM(marked.parse(md)).window.document.body
+    assert.deepEqual([...body.children].map(node => node.tagName), ['H1', 'H2', 'P'], label)
+    assert.equal(body.querySelector('h1').textContent, `Deep${headingSeparator}Learning`, label)
+    assert.equal(body.querySelector('h2').textContent, `Results${headingSeparator}and Discussion`, label)
+    assert.equal(body.querySelector('p').textContent, `Metric${bodySeparator}1. item`, label)
+    assert.equal(body.querySelector('ol, ul, pre, code, a'), null, label)
+  }
+})
+
+test('PDF email candidates containing NUL remain unlinked after HTML normalization', () => {
+  const text = 'user@example.com\u0000'
+  const md = renderPdfMarkdown({ sourceBinding: { adapterId: 'babeldoc', records: [{}] },
+    snapshot: { id: 'original-control-probe', revisionSetHash: 'original-control-probe' },
+    document: { title: 'Control probe' }, units: [{ unit: { order: 0, kind: 'body' }, text }] })
+  assert.ok(md.includes('\u0000'))
+  // HTML parsing discards NUL. Do not mistake textContent normalization for
+  // exact source preservation or allow it to create a shorter email link.
+  const body = new JSDOM(marked.parse(md)).window.document.body
+  assert.equal(body.querySelector('a'), null)
+})
 
 test('PDF coverage summary persists in Cordis records and frozen JSON after restart', async t => {
   const f = await fixture(t, 'coverage-summary')
@@ -251,7 +549,8 @@ test('unresolved PDF displays preserve tokens and allow import and all frozen ou
   await accept(f.app, doc.id, ['结果 <b1> 一。', '结果 <b1> 二。'])
   const result = await exported(f.app, doc.id, { targetLang: 'zh-CN', outputs })
   assert.equal(result.task.stats.llmCalls, 0)
-  assert.match(await readFile(result.artifacts.md.path, 'utf8'), /结果 <b1> 一。/)
+  assert.match(new JSDOM(marked.parse(await readFile(result.artifacts.md.path, 'utf8')))
+    .window.document.body.textContent, /结果 <b1> 一。/)
   const json = JSON.parse(await readFile(result.artifacts.json.path, 'utf8'))
   assert.equal(json.units[0].text, '结果 <b1> 一。')
 })
@@ -307,7 +606,8 @@ test('a legacy unresolved mapping does not prevent translation and frozen export
   const result = await exported(f.app, doc.id, { targetLang: 'zh-CN', outputs })
   assert.equal(result.task.stats.llmCalls, 0)
   assert.equal(calls, 2)
-  assert.match(await readFile(result.artifacts.md.path, 'utf8'), /兼容 <b1> 译文。/)
+  assert.match(new JSDOM(marked.parse(await readFile(result.artifacts.md.path, 'utf8')))
+    .window.document.body.textContent, /兼容 <b1> 译文。/)
 })
 
 test('PDF bindings persist; PDF, Markdown and JSON share frozen revisions', async t => {

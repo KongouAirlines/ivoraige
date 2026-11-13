@@ -12,7 +12,7 @@ import { ComponentsSettings } from './component-settings.mjs'
 import { Outputs } from './outputs.mjs'
 import { Parse } from './parse.mjs'
 import { SidecarFactory } from './sidecar-factory.mjs'
-import { acquireProfile, ownsProfile, recoverProfile } from './plugin-profile.mjs'
+import { acquireHostProfile, ownsProfile, recoverProfile } from './plugin-profile.mjs'
 
 const MODEL_NS = 'ivoraige-model'
 const ROUTES_NS = 'llm-pi-ai'
@@ -381,12 +381,11 @@ export async function ensureProfile(directory) {
 export async function bootModelSettings({ directory, storePath, profileLease } = {}) {
   directory = nonempty(directory, 'directory')
   const ownLease = !ownsProfile(profileLease, directory)
-  const lease = ownLease ? await acquireProfile(directory) : profileLease
+  const lease = ownLease ? await acquireHostProfile(directory, ensureProfile) : profileLease
   directory = lease.directory
   try {
-    await lease.reacquireProbe()
-    await recoverProfile(directory)
-    const result = await bootProfile({ directory, storePath })
+    if (!ownLease) { await lease.reacquireProbe(); await recoverProfile(directory) }
+    const result = await bootProfile({ directory, storePath, prepared: ownLease })
     if (ownLease) result.ctx.effect(() => () => lease.release())
     return result
   } catch (error) {
@@ -396,9 +395,9 @@ export async function bootModelSettings({ directory, storePath, profileLease } =
 }
 
 // Internal startup primitive for the isolated installation probe; caller owns the profile lease.
-export async function bootProfile({ directory, storePath } = {}) {
+export async function bootProfile({ directory, storePath, prepared = false } = {}) {
   directory = nonempty(directory, 'directory')
-  const { profileDir, configPath, patchPath } = await ensureProfile(directory)
+  const { profileDir, configPath, patchPath } = prepared ? { profileDir: directory, configPath: join(directory, 'cordis.yml'), patchPath: join(directory, 'cordis.patch.yml') } : await ensureProfile(directory)
   const profile = {
     name: 'ivoraige', startedBundles: [PROFILE_BUNDLE], dir: profileDir, patchPath,
     installAnchor: join(profileDir, 'package.json'), cwd: profileDir, home: join(profileDir, '.home'),

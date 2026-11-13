@@ -7,6 +7,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createApp } from '../src/app.mjs'
+import { runCli } from '../src/cli.mjs'
+import { serve } from '../src/http.mjs'
+import { errorEnvelope } from '../src/protocol.mjs'
+import { z } from '../dist/dsh.mjs'
 import BabelDOCSource from '../plugins/babeldoc/index.mjs'
 import { Pdf } from '../src/adapters/pdf.mjs'
 
@@ -29,6 +33,8 @@ async function fixture(t, tempRoot = tmpdir()) {
   const apps = []
   t.after(() => closeFixture(apps, () => rm(dir, { recursive: true, force: true })))
   const engine = join(dir, 'engine.mjs')
+  await writeFile(join(dir, 'pdf-email-cases.mjs'),
+    await readFile(new URL('./fixtures/pdf-email-cases.mjs', import.meta.url)))
   await writeFile(engine, (await readFile(new URL('./fixtures/pdf-engine.mjs', import.meta.url), 'utf8'))
     .replace("adapterId: 'babeldoc', captureConfig", "adapterId: 'babeldoc', engineVersion: '0.7.1+ivoraige.2', captureConfig")
     .replace("? {} : { sourceLanguage: params.options.language }",
@@ -50,8 +56,12 @@ test('BabelDOC independent package imports, freezes, reopens and routes PDF/MD/J
   const f = await fixture(t)
   let app = await f.open()
   await app.ctx.plugin(BabelDOCSource, f.config)
+  assert.equal(JSON.parse(await readFile(new URL('../plugins/babeldoc/package.json', import.meta.url))).version, '0.1.1')
+  assert.equal(app.parse.adapters.get('babeldoc').version, '0.1.1')
+  assert.equal(app.outputs.adapters.get('pdf').version, '0.1.1')
   const doc = await importPdf(app)
   assert.equal(doc.sourceAdapterId, 'babeldoc')
+  assert.equal(doc.sourceAdapterVersion, '0.1.1')
   const record = app.records.record(doc.id)
   assert.equal(record.sourceBinding.engineVersion, '0.7.1+ivoraige.2')
   for (const unit of app.records.listUnits(doc.id, { targetLang: 'zh' })) {
@@ -91,6 +101,41 @@ test('BabelDOC source absence and missing runtime leave stored records and TXT u
   assert.deepEqual(await readFile(source.artifacts[0].path), pdf)
   const txt = (await app.records.importDocument({ format: 'txt', content: 'Still usable.' }, { language: 'en', sourceId: 'text' })).document
   assert.ok((await app.exporter.exportDocument(txt.id, { contentMode: 'source', outputs: [{ format: 'json' }] })).artifacts.length)
+})
+
+test('independent BabelDOC errors retain HTTP status, CLI exit and actionable task message', async t => {
+  const f = await fixture(t), app = await f.open()
+  await app.ctx.plugin(BabelDOCSource, f.config)
+  const unregister = app.operationCatalog.register({ id: 'probeBabeldocError', inputSchema: z.object({}).strict(),
+    resultSchema: z.object({}).strict(), handler: () => app.parse.parse({ adapterId: 'babeldoc', format: 'pdf',
+      content: Buffer.from('not a PDF') }) })
+  t.after(unregister)
+  const server = await serve(app, { port: 0 })
+  t.after(() => server.close())
+  const response = await fetch(`${server.url}/api/operations/probeBabeldocError`, { method: 'POST', body: '{}' })
+  const body = await response.json()
+  assert.equal(response.status, 400)
+  assert.equal(body.error.code, 'INVALID_ARGUMENT')
+  assert.equal(body.error.message, 'Input is not a PDF file')
+  let stdout = '', stderr = ''
+  const exit = await runCli(['--json', 'call', 'probeBabeldocError', '--set', '{}'],
+    { app, stdout: { write: chunk => { stdout += chunk } }, stderr: { write: chunk => { stderr += chunk } } })
+  assert.equal(exit, 2)
+  assert.deepEqual(JSON.parse(stdout), body)
+  assert.match(stderr, /Input is not a PDF file/)
+  const admitted = await app.operations.invoke('importDocument', { adapterId: 'babeldoc', format: 'pdf',
+    contentBase64: Buffer.from('not a PDF').toString('base64'), language: 'en', sourceId: 'bad-babeldoc' })
+  const task = await app.tasks.wait(admitted.taskId)
+  assert.equal(task.state, 'failed')
+  assert.equal(task.error?.message, 'Input is not a PDF file')
+  assert.throws(() => app.outputs.get('pdf', { adapterId: 'pdf', contentMode: 'accepted-translation',
+    targetLang: 'zh', provenance: { language: 'en' }, binding: { adapterId: 'babeldoc' } }), error => {
+    const mapped = errorEnvelope(error)
+    assert.equal(mapped.status, 412)
+    assert.equal(mapped.body.error.code, 'PRECONDITION_FAILED')
+    assert.match(mapped.body.error.message, /reimport with the matching runtime/)
+    return true
+  })
 })
 
 test('BabelDOC package has no private host imports and rejects store spoofing', async t => {
@@ -404,6 +449,7 @@ for (const version of ['0.7.1+ivoraige.1', '0.6.4']) {
       .replaceAll(", underscoreLinePolicy: 'ascii-alnum-base-v1'", ''))
     let app = await f.open()
     await app.ctx.plugin(Pdf, { ...f.config, storePath: f.store })
+    assert.equal(app.parse.adapters.get('babeldoc').version, '0.1.0')
     const doc = await importPdf(app)
     const binding = structuredClone(app.records.record(doc.id).sourceBinding)
     assert.equal(binding.engineVersion, version)
@@ -418,12 +464,18 @@ for (const version of ['0.7.1+ivoraige.1', '0.6.4']) {
     await app.dispose()
     await writeFile(engine, modern)
     app = await f.open()
+    await app.ctx.plugin(Pdf, { ...f.config, storePath: f.store })
+    const compatible = await app.exporter.exportDocument(doc.id,
+      { targetLang: 'zh', snapshotId: frozen.snapshotId, outputs: [{ format: 'md' }, { format: 'json' }] })
+    for (const item of compatible.artifacts) assert.deepEqual(await readFile(item.path), content.get(item.format))
+    await app.dispose()
+    app = await f.open()
     // A missing executable proves readable/original export and old-binding
     // refusal do not silently invoke a replacement renderer or reparse.
     await app.ctx.plugin(BabelDOCSource, { ...f.config, command: '/missing/babeldoc/python' })
-    const replay = await app.exporter.exportDocument(doc.id,
-      { targetLang: 'zh', snapshotId: frozen.snapshotId, outputs: [{ format: 'md' }, { format: 'json' }] })
-    for (const item of replay.artifacts) assert.deepEqual(await readFile(item.path), content.get(item.format))
+    await assert.rejects(app.exporter.exportDocument(doc.id,
+      { targetLang: 'zh', snapshotId: frozen.snapshotId, outputs: [{ format: 'md' }, { format: 'json' }] }),
+    { code: 'PRECONDITION_FAILED' })
     const original = await app.exporter.exportDocument(doc.id, { contentMode: 'source', outputs: [{ format: 'pdf' }] })
     assert.deepEqual(await readFile(original.artifacts[0].path), pdf)
     await assert.rejects(app.exporter.exportDocument(doc.id,

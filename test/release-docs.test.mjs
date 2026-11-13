@@ -178,9 +178,9 @@ test('release validation checks tag, generated metadata and actual ZIP bytes',
   try {
     await fixture(root)
     const { info, archive, evidencePath } = await archiveFixture(root)
+    const members = execFileSync(process.platform === 'win32' ? 'tar.exe' : 'tar', ['-tf', archive], { encoding: 'utf8' }).trim().split(/\r?\n/)
     for (const name of licenseNames) {
       assert.deepEqual(await readFile(join(root, 'stage/app', name)), await readFile(join(root, name)))
-      const members = execFileSync(process.platform === 'win32' ? 'tar.exe' : 'tar', ['-tf', archive], { encoding: 'utf8' }).trim().split(/\r?\n/)
       const member = members.find(value => value.replaceAll('\\', '/').replace(/^\.\//, '') === `app/${name}`)
       assert.ok(member, `archive includes app/${name}`)
       assert.deepEqual(execFileSync(process.platform === 'win32' ? 'tar.exe' : 'tar', ['-xOf', archive, member]), await readFile(join(root, name)))
