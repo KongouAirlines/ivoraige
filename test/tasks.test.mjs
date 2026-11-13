@@ -13,8 +13,10 @@ import { Importer } from '../src/import.mjs'
 
 let translate = async ({ basis }) => ({ text: `译:${basis.sourceText}`, modelId: 'test',
   promptVersion: 'test-v1', tokens: { input: null, output: null } })
+let preflight = async () => {}
 class TestModel extends Service {
   constructor(ctx) { super(ctx, 'ivoraige.translationModel') }
+  preflight(input) { return preflight(input) }
   translate(input) { return translate(input) }
 }
 
@@ -252,4 +254,60 @@ test('failed model attempts are counted and errors omit provider details', async
   const done = await f.tasks.wait(taskId)
   assert.equal(done.state, 'succeeded')
   assert.equal(done.stats.llmCalls, 3)
+})
+
+test('closing the gate during held preflight prevents model dispatch and call accounting', async t => {
+  const f = await fixture(t)
+  const doc = await document(f)
+  let entered, release
+  const started = new Promise(resolve => { entered = resolve })
+  const held = new Promise(resolve => { release = resolve })
+  preflight = () => { entered(); return held }
+  let calls = 0
+  translate = () => { calls++; throw new Error('model must not be called') }
+  const { taskId } = await f.tasks.submit(doc.id, { targetLang: 'zh-CN' })
+  await started
+  f.tasks.stopAccepting()
+  release()
+  const paused = await f.tasks.wait(taskId)
+  assert.equal(paused.state, 'paused')
+  assert.equal(paused.cursor, 0)
+  assert.equal(paused.stats.llmCalls, 0)
+  assert.equal(calls, 0)
+  preflight = async () => {}
+})
+
+test('closing the gate during held call accounting prevents model dispatch and restores count', async t => {
+  const f = await fixture(t)
+  const doc = await document(f)
+  preflight = async () => {}
+  let entered, release
+  const started = new Promise(resolve => { entered = resolve })
+  const held = new Promise(resolve => { release = resolve })
+  const originalIncrement = f.records.incrementTaskCall.bind(f.records)
+  f.records.incrementTaskCall = async taskId => {
+    const updated = await originalIncrement(taskId)
+    entered()
+    await held
+    return updated
+  }
+  let calls = 0
+  translate = () => { calls++; throw new Error('model must not be called') }
+  const { taskId } = await f.tasks.submit(doc.id, { targetLang: 'zh-CN' })
+  await started
+  assert.equal(f.records.getTask(taskId).stats.llmCalls, 1)
+  await f.records.updateTask(taskId, current => ({ ...current, stats: { ...current.stats,
+    stageDurationsMs: { ...current.stats.stageDurationsMs, translate: 91 },
+    tokens: { ...current.stats.tokens, export: { input: 7, output: 9 } } } }))
+  f.tasks.stopAccepting()
+  release()
+  const paused = await f.tasks.wait(taskId)
+  assert.equal(paused.state, 'paused')
+  assert.equal(paused.cursor, 0)
+  assert.equal(paused.stats.llmCalls, 0)
+  assert.equal(paused.stats.reuseRatio, 0)
+  assert.deepEqual(paused.stats.tokens.translation, { input: null, output: null })
+  assert.deepEqual(paused.stats.tokens.export, { input: 7, output: 9 })
+  assert.equal(paused.stats.stageDurationsMs.translate >= 91, true)
+  assert.equal(calls, 0)
 })

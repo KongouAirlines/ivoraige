@@ -3,6 +3,7 @@
 
 import { Service } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
+import { waitForDeadline } from './host-deadline.mjs'
 import { TRANSLATION_FEATURE } from './prompt-library.mjs'
 import { reportFailure } from './diagnostics.mjs'
 import { waitForJob } from './job-wait.mjs'
@@ -86,7 +87,7 @@ export class Tasks extends Service {
 
   async submit(docId, options = {}) {
     await this.ready
-    if (this.closing) throw new KernelError('PRECONDITION_FAILED', 'Task service is closing')
+    if (this.closing) throw new KernelError('PRECONDITION_FAILED', 'Host is draining', { reason: 'host-draining' })
     if (options.profileId !== undefined) throw new KernelError('INVALID_ARGUMENT',
       'Translation profiles are not implemented')
     const admission = (async () => {
@@ -114,7 +115,7 @@ export class Tasks extends Service {
 
   async importDocument(file, metadata, { wait, waitForQueued = true, deferSelection = false, legacyWire = false } = {}) {
     await this.ready
-    if (this.closing) throw new KernelError('PRECONDITION_FAILED', 'Task service is closing')
+    if (this.closing) throw new KernelError('PRECONDITION_FAILED', 'Host is draining', { reason: 'host-draining' })
     metadata = metadata && typeof metadata === 'object' ? Object.freeze({ ...metadata }) : metadata
     const selection = this.importCoordinator().prepare({ ...file,
       ...(metadata?.language !== undefined ? { language: metadata.language } : {}) }, { legacyWire, deferSelection })
@@ -195,7 +196,7 @@ export class Tasks extends Service {
 
   async exportDocument(docId, options) {
     await this.ready
-    if (this.closing) throw new KernelError('PRECONDITION_FAILED', 'Task service is closing')
+    if (this.closing) throw new KernelError('PRECONDITION_FAILED', 'Host is draining', { reason: 'host-draining' })
     const { contentMode = 'accepted-translation', targetLang, outputs, snapshotId, onMissingAccepted } = structuredClone(options)
     if (!Array.isArray(outputs) || !outputs.length || outputs.some(item => !item || typeof item.format !== 'string')) {
       throw new KernelError('INVALID_ARGUMENT', 'outputs must contain requested formats')
@@ -472,10 +473,24 @@ export class Tasks extends Service {
           // and replacements take effect without restarting the task service.
           if (!model) throw new KernelError('COMPONENT_MISSING', 'Configure a translation model before translating')
           if (configurationMissing) throw new KernelError('COMPONENT_MISSING', 'No translation model configured')
-          if (model.preflight) await model.preflight({ basis, signal: controller.signal, docId: task.docId,
+          await model.preflight?.({ basis, signal: controller.signal, docId: task.docId,
             promptTemplateId: task.promptTemplateId, pinned: selection?.prompt ? selection : undefined })
+          if (this.tearingDown) return
+          if (live.cancel || controller.signal.aborted || live.pause || this.closing) break
+          const previousStats = this.records.getTask(taskId).stats
           await this.records.incrementTaskCall(taskId)
           if (this.tearingDown) return
+          if (live.cancel || controller.signal.aborted || live.pause || this.closing) {
+            // No model request was dispatched. Undo the provisional call count
+            // before settling the task at its current checkpoint.
+            await this.records.updateTask(taskId, current => {
+              const { translation: _provisional, ...tokens } = current.stats.tokens
+              if (previousStats.tokens.translation !== undefined) tokens.translation = previousStats.tokens.translation
+              return { ...current, stats: { ...current.stats, llmCalls: previousStats.llmCalls,
+                reuseRatio: previousStats.reuseRatio, tokens } }
+            })
+            break
+          }
           const result = await model.translate({ basis, signal: controller.signal, docId: task.docId,
             promptTemplateId: task.promptTemplateId, pinned: selection?.prompt ? selection : undefined })
           if (live.cancel || controller.signal.aborted) break
@@ -601,7 +616,7 @@ export class Tasks extends Service {
 
   async resume(taskId) {
     await this.ready
-    if (this.closing) throw new KernelError('PRECONDITION_FAILED', 'Task service is closing')
+    if (this.closing) throw new KernelError('PRECONDITION_FAILED', 'Host is draining', { reason: 'host-draining' })
     const task = this.records.getTask(taskId)
     if (task.profileId !== undefined) throw new KernelError('INVALID_ARGUMENT',
       'Translation profiles are not implemented')
@@ -637,9 +652,17 @@ export class Tasks extends Service {
     try { return await admission } finally { this.admissions.delete(admission) }
   }
 
-  close() {
+  stopAccepting() { this.closing = true }
+
+  close({ deadline } = {}) {
     if (this.tearingDown) return this.shutdownTask
-    return this.closeTask ??= this.drain()
+    this.stopAccepting()
+    if (this.drained) return Promise.resolve()
+    if (!this.closeTask) this.closeTask = this.drain().catch(error => {
+      this.closeTask = undefined // Failed drains remain retryable while observers are attached.
+      throw error
+    })
+    return waitForDeadline(this.closeTask, deadline)
   }
 
   shutdown() {
@@ -670,7 +693,7 @@ export class Tasks extends Service {
   }
 
   async drain() {
-    this.closing = true
+    this.stopAccepting()
     for (const controller of this.importControllers) controller.abort()
     try {
       await this.ready
@@ -696,11 +719,11 @@ export class Tasks extends Service {
         await live.done
         await live.finished
       }
-    } catch (error) {
-      if (!this.tearingDown) throw error
-    } finally {
+      this.drained = true
       this.detachJobEvents()
       this.detachController()
+    } catch (error) {
+      if (!this.tearingDown) throw error
     }
   }
 }
