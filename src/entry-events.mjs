@@ -60,8 +60,9 @@ function call(listener, value) {
 }
 
 class EventSession {
-  constructor(owner, scope, maxBuffer) {
+  constructor(owner, scope, maxBuffer, ownerAccess = false) {
     this.owner = owner
+    this.ownerAccess = ownerAccess
     this.maxBuffer = maxBuffer
     this.buffer = []
     this.listeners = new Map()
@@ -117,7 +118,7 @@ class EventSession {
 
   snapshot() {
     if (this.closed || this.invalid) throw new KernelError('PRECONDITION_FAILED', 'Subscription requires resynchronization')
-    const snapshot = this.owner.capture(this.ready.scope)
+    const snapshot = this.owner.capture(this.ready.scope, { owner: this.ownerAccess })
     if (this.closed || this.invalid) throw new KernelError('PRECONDITION_FAILED', 'Subscription requires resynchronization')
     return { ...this.ready, ...snapshot }
   }
@@ -140,13 +141,15 @@ class EventSession {
 }
 
 export class EntryEvents extends Service {
-  constructor(ctx) {
+  constructor(ctx, { generation = randomUUID() } = {}) {
     super(ctx, 'ivoraige.events')
-    this.generation = randomUUID()
+    if (typeof generation !== 'string' || !generation) throw new KernelError('INVALID_ARGUMENT', 'Invalid host generation')
+    this.generation = generation
     this.stateRevision = 0
     this.sequence = 0
     this.sessions = new Map()
     this.readers = new Map()
+    this.ownerReaders = new Map()
     this.legacyListeners = new Set()
     this.closed = false
     ctx.effect(() => () => this.close())
@@ -156,7 +159,8 @@ export class EntryEvents extends Service {
     if (this.closed) throw new KernelError('PRECONDITION_FAILED', 'Event bridge is closed')
     if (typeof id !== 'string' || !/^[a-zA-Z][\w.-]*$/.test(id) || typeof read !== 'function')
       throw new KernelError('INVALID_ARGUMENT', 'State reader requires an ID and synchronous function')
-    if (this.readers.has(id)) throw new KernelError('CONFLICT', `State reader already registered: ${id}`)
+    if (this.readers.has(id) || this.ownerReaders.has(id))
+      throw new KernelError('CONFLICT', `State reader already registered: ${id}`)
     this.readers.set(id, read)
     this.publish('capabilities.changed')
     return () => {
@@ -166,10 +170,21 @@ export class EntryEvents extends Service {
     }
   }
 
-  publish(type, { scope = {}, data = {}, legacyData } = {}) {
+  registerOwnerState(id, read) {
+    if (this.closed) throw new KernelError('PRECONDITION_FAILED', 'Owner projection unavailable')
+    if (typeof id !== 'string' || !/^[a-zA-Z][\w.-]*$/.test(id) || typeof read !== 'function')
+      throw new KernelError('INVALID_ARGUMENT', 'Owner state reader requires an ID and synchronous function')
+    if (this.readers.has(id) || this.ownerReaders.has(id)) throw new KernelError('CONFLICT', 'State reader already registered')
+    this.ownerReaders.set(id, read)
+    return () => { if (this.ownerReaders.get(id) === read) this.ownerReaders.delete(id) }
+  }
+
+  publish(type, { scope = {}, data = {}, legacyData, ownerOnly = false } = {}) {
     if (this.closed) return
     if (typeof type !== 'string' || !/^[\w.-]+$/.test(type))
       throw new KernelError('INVALID_ARGUMENT', 'Invalid business event type')
+    if (ownerOnly && legacyData !== undefined)
+      throw new KernelError('INVALID_ARGUMENT', 'Owner-only events cannot have public legacy data')
     const publicScope = eventScope(scope)
     const publicData = eventData(data)
     const legacy = legacyData === undefined ? undefined : eventData(legacyData)
@@ -178,17 +193,17 @@ export class EntryEvents extends Service {
       stateRevision: ++this.stateRevision, scope: publicScope, data: publicData }
     // Publication occurs synchronously after the producer made state visible.
     // Only network/session delivery is deferred to avoid snapshot reentrancy.
-    for (const session of this.sessions.values()) session.enqueue(event)
+    for (const session of this.sessions.values()) if (!ownerOnly || session.ownerAccess) session.enqueue(event)
     if (legacy !== undefined) for (const listener of this.legacyListeners) call(listener, { type, data: legacy })
     return structuredClone(event)
   }
 
-  subscribe(scope = {}, { maxBuffer = 128 } = {}) {
+  subscribe(scope = {}, { maxBuffer = 128, owner = false } = {}) {
     if (this.closed) throw new KernelError('PRECONDITION_FAILED', 'Event bridge is closed')
     if (!Number.isSafeInteger(maxBuffer) || maxBuffer < 1 || maxBuffer > 4096)
       throw new KernelError('INVALID_ARGUMENT', 'maxBuffer must be an integer from 1 to 4096')
     // No await or user callback may separate installation from barrier capture.
-    const session = new EventSession(this, eventScope(scope), maxBuffer)
+    const session = new EventSession(this, eventScope(scope), maxBuffer, owner === true)
     this.sessions.set(session.ready.subscriptionId, session)
     return session
   }
@@ -206,12 +221,12 @@ export class EntryEvents extends Service {
     return () => this.legacyListeners.delete(listener)
   }
 
-  capture(scope) {
+  capture(scope, { owner = false } = {}) {
     for (let attempt = 0; attempt < 8; attempt++) {
       const revision = this.stateRevision
       const state = {}
       try {
-        for (const [id, read] of this.readers) {
+        for (const [id, read] of [...this.readers, ...(owner ? this.ownerReaders : [])]) {
           const value = read(scope)
           if (value?.then) {
             Promise.resolve(value).catch(() => {})
@@ -239,6 +254,7 @@ export class EntryEvents extends Service {
     this.closed = true
     for (const session of [...this.sessions.values()]) session.close()
     this.readers.clear()
+    this.ownerReaders.clear()
     this.legacyListeners.clear()
   }
 }
