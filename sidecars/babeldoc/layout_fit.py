@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Keep BabelDOC's successful dry-run geometry with its scale, not its content.
+"""Historical BabelDOC 0.6.4 fit-box-v1 Python prototype.
 
-This scoped bridge uses the pinned engine's own fit and available-space checks.
-It neither substitutes a layout algorithm nor forces a minimum font size.
+The 0.7.1+ivoraige.3 runtime uses a native Rust implementation. This module
+is retained only for the version-gated historical regression suite.
 """
 import copy
 import math

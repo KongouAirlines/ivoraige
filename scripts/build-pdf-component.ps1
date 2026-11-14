@@ -1,6 +1,7 @@
 param(
     [string]$RuntimeDir = 'evaluation/runs/pdf-build-runtime-0.1.0/.venv',
-    [string]$PyInstallerVersion = '6.22.3'
+    [string]$PyInstallerVersion = '6.22.3',
+    [string]$WheelDir = 'evaluation/runs/babeldoc-runtime-0.7.1/wheels'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -18,7 +19,9 @@ if (-not (Test-Path -LiteralPath $python)) {
     uv venv $runtime --python 3.13
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
-uv pip install --python $python -r $lock "pyinstaller==$PyInstallerVersion"
+$wheels = Join-Path $repo $WheelDir
+if (-not (Test-Path -LiteralPath $wheels)) { throw "Build the derived BabelDOC wheel first; see docs/plan/0.1.x/babeldoc-0.7.1.md" }
+uv pip install --python $python --index-url https://pypi.org/simple --find-links $wheels -r $lock "pyinstaller==$PyInstallerVersion"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $python (Join-Path $PSScriptRoot 'build-pdf-component.py') --python $python
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
