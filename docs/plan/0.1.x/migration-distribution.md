@@ -51,4 +51,4 @@ P08 必须逐项核对：
 
 ## BabelDOC 0.7.1 派生运行时边界
 
-本切片保持 protocol v1 及 records/snapshot 载荷，沿用 native source bridge v1，并以 `0.7.1+ivoraige.2` 和 `captureConfig.underscoreLinePolicy=ascii-alnum-base-v1` 标识新增的窄范围原生分行策略。0.6.4 及 `0.7.1+ivoraige.1` 绑定的译文 PDF 回放明确版本失败；旧可读输出、修订和原件复制保留，重新捕获后的分段与接受修订需明确核对，不自动改写旧绑定。详见[升级指南](babeldoc-0.7.1.md)、[原桥接证据](evidence/babeldoc-0.7.1.md)与[本次分行证据](evidence/babeldoc-underscore-0.7.1.md)。本切片不完成 P05/P08 的全平台独立分发。
+本切片保持 protocol v1 及 records/snapshot 载荷，沿用 native source bridge v1，以 `0.7.1+ivoraige.3` 标识来源桥、`captureConfig.underscoreLinePolicy=ascii-alnum-base-v1` 原生分行策略和 `captureConfig.layoutFitPolicy=fit-box-v1` 原生布局预检策略。运行时校验对应原生能力标记，不再导入 0.6.4 的 Python monkeypatch。0.6.4、`0.7.1+ivoraige.1` 及 `.2` 绑定的译文 PDF 回放明确版本失败；旧可读输出、修订和原件复制保留，重新捕获后的分段与接受修订需明确核对，不自动改写旧绑定。详见[升级指南](babeldoc-0.7.1.md)、[原桥接证据](evidence/babeldoc-0.7.1.md)、[分行证据](evidence/babeldoc-underscore-0.7.1.md)与[原生集成证据](evidence/babeldoc-native-fit-0.1.x.md)。本切片不完成 P05/P08 的全平台独立分发。

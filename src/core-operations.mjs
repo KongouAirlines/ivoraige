@@ -84,6 +84,26 @@ function settingsHandlers(ops) {
   }
 }
 
+function promptHandlers(ctx) {
+  const library = () => ctx.get('ivoraige.prompts')
+  return {
+    getPromptLibrary: async () => ({ library: { ...await library().list(),
+      selectedModel: ctx.get('ivoraige.translationModel')?.configuration?.() ?? null } }),
+    copyPrompt: async p => ({ template: await library().copyTemplate(p) }),
+    updatePrompt: async p => ({ template: await library().updateTemplate(p) }),
+    bindPrompt: async p => {
+      if (p.docId) {
+        const records = ctx.get('ivoraige.records')
+        if (!records) throw new KernelError('COMPONENT_MISSING', 'Document records are unavailable')
+        records.getDocument(p.docId)
+      }
+      return { binding: await library().bind(p) }
+    },
+    restorePrompt: async p => library().restore(p),
+    resolvePrompt: async p => ({ selection: await library().resolve(p) }),
+  }
+}
+
 function componentHandlers(ops) {
   return {
     componentStatus: async () => ops.components().status(),
@@ -112,9 +132,10 @@ export function apply(ctx) {
     const catalog = ctx.get('ivoraige.operationCatalog')
     const ops = ctx.get('ivoraige.operations')
     const handlers = { ...capabilityHandlers(ctx, ops), ...recordHandlers(ctx, ops),
-      ...settingsHandlers(ops), ...componentHandlers(ops) }
+      ...settingsHandlers(ops), ...promptHandlers(ctx), ...componentHandlers(ops) }
     for (const [id, handler] of Object.entries(handlers)) {
       const requires = id === 'capabilities' ? ['ivoraige.outputs'] :
+        ['getPromptLibrary', 'copyPrompt', 'updatePrompt', 'bindPrompt', 'restorePrompt', 'resolvePrompt'].includes(id) ? ['ivoraige.prompts'] :
         id.startsWith('component') ? ['ivoraige.components'] :
           ['getSettings', 'updateSettings', 'setCredential'].includes(id) ? ['ivoraige.modelSettings'] :
             id === 'importDocument' ? ['ivoraige.records', 'ivoraige.tasks', 'ivoraige.parse', 'ivoraige.import'] :

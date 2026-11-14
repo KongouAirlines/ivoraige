@@ -20,13 +20,13 @@
 | P02 | 解析产物、原文快照及旧记录兼容 | P01、Q01 | 分支验证通过、待集成：[证据](evidence/foundation-p02.md)、[PR #48](https://github.com/KongouAirlines/ivoraige/pull/48)、[CI](https://github.com/KongouAirlines/ivoraige/actions/runs/39910273600) | [基础契约与正确性](packages/foundation.md#p02) |
 | P03 | 适配器身份/格式分离与导入编排 | P01、P02 | 分支验证通过、待集成：[证据](evidence/foundation-p03.md)、[PR #49](https://github.com/KongouAirlines/ivoraige/pull/49)、[PR 检查](https://github.com/KongouAirlines/ivoraige/pull/49/checks) | [基础契约与正确性](packages/foundation.md#p03) |
 | P04 | 操作注册、跨域事件及入口收口 | P03；删除入口依赖 Q02 | 分支验证通过、待集成；[分支](https://github.com/KongouAirlines/ivoraige/tree/codex/0.1.x-operation-entries)、[证据](evidence/foundation-p04.md#indexed-resource-ownership-and-review-corrections-2026-10-31) |  [基础契约与正确性](packages/foundation.md#p04) |
-| P05 | 独立官方插件包与安装恢复 | P04；兼容范围定案前完成运行时基线复评（不要求升级） | 草案 | [基础契约与正确性](packages/foundation.md#p05) |
-| P06 | MinerU 纯解析插件 | P05、验证 V01–V04 | 草案 | [PDF 与独立分发](packages/pdf.md#p06) |
+| P05 | 独立官方插件包与安装恢复 | P04；兼容范围定案前完成运行时基线复评（不要求升级） | 分支局部实现，安装事务/归档待验 | [基础契约与正确性](packages/foundation.md#p05)；[局部证据](evidence/mineru-source-p05-p06.md) |
+| P06 | MinerU 纯解析插件 | P05、验证 V01–V04 | Linux CPU/flash 原创两样本实测导入/来源导出；质量、安装闭包待验 | [PDF 与独立分发](packages/pdf.md#p06)；[局部证据](evidence/mineru-source-p05-p06.md) |
 | P07 | 第二同类插件与主体稳定性证明 | P06 后冻结的契约 | 草案 | [PDF 与独立分发](packages/pdf.md#p07) |
-| P08 | PDF 依赖闭包与独立分发 | 清单核对可并行；成包依赖 P05 | BabelDOC 0.7.1 派生来源桥分支验证，独立二进制发布未完成；[证据](evidence/babeldoc-0.7.1.md) | [PDF 与独立分发](packages/pdf.md#p08) |
-| P09 | MinerU 自身重建及同译文 PDF 对照 | P06；受影响包依赖 P08 | 草案 | [PDF 与独立分发](packages/pdf.md#p09) |
+| P08 | PDF 依赖闭包与独立分发 | 清单核对可并行；成包依赖 P05 | BabelDOC 0.7.1 派生来源桥、Pillow 13.0.0 和原生 fit-box-v1 已完成本地集成候选验证，待集成；跨平台成包及真实 PDF 验收未完成；[来源桥证据](evidence/babeldoc-0.7.1.md)、[Pillow 证据](evidence/pillow-13.0.0.md)、[原生集成证据](evidence/babeldoc-native-fit-0.1.x.md)、[PR #95 整合回归](evidence/pdf-pr95-integration-0.1.x.md) | [PDF 与独立分发](packages/pdf.md#p08) |
+| P09 | MinerU 自身重建及同译文 PDF 对照 | P06；受影响包依赖 P08 | 实验性同引擎冻结回放在 Linux 合成样本实测；BabelDOC 同译文对照和质量/成本验收未完成 | [PDF 与独立分发](packages/pdf.md#p09)；[局部证据](evidence/mineru-renderer-p09.md) |
 | P10 | 跨引擎来源映射与 PDF 重建 | P07、P09；单独批准实验范围 | 草案 | [PDF 与独立分发](packages/pdf.md#p10) |
-| D01 | 桌面 HostSession/任务/worker/退出契约探针 | P01；集成依赖 P04 | 草案 | [桌面生命周期](packages/desktop.md#d01) |
+| D01 | 桌面 HostSession/任务/worker/退出契约探针 | P01；集成依赖 P04 | [HostControl 接口契约](../../requirements/0.1.x/host-control-contract.md)、[owner 基础层](evidence/host-owner-foundation.md#review-hardening)及[可重试退出协调](evidence/host-control-lifecycle.md#lifecycle-review-corrections)已有分层实现；[域恢复](evidence/host-domain-review.md)、[传输与会话](evidence/host-transport-review.md)补充审查回归；入口接线、新修复原生验证及[独立普通账户验收](evidence/host-owner-foundation.md#separate-account-acceptance-attempt)仍待完成；[设计检查](evidence/host-control-design.md) | [桌面生命周期](packages/desktop.md#d01) |
 | D02 | WebUI 草稿日志及恢复 | 可先用 D01 草案做夹具；接线依赖 D01/P04 | 草案 | [桌面生命周期](packages/desktop.md#d02) |
 | D03 | UI session 客户端与事件定向失效 | P04；测量与设计可并行 | 草案 | [桌面生命周期](packages/desktop.md#d03) |
 | D04 | 现有 host/browser 性能和故障基线 | [测量协议](desktop.md)；可并行 | 草案 | [桌面生命周期](packages/desktop.md#d04) |

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2026 ivoraige contributors
 
-"""BabelDOC 0.7.1+ivoraige.2 PDF capture/replay over line-delimited JSON-RPC 2.0.
+"""BabelDOC 0.7.1+ivoraige.3 PDF capture/replay over line-delimited JSON-RPC 2.0.
 
 The only stdout writes are protocol messages. BabelDOC runs in this dedicated
 process; it has no translation model, credentials, or download path.
@@ -20,17 +20,23 @@ import socket
 import sys
 import tempfile
 import traceback
+from collections import Counter
 from contextlib import redirect_stdout, contextmanager
 from pathlib import Path
 
 PROTOCOL_VERSION = 1
-ENGINE_VERSION = "0.7.1+ivoraige.2"
+ENGINE_VERSION = "0.7.1+ivoraige.3"
 UPSTREAM_VERSION = "0.7.1"
 SOURCE_BRIDGE_VERSION = 1
+LAYOUT_FIT_POLICY = "fit-box-v1"
 UNDERSCORE_LINE_POLICY = "ascii-alnum-base-v1"
 PYMUPDF_VERSION = "1.26.7"
+PILLOW_VERSION = "13.0.0"
 LAYOUT_MODEL = "doclayout_yolo_docstructbench_imgsz1024.onnx"
 TOKEN_RE = re.compile(r"</?(?:b|i|u|s|f)\d+>")
+# Bound work on repeated anchors even when no complete alignment exists.
+DISPLAY_MAPPING_MAX_CANDIDATES = 50_000
+DISPLAY_MAPPING_MAX_SEARCH_CHARS = 64_000_000
 OUTPUT = sys.stdout
 STATE: dict = {"model_dirs": {}, "options": {}}
 SUPERSCRIPT = str.maketrans("0123456789+-=()in", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻⁼⁽⁾ⁱⁿ")
@@ -78,31 +84,10 @@ def display_span(text: str, flags: int) -> str:
     )
 
 
-def complete_callbacks(calls: list, positions: list) -> None:
-    """Attach tracker data after BabelDOC finishes each located paragraph."""
-    by_key = {}
-    for position in positions:
-        key = position["key"]
-        require(key not in by_key, f"Duplicate BabelDOC callback location: {key}")
-        by_key[key] = position
-    for call in calls:
-        key = call["key"]
-        position = by_key.get(key)
-        require(position is not None, f"BabelDOC callback position missing: {key}")
-        if position.get("preparedInput") != call["requestText"]:
-            call["placeholderPayloads"] = []
-            call["payloadWarning"] = (
-                f"BabelDOC tracker missing or changed request at {key}; "
-                "placeholder payload unavailable"
-            )
-            continue
-        call["preparedInput"] = position["preparedInput"]
-        call["placeholderPayloads"] = position.get("placeholderPayloads", [])
-
-
 def payload_displays(tokens: list, payloads: list):
     displays = {}
     ambiguous = set()
+    counts = Counter(tokens)
     for payload in payloads:
         kind = payload.get("type")
         if kind == "formula":
@@ -118,7 +103,7 @@ def payload_displays(tokens: list, payloads: list):
         for token, value in entries:
             if not isinstance(token, str) or not isinstance(value, str):
                 continue
-            if tokens.count(token) != 1 or token in ambiguous:
+            if counts[token] != 1 or token in ambiguous:
                 continue
             if token in displays:
                 displays.pop(token)
@@ -136,32 +121,66 @@ def display_mapping(
     if not tokens:
         return []
     pieces = TOKEN_RE.split(request)
-    solutions = []
-
-    def walk(index, cursor, values):
-        if len(solutions) > 1:
-            return
-        if index == len(tokens):
-            if cursor == len(source):
-                solutions.append(values)
-            return
-        anchor = pieces[index + 1]
-        if not anchor:
-            if index == len(tokens) - 1:
-                walk(index + 1, len(source), values + [source[cursor:]])
-            return
-        found = source.find(anchor, cursor)
-        while found >= 0:
-            walk(index + 1, found + len(anchor), values + [source[cursor:found]])
-            found = source.find(anchor, found + 1)
-
+    solution = None
+    exhausted = False
+    candidates = search_chars = 0
     if source.startswith(pieces[0]):
-        walk(0, len(pieces[0]), [])
-    if len(solutions) == 1:
+        final_anchor = pieces[-1]
+        final_position = (
+            len(source) - len(final_anchor)
+            if source.endswith(final_anchor) else -1
+        )
+        # A frame is (token index, source cursor, next anchor search position).
+        # `values` stores source ranges, not copied gaps, along the active path.
+        # Materialize text only after the complete alignment is proven unique.
+        cursor = len(pieces[0])
+        frames = [(0, cursor, cursor)]
+        values = []
+        while frames:
+            index, cursor, search = frames[-1]
+            anchor = pieces[index + 1]
+            if not anchor or index == len(tokens) - 1:
+                # Only an end-aligned final anchor can complete the request.
+                if index == len(tokens) - 1 and (
+                    not anchor or final_position >= cursor
+                ):
+                    end = len(source) - len(anchor)
+                    candidate = values + [(cursor, end)]
+                    if solution is not None:
+                        solution = None
+                        break
+                    solution = candidate
+                frames.pop()
+                if frames:
+                    values.pop()
+                continue
+            # Conservative upper bound per find, not measured scanned characters.
+            # Charge before searching; early hits can exhaust this budget too.
+            search_chars += len(source) - search
+            if search_chars > DISPLAY_MAPPING_MAX_SEARCH_CHARS:
+                exhausted = True
+                break
+            found = source.find(anchor, search)
+            if found < 0:
+                frames.pop()
+                if frames:
+                    values.pop()
+                continue
+            candidates += 1
+            if candidates > DISPLAY_MAPPING_MAX_CANDIDATES:
+                exhausted = True
+                break
+            frames[-1] = (index, cursor, found + 1)
+            values.append((cursor, found))
+            next_cursor = found + len(anchor)
+            frames.append((index + 1, next_cursor, next_cursor))
+    if solution is not None and not exhausted:
         return [
-            {"token": token, "text": value}
-            for token, value in zip(tokens, solutions[0])
+            {"token": token, "text": source[start:end]}
+            for token, (start, end) in zip(tokens, solution)
         ]
+    if exhausted and uncertain is not None:
+        uncertain.append("literal alignment search limit reached")
     known = payload_displays(tokens, payloads or [])
     mapped = []
     for token in tokens:
@@ -307,9 +326,16 @@ def insert_unbound_lines(paragraphs: list, extras: list):
 
 
 def runtime():
+    require(sys.version_info[:2] == (3, 13),
+            f"Python 3.13 required; found {sys.version.split()[0]}. Reinstall the PDF runtime lock.",
+            -32002, "COMPONENT_MISSING")
+    from PIL import Image
     import pymupdf
     from babeldoc import const
 
+    require(Image.__version__ == PILLOW_VERSION,
+            f"Pillow {PILLOW_VERSION} required; found {Image.__version__}. Reinstall the PDF runtime lock.",
+            -32002, "COMPONENT_MISSING")
     require(
         const.__version__ == UPSTREAM_VERSION and package_version("BabelDOC") == ENGINE_VERSION,
         f"BabelDOC derived runtime {ENGINE_VERSION} required; found {package_version('BabelDOC')}",
@@ -326,7 +352,24 @@ def runtime():
     require(getattr(_rust_il, "ivoraige_source_bridge_version", None) == SOURCE_BRIDGE_VERSION,
             "BabelDOC native source bridge v1 missing; the stock 0.7.1 wheel cannot replay located records",
             -32002, "COMPONENT_MISSING")
+    require(getattr(_rust_il, "ivoraige_layout_fit_policy", None) == LAYOUT_FIT_POLICY,
+            "BabelDOC native fit-box-v1 layout policy missing; rebuild the derived PDF runtime",
+            -32002, "COMPONENT_MISSING")
+    require(getattr(_rust_il, "ivoraige_underscore_line_policy", None) == UNDERSCORE_LINE_POLICY,
+            "BabelDOC native ascii-alnum-base-v1 underscore policy missing; rebuild the derived PDF runtime",
+            -32002, "COMPONENT_MISSING")
     return const, pymupdf
+
+
+def runtime_versions():
+    """Report loaded libraries, including from a frozen executable, without assets."""
+    from PIL import Image
+    _, pymupdf = runtime()
+    return {"python": sys.version.split()[0], "babeldoc": package_version("BabelDOC"),
+            "pymupdf": pymupdf.VersionBind, "pillow": Image.__version__,
+            "sourceBridge": SOURCE_BRIDGE_VERSION,
+            "layoutFitPolicy": LAYOUT_FIT_POLICY,
+            "underscoreLinePolicy": UNDERSCORE_LINE_POLICY}
 
 
 def assets():
@@ -371,12 +414,17 @@ def engine_pair(source):
     return ("en", "zh") if source == "en" else ("zh", "en")
 
 
-def capture_config(pages, min_text_length, source="en"):
+def capture_config(pages, min_text_length, source="en", layout_fit_policy=None, underscore_line_policy=None):
     engine_pair(source)
+    require(layout_fit_policy in (None, LAYOUT_FIT_POLICY),
+            "PDF layout fit policy unsupported; re-import with the current engine")
+    require(underscore_line_policy in (None, UNDERSCORE_LINE_POLICY),
+            "PDF underscore line policy unsupported; re-import with the current engine")
     config = {
         "babeldoc": ENGINE_VERSION,
         "pymupdf": PYMUPDF_VERSION,
         "sourceBridge": SOURCE_BRIDGE_VERSION,
+        "layoutFitPolicy": LAYOUT_FIT_POLICY,
         "underscoreLinePolicy": UNDERSCORE_LINE_POLICY,
         "parserResourceLimits": True,
         "layoutModel": LAYOUT_MODEL,
@@ -388,24 +436,31 @@ def capture_config(pages, min_text_length, source="en"):
         "skipScannedDetection": True,
         "poolMaxWorkers": 1,
     }
-    # English bindings written before language routing have no sourceLanguage.
+    # English is the default route; pin the exact variant for Chinese sources.
     if source != "en":
         config["sourceLanguage"] = source
     return config
 
 
 @contextmanager
-def underscore_line_scope():
-    """Opt in to the narrow native line guard for one sidecar engine call."""
-    previous = os.environ.get("IVORAIGE_ASCII_ALNUM_BASE_V1")
-    os.environ["IVORAIGE_ASCII_ALNUM_BASE_V1"] = "1"
+def native_policy_scope(config):
+    """Enable exactly the two recorded native policies for this engine call."""
+    require(config.get("layoutFitPolicy") == LAYOUT_FIT_POLICY,
+            "PDF layout fit policy unsupported")
+    require(config.get("underscoreLinePolicy") == UNDERSCORE_LINE_POLICY,
+            "PDF underscore line policy unsupported")
+    names = ("IVORAIGE_FIT_BOX_V1", "IVORAIGE_ASCII_ALNUM_BASE_V1")
+    previous = {name: os.environ.get(name) for name in names}
+    for name in names:
+        os.environ[name] = "1"
     try:
         yield
     finally:
-        if previous is None:
-            os.environ.pop("IVORAIGE_ASCII_ALNUM_BASE_V1", None)
-        else:
-            os.environ["IVORAIGE_ASCII_ALNUM_BASE_V1"] = previous
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
 
 def validate_options(options):
@@ -665,7 +720,7 @@ def _run_engine(
                 min_text_length=config_id["minTextLength"],
                 pages=page_arg,
             )
-            with underscore_line_scope(), redirect_stdout(sys.stderr):
+            with native_policy_scope(config_id), redirect_stdout(sys.stderr):
                 result = high_level.translate(config)
             if mode == "replay":
                 require(not engine.errors, "; ".join(engine.errors), -32003)
@@ -973,7 +1028,7 @@ def rebuild(params):
     config = binding.get("captureConfig")
     require(
         isinstance(config, dict)
-        and config == capture_config(config.get("pages"), config.get("minTextLength"), document["language"]),
+        and config == capture_config(config.get("pages"), config.get("minTextLength"), document["language"], config.get("layoutFitPolicy"), config.get("underscoreLinePolicy")),
         "Capture configuration changed",
     )
     raw_records = binding.get("records")
@@ -1178,4 +1233,7 @@ def main():
 
 if __name__ == "__main__":
     mp.freeze_support()
-    main()
+    if sys.argv[1:] == ["--runtime-versions"]:
+        print(json.dumps(runtime_versions()))
+    else:
+        main()

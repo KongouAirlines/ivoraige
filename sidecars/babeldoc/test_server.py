@@ -3,17 +3,104 @@
 
 """Fast preflight tests; no BabelDOC import, model, or asset download."""
 
+import importlib.util
 import json
 import os
+import subprocess
+import sys
 from io import StringIO
 import tempfile
 import unittest
-from contextlib import nullcontext
+from contextlib import chdir, nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 import server
+
+
+class SidecarBuildTests(unittest.TestCase):
+    def component_builder(self):
+        root = Path(__file__).resolve().parents[2]
+        spec = importlib.util.spec_from_file_location("component_builder", root / "scripts/build-pdf-component.py")
+        build = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(build)
+        return build
+
+    def test_policy_identity_pins_native_algorithms_and_rejects_legacy(self):
+        config = server.capture_config(None, 5)
+        self.assertEqual(config["layoutFitPolicy"], server.LAYOUT_FIT_POLICY)
+        self.assertEqual(config["underscoreLinePolicy"], server.UNDERSCORE_LINE_POLICY)
+        self.assertEqual(server.capture_config(None, 5,
+            layout_fit_policy=server.LAYOUT_FIT_POLICY,
+            underscore_line_policy=server.UNDERSCORE_LINE_POLICY), config)
+        for policy in ("invented", "fit-box-v2"):
+            with self.assertRaisesRegex(server.SidecarError, "policy unsupported"):
+                server.capture_config(None, 5, layout_fit_policy=policy)
+        for policy in ("ascii-base-v1", "ascii-base-v2", "invented"):
+            with self.assertRaisesRegex(server.SidecarError, "policy unsupported"):
+                server.capture_config(None, 5, underscore_line_policy=policy)
+
+    def test_component_build_refuses_unverified_old_executable_reuse(self):
+        build = Path(__file__).resolve().parents[2] / "scripts/build-pdf-component.py"
+        result = subprocess.run([sys.executable, str(build), "--python", sys.executable,
+                                 "--reuse-pyinstaller-build"], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("build a fresh matching sidecar", result.stderr)
+
+    def test_component_build_keeps_the_current_interpreter_path(self):
+        build = self.component_builder()
+        current = Path(sys.executable).absolute()
+        self.assertEqual(build.require_build_python(str(current)), current)
+        with chdir(current.parent):
+            self.assertEqual(build.require_build_python(current.name), current)
+        with patch.object(build.sys, "executable", ""):
+            with self.assertRaisesRegex(RuntimeError, "Cannot identify"):
+                build.require_build_python(str(current))
+
+    def test_component_build_rejects_another_environment_before_side_effects(self):
+        build = self.component_builder()
+        with tempfile.TemporaryDirectory() as directory:
+            other = Path(directory) / "another-python"
+            other.write_text("not the active interpreter", encoding="utf-8")
+            with patch.object(sys, "argv", [str(build.__file__), "--python", str(other)]), \
+                 patch.object(build, "run") as run, \
+                 patch.object(build.shutil, "rmtree") as remove, \
+                 patch.dict(sys.modules, {"babeldoc": None, "pymupdf": None, "PyInstaller": None}):
+                with self.assertRaisesRegex(RuntimeError, "--python must name the interpreter running this script"):
+                    build.main()
+                run.assert_not_called()
+                remove.assert_not_called()
+
+    def test_component_build_does_not_collapse_virtual_environment_aliases(self):
+        build = self.component_builder()
+        with tempfile.TemporaryDirectory() as directory:
+            first = Path(directory) / "first-python"
+            second = Path(directory) / "second-python"
+            try:
+                first.symlink_to(sys.executable)
+                second.symlink_to(sys.executable)
+            except OSError as error:
+                self.skipTest(f"Executable symlinks are unavailable: {error}")
+            self.assertTrue(first.samefile(second))
+            with patch.object(build.sys, "executable", str(first)):
+                self.assertEqual(build.require_build_python(str(first)), first)
+                with self.assertRaisesRegex(RuntimeError, "same environment"):
+                    build.require_build_python(str(second))
+
+
+
+    def test_component_stages_only_current_native_sidecar_sources(self):
+        root = Path(__file__).resolve().parents[2]
+        build = self.component_builder()
+        with tempfile.TemporaryDirectory() as directory:
+            stage = Path(directory)
+            source = root / "sidecars/babeldoc"
+            build.stage_sidecar_sources(source, stage)
+            self.assertEqual({item.name for item in stage.iterdir()},
+                             {"server.py", "requirements.lock", "LICENSE", "COPYING"})
+            for item in stage.iterdir():
+                self.assertEqual(item.read_bytes(), (source / item.name).read_bytes())
 
 
 class NativeBridgeTests(unittest.TestCase):
@@ -106,9 +193,14 @@ class NativeBridgeTests(unittest.TestCase):
 
     def test_runtime_requires_both_derived_distribution_and_native_marker(self):
         fake_babeldoc = SimpleNamespace(const=SimpleNamespace(__version__="0.7.1"),
-                                      _rust_il=SimpleNamespace(ivoraige_source_bridge_version=1))
+                                      _rust_il=SimpleNamespace(
+                                          ivoraige_source_bridge_version=1,
+                                          ivoraige_layout_fit_policy=server.LAYOUT_FIT_POLICY,
+                                          ivoraige_underscore_line_policy=server.UNDERSCORE_LINE_POLICY))
         with patch.dict("sys.modules", {"pymupdf": SimpleNamespace(VersionBind="1.26.7"),
-                                         "babeldoc": fake_babeldoc}):
+                                         "PIL": SimpleNamespace(Image=SimpleNamespace(__version__=server.PILLOW_VERSION)),
+                                         "babeldoc": fake_babeldoc}), \
+             patch.object(server.sys, "version_info", (3, 13)):
             with patch.object(server, "package_version", return_value="0.7.1"):
                 with self.assertRaisesRegex(server.SidecarError, "derived runtime"):
                     server.runtime()
@@ -117,6 +209,43 @@ class NativeBridgeTests(unittest.TestCase):
                 fake_babeldoc._rust_il = SimpleNamespace()
                 with self.assertRaisesRegex(server.SidecarError, "source bridge v1 missing"):
                     server.runtime()
+                fake_babeldoc._rust_il.ivoraige_source_bridge_version = 1
+                with self.assertRaisesRegex(server.SidecarError, "fit-box-v1 layout policy missing"):
+                    server.runtime()
+                fake_babeldoc._rust_il.ivoraige_layout_fit_policy = server.LAYOUT_FIT_POLICY
+                with self.assertRaisesRegex(server.SidecarError, "underscore policy missing"):
+                    server.runtime()
+
+    def test_runtime_rejects_wrong_python_before_importing_engine(self):
+        with patch.object(server.sys, "version_info", (3, 12)), \
+             patch.dict("sys.modules", {"babeldoc": None}):
+            with self.assertRaisesRegex(server.SidecarError, "Python 3.13 required"):
+                server.runtime()
+
+    def test_runtime_rejects_unsafe_pillow_and_reports_loaded_versions(self):
+        image = SimpleNamespace(__version__="12.3.0")
+        fake_babeldoc = SimpleNamespace(const=SimpleNamespace(__version__="0.7.1"),
+                                      _rust_il=SimpleNamespace(
+                                          ivoraige_source_bridge_version=1,
+                                          ivoraige_layout_fit_policy=server.LAYOUT_FIT_POLICY,
+                                          ivoraige_underscore_line_policy=server.UNDERSCORE_LINE_POLICY))
+        with patch.dict("sys.modules", {"PIL": SimpleNamespace(Image=image),
+                                         "pymupdf": SimpleNamespace(VersionBind="1.26.7"),
+                                         "babeldoc": fake_babeldoc}), \
+                patch.object(server.sys, "version_info", (3, 13)), \
+                patch.object(server, "package_version", return_value=server.ENGINE_VERSION):
+            with self.assertRaisesRegex(server.SidecarError, "Pillow 13.0.0 required") as error:
+                server.runtime()
+            self.assertEqual(error.exception.code, -32002)
+            self.assertEqual(error.exception.kind, "COMPONENT_MISSING")
+            image.__version__ = server.PILLOW_VERSION
+            versions = server.runtime_versions()
+            self.assertEqual(versions["pillow"], "13.0.0")
+            self.assertEqual(versions["babeldoc"], server.ENGINE_VERSION)
+            self.assertEqual(versions["pymupdf"], server.PYMUPDF_VERSION)
+            self.assertEqual(versions["sourceBridge"], 1)
+            self.assertEqual(versions["layoutFitPolicy"], server.LAYOUT_FIT_POLICY)
+            self.assertEqual(versions["underscoreLinePolicy"], server.UNDERSCORE_LINE_POLICY)
 
     def test_old_binding_fails_before_resolving_source_or_running_engine(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -132,40 +261,58 @@ class NativeBridgeTests(unittest.TestCase):
                     server.rebuild({"format": "pdf", "docRef": str(doc), "revisionsRef": str(frozen)})
                 engine.assert_not_called()
 
-    def test_previous_derived_binding_also_requires_explicit_reimport(self):
+    def test_previous_derived_bindings_also_require_explicit_reimport(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             doc, frozen = root / "doc.json", root / "frozen.json"
-            doc.write_text(json.dumps({"document": {"language": "en"},
-                "sourceBinding": {"adapterId": "babeldoc", "engineVersion": "0.7.1+ivoraige.1",
-                    "sourcePath": "/missing/original.pdf"}}))
             frozen.write_text("{}")
-            with patch.object(server, "run_engine") as engine:
-                with self.assertRaisesRegex(server.SidecarError, "re-import.*reconcile accepted revisions"):
-                    server.rebuild({"format": "pdf", "docRef": str(doc), "revisionsRef": str(frozen)})
-                engine.assert_not_called()
+            for version in ("0.7.1+ivoraige.1", "0.7.1+ivoraige.2"):
+                with self.subTest(version=version):
+                    doc.write_text(json.dumps({"document": {"language": "en"},
+                        "sourceBinding": {"adapterId": "babeldoc", "engineVersion": version,
+                            "sourcePath": "/missing/original.pdf"}}))
+                    with patch.object(server, "run_engine") as engine:
+                        with self.assertRaisesRegex(server.SidecarError, "re-import.*reconcile accepted revisions"):
+                            server.rebuild({"format": "pdf", "docRef": str(doc), "revisionsRef": str(frozen)})
+                        engine.assert_not_called()
 
     def test_capture_config_enables_parser_limits_and_versions_bridge(self):
         config = server.capture_config(None, 5)
         self.assertTrue(config["parserResourceLimits"])
         self.assertEqual(config["sourceBridge"], 1)
-        self.assertEqual(config["babeldoc"], "0.7.1+ivoraige.2")
+        self.assertEqual(config["babeldoc"], "0.7.1+ivoraige.3")
+        self.assertEqual(config["layoutFitPolicy"], "fit-box-v1")
         self.assertEqual(config["underscoreLinePolicy"], "ascii-alnum-base-v1")
 
-    def test_scoped_native_line_policy_restores_environment_even_on_error(self):
+    def test_scoped_native_policies_restore_environment_even_on_error(self):
         with patch.dict(os.environ, {}, clear=True):
             with self.assertRaisesRegex(ValueError, "synthetic"):
-                with server.underscore_line_scope():
+                with server.native_policy_scope(server.capture_config(None, 5)):
+                    self.assertEqual(os.environ["IVORAIGE_FIT_BOX_V1"], "1")
                     self.assertEqual(os.environ["IVORAIGE_ASCII_ALNUM_BASE_V1"], "1")
                     raise ValueError("synthetic")
+            self.assertNotIn("IVORAIGE_FIT_BOX_V1", os.environ)
             self.assertNotIn("IVORAIGE_ASCII_ALNUM_BASE_V1", os.environ)
+            os.environ["IVORAIGE_FIT_BOX_V1"] = "earlier"
             os.environ["IVORAIGE_ASCII_ALNUM_BASE_V1"] = "previous"
-            with server.underscore_line_scope():
+            with server.native_policy_scope(server.capture_config(None, 5)):
+                self.assertEqual(os.environ["IVORAIGE_FIT_BOX_V1"], "1")
                 self.assertEqual(os.environ["IVORAIGE_ASCII_ALNUM_BASE_V1"], "1")
+            self.assertEqual(os.environ["IVORAIGE_FIT_BOX_V1"], "earlier")
             self.assertEqual(os.environ["IVORAIGE_ASCII_ALNUM_BASE_V1"], "previous")
+            for field in ("layoutFitPolicy", "underscoreLinePolicy"):
+                with self.subTest(field=field):
+                    config = {**server.capture_config(None, 5), field: "legacy"}
+                    with self.assertRaisesRegex(server.SidecarError, "policy unsupported"):
+                        with server.native_policy_scope(config):
+                            pass
 
 
 class BindingTests(unittest.TestCase):
+
+
+
+
     def test_capture_summary_counts_overlapping_audit_and_empty_units(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
             path = Path(directory) / "invented.pdf"
@@ -194,9 +341,9 @@ class BindingTests(unittest.TestCase):
             self.assertEqual(len(coverage["uncalled"]), 3)
             self.assertIn("Separate extracted line", [unit["sourceText"] for unit in parsed["units"]])
 
-    def test_language_route_keeps_legacy_config_and_exact_chinese_source(self):
-        legacy = server.capture_config(None, 5)
-        self.assertNotIn("sourceLanguage", legacy)
+    def test_language_route_keeps_english_config_and_exact_chinese_source(self):
+        english = server.capture_config(None, 5)
+        self.assertNotIn("sourceLanguage", english)
         self.assertEqual(server.engine_pair("en"), ("en", "zh"))
         for source in ("zh", "zh-CN", "zh-Hans"):
             self.assertEqual(server.engine_pair(source), ("zh", "en"))
@@ -216,6 +363,8 @@ class BindingTests(unittest.TestCase):
             def capture(_source, config, mode):
                 self.assertEqual(mode, "capture")
                 self.assertEqual(config["sourceLanguage"], "zh-CN")
+                self.assertEqual(config["layoutFitPolicy"], server.LAYOUT_FIT_POLICY)
+                self.assertEqual(config["underscoreLinePolicy"], server.UNDERSCORE_LINE_POLICY)
                 self.assertEqual(server.engine_pair(config["sourceLanguage"]), ("zh", "en"))
                 return [call], [paragraph], []
 
@@ -270,6 +419,37 @@ class BindingTests(unittest.TestCase):
             with patch.object(server, "run_engine", side_effect=replay):
                 result = server.rebuild(params)
             self.assertEqual(result["evidence"]["modelRequests"], 0)
+            # A same-version binding with absent or legacy policy fields must
+            # not masquerade as the native renderer's capture configuration.
+            for field, old in (("layoutFitPolicy", None),
+                               ("underscoreLinePolicy", None),
+                               ("underscoreLinePolicy", "ascii-base-v1"),
+                               ("underscoreLinePolicy", "ascii-base-v2")):
+                with self.subTest(field=field, old=old):
+                    binding["captureConfig"] = server.capture_config(None, 5, "zh-Hans")
+                    if old is None:
+                        del binding["captureConfig"][field]
+                    else:
+                        binding["captureConfig"][field] = old
+                    write("zh-Hans", "en")
+                    with patch.object(server, "run_engine") as engine:
+                        with self.assertRaisesRegex(server.SidecarError, "Capture configuration changed|policy unsupported"):
+                            server.rebuild(params)
+                        engine.assert_not_called()
+            binding["captureConfig"] = server.capture_config(None, 5, "zh-Hans")
+            binding["captureConfig"]["layoutFitPolicy"] = "unknown"
+            write("zh-Hans", "en")
+            with patch.object(server, "run_engine") as engine:
+                with self.assertRaisesRegex(server.SidecarError, "policy unsupported"):
+                    server.rebuild(params)
+                engine.assert_not_called()
+            binding["captureConfig"]["layoutFitPolicy"] = server.LAYOUT_FIT_POLICY
+            binding["captureConfig"]["underscoreLinePolicy"] = "unknown"
+            write("zh-Hans", "en")
+            with patch.object(server, "run_engine") as engine:
+                with self.assertRaisesRegex(server.SidecarError, "policy unsupported"):
+                    server.rebuild(params)
+                engine.assert_not_called()
 
     def test_null_noncallback_structure_keeps_location_and_body(self):
         structure = {'key': 'layout', 'page': 0, 'bbox': [0, 0, 1, 1],
@@ -373,23 +553,95 @@ class BindingTests(unittest.TestCase):
                          [{"token": "<b1>", "text": "<b1>"},
                           {"token": "<b1>", "text": "<b1>"}])
 
-    def test_completed_callbacks_keep_payloads_by_location(self):
-        first = {"key": "p0:first", "preparedInput": "A <b1> B",
-                 "placeholderPayloads": [{"type": "formula", "placeholder": "<b1>",
-                                           "formula_chars": "x"}]}
-        second = {"key": "p0:second", "preparedInput": "A <b1> B",
-                  "placeholderPayloads": [{"type": "formula", "placeholder": "<b1>",
-                                            "formula_chars": "y"}]}
-        calls = [{"key": "p0:second", "requestText": "A <b1> B"},
-                 {"key": "p0:first", "requestText": "A <b1> B"}]
-        server.complete_callbacks(calls, [first, second])
-        self.assertEqual(calls[0]["placeholderPayloads"][0]["formula_chars"], "y")
-        self.assertEqual(calls[1]["placeholderPayloads"][0]["formula_chars"], "x")
+    def test_many_unique_literal_anchors_do_not_recurse(self):
+        count = 1200
+        request = "START " + "".join(f"<b{i}> K{i} " for i in range(count)) + "END"
+        source = "START " + "".join(f"x K{i} " for i in range(count)) + "END"
+        uncertain = []
+        mapped = server.display_mapping(request, source, uncertain=uncertain)
+        self.assertEqual(mapped, [
+            {"token": f"<b{i}>", "text": "x"} for i in range(count)
+        ])
+        self.assertEqual(uncertain, [])
 
-        second["preparedInput"] = "changed"
-        server.complete_callbacks(calls, [first, second])
-        self.assertEqual(calls[0]["placeholderPayloads"], [])
-        self.assertIn("tracker missing or changed", calls[0]["payloadWarning"])
+    def test_repeated_anchors_without_complete_match_have_bounded_fallback(self):
+        request = "A " + "".join(f"<b{i}> a " for i in range(8)) + "END"
+        source = "A " + "x a " * 40 + "missing"
+        payloads = [{"type": "formula", "placeholder": "<b0>",
+                     "formula_chars": "retained formula"}]
+        uncertain = []
+        with patch.object(server, "DISPLAY_MAPPING_MAX_CANDIDATES", 300):
+            mapped = server.display_mapping(request, source, payloads, uncertain)
+        self.assertEqual(mapped[0], {"token": "<b0>", "text": "retained formula"})
+        self.assertEqual(mapped[1], {"token": "<b1>", "text": "<b1>"})
+        self.assertEqual(len(mapped), 8)
+        self.assertIn("literal alignment search limit reached", uncertain)
+        self.assertIn("<b0> (payload)", uncertain)
+        self.assertIn("<b1> (literal token)", uncertain)
+
+    def test_search_character_budget_also_falls_back(self):
+        uncertain = []
+        with patch.object(server, "DISPLAY_MAPPING_MAX_SEARCH_CHARS", 2):
+            mapped = server.display_mapping("A <b1> B <b2> C", "A x B y C",
+                                            uncertain=uncertain)
+        self.assertEqual(mapped, [{"token": "<b1>", "text": "<b1>"},
+                                  {"token": "<b2>", "text": "<b2>"}])
+        self.assertEqual(uncertain, ["literal alignment search limit reached",
+                                     "<b1> (literal token)", "<b2> (literal token)"])
+
+    def test_budget_exhaustion_discards_a_complete_but_unproven_solution(self):
+        request = "A <b1> B <b2> C"
+        source = "A x B y B z C"
+        payloads = [{"type": "formula", "placeholder": "<b1>",
+                     "formula_chars": "retained formula"}]
+        # Both limits allow the first complete alignment, but stop the search
+        # before it can discover the second one and disprove uniqueness.
+        for limit, budget in (("DISPLAY_MAPPING_MAX_CANDIDATES", 1),
+                              ("DISPLAY_MAPPING_MAX_SEARCH_CHARS", len(source) - 2)):
+            with self.subTest(limit=limit), patch.object(server, limit, budget):
+                uncertain = []
+                mapped = server.display_mapping(request, source, payloads, uncertain)
+                self.assertEqual(mapped, [
+                    {"token": "<b1>", "text": "retained formula"},
+                    {"token": "<b2>", "text": "<b2>"},
+                ])
+                self.assertEqual(uncertain, ["literal alignment search limit reached",
+                                             "<b1> (payload)", "<b2> (literal token)"])
+
+    def test_alignment_copies_only_a_proven_unique_result(self):
+        class CountedSource(str):
+            def __new__(cls, value):
+                instance = super().__new__(cls, value)
+                instance.slices = []
+                return instance
+
+            def __getitem__(self, key):
+                if isinstance(key, slice):
+                    self.slices.append(key)
+                return super().__getitem__(key)
+
+        # Repeated late anchors used to copy the long prefix on every dead end.
+        # Keep the fixture small and count slices rather than stressing memory.
+        source = CountedSource("x" * 10_000 + "A" * 200 + "Z")
+        mapped = server.display_mapping("<b0>A<b1>MISSING<b2>Z", source)
+        self.assertEqual([item["text"] for item in mapped], ["<b0>", "<b1>", "<b2>"])
+        self.assertEqual(source.slices, [])
+
+        for limit, budget in ((None, None), ("DISPLAY_MAPPING_MAX_CANDIDATES", 1),
+                              ("DISPLAY_MAPPING_MAX_SEARCH_CHARS", 6)):
+            with self.subTest(limit=limit, budget=budget):
+                source = CountedSource("xAyAzZ")
+                scope = patch.object(server, limit, budget) if limit else nullcontext()
+                with scope:
+                    mapped = server.display_mapping("<b0>A<b1>Z", source)
+                self.assertEqual([item["text"] for item in mapped], ["<b0>", "<b1>"])
+                self.assertEqual(source.slices, [])
+
+        source = CountedSource("xAyZ")
+        self.assertEqual(server.display_mapping("<b0>A<b1>Z", source),
+                         [{"token": "<b0>", "text": "x"}, {"token": "<b1>", "text": "y"}])
+        self.assertEqual(source.slices, [slice(0, 1), slice(2, 3)])
+
 
     def test_pdf_text_check_keeps_punctuation_and_checks_formulas(self):
         records = [{"unitId": "u1", "page": 0, "text": "A x... B",
@@ -416,6 +668,24 @@ class BindingTests(unittest.TestCase):
             self.assertEqual(record["placeholders"],
                              [{"token": "<b1>", "text": "x"}, {"token": "<b2>", "text": "y"}])
             self.assertIn(f"page 1, {key} used fallback", parsed["doc"]["warnings"][0])
+
+    def test_capture_records_alignment_limit_warning(self):
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:
+            path = Path(directory) / "formula.pdf"
+            path.write_bytes(b"%PDF-1.7\n")
+            paragraph = {"page": 0, "bbox": [1, 2, 3, 4], "key": "p0:limit",
+                         "sourceUnicode": "A x B y C", "layoutLabel": "plain text"}
+            call = {**paragraph, "requestText": "A <b1> B <b2> C",
+                    "placeholderPayloads": []}
+            with patch.object(server, "DISPLAY_MAPPING_MAX_SEARCH_CHARS", 2), \
+                 patch.object(server, "run_engine", return_value=([call], [paragraph], [])), \
+                 patch.object(server, "unbound_pdf_lines", return_value=[]):
+                parsed = server.parse({"path": str(path), "options": {"language": "en"}})
+            self.assertEqual(parsed["doc"]["sourceBinding"]["records"][0]["placeholders"],
+                             [{"token": "<b1>", "text": "<b1>"},
+                              {"token": "<b2>", "text": "<b2>"}])
+            self.assertTrue(any("p0:limit used fallback: literal alignment search limit reached"
+                                in warning for warning in parsed["doc"]["warnings"]))
 
     def test_rebuild_preflight_rejects_changed_source_and_placeholders(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as directory:

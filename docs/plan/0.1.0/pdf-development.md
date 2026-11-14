@@ -2,6 +2,12 @@
 
 本页面向源码开发与回归验收；准备完成后的日常操作请看 [PDF 使用指南](pdf-guide.md)。
 
+配套源码使用 `0.7.1+ivoraige.3` 原生派生运行时。新捕获同时固定 `captureConfig.underscoreLinePolicy: ascii-alnum-base-v1` 和 `captureConfig.layoutFitPolicy: fit-box-v1`；相同标记用于捕获与回放，运行时必须提供匹配的原生能力标记。下划线修正使用邻近同字体、字号、名义基线的 ASCII 字母或数字墨迹范围，只影响临时分行。布局策略保留预试排框和比例，复用前重新检查当前原框、比例及可用空间，再执行正常 fit 检查。旧 Python monkeypatch 不用于此运行时。
+
+旧 0.6.4、`0.7.1+ivoraige.1` 与 `.2` 绑定仍可读取，但不能由新 renderer 回放译文 PDF；需重新导入并人工核对接受修订，不能修改版本字段冒充兼容。Windows 组件必须重新构建，`--reuse-pyinstaller-build` 仍拒绝旧可执行文件复用。本阶段构建和回归证据见[原生集成记录](../0.1.x/evidence/babeldoc-native-fit-0.1.x.md)，早期 Python 实验保留为历史证据，不算原生验收。
+
+组件构建脚本的 `--python` 必须与启动该脚本的解释器路径一致，使版本检查、依赖与许可收集、PyInstaller 执行使用同一环境；不一致时在加载构建依赖或清理输出前拒绝。PowerShell 构建入口已按此方式调用。手动运行时应使用目标环境的 Python 启动脚本，并将同一路径传给 `--python`；不要通过解析符号链接把虚拟环境解释器替换成底层 Python。
+
 当前 PDF 路线处理**原生文本英文 PDF → 中文单语 PDF**。导入后可在同一工作台翻译、人工修改和接受译文，再从冻结快照生成 PDF、Markdown、JSON。PDF 来源绑定由 BabelDOC 自身捕获；导出回放只读取已接受译文，不请求翻译模型。扫描件 OCR、双语 PDF、MinerU 跨引擎映射及三系统独立打包仍待验证。
 
 来源适配器可选的同步 `validateSourceLanguage(language)` 在选中后、排队导入前校验声明的源语言；PDF 直接解析也在启动 sidecar 前校验。输出适配器可选的同步 `validateExport({ contentMode, targetLang, provenance })` 在具体输出选中时校验冻结文档来源与目标语言；它必须仅检查数据、不得访问 Cordis context、模型或产生副作用。`Tasks` 导出准入、`Exporter` 直接导出及任务恢复都复用输出注册表检查。无导出模式的裸适配器查询和格式发现不执行此校验；来源模式的 PDF 原件导出仍独立于目标语言。0.1.0 既有 API 请求形状及存储 schema 不变，超出能力的已选 PDF 请求在创建导出快照与任务前返回 `PRECONDITION_FAILED`。
@@ -21,9 +27,11 @@ npm run build
 
 先按 [0.7.1 源码构建与迁移指南](../0.1.x/babeldoc-0.7.1.md)准备派生 wheel。官方原样 wheel 不支持本 sidecar 的位置桥。Windows/macOS 派生成包尚未验收。
 
-`setup-pdf.ps1` 用 uv 建立已忽略的 `evaluation/runs/pdf-runtime/.venv`，安装 `sidecars/babeldoc/requirements.lock` 锁定的 Python 3.13、BabelDOC 0.7.1+ivoraige.2 和 PyMuPDF 1.26.7 依赖，并运行 BabelDOC `--warmup` 下载／校验所需字体、CMap、tiktoken 与布局模型到用户默认的 `~/.cache/babeldoc`。首次 warmup 需要网络且耗时；普通导入和导出不会安装或下载。再次运行脚本会复用环境和缓存；`./scripts/setup-pdf.ps1 -CheckOnly` 只检查版本及必需资产。若组件缺失，PDF 任务报告 `COMPONENT_MISSING`，TXT／Markdown 仍可使用。
+`setup-pdf.ps1` 用 uv 建立已忽略的 `evaluation/runs/pdf-runtime/.venv`，安装 `sidecars/babeldoc/requirements.lock` 锁定的 Python 3.13、BabelDOC 0.7.1+ivoraige.3 和 PyMuPDF 1.26.7 依赖，并运行 BabelDOC `--warmup` 下载／校验所需字体、CMap、tiktoken 与布局模型到用户默认的 `~/.cache/babeldoc`。首次 warmup 需要网络且耗时；普通导入和导出不会安装或下载。再次运行脚本会复用环境和缓存；`./scripts/setup-pdf.ps1 -CheckOnly` 只检查版本及必需资产。若组件缺失，PDF 任务报告 `COMPONENT_MISSING`，TXT／Markdown 仍可使用。
 
 [Windows 配置示例](../../../examples/pdf-windows.json)的路径相对于配置文件解析：`command` 指向上述虚拟环境的 `python.exe`，`args` 指向仓库内的 `sidecars/babeldoc/server.py`。未配置 `modelDirs` 时使用 BabelDOC 默认缓存。若使用其他目录，可在 JSON 中添加 `modelDirs.babeldoc`（缓存根目录）或 `modelDirs.doclayout-yolo`（模型文件）；这些路径同样相对于配置文件。`options.workDir` 可指定可写的绝对目录。不要把模型凭据写进 PDF 配置。
+
+当前完整 lock 固定 Pillow **13.0.0**。既有环境需重新安装；源码预检和 setup 的版本检查会拒绝旧 Pillow。冻结组件需重建，构建脚本核对实际 executable 内的 Python 3.13、BabelDOC、PyMuPDF 和 Pillow，而不是只信构建机或复制的 lock。历史依赖快照保留原值，不作为安装输入。详见 [Pillow 13.0.0 证据](../0.1.x/evidence/pillow-13.0.0.md)。
 
 ## 启动与操作
 
@@ -54,6 +62,10 @@ node src/cli.mjs --url http://127.0.0.1:8787 export DOC_ID --target-lang zh-CN -
 取消导入会停止捕获；中断且未提交的导入需重新上传，不能暂停后续传。重启会核对已经提交的文档并恢复导入结果。取消导出不会删除此前已完成的格式产物，其他格式可从同一快照重新导出。组件修复或配置更改后请重启服务，再进行 PDF 处理。
 
 公式占位符必须保留原顺序。导入按来源位置关联回调与引擎 payload；能唯一对齐原文时使用对齐得到的显示内容，否则使用 BabelDOC 的公式字符、富文本成对 token 的空显示，未知 token 保留字面形式。回退会在文档警告中列出页码、位置和 token，不会阻止导入或翻译。旧记录的 null／缺失显示在回放诊断中也保留字面 token。回放仍核对来源请求和 token 顺序；`skip` 必须逐字使用来源请求。BabelDOC 可能缩写连续标点，PDF 文本提取未匹配时会在导出证据中提示目检，不据此判定导出失败。当前没有手工修改来源绑定的界面。
+
+占位符对齐搜索有工作量上限；字符预算在每次 `find` 前计入整个剩余源字符串长度，是保守的搜索上界估算，不是实际扫描字符数。因此，即使锚点唯一且命中很早，超长的密集输入也可能提前用尽预算；重复文字也可能使唯一对齐无法在上限内确定。达到上限时，新导入使用上述 payload／字面 token 回退，并在文档警告中标明搜索达到上限。已有来源绑定和冻结快照不会被改写。此保护只处理密集占位符的映射可靠性，不证明 PDF 字体、排版、文本覆盖或页面视觉效果。
+
+密集占位符、搜索预算及分支集成的合成回归见[显示映射记录](../0.1.x/evidence/pdf-display-mapping-0.1.0.md)。
 
 导出默认要求可译单元全部接受。CLI 的 `--on-missing-accepted skip`（API 的 `onMissingAccepted: "skip"`）允许部分审校后导出：缺少接受修订的单元保留原文，PDF、Markdown、JSON 继续共用同一冻结决策，不调用模型补译。PDF 中的原文会参与 BabelDOC 排版回放，并非逐像素复制源页面。
 

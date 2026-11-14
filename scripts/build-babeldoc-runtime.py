@@ -15,8 +15,8 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 UPSTREAM = "https://github.com/funstory-ai/BabelDOC.git"
 REVISION = "d922e2b0c5a353bde8731921eb442c07ae75849d"
-VERSION = "0.7.1+ivoraige.2"
-PATCH = ROOT / "sidecars/babeldoc/patches/0.7.1/source-bridge-underscore-v1.patch"
+VERSION = "0.7.1+ivoraige.3"
+PATCH = ROOT / "sidecars/babeldoc/patches/0.7.1/source-bridge-layout-fit-v1.patch"
 
 
 def run(args, **kwargs):
@@ -33,8 +33,8 @@ def isolated_source(cache: Path, destination: Path) -> Path:
         raise RuntimeError("Source checkout differs from pinned official BabelDOC revision")
     run(["git", "clone", "--no-hardlinks", "--no-checkout", str(cache), str(destination)])
     run(["git", "checkout", "--detach", REVISION], cwd=destination)
-    run(["git", "apply", "--check", str(PATCH)], cwd=destination)
-    run(["git", "apply", str(PATCH)], cwd=destination)
+    run(["git", "apply", "--index", "--check", str(PATCH)], cwd=destination)
+    run(["git", "apply", "--index", str(PATCH)], cwd=destination)
     if subprocess.check_output(["git", "diff", "--binary", "HEAD"], cwd=destination) != PATCH.read_bytes():
         raise RuntimeError("Isolated source differs from the exact bridge patch")
     return destination
@@ -65,12 +65,13 @@ def main():
         run([sys.executable, "-m", "maturin", "build", "--locked", "--release",
              "--manifest-path", str(clean / "rust/p2_bridge/Cargo.toml"),
              "--interpreter", sys.executable, "--out", str(wheels)], cwd=clean, env=env)
-    matches = list(wheels.glob("babeldoc-0.7.1+ivoraige.2-*.whl"))
+    matches = list(wheels.glob("babeldoc-0.7.1+ivoraige.3-*.whl"))
     if len(matches) != 1:
         raise RuntimeError(f"Expected exactly one {VERSION} wheel in {wheels}")
     wheel = matches[0]
     evidence = {"version": VERSION, "upstreamVersion": "0.7.1", "upstream": UPSTREAM,
         "revision": REVISION, "sourceBridgeVersion": 1, "rust": rust, "maturin": "1.15.0",
+        "layoutFitPolicy": "fit-box-v1", "underscoreLinePolicy": "ascii-alnum-base-v1",
         "patchSha256": hashlib.sha256(patch).hexdigest(), "wheel": wheel.name,
         "wheelSha256": hashlib.sha256(wheel.read_bytes()).hexdigest(),
         "parserResourceLimits": "upstream defaults unchanged", "binaryReleaseValidated": False,

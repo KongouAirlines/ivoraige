@@ -42,7 +42,7 @@ def main():
                         options={"workDir": str(work / "engine")})
     doc = server.parse({"path": str(source), "options": {"language": "en", "minTextLength": 1}})["doc"]
     binding = doc["sourceBinding"]
-    assert binding["engineVersion"] == "0.7.1+ivoraige.2"
+    assert binding["engineVersion"] == "0.7.1+ivoraige.3"
     assert binding["captureConfig"]["underscoreLinePolicy"] == "ascii-alnum-base-v1"
     records = binding["records"]
     called = [record["sourceUnicode"] for record in records if record["callback"]]

@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { cp, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
@@ -15,7 +15,12 @@ export async function stageNpmPackage(root, stage) {
     const source = join(root, file)
     const destination = join(stage, file)
     await mkdir(resolve(destination, '..'), { recursive: true })
-    await cp(source, destination, { recursive: true })
+    if (file === 'plugins/mineru/') {
+      // Package only the reviewed bridge, never local Python bytecode or scratch assets.
+      await mkdir(destination, { recursive: true })
+      for (const name of ['index.mjs', 'runner.py', 'package.json'])
+        await copyFile(join(source, name), join(destination, name))
+    } else await cp(source, destination, { recursive: true })
   }
   await copyUserDocs(root, stage)
   await validatePackagedLinks(stage)

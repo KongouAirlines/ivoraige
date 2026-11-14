@@ -5,7 +5,7 @@
 messages only to stdout; engine logs and tracebacks go to stderr. Run it with
 the explicit Python command printed by `scripts/setup-pdf.ps1`. That setup
 script installs the pinned package versions into an ignored project runtime after
-you build the **0.7.1+ivoraige.2** derived wheel using
+you build the **0.7.1+ivoraige.3** derived wheel using
 [`scripts/build-babeldoc-runtime.py`](../../scripts/build-babeldoc-runtime.py);
 it also runs BabelDOC `--warmup` to prepare the default asset cache. Use
 `scripts/setup-pdf.ps1 -CheckOnly` to verify versions and required assets
@@ -28,10 +28,19 @@ at replay.
 The stock official 0.7.1 wheel is not compatible with location-safe replay.
 The [versioned bridge patch](patches/0.7.1/README.md) adds a read-only paragraph
 inventory and exact native callback identity; parser resource limits remain enabled.
-Old 0.6.4 and `0.7.1+ivoraige.1` bindings fail translated-PDF replay explicitly. Re-import and reconcile
+Old 0.6.4, `0.7.1+ivoraige.1` and `.2` bindings fail translated-PDF replay explicitly. Re-import and reconcile
 accepted revisions; do not relabel or mutate old snapshots. Existing readable
 projections and original-PDF copying remain available. See the
 [build/migration guide](../../docs/plan/0.1.x/babeldoc-0.7.1.md).
+
+The runtime checks native source-bridge, `fit-box-v1` layout and
+`ascii-alnum-base-v1` underscore capability markers. Both policies are recorded
+in capture configuration and enabled for capture and frozen replay. The native
+layout port retains successful preflight geometry with its scale, rechecks the
+current original box, scale and obstacles, then runs the normal fit. The old
+Python policy wrappers remain only for historical regression fixtures; they are
+not imported by `server.py` or staged into new components. The active lock also
+requires Pillow 13.0.0, checked in the running sidecar and frozen executable.
 
 `parse` accepts a declared English or Simplified Chinese native-text PDF and optional one-based `pages` and
 `minTextLength`. It returns units in BabelDOC paragraph order, exact callback
@@ -83,7 +92,8 @@ Runtime telemetry. Python socket connect/connect_ex remain loopback-only for
 imports, configuration and execution. This is not a native OS network sandbox.
 The Linux acceptance helper `scripts/pdf-offline-linux.py` additionally denies
 network syscalls within the test process tree without changing host settings.
-Native-text English-to-Chinese replay has been tested with original synthetic
-PDFs; image-only scans fail without OCR. Retained original CJK lines can still
+Earlier derived runtimes were tested for native-text English-to-Chinese replay
+with original synthetic PDFs; these are historical results, not `.3` acceptance.
+Image-only scans fail without OCR. Retained original CJK lines can still
 be missing or garbled in the upstream PDF output, with text-check warnings;
 see [the observed limitation](../../docs/plan/follow-ups/babeldoc-native-cjk-replay.md).

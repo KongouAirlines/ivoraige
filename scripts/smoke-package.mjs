@@ -2,7 +2,8 @@ import { cp, mkdir, mkdtemp, readdir, rm, writeFile, readFile } from 'node:fs/pr
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { spawn, spawnSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
+import { startServer, stopLiveServers } from './smoke-package-process.mjs'
 import assert from 'node:assert/strict'
 import { validatePackagedLinks } from './release-docs.mjs'
 import { stageNpmPackage } from './pack-npm.mjs'
@@ -13,60 +14,43 @@ const tempRoot = resolve(tmpdir())
 const npmCli = process.env.npm_execpath
 if (!npmCli) throw new Error('Run this check with npm run smoke:package')
 const work = await mkdtemp(join(tempRoot, 'ivoraige-package-smoke-'))
+const HTTP_TIMEOUT_MS = 10_000
+const PROCESS_TIMEOUT_MS = 180_000
+
+function request(url, options = {}) {
+  return fetch(url, { ...options, signal: AbortSignal.timeout(HTTP_TIMEOUT_MS) })
+}
 
 function run(command, args, cwd) {
   const env = { ...process.env }
   // npm run forwards npm 12's allow-scripts flag; a nested project install
   // rejects that flag. This smoke explicitly disables all lifecycle scripts.
   for (const key of Object.keys(env)) if (key.toLowerCase() === 'npm_config_allow_scripts') delete env[key]
+  const label = args[0] === npmCli ? `npm ${args[1]}` : args[0]
+  const started = performance.now()
+  console.log(`[package smoke] start ${label} in ${cwd}`)
   const result = spawnSync(command, args, {
     cwd,
     env,
     encoding: 'utf8',
     shell: false,
     stdio: ['ignore', 'pipe', 'pipe'],
+    timeout: PROCESS_TIMEOUT_MS,
+    killSignal: 'SIGKILL',
   })
-  if (result.error) throw result.error
+  const elapsed = Math.round(performance.now() - started)
+  console.log(`[package smoke] finish ${label} after ${elapsed}ms (${result.error?.code ?? result.status})`)
+  if (result.error) {
+    throw new Error(`${label} failed after ${elapsed}ms: ${result.error.code}\n${result.stdout ?? ''}\n${result.stderr ?? ''}`, { cause: result.error })
+  }
   if (result.status !== 0) {
     throw new Error(`${command} ${args.join(' ')} failed (${result.status})\n${result.stdout}\n${result.stderr}`)
   }
   return result.stdout
 }
 
-async function startServer(cli, cwd, store, settingsDir) {
-  const child = spawn(process.execPath,
-    [cli, 'serve', '--store', store, '--settings-dir', settingsDir, '--port', '0'],
-    { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
-  let stdout = '', stderr = ''
-  child.stdout.on('data', chunk => { stdout += chunk })
-  child.stderr.on('data', chunk => { stderr += chunk })
-  const url = await new Promise((resolveUrl, rejectUrl) => {
-    const timer = setTimeout(() => rejectUrl(new Error(`Packaged CLI serve timed out: ${stderr}`)), 20_000)
-    const fail = error => { clearTimeout(timer); rejectUrl(error) }
-    child.once('error', fail)
-    child.once('exit', code => fail(new Error(`Packaged CLI serve exited ${code}: ${stderr}`)))
-    const onData = () => {
-      const match = /https?:\/\/[^\s]+/.exec(stdout)
-      if (!match) return
-      clearTimeout(timer)
-      child.stdout.off('data', onData)
-      resolveUrl(match[0])
-    }
-    child.stdout.on('data', onData)
-    onData()
-  })
-  return { url, async close() {
-    if (child.exitCode !== null) return
-    child.kill('SIGTERM')
-    await new Promise((resolveExit, rejectExit) => {
-      const timer = setTimeout(() => { child.kill('SIGKILL'); rejectExit(new Error(`CLI serve did not stop: ${stderr}`)) }, 10_000)
-      child.once('exit', () => { clearTimeout(timer); resolveExit() })
-    })
-  } }
-}
-
 async function api(base, method, path, body) {
-  const response = await fetch(new URL(path, base), { method,
+  const response = await request(new URL(path, base), { method,
     headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body) })
   const result = await response.json()
@@ -112,7 +96,7 @@ try {
 
   const tarball = join(work, packed[0].filename)
   await writeFile(join(work, 'package.json'), JSON.stringify({ private: true, type: 'module' }))
-  run(process.execPath, [npmCli, 'install', '--ignore-scripts', '--omit=dev', '--no-audit', '--no-fund', tarball], work)
+  run(process.execPath, [npmCli, 'install', '--ignore-scripts', '--omit=dev', '--no-audit', '--no-fund', '--loglevel=http', tarball], work)
   await validatePackagedLinks(join(work, 'node_modules', 'ivoraige'),
     JSON.parse(await readFile(join(work, 'node_modules', 'ivoraige', 'dist/web/release-info.json'), 'utf8')))
   const probe = join(work, 'installed-package-smoke.mjs')
@@ -166,18 +150,18 @@ try {
       assert.equal(result.isError, undefined)
       assert.ok(result.structuredContent.inputFormats.includes('txt'))
     } finally { await mcp.close() }
+    let guide, release
     for (const [path, type] of [['/', 'text/html'], ['/app.js', 'text/javascript'], ['/app.css', 'text/css'], ['/pdf-guide.html', 'text/html'], ['/release-info.json', 'application/json']]) {
-      const response = await fetch(new URL(path, server.url))
+      const response = await request(new URL(path, server.url))
       assert.equal(response.status, 200, `Packaged UI ${path}`)
       assert.match(response.headers.get('content-type'), new RegExp(type))
-      assert.ok((await response.text()).length > 20)
+      const body = await response.text()
+      assert.ok(body.length > 20)
+      if (path === '/pdf-guide.html') guide = body
+      if (path === '/release-info.json') release = JSON.parse(body)
     }
-    const guideResponse = await fetch(new URL('/pdf-guide.html', server.url))
-    const guide = await guideResponse.text()
     assert.match(guide, /PDF 使用指南/)
     assert.match(guide, /安装指南/)
-    const releaseResponse = await fetch(new URL('/release-info.json', server.url))
-    const release = await releaseResponse.json()
     assert.equal(release.version, packed[0].version)
     assert.match(release.sourceCommit, /^[a-f0-9]{40}$/)
     const before = await api(server.url, 'GET', '/api/settings/modelconfig')
@@ -217,7 +201,7 @@ try {
     snapshotId = exported.snapshotId
     originalArtifacts = new Map()
     for (const artifact of task.artifacts) {
-      const response = await fetch(new URL(`/api/artifacts/${artifact.id}/download`, server.url))
+      const response = await request(new URL(`/api/artifacts/${artifact.id}/download`, server.url))
       assert.equal(response.status, 200)
       originalArtifacts.set(artifact.id, Buffer.from(await response.arrayBuffer()))
     }
@@ -232,8 +216,11 @@ try {
   assert.ok((await readdir(join(backup, 'exports'))).length > 0)
   const replacement = join(work, 'replacement-install')
   await mkdir(replacement)
-  await writeFile(join(replacement, 'package.json'), JSON.stringify({ private: true, type: 'module' }))
-  run(process.execPath, [npmCli, 'install', '--ignore-scripts', '--omit=dev', '--no-audit', '--no-fund', tarball], replacement)
+  // Reinstall the same resolved dependency graph, not another network resolution.
+  // Copy only manifests and the original tarball: node_modules is rebuilt independently.
+  for (const name of ['package.json', 'package-lock.json', packed[0].filename])
+    await cp(join(work, name), join(replacement, name))
+  run(process.execPath, [npmCli, 'ci', '--offline', '--ignore-scripts', '--omit=dev', '--no-audit', '--no-fund', '--loglevel=http'], replacement)
   const replacementCli = join(replacement, 'node_modules', packed[0].name, 'src', 'cli.mjs')
   assert.notEqual(replacementCli, cli)
   assert.equal(JSON.parse(await readFile(join(replacement, 'node_modules', packed[0].name, 'package.json'), 'utf8')).version,
@@ -251,13 +238,15 @@ try {
     const { snapshot } = await api(server.url, 'GET', `/api/documents/${docId}/snapshots/${snapshotId}`)
     assert.equal(snapshot.id, snapshotId)
     for (const artifact of artifacts) {
-      const response = await fetch(new URL(`/api/artifacts/${artifact.id}/download`, server.url))
+      const response = await request(new URL(`/api/artifacts/${artifact.id}/download`, server.url))
       assert.equal(response.status, 200)
       assert.deepEqual(Buffer.from(await response.arrayBuffer()), originalArtifacts.get(artifact.id))
     }
   } finally { await server.close() }
   console.log(`Package smoke passed: ${packed[0].filename}; ${files.size} files; isolated parsing, same-version reinstall with complete data backup, saved settings, frozen snapshot and original exports, MCP discovery/call and static UI`)
 } finally {
+  // Never remove the installation while an owned server might still use it.
+  await stopLiveServers()
   const resolvedWork = resolve(work)
   if (!resolvedWork.startsWith(`${tempRoot}${sep}`) || !resolvedWork.split(sep).at(-1).startsWith('ivoraige-package-smoke-')) {
     throw new Error(`Refusing to remove unexpected temporary path: ${resolvedWork}`)

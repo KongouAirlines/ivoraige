@@ -9,6 +9,9 @@ import { isPublicErrorCode, KernelError } from './errors.mjs'
 import { modelPresets } from './model-presets.mjs'
 import { SettingsPages } from './settings-pages.mjs'
 import { ComponentsSettings } from './component-settings.mjs'
+import { Outputs } from './outputs.mjs'
+import { Parse } from './parse.mjs'
+import { SidecarFactory } from './sidecar-factory.mjs'
 
 const MODEL_NS = 'ivoraige-model'
 const ROUTES_NS = 'llm-pi-ai'
@@ -374,7 +377,7 @@ async function ensureProfile(directory) {
   return { profileDir, configPath, patchPath: join(profileDir, 'cordis.patch.yml') }
 }
 
-export async function bootModelSettings({ directory } = {}) {
+export async function bootModelSettings({ directory, storePath } = {}) {
   directory = nonempty(directory, 'directory')
   const { profileDir, configPath, patchPath } = await ensureProfile(directory)
   const profile = {
@@ -382,13 +385,19 @@ export async function bootModelSettings({ directory } = {}) {
     installAnchor: join(profileDir, 'package.json'), cwd: profileDir, home: join(profileDir, '.home'),
     overlays: [], telemetryDisabledEnv: undefined,
   }
-  const ctx = await AppBoot.boot('dsh', configPath, AppBoot.readProfilePatches('dsh', profile), root => {
+  const ctx = await AppBoot.boot('dsh', configPath, AppBoot.readProfilePatches('dsh', profile), async root => {
     root.provide('profileContext', profile)
+    if (storePath) root.provide('ivoraige.storePath', storePath)
     Object.assign(root.loader.builtins, {
       credentials: LocalCredentialProvider, llm: LlmRuntime, piAi: LlmPiAi,
       editor: ConfigEditor, settings: SettingsForms, settingsPages: SettingsPages, modelSettings: ModelSettings,
       componentsSettings: ComponentsSettings,
     })
+    // User-selected source packages in the DSH profile may inject the source
+    // catalog. Provide it before AppBoot audits the profile entry tree.
+    await root.plugin(Outputs)
+    await root.plugin(Parse)
+    await root.plugin(SidecarFactory)
   })
   const settings = ctx.get('ivoraige.modelSettings')
   if (!settings) {

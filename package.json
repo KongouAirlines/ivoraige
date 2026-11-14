@@ -12,6 +12,7 @@
   },
   "files": [
     "src/",
+    "plugins/mineru/",
     "dist/dsh.mjs",
     "dist/web/",
     "dist/DSH-LICENSE.txt",
@@ -19,6 +20,7 @@
     "docs/plan/0.1.0/pdf-guide.md",
     "docs/plan/0.1.0/mcp-guide.md",
     "docs/plan/0.1.0/settings-guide.md",
+    "docs/plan/0.1.0/prompt-library-guide.md",
     "docs/plan/0.1.0/installation-guide.md",
     "docs/plan/0.1.0/workbench-guide.md",
     "README.md",
@@ -40,11 +42,12 @@
     "build:distribution": "npm run build && node scripts/build-distribution.mjs",
     "setup:dsh": "node scripts/setup-dsh.mjs",
     "build": "node scripts/build.mjs && node scripts/build-web.mjs",
-    "test": "npm run build && node --test test/*.test.mjs",
+    "test": "npm run build && node --test --test-timeout=180000 test/*.test.mjs",
     "pack:npm": "npm run build && node scripts/pack-npm.mjs",
     "smoke:package": "node scripts/smoke-package.mjs",
     "verify:release": "node scripts/verify-release.mjs",
-    "followups": "node scripts/followups.mjs"
+    "followups": "node scripts/followups.mjs",
+    "test:ci": "node --test --test-timeout=120000 test/*.test.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "0.87.1",

@@ -14,7 +14,7 @@ const config = { store: join(work, 'records.sqlite'), pdf: {
   modelDirs: { babeldoc: resolve(assets) }, options: { workDir: join(work, 'engine') }, timeoutMs: 600_000,
 } }
 let app = await createApp(config)
-const report = { engine: '0.7.1+ivoraige.2', modelRequests: 0, mode, exports: [] }
+const report = { engine: '0.7.1+ivoraige.3', modelRequests: 0, mode, exports: [] }
 const started = performance.now()
 try {
   assert.equal(app.records.listDocuments().length, 0, 'Use a fresh work directory')
