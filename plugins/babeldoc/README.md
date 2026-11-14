@@ -12,9 +12,9 @@ No translation provider, model context, or credentials are passed to rebuild.
 This MIT package contains only the JavaScript bridge and text validator, adapted
 from ivoraige's MIT PDF adapter. It contains **no Python runtime, native engine,
 models, fonts, or DSH/Cordis copy**. Prepare the independently managed
-BabelDOC `0.7.1+ivoraige.2` runtime and its NDJSON server/assets first. Stock
+BabelDOC `0.7.1+ivoraige.3` runtime and its NDJSON server/assets first. Stock
 BabelDOC 0.7.1 is not equivalent: the derived runtime includes the separately
-versioned source-location bridge and narrow opt-in ASCII underscore line policy.
+versioned source-location bridge, box-fit layout policy, and narrow opt-in ASCII underscore line policy.
 This plugin enables no native policy itself; the matching sidecar scopes it to
 capture/replay. Runtime license/resource closure and binary
 redistribution remain separate P08 work.
@@ -64,13 +64,14 @@ store or managed PDF resources. Keep those resources for saved documents.
   require a compatible installed adapter and binding. The package version,
   adapter version, binding schema 1, and engine version are distinct identities.
 - New captures and translated replay require the exact derived engine version
-  `0.7.1+ivoraige.2`, matching `captureConfig.babeldoc`, and
+  `0.7.1+ivoraige.3`, matching `captureConfig.babeldoc`,
+  `captureConfig.layoutFitPolicy: fit-box-v1`, and
   `captureConfig.underscoreLinePolicy: ascii-alnum-base-v1`. Missing or different
-  policy values are rejected. Existing `.1` and 0.6.4 bindings are never relabeled.
+  policy values are rejected. Existing `.2`, `.1` and 0.6.4 bindings are never relabeled.
   Their original-file source PDF and already saved frozen MD/JSON artifacts remain
   readable without invoking the new runtime. A new MD/JSON export still needs
   the compatible source projection adapter. Translated PDF requires its compatible
-  renderer/runtime. To use `.2`, explicitly reimport the original and manually
+  renderer/runtime. To use `.3`, explicitly reimport the original and manually
   reconcile units and accepted revisions; there is no automatic revision migration.
 - The unchanged protocol is NDJSON JSON-RPC 2.0, protocol 1. Imports need no
   target language or translation provider. English and Chinese source-language
@@ -90,11 +91,11 @@ store or managed PDF resources. Keep those resources for saved documents.
 此包是独立的 MIT JavaScript 来源/输出桥接，来源 ID 为 `babeldoc`，输出
 ID 为 `pdf`，binding schema 与 sidecar protocol 均保持 1。通过宿主的
 `sidecarFactory` 与权威 `storePath` 工作，不附带 Python、引擎、模型、字体
-或另一份 DSH/Cordis。须另行准备 `0.7.1+ivoraige.2` 派生运行时及资源，不能
-将官方原版 0.7.1、旧 `.1` 或 0.6.4 改标签冒充兼容。新捕获与译文 PDF
-要求精确版本和 `underscoreLinePolicy: ascii-alnum-base-v1`；旧 binding
+或另一份 DSH/Cordis。须另行准备 `0.7.1+ivoraige.3` 派生运行时及资源，不能
+将官方原版 0.7.1、旧 `.2`、`.1` 或 0.6.4 改标签冒充兼容。新捕获与译文 PDF
+要求精确版本、`layoutFitPolicy: fit-box-v1` 和 `underscoreLinePolicy: ascii-alnum-base-v1`；旧 binding
 原件 PDF 与已保存的冻结 MD/JSON 产物仍可读；重新导出 MD/JSON 需兼容的来源
-投影 adapter。使用 `.2` 重建旧文档须显式重导入原件并人工
+投影 adapter（`renderMarkdown` 保留标题层级与字面量转义）。使用 `.3` 重建旧文档须显式重导入原件并人工
 对齐单元及接受修订，不自动迁移。此同步不表示 #80 已修复或已验收。
 
 独立包与两个 adapter 的版本均为 `0.1.1`，宿主内置 adapter 仍为 `0.1.0`，

@@ -162,4 +162,4 @@ MinerU 的 MIT 桥接包与主体分开打包，不包含原生运行时或模�
 参见[离线插件安装](docs/plan/0.1.0/installation-guide.md#offline-independent-source-plugins)
 和 [P05 开发说明](docs/plan/0.1.x/plugin-delivery-development.md)。
 
-可选独立 BabelDOC 来源/输出包 `0.1.1`，对应引擎 `0.7.1+ivoraige.2`：[安装与兼容边界](plugins/babeldoc/README.md)。运行时准备及 PDF 质量仍需分别验证。
+可选独立 BabelDOC 来源/输出包 `0.1.1`，对应引擎 `0.7.1+ivoraige.3`：[安装与兼容边界](plugins/babeldoc/README.md)。运行时准备及 PDF 质量仍需分别验证。

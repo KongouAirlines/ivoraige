@@ -66,8 +66,9 @@ async function importPdf(app, adapterId) {
   const binding = app.records.record(document.id).sourceBinding
   assert.equal(binding.adapterId, adapterId)
   if (adapterId === 'babeldoc') {
-    assert.equal(binding.engineVersion, '0.7.1+ivoraige.2')
-    assert.equal(binding.captureConfig.babeldoc, '0.7.1+ivoraige.2')
+    assert.equal(binding.engineVersion, '0.7.1+ivoraige.3')
+    assert.equal(binding.captureConfig.babeldoc, '0.7.1+ivoraige.3')
+    assert.equal(binding.captureConfig.layoutFitPolicy, 'fit-box-v1')
     assert.equal(binding.captureConfig.underscoreLinePolicy, 'ascii-alnum-base-v1')
   }
   return document
@@ -136,6 +137,7 @@ try {
   const mineruUnits = await acceptTwo(app, mineruDoc)
   report.engines.babeldoc = { docId: babelDoc.id, binding: app.records.record(babelDoc.id).sourceBinding.adapterId,
     engineVersion: app.records.record(babelDoc.id).sourceBinding.engineVersion,
+    layoutFitPolicy: app.records.record(babelDoc.id).sourceBinding.captureConfig.layoutFitPolicy,
     underscoreLinePolicy: app.records.record(babelDoc.id).sourceBinding.captureConfig.underscoreLinePolicy,
     sourceUnits: babelUnits.length, ...await frozenExport(app, babelDoc) }
   report.engines.mineru = { docId: mineruDoc.id, binding: app.records.record(mineruDoc.id).sourceBinding.adapterId,

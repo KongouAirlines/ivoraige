@@ -309,3 +309,13 @@ redistribution, translation-quality or cross-account acceptance claim.
 0 失败。环境为 Linux、Node 24.22.1 兼容线；跳过项包括沙盒不支持的
 Unix socket、Windows 专项及发布归档条件。未重跑真实 PDF/OCR 或模型调用，
 不能据此宣称 Node 26、其他平台或生产翻译验收通过。
+
+## 2026-11-14：同步 0.7.1+ivoraige.3 / fit-box-v1 与 renderPdfMarkdown
+
+配合 PR #95 / PR #103 的 `.3` 派生运行时及主线 PDF Markdown 转义（#77/#78），
+独立包 `plugins/babeldoc/` 完成两项同步修正：
+
+1. 将 `plugins/babeldoc/pdf-text.mjs` 与 `src/adapters/pdf-text.mjs` 对齐（仅保留包内 `./errors.mjs` 相对导入），并在 `plugins/babeldoc/index.mjs` 的 `babeldoc` 来源适配器上注册 `renderMarkdown: renderPdfMarkdown`，使独立包导出的 Markdown 同样保留 `##` 标题层级、字面量 `_`/`*`/`<`/`>`/setext `===`/有序列表/缩进转义以及安全 URL/邮箱链接。
+2. 将 `ENGINE_VERSION` 升至 `0.7.1+ivoraige.3`，同时校验 `captureConfig.babeldoc === '0.7.1+ivoraige.3'`、`captureConfig.layoutFitPolicy === 'fit-box-v1'` 与 `captureConfig.underscoreLinePolicy === 'ascii-alnum-base-v1'`；旧 `.2`、`.1`、`0.7.1` 与 `0.6.4` 绑定及缺失/错误策略在捕获与译文 PDF 重建时均显式拒绝，保留原件 PDF 与已冻结 MD/JSON 读取能力。
+
+历史 `.1`（本文档前文）与 `.2`（`babeldoc-source-p07-ivoraige2.md`）实机证据保持原样，不回改或冒充 `.3` 真实运行时重跑结果。

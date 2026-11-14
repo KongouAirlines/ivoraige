@@ -36,9 +36,9 @@ async function fixture(t, tempRoot = tmpdir()) {
   await writeFile(join(dir, 'pdf-email-cases.mjs'),
     await readFile(new URL('./fixtures/pdf-email-cases.mjs', import.meta.url)))
   await writeFile(engine, (await readFile(new URL('./fixtures/pdf-engine.mjs', import.meta.url), 'utf8'))
-    .replace("adapterId: 'babeldoc', captureConfig", "adapterId: 'babeldoc', engineVersion: '0.7.1+ivoraige.2', captureConfig")
+    .replace("adapterId: 'babeldoc', captureConfig", "adapterId: 'babeldoc', engineVersion: '0.7.1+ivoraige.3', captureConfig")
     .replace("? {} : { sourceLanguage: params.options.language }",
-      "? { babeldoc: '0.7.1+ivoraige.2', underscoreLinePolicy: 'ascii-alnum-base-v1' } : { babeldoc: '0.7.1+ivoraige.2', underscoreLinePolicy: 'ascii-alnum-base-v1', sourceLanguage: params.options.language }"))
+      "? { babeldoc: '0.7.1+ivoraige.3', layoutFitPolicy: 'fit-box-v1', underscoreLinePolicy: 'ascii-alnum-base-v1' } : { babeldoc: '0.7.1+ivoraige.3', layoutFitPolicy: 'fit-box-v1', underscoreLinePolicy: 'ascii-alnum-base-v1', sourceLanguage: params.options.language }"))
   const store = join(dir, 'db.sqlite')
   const config = { directory: join(dir, 'pdf'), command: process.execPath, args: [engine] }
   const open = async () => { const app = await createApp({ store }); apps.push(app); return app }
@@ -63,7 +63,9 @@ test('BabelDOC independent package imports, freezes, reopens and routes PDF/MD/J
   assert.equal(doc.sourceAdapterId, 'babeldoc')
   assert.equal(doc.sourceAdapterVersion, '0.1.1')
   const record = app.records.record(doc.id)
-  assert.equal(record.sourceBinding.engineVersion, '0.7.1+ivoraige.2')
+  assert.equal(record.sourceBinding.engineVersion, '0.7.1+ivoraige.3')
+  assert.equal(record.sourceBinding.captureConfig.layoutFitPolicy, 'fit-box-v1')
+  assert.equal(record.sourceBinding.captureConfig.underscoreLinePolicy, 'ascii-alnum-base-v1')
   for (const unit of app.records.listUnits(doc.id, { targetLang: 'zh' })) {
     const revision = await app.records.writeRevision(unit.id,
       { text: '中文 <b1> 结果。', targetLang: 'zh', baseRevisionId: null })
@@ -160,10 +162,10 @@ test('BabelDOC old and new mounts conflict explicitly and release registrations 
   await importPdf(app)
 })
 
-for (const oldVersion of ['0.7.1+ivoraige.1', '0.6.4']) test(`BabelDOC runtime ${oldVersion} output is rejected rather than relabeled compatible`, async t => {
+for (const oldVersion of ['0.7.1+ivoraige.2', '0.7.1+ivoraige.1', '0.7.1', '0.6.4']) test(`BabelDOC runtime ${oldVersion} output is rejected rather than relabeled compatible`, async t => {
   const f = await fixture(t)
   const engine = f.config.args[0]
-  await writeFile(engine, (await readFile(engine, 'utf8')).replaceAll('0.7.1+ivoraige.2', oldVersion))
+  await writeFile(engine, (await readFile(engine, 'utf8')).replaceAll('0.7.1+ivoraige.3', oldVersion))
   const app = await f.open()
   await app.ctx.plugin(BabelDOCSource, f.config)
   const admitted = await app.operations.invoke('importDocument', { adapterId: 'babeldoc', format: 'pdf',
@@ -374,9 +376,9 @@ test('BabelDOC keeps the pinned exact source-language binding contract', async t
   await app.ctx.plugin(BabelDOCSource, f.config)
   const output = app.ctx.get('ivoraige.outputs').adapters.get('pdf')
   for (const language of ['en', 'zh', 'zh-CN', 'zh-Hans']) {
-    const captureConfig = { babeldoc: '0.7.1+ivoraige.2', underscoreLinePolicy: 'ascii-alnum-base-v1',
+    const captureConfig = { babeldoc: '0.7.1+ivoraige.3', layoutFitPolicy: 'fit-box-v1', underscoreLinePolicy: 'ascii-alnum-base-v1',
       ...(language === 'en' ? {} : { sourceLanguage: language }) }
-    const request = { provenance: { language }, targetLang: language === 'en' ? 'zh' : 'en', binding: { engineVersion: '0.7.1+ivoraige.2', captureConfig } }
+    const request = { provenance: { language }, targetLang: language === 'en' ? 'zh' : 'en', binding: { engineVersion: '0.7.1+ivoraige.3', captureConfig } }
     assert.doesNotThrow(() => output.validateExport(request))
     const changed = { sourceLanguage: language === 'en' ? 'en' : language === 'zh' ? 'zh-CN' : 'zh' }
     assert.throws(() => output.validateExport({ ...request, binding: { ...request.binding, captureConfig: { ...captureConfig, ...changed } } }), /source language differs/)
@@ -440,13 +442,14 @@ for (const committed of [false, true]) {
   })
 }
 
-for (const version of ['0.7.1+ivoraige.1', '0.6.4']) {
+for (const version of ['0.7.1+ivoraige.2', '0.7.1+ivoraige.1', '0.6.4']) {
   test(`BabelDOC ${version} bindings retain originals and frozen readable exports without relabeling`, async t => {
     const f = await fixture(t)
     const engine = f.config.args[0]
     const modern = await readFile(engine, 'utf8')
-    await writeFile(engine, modern.replaceAll('0.7.1+ivoraige.2', version)
-      .replaceAll(", underscoreLinePolicy: 'ascii-alnum-base-v1'", ''))
+    await writeFile(engine, modern.replaceAll('0.7.1+ivoraige.3', version)
+      .replaceAll(", layoutFitPolicy: 'fit-box-v1'", '')
+      .replaceAll(version === '0.7.1+ivoraige.2' ? '__keep__' : ", underscoreLinePolicy: 'ascii-alnum-base-v1'", ''))
     let app = await f.open()
     await app.ctx.plugin(Pdf, { ...f.config, storePath: f.store })
     assert.equal(app.parse.adapters.get('babeldoc').version, '0.1.0')
@@ -479,7 +482,7 @@ for (const version of ['0.7.1+ivoraige.1', '0.6.4']) {
     const original = await app.exporter.exportDocument(doc.id, { contentMode: 'source', outputs: [{ format: 'pdf' }] })
     assert.deepEqual(await readFile(original.artifacts[0].path), pdf)
     await assert.rejects(app.exporter.exportDocument(doc.id,
-      { targetLang: 'zh', snapshotId: frozen.snapshotId, outputs: [{ format: 'pdf' }] }), /requires 0\.7\.1\+ivoraige\.2/)
+      { targetLang: 'zh', snapshotId: frozen.snapshotId, outputs: [{ format: 'pdf' }] }), /requires 0\.7\.1\+ivoraige\.3/)
     assert.deepEqual(app.records.record(doc.id).sourceBinding, binding)
     assert.equal(app.records.listTasks().filter(task => task.kind === 'translate').length, 0)
     await app.dispose()
@@ -487,26 +490,52 @@ for (const version of ['0.7.1+ivoraige.1', '0.6.4']) {
     await app.ctx.plugin(BabelDOCSource, f.config)
     const reimported = await importPdf(app) // Explicitly reimport the same sourceId.
     assert.notEqual(reimported.id, doc.id)
-    assert.equal(app.records.record(reimported.id).sourceBinding.engineVersion, '0.7.1+ivoraige.2')
+    assert.equal(app.records.record(reimported.id).sourceBinding.engineVersion, '0.7.1+ivoraige.3')
     assert.ok(app.records.listUnits(reimported.id, { targetLang: 'zh' }).every(unit => !unit.acceptedRevisionId))
     assert.deepEqual(app.records.record(doc.id).sourceBinding, binding)
     assert.equal(app.records.listDocuments().length, 2)
   })
 }
 
-for (const policy of ['wrong-policy', undefined]) {
-  test(`BabelDOC refuses new capture and translated replay with policy ${policy}`, async t => {
-    const f = await fixture(t), app = await f.open()
-    const engine = f.config.args[0]
-    await writeFile(engine, (await readFile(engine, 'utf8')).replaceAll(
-      "underscoreLinePolicy: 'ascii-alnum-base-v1'", `underscoreLinePolicy: ${JSON.stringify(policy)}`))
-    await app.ctx.plugin(BabelDOCSource, f.config)
-    const source = app.ctx.get('ivoraige.parse').adapters.get('babeldoc')
-    const output = app.ctx.get('ivoraige.outputs').adapters.get('pdf')
-    await assert.rejects(source.parse({ content: pdf, language: 'en' }), /invalid source bindings/)
-    assert.equal(app.records.listDocuments().length, 0)
-    await assert.rejects(output.rebuild({ document: { language: 'en' }, snapshot: { targetLang: 'zh' }, units: [],
-      sourceBinding: { adapterId: 'babeldoc', engineVersion: '0.7.1+ivoraige.2',
-        captureConfig: { babeldoc: '0.7.1+ivoraige.2', underscoreLinePolicy: policy } } }), /ascii-alnum-base-v1/)
-  })
+for (const [key, expected] of [['layoutFitPolicy', 'fit-box-v1'], ['underscoreLinePolicy', 'ascii-alnum-base-v1']]) {
+  for (const policy of ['wrong-policy', undefined]) {
+    test(`BabelDOC refuses new capture and translated replay with ${key}=${policy}`, async t => {
+      const f = await fixture(t), app = await f.open()
+      const engine = f.config.args[0]
+      await writeFile(engine, (await readFile(engine, 'utf8')).replaceAll(
+        `${key}: '${expected}'`, `${key}: ${JSON.stringify(policy)}`))
+      await app.ctx.plugin(BabelDOCSource, f.config)
+      const source = app.ctx.get('ivoraige.parse').adapters.get('babeldoc')
+      const output = app.ctx.get('ivoraige.outputs').adapters.get('pdf')
+      await assert.rejects(source.parse({ content: pdf, language: 'en' }), /invalid source bindings/)
+      assert.equal(app.records.listDocuments().length, 0)
+      await assert.rejects(output.rebuild({ document: { language: 'en' }, snapshot: { targetLang: 'zh' }, units: [],
+        sourceBinding: { adapterId: 'babeldoc', engineVersion: '0.7.1+ivoraige.3',
+          captureConfig: { babeldoc: '0.7.1+ivoraige.3', layoutFitPolicy: 'fit-box-v1', underscoreLinePolicy: 'ascii-alnum-base-v1', [key]: policy } } }), new RegExp(expected))
+    })
+  }
 }
+
+test('BabelDOC independent source renders escaped Markdown with headings, literal syntax and links', async t => {
+  const f = await fixture(t), app = await f.open()
+  await app.ctx.plugin(BabelDOCSource, { ...f.config, args: [...f.config.args, 'markdown-structure'] })
+  const doc = await importPdf(app)
+  const sourceOut = await app.exporter.exportDocument(doc.id, { contentMode: 'source', outputs: [{ format: 'md' }] })
+  const sourceMd = await readFile(sourceOut.artifacts[0].path, 'utf8')
+  assert.match(sourceMd, /^<!-- ivoraige snapshot:\S+ revisions:\S+ -->\n\n# PDF document\n\n/m)
+  assert.match(sourceMd, /\n## Results\\_2026 a&lt;b\n\n/)
+  assert.match(sourceMd, /\n1&#46; Metric\\_Total = x\\\\alpha &amp; 5 &lt; 7; &lt;b2&gt; &amp;lt; 1\.\n\n/)
+  assert.match(sourceMd, /\nFigure\\_1: \\\*literal\\\* caption\.\n\n/)
+  assert.match(sourceMd, /\nα\\_x\\_1 &lt; y end\n$/)
+  for (const unit of app.records.listUnits(doc.id, { targetLang: 'zh' }).filter(item => item.translatable)) {
+    const text = unit.order === 0
+      ? '1. 方法与 <b1> *字面量*'
+      : '行一 <b2>\n===\n    缩进与 _x_1_ https://example.com/a_b author_1@example.com'
+    const revision = await app.records.writeRevision(unit.id, { text, targetLang: 'zh', baseRevisionId: null })
+    await app.records.acceptRevision(revision.id, { expectedAcceptedRevisionId: null })
+  }
+  const zhOut = await app.exporter.exportDocument(doc.id, { targetLang: 'zh', outputs: [{ format: 'md' }] })
+  const zhMd = await readFile(zhOut.artifacts[0].path, 'utf8')
+  assert.match(zhMd, /\n## 1&#46; 方法与 a&lt;b \\\*字面量\\\*\n\n/)
+  assert.match(zhMd, /\n\\===\n&#32;&#32;&#32;&#32;缩进与 \\_x\\_1\\_ \[https:\/\/example\.com\/a\\_b\]\(<https:\/\/example\.com\/a_b>\)&#32;\[author\\_1&#64;example\.com\]\(<mailto:author_1@example\.com>\)\n\n/)
+})

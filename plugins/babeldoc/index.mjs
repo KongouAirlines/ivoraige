@@ -6,7 +6,7 @@ import { readFile, writeFile, mkdir, mkdtemp, rm, stat, copyFile, realpath, rena
 import { constants, lstatSync, realpathSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { KernelError } from './errors.mjs'
-import { readablePdfText, validatePdfTranslation } from './pdf-text.mjs'
+import { readablePdfText, renderPdfMarkdown, validatePdfTranslation } from './pdf-text.mjs'
 
 // Resolve aliases in existing ancestors without requiring a newly configured
 // resource directory to exist. The managed root itself must not be a symlink.
@@ -42,11 +42,13 @@ async function cleanupPath(path, options, primary) {
     recordCleanupError(primary, error)
   }
 }
-const ENGINE_VERSION = '0.7.1+ivoraige.2'
+const ENGINE_VERSION = '0.7.1+ivoraige.3'
 const ADAPTER_VERSION = '0.1.1'
+const LAYOUT_FIT_POLICY = 'fit-box-v1'
 const UNDERSCORE_LINE_POLICY = 'ascii-alnum-base-v1'
 const compatibleBinding = binding => binding?.engineVersion === ENGINE_VERSION &&
   binding.captureConfig?.babeldoc === ENGINE_VERSION &&
+  binding.captureConfig?.layoutFitPolicy === LAYOUT_FIT_POLICY &&
   binding.captureConfig?.underscoreLinePolicy === UNDERSCORE_LINE_POLICY
 const chinese = new Set(['zh', 'zh-CN', 'zh-Hans'])
 const validateSourceLanguage = language => {
@@ -55,7 +57,7 @@ const validateSourceLanguage = language => {
 const validatePdfExport = ({ contentMode, targetLang, provenance, binding }) => {
   if (contentMode === 'source') return
   if (!compatibleBinding(binding)) {
-    fail(`BabelDOC translated replay requires ${ENGINE_VERSION} source bindings with ${UNDERSCORE_LINE_POLICY}; reimport with the matching runtime and explicitly reconcile revisions`)
+    fail(`BabelDOC translated replay requires ${ENGINE_VERSION} source bindings with ${LAYOUT_FIT_POLICY} and ${UNDERSCORE_LINE_POLICY}; reimport with the matching runtime and explicitly reconcile revisions`)
   }
   const source = provenance?.language
   validateSourceLanguage(source)
@@ -339,6 +341,7 @@ export function BabelDOCSource(ctx, config = {}) {
     validateSourceLanguage,
     validateTranslation: validatePdfTranslation,
     readableText: readablePdfText,
+    renderMarkdown: renderPdfMarkdown,
   }))
   ctx.effect(() => ctx.get('ivoraige.outputs').register({
     id: 'pdf', formats: ['pdf'],
