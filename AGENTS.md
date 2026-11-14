@@ -54,7 +54,7 @@ The v2.0 module table is a target, not a description of every implemented bounda
 ```bash
 npm run setup:dsh   # vendor the pinned DSH runtime (first setup / refresh)
 npm test            # build + run all tests
-node --test test/*.test.mjs              # current foundation suites after build
+node --import ./test/fixtures/host-test-env.mjs --test test/*.test.mjs              # current foundation suites after build
 npm run smoke:package                   # after build: isolated tarball install and persistence/export smoke
 ```
 

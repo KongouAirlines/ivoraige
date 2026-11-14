@@ -35,7 +35,7 @@ export async function stopLiveServers() {
 
 export async function startServer(cli, cwd, store, settingsDir, startupTimeoutMs = 20_000) {
   const child = spawn(process.execPath,
-    [cli, 'serve', '--store', store, '--settings-dir', settingsDir, '--port', '0'],
+    [cli, 'serve', '--store', store, '--settings-dir', settingsDir, '--port', '0', '--mcp-enabled'],
     { cwd, env: process.env, stdio: ['ignore', 'pipe', 'pipe'] })
   liveServers.add(child)
   child.once('exit', () => liveServers.delete(child))

@@ -1,6 +1,8 @@
 # 0.1.x HostControl@1：首个接口设计切片
 
-状态：**候选契约 1.0，供评审，未实现、未发布 API**。日期：2026-11-09。
+状态：**候选契约 1.0，部分实现分支待集成，未发布 API**。日期：2026-11-09。
+
+A1 域/会话基础、A2 生命周期协调及 A3 owner 入口已有草稿实现；当前支持和未完成门禁见[入口证据](../../plan/0.1.x/evidence/host-owner-entries.md)。下文候选要求不是全部已验收行为，尤其 Windows 独立普通账户/完全非提权验收、强退、完整恢复和持久 MCP 开关。原生 pipe 身份与安装包运行已有固定 head 的实测，见该证据。
 
 依据：[四接口 RFC](control-admission-rfc.md)、[D01](../../plan/0.1.x/packages/desktop.md#d01) 与 P04。源码核对固定在 [PR #70 合并提交 978d947](https://github.com/KongouAirlines/ivoraige/commit/978d9471fcc87857f4ca84da1ece6d169ee60a2b)。本切片固定 A 的候选方法、数据形状、所有权和验收顺序，供后续实现 PR 逐项启用。B 的安装和 C 的文本受理仅声明接点，不顺带实现；ADR-0003 的运行时迁移门禁继续有效。
 
@@ -12,6 +14,8 @@
 4. 本次交付机器 schema、正反例和实现拆分。schema 只验证数据形状，不能证明锁、授权、持久化或退出正确。
 
 ## 2. 当前源码与最小改动边界
+
+本表记录设计起点 `978d947` 的源码与改动落点，不是 A3 已实现状态；当前分支行为以[入口证据](../../plan/0.1.x/evidence/host-owner-entries.md)为准。
 
 | 当前证据 | 设计要求与落点 |
 | --- | --- |
@@ -76,7 +80,9 @@ bootstrap 只取得一次 store lease，并将它交给同一长寿命 host 组�
 
 OwnerIPC 一连接只收一帧，成功帧为 `{ ok: true, result }`，失败帧为 `{ ok: false, apiVersion: "2.0", error: { code, message, details: { reason, supportedMinors? } } }`。失败的 `error` 与 HTTP/CLI/MCP 的 `ErrorResponse` 共享同一错误信封；`ok` 仅为 IPC 帧判别位，不能把整个 IPC 帧作为外部错误响应。`result` 按动作返回 HostControl 投影或 P04 既有业务结果，不把业务结果当管理授权。ownerBootstrap/force challenge 的秘密结果仍须在具体实现验证，不进入公开 fixture。
 
-浏览器候选映射是同源 `POST /api/host-control`，仅允许 state/drain/exit/operation；start/attach/ownerBootstrap/force 动作不经 HTTP 暴露。复用同一请求/响应 DTO，不把 HostControl 管理方法注册成可枚举的公共 MCP 工具或通用 `call` 后门。WebUI/CLI 的业务操作仍调用现有 P04 操作；本节路径和命令均为待实现设计，当前版本不可调用。
+Windows 实现采用独立原生传输 helper，保留 `HostControl@1` minor 0、generation、capability 与帧语义；权限与双向身份校验由实际 pipe handle/token 提供。实现、依赖、原生探针和仍待验收项目见[Windows pipe 边界](../../plan/0.1.x/evidence/host-windows-pipe.md)，不能用编写了探针代替运行结果。
+
+浏览器候选映射是同源 `POST /api/host-control`，仅允许 state/drain/exit/operation；start/attach/ownerBootstrap/force 动作不经 HTTP 暴露。复用同一请求/响应 DTO，不把 HostControl 管理方法注册成可枚举的公共 MCP 工具或通用 `call` 后门。WebUI/CLI 的业务操作仍调用现有 P04 操作；A3 分支已接线的路径与命令见[使用指南](../../plan/0.1.x/host-control-guide.md)及[入口证据](../../plan/0.1.x/evidence/host-owner-entries.md)；其中 force 动作、退出观察和完整管理 UI 仍未完成。
 
 ## 5. 状态、P04 投影与退出操作
 

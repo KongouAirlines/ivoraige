@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client'
 import { createApp } from '../../src/app.mjs'
 import { createMcpHttp } from '../../src/mcp.mjs'
-import { serve } from '../../src/http.mjs'
+import { serve } from './owner-http.mjs'
 
 assert.equal(typeof global.gc, 'function', 'fixture requires --expose-gc')
 const mode = process.argv[2]

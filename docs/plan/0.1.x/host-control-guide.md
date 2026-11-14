@@ -1,0 +1,33 @@
+# Local owner and HostControl guide
+
+This page describes the current source implementation of the first HostControl@1 slice. It is not a desktop or tray release, and native owner transport and filesystem permissions still require platform verification.
+
+## Start and attach
+
+The launcher (`node src/launch.mjs`, or `npm start` after building) starts one resident owner for its data directory, or attaches to the existing owner of that store. It prints the plain loopback server URL. To pair a browser, it places the short-lived, one-use credential in a private, temporary local HTML file and passes only that file's URL to the browser opener, so the secret is not in the opener's process arguments. The file redirects to the workbench with the credential in the URL fragment. The launcher removes the file on normal close or after 30 seconds; an abrupt process termination can leave it until the protected data directory is cleaned up. Do not share this file. The credential is not printed or put in the server URL, registry, query string or persistent browser storage. The page clears the fragment before exchanging it for an HttpOnly owner session. An ordinary link shows the pairing instructions; anonymous requests to `/api/*`, including events, artifacts, settings and installation, and to `/mcp` are denied.
+
+`ivoraige serve --store /absolute/path/store.sqlite` starts or attaches a resident owner, but does not pair a browser. Run the launcher with the same data directory to open a paired workbench. A one-shot business CLI command with `--store` attaches if a resident owner is present; otherwise it creates a temporary owner for that command and releases it on completion. It cannot attach to another temporary owner. `ivoraige mcp --stdio --store /absolute/path/store.sqlite` requires an existing resident owner. Its standard output is reserved for MCP messages; closing its stdin only disconnects the bridge and does not stop the owner. Use the same store selection for every entry.
+
+HTTP MCP is off by default. For a single `serve` run, use `--mcp-enabled` to expose `/mcp` behind the same owner session; `--no-mcp` overrides it. There is no persisted MCP enable switch yet. An anonymous or independently launched HTTP MCP client cannot use the owner-only endpoint.
+
+Interrupting an attached CLI request or cancelling an MCP request stops its owner IPC wait and asks the request handler to cancel. Closing the stdio bridge cancels its outstanding requests without stopping the resident owner. Cancellation does not prove that a submitted operation was rolled back, and it does not automatically cancel an already admitted background task. Query that task or use its explicit cancel operation instead of blindly resubmitting it.
+
+## Inspect and stop
+
+`ivoraige host state --store /absolute/path/store.sqlite` queries the selected resident owner. `ivoraige host drain --store /absolute/path/store.sqlite --budget-ms 15000` closes new business admission and waits for a safe boundary. `ivoraige host exit --store /absolute/path/store.sqlite --budget-ms 15000` asks it to finish shutdown. Both return an accepted operation ID, not proof that the process has stopped. Query `ivoraige host operation OPERATION_ID --store /absolute/path/store.sqlite` while the owner channel remains available. A blocked operation can be retried with a new budget. Forced exit is not available; do not delete a lock or registry entry to simulate it. Closing a browser tab does not call exit.
+
+The local registry binds a store's data domain, path and composition to this OS user. Set `IVORAIGE_HOST_REGISTRY_ROOT` to an absolute, private directory only when selecting a controlled registry location for all relevant processes; CLI `--registry-root /absolute/path` makes the same selection per command. A different registry root must not be used to evade an existing owner or domain conflict. Use `ivoraige host domain inspect --store ...` for a read-only diagnostic. `host domain recover` requires an explicit mode, the inspected diagnostic revision and `--confirm`; its verified copy path is for a distinct copied store, not for changing the configuration of an existing store. The CLI does not supply the process-retirement proof needed for migration. Back up the complete store and managed files before recovery.
+
+Settings and component roots, component repository/release choices and PDF configuration belong to the owner composition. An attach with different choices fails rather than silently changing the live owner. A different export directory also fails while the owner is running; after the owner has stopped, a new start may choose another export directory. Existing artifacts and managed cleanup records still refer to their prior paths. Only export-root relocation is supported after stopping. A different registered settings/component/PDF binding is still rejected after restart; restore the matching startup options. An explicit binding-reconfiguration workflow remains outstanding. Do not treat this slice as a completed cross-platform desktop, tray or recovery implementation.
+
+On Windows, owner IPC requires built-in Windows PowerShell 5.1 and .NET Framework with FullLanguage and `Add-Type` permitted. A fixed internal command supports the stock client Restricted execution policy without changing it. ConstrainedLanguage, AppLocker and WDAC restrictions still apply; if they prohibit the helper, use an organization-approved deployment rather than lowering the policy. A native helper creates a current-user-only named pipe, verifies the connected server and client identities, and refuses remote connections before passing HostControl frames. The protected generation capability remains an additional check. Missing or prohibited helper support fails closed; the application does not request elevation or change execution policy. Native security and separate-account acceptance must be checked against the exact build, not inferred from functional tests.
+
+An updated Windows client refuses an older owner whose pipe does not meet these native security checks. Stop that owner through its existing entry before starting the updated build; do not remove its lock or discovery files to force a second owner.
+
+### 浏览器启动限制
+
+浏览器打开程序失败时，启动器会报告警告并清理配对页，owner 继续运行，CLI/MCP 仍可使用。有浏览器的桌面会话中重新运行启动器可重新配对。附加启动器不会为了清理页面等待 30 秒；页面在私有目录内，过期后由下一次启动清理。
+
+Ubuntu snap/flatpak 浏览器可能无法读取隐藏数据目录中的配对页；此项尚未在目标桌面实测。可尝试非沙箱浏览器，或使用浏览器权限允许读取的数据目录。不要放宽目录权限或把配对凭据复制到命令行、公开链接。
+
+CLI 相对文件路径按调用者目录读取，默认文档 sourceId 保留原始路径参数，显式 sourceId 优先。附加 CLI 也遵守 owner 的 CLI entry 可用性与关闭状态。

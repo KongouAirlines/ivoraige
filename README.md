@@ -43,9 +43,13 @@ The goal is a shared foundation for people and AI: choose the capabilities you n
 
 Use Node.js **26.13.0** with npm by default (`.node-version`). Node 24 is retained only for compatibility; the supported range remains `>=24.22.1 <25 || >=26.12.1 <27`. Later stable patches within either supported major are suitable for source use; Node 25 and future majors are outside the current supported range. CI validates Node.js 26.13.0 on Linux, macOS and Windows; Node 24 remains supported but no longer has a CI job. The DSH bundle targets Node 26. Windows portable builds require the official fixed Node.js 26.13.0 executable and its matching license.
 
+Windows owner IPC also requires built-in Windows PowerShell 5.1 and .NET Framework with FullLanguage and `Add-Type` permitted. Its fixed command does not change execution policy and remains subject to organizational application controls. It fails closed when native pipe permissions or peer identity cannot be verified; see the [owner control guide](docs/plan/0.1.x/host-control-guide.md).
+
 1. Open the workbench and import a TXT or Markdown file.
 2. Configure a model when you want machine translation, or enter translations yourself.
 3. Review and accept revisions, then export the result.
+
+The launcher pairs the local browser with a one-use URL fragment; copying the plain server URL does not grant access to documents or settings. CLI commands attach to the resident owner selected by `--store` (or the default data directory), and stdio MCP requires that owner. `--url` only checks its HTTP origin; it is not a standalone remote connection. Relative CLI `--path` and `--out` values are resolved from the caller’s working directory before being passed to the owner. Attached CLI tasks do not support `--json-events`; poll `task` instead. HTTP MCP is off by default and requires `serve --mcp-enabled`. Interrupting an attached request stops its wait without stopping the owner or proving that submitted work was rolled back. See the [local owner guide](docs/plan/0.1.x/host-control-guide.md) for startup, authentication, cancellation, drain and exit behavior. This is still a browser-based workbench, not a native desktop or tray app.
 
 For PDF, prepare the optional Windows development environment using the [PDF development guide (中文)](docs/plan/0.1.0/pdf-development.md), then follow the [PDF guide (中文)](docs/plan/0.1.0/pdf-guide.md). The default online component source currently has no downloadable Release.
 
@@ -121,9 +125,9 @@ Built with Cordis and DSH, with optional BabelDOC support. See [third-party ackn
 
 In-process hosts can register operations once and expose them through optional CLI, REST and MCP entries. The workbench refreshes state as operations change, and artifact reads share ownership and size limits. See [composition usage](docs/plan/0.1.0/development-guide.md#p04-operation-and-entry-composition) and [P04 evidence](docs/plan/0.1.x/evidence/foundation-p04.md).
 
-For task-admitting or long-running operations, generic CLI `call` needs a persistent host (`--url` or a caller-supplied app); a self-owned local host rejects the call before creating work. Use the existing local CLI aliases to wait for task completion and receive its final exit code.
+For task-admitting or long-running operations, generic CLI `call` needs a resident owner selected by the same store, or a caller-supplied app. A self-owned temporary host rejects the call before creating work. Use the existing local CLI aliases to wait for task completion and receive its final exit code.
 
-`delete-owned` requires resource access and export services. If either is unavailable, it returns `COMPONENT_MISSING` before changing the artifact record or creating a cleanup marker; record-only deletion still works with Records alone. MCP lists registered tools while required services are absent, and invocation returns `COMPONENT_MISSING` until they become available. `events: false` disables state streams while retaining the legacy `/api/events` task stream and remote CLI `--json-events`. The `components`, `exportDir`, and `maxArtifactBytes` options require a store.
+`delete-owned` requires resource access and export services. If either is unavailable, it returns `COMPONENT_MISSING` before changing the artifact record or creating a cleanup marker; record-only deletion still works with Records alone. MCP lists registered tools while required services are absent, and invocation returns `COMPONENT_MISSING` until they become available. `events: false` disables state streams while retaining the authenticated `/api/events` task stream. Attached CLI task events are not yet streamed; use task polling. The `components`, `exportDir`, and `maxArtifactBytes` options require a store.
 
 ### Adapter availability and readable outputs
 
@@ -146,3 +150,5 @@ Operations may mount before Records and Tasks. After those services finish mount
 ### MCP request cancellation
 
 Disconnecting an MCP HTTP task poll releases its subscription and leaves the persistent task running. Concurrent polls remain independent; closing the endpoint stops its outstanding requests.
+
+If the desktop browser opener fails, the launcher reports a warning but keeps the local owner running for CLI/MCP. Re-run the launcher from a browser-enabled session to pair the workbench. Sandboxed Linux browsers may be unable to read the private pairing file; this desktop path remains unverified. See the [host control guide](docs/plan/0.1.x/host-control-guide.md#浏览器启动限制).

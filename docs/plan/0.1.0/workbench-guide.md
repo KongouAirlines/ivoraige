@@ -12,11 +12,11 @@
 
 模型完整回显内部请求 JSON 时，翻译任务报错并停止，当前单元不会创建修订。查看任务错误、检查模型后再重试；普通 JSON 原文仍可翻译。其他不完整回显或相邻段落混入需在接受译文前人工检查。
 
-按 Ctrl+C 停止服务后，用相同的 `--store` 路径再次启动，文档、修订、任务及模型设置会读回。服务运行时，其他 CLI 操作用 `--url` 指向它，例如：
+按 Ctrl+C 停止服务后，用相同的 `--store` 路径再次启动，文档、修订、任务及模型设置会读回。服务运行时，其他 CLI 操作用相同的 `--store` 附加到 owner；可选的 `--url` 只核对该 owner 的 HTTP origin，例如：
 
 ```powershell
-node src/cli.mjs --url http://127.0.0.1:8787 documents --json
-node src/cli.mjs --url http://127.0.0.1:8787 tasks --json
+node src/cli.mjs --store ./evaluation/runs/workbench-0.1.0/store.sqlite documents --json
+node src/cli.mjs --store ./evaluation/runs/workbench-0.1.0/store.sqlite tasks --json
 ```
 
-CLI 若不带 `--url` 会另起内核，不能与运行中的服务同时占用同一 SQLite 文件。当前 Markdown 只支持已明确绑定来源位置的语法子集；文件开头有效的 YAML 映射头部原样保留、不翻译，含头部的文件可正常导入，空头部也可保留。未闭合或无效头部会报导入错误。表格、HTML 等仍会被拒绝，详情见 [Markdown 阶段记录](markdown.md)。后续 QMD 的指定 YAML 字段翻译（如摘要、双语机构名称）见 [后续事项](../follow-ups/quarto-qmd-support.md)。PDF 已有独立的 [PDF 使用指南](pdf-guide.md)。包含 MCP 的源码构建可通过 `/mcp` 将 AI 客户端连接到同一工作台进程；目前不提供预构建下载包。EPUB、RAG、词库及非回环访问尚未接入这个工作台。设置窗口操作与退出保护见 [设置指南](settings-guide.md)。
+CLI 根据 `--store`（省略时为默认数据目录）自动附加同一个 owner；选错数据库不会通过 `--url` 远程连接。CLI 的相对 `--path`／`--out` 先按调用者工作目录转成绝对路径，再交给 owner。附加模式不能使用 `--json-events`，请轮询 `task`。当前 Markdown 只支持已明确绑定来源位置的语法子集；文件开头有效的 YAML 映射头部原样保留、不翻译，含头部的文件可正常导入，空头部也可保留。未闭合或无效头部会报导入错误。表格、HTML 等仍会被拒绝，详情见 [Markdown 阶段记录](markdown.md)。后续 QMD 的指定 YAML 字段翻译（如摘要、双语机构名称）见 [后续事项](../follow-ups/quarto-qmd-support.md)。PDF 已有独立的 [PDF 使用指南](pdf-guide.md)。包含 MCP 的源码构建只有显式启用 HTTP MCP 时才可通过 `/mcp` 将 AI 客户端连接到同一工作台进程；目前不提供预构建下载包。EPUB、RAG、词库及非回环访问尚未接入这个工作台。设置窗口操作与退出保护见 [设置指南](settings-guide.md)。

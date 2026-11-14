@@ -1,3 +1,4 @@
+import './fixtures/host-test-env.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { request } from 'node:http'
@@ -11,7 +12,7 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio'
 import { Service, z } from '../dist/dsh.mjs'
 import { createApp } from '../src/app.mjs'
-import { serve } from '../src/http.mjs'
+import { serve } from './fixtures/owner-http.mjs'
 import { runCli } from '../src/cli.mjs'
 import { KernelError } from '../src/errors.mjs'
 import packageInfo from '../package.json' with { type: 'json' }
@@ -135,7 +136,7 @@ test('settings errors map consistently through HTTP, CLI and installed MCP tools
     assert.equal((await http.json()).error.code, code)
     await failure(connection, 'settings_update', input, code)
     let out = ''
-    const exit = await runCli(['--url', f.server.url, '--json', 'settings', '--set', JSON.stringify(input)], {
+    const exit = await runCli(['--json', 'settings', '--set', JSON.stringify(input)], { app: f.app,
       stdout: { write(chunk) { out += chunk } }, stderr: { write() {} },
     })
     assert.equal(exit, cliExit)
@@ -153,7 +154,7 @@ test('settings errors map consistently through HTTP, CLI and installed MCP tools
   assert.equal((await http.json()).error.code, 'COMPONENT_MISSING')
   await failure(connection, 'settings_get', {}, 'COMPONENT_MISSING')
   let out = ''
-  const exit = await runCli(['--url', f.server.url, '--json', 'settings'], {
+  const exit = await runCli(['--json', 'settings'], { app: f.app,
     stdout: { write(chunk) { out += chunk } }, stderr: { write() {} },
   })
   assert.equal(exit, 3)
@@ -199,7 +200,7 @@ test('native DSH settings CAS races reach HTTP, remote CLI and MCP as conflicts'
       error = (await response.json()).error
     } else if (entry === 'cli') {
       let output = ''
-      const exit = await runCli(['--url', f.server.url, '--json', 'settings', '--set', JSON.stringify(input)], {
+      const exit = await runCli(['--json', 'settings', '--set', JSON.stringify(input)], { app: f.app,
         stdout: { write(chunk) { output += chunk } }, stderr: { write() {} },
       })
       assert.equal(exit, 3)
@@ -241,7 +242,7 @@ test('API-specific compat reaches HTTP, remote CLI and MCP as input validation',
     }
     if (entry === 'cli') {
       let output = ''
-      const exit = await runCli(['--url', f.server.url, '--json', 'settings', '--set', JSON.stringify(input)], {
+      const exit = await runCli(['--json', 'settings', '--set', JSON.stringify(input)], { app: f.app,
         stdout: { write(chunk) { output += chunk } }, stderr: { write() {} },
       })
       assert.equal(exit, expectedCode ? 2 : 0)
@@ -570,38 +571,18 @@ test('HTTP MCP obeys Host and Origin gates and can be disabled', async t => {
   } finally { await app.dispose(); await rm(directory, { recursive: true, force: true }) }
 })
 
-test('spawned CLI stdio speaks MCP and releases its SQLite store on EOF', async t => {
+test('CLI stdio requires a resident owner and leaves an absent store untouched', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-mcp-stdio-'))
   const store = join(directory, 'store.sqlite')
-  const script = resolve(fileURLToPath(new URL('../src/cli.mjs', import.meta.url)))
-  const connection = client()
-  const transport = new StdioClientTransport({ command: process.execPath,
-    args: [script, 'mcp', '--stdio', '--store', store], stderr: 'pipe' })
-  t.after(async () => { await connection.close(); await rm(directory, { recursive: true, force: true }) })
-  await connection.connect(transport)
-  assert.ok((await connection.listTools()).tools.some(tool => tool.name === 'ivoraige_import'))
-  const imported = await call(connection, 'import', upload('Stdio source.'))
-  const docId = imported.document.id
-  assert.equal((await call(connection, 'documents_list')).items[0].id, docId)
-  const [unit] = (await call(connection, 'units_list', { docId, targetLang })).items
-  const revision = await call(connection, 'unit_update', { unitId: unit.id, targetLang,
-    baseRevisionId: null, text: '标准输入译文。' })
-  await call(connection, 'revision_accept', { revisionId: revision.revision.id,
-    expectedAcceptedRevisionId: null })
-  const exported = await call(connection, 'export', { docId, targetLang, outputs: [{ format: 'json' }] })
-  assert.equal((await done(connection, exported.taskId)).state, 'succeeded')
-  await connection.close()
-  // The CLI closes the kernel when MCP stdin reaches EOF; a new owner must acquire the same store.
-  let reopened
-  for (let attempt = 0; attempt < 20; attempt++) {
-    try { reopened = await createApp({ store }); break }
-    catch (error) {
-      if (error.code !== 'CONFLICT' || attempt === 19) throw error
-      await new Promise(resolveWait => setTimeout(resolveWait, 100))
-    }
-  }
-  try { assert.equal(reopened.records.getDocument(docId).id, docId) }
-  finally { await reopened.dispose() }
+  t.after(() => rm(directory, { recursive: true, force: true }))
+  let out = '', err = ''
+  const code = await runCli(['mcp', '--stdio', '--store', store], {
+    stdout: { write: chunk => { out += chunk } }, stderr: { write: chunk => { err += chunk } },
+  })
+  assert.equal(code, 3)
+  assert.equal(out, '', 'stdio stdout must contain protocol messages only')
+  assert.match(err, /No host owner|owner/i)
+  await assert.rejects(stat(store), { code: 'ENOENT' })
 })
 
 

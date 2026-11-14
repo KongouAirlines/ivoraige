@@ -1,3 +1,4 @@
+import './fixtures/host-test-env.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'

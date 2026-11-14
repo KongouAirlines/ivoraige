@@ -27,7 +27,7 @@ npm start
 node src/cli.mjs serve --store ./evaluation/runs/workbench-0.1.0/store.sqlite
 ```
 
-打开打印的本机地址。一个数据库只运行一个内核；服务运行时其他 CLI 命令使用 `--url http://127.0.0.1:8787`。所有 CLI 参数以 `node src/cli.mjs help` 为准。源码启动需要环境代理时自行启用 `NODE_USE_ENV_PROXY=1`，本机服务应绕过代理。
+打开打印的本机地址。一个数据库只运行一个内核；服务运行时其他 CLI 命令使用相同的 `--store ./evaluation/runs/workbench-0.1.0/store.sqlite` 自动附加；`--url http://127.0.0.1:8787` 只可选地核对该 owner 的 HTTP origin，不能单独用于远程连接。相对 `--path`／`--out` 按 CLI 当前工作目录转成绝对路径再交给 owner。所有 CLI 参数以 `node src/cli.mjs help` 为准。源码启动需要环境代理时自行启用 `NODE_USE_ENV_PROXY=1`，本机服务应绕过代理。
 
 VS Code 首次完成依赖准备后，选择“ivoraige: 启动文本工作台”按 F5，构建任务会先执行。PDF 调试需要先按 [PDF 开发参考](pdf-development.md)准备组件；两个启动配置使用同一数据库和端口，不同时运行。
 
@@ -62,7 +62,7 @@ CI 使用锁文件中的依赖，仅在 Linux、macOS 和 Windows 上运行 Node
 
 `README.md` / `README.zh-CN.md` 同步更新；用户操作写到用户指南，历史验证写到实施记录，未完成事项进入 [follow-ups](../follow-ups/README.md)。新的文档路径按软件版本组织，保留既有历史链接。
 
-源码构建包含 MCP stdio／Streamable HTTP 入口，客户端配置与权限边界见 [MCP 指南](mcp-guide.md)。常驻工作台与 HTTP MCP 共用内核；stdio 仅用于独立数据库，避免两个进程同时占用同一存储。实际验证范围见 [MCP 实施记录](mcp.md)。
+源码构建包含 MCP stdio／Streamable HTTP 入口，客户端配置与权限边界见 [MCP 指南](mcp-guide.md)。HTTP MCP 默认关闭，显式 `serve --mcp-enabled` 才挂载 `/mcp`；stdio `mcp --stdio --store FILE` 仅附加已有常驻 owner，不单独占有数据库。实际验证范围见 [MCP 实施记录](mcp.md)。
 
 ### P03 适配器选择与内核边界
 
@@ -100,11 +100,11 @@ Public uploads pass FileRef data to the same Parse/Importer selection used by di
 
 `createApp()` now exposes the operation catalog and capability descriptions even without a store. `createApp({ settingsDir })` provides saved-model settings without document tasks. Optional entry switches are `entries: { cli: false, http: false, mcp: false }`; `events: false` disables state streams. Omitted entries do not listen or start transports. Existing CLI commands, REST aliases and MCP tool names keep their v2 envelopes.
 
-`delete-owned` additionally requires the resource-access and export services at invocation. If either is unavailable, it returns `COMPONENT_MISSING` before changing the artifact record or creating a cleanup marker; record-only deletion remains available with Records alone. MCP lists registered operations even while their required services are absent, and invocation reports `COMPONENT_MISSING` until those services are mounted. `events: false` leaves the legacy `/api/events` task stream available through Tasks, including remote CLI `--json-events`; `/api/events/state` and `/api/state` remain unavailable. `components`, `exportDir`, and `maxArtifactBytes` require `store`; settings-only configuration remains valid.
+`delete-owned` additionally requires the resource-access and export services at invocation. If either is unavailable, it returns `COMPONENT_MISSING` before changing the artifact record or creating a cleanup marker; record-only deletion remains available with Records alone. MCP lists registered operations even while their required services are absent, and invocation reports `COMPONENT_MISSING` until those services are mounted. `events: false` leaves the legacy `/api/events` task stream available through Tasks, but attached CLI `--json-events` is unavailable; poll tasks instead. `/api/events/state` and `/api/state` remain unavailable. `components`, `exportDir`, and `maxArtifactBytes` require `store`; settings-only configuration remains valid.
 
 A capability plugin registers its input schema, result schema and handler with `app.operationCatalog.register(...)` and owns the returned disposer. Internal generic projections are `ivoraige call OPERATION --set JSON`, `POST /api/operations/OPERATION` and MCP `ivoraige_op_OPERATION`. These reuse one validator; they are not the complete external API/authentication product. In-process CLI callers can use `runCli(args, { app })`; this does not dispose the caller's host.
 
-A self-owned local generic `call` rejects operations declared `longRunning` or `cancellable: 'task'` before admission, including with `--no-wait`. Use the existing waiting CLI alias, or invoke against `--url` / a caller-supplied persistent app. Generic calls on persistent hosts return their operation result; the caller owns task observation. Business result schemas validate the payload before the facade attaches the wire envelope: the top-level `apiVersion` field belongs to that envelope and is always `2.0`, even if a contributed payload names it. Import registration requires Records, Tasks, Parse and Importer, so unavailable parsing never blocks unrelated document reads. Malformed percent encoding in HTTP path identifiers maps to `400 INVALID_ARGUMENT`.
+A self-owned local generic `call` rejects operations declared `longRunning` or `cancellable: 'task'` before admission, including with `--no-wait`. Use the existing waiting CLI alias, or invoke against a resident owner selected by `--store` / a caller-supplied persistent app. Generic calls on persistent hosts return their operation result; the caller owns task observation. Business result schemas validate the payload before the facade attaches the wire envelope: the top-level `apiVersion` field belongs to that envelope and is always `2.0`, even if a contributed payload names it. Import registration requires Records, Tasks, Parse and Importer, so unavailable parsing never blocks unrelated document reads. Malformed percent encoding in HTTP path identifiers maps to `400 INVALID_ARGUMENT`.
 
 The event bridge supports mounting the operation catalog after the bridge: it subscribes through the existing service-change notification and releases the subscription on catalog withdrawal or bridge disposal. This preserves the same registration invalidations as the default mounting order.
 

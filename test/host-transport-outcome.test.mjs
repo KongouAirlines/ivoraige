@@ -126,3 +126,15 @@ test('random socket leaves are retired without deleting shared or unowned direct
       assert.ok((await lstat(unowned)).isDirectory())
     } finally { await rm(root, { recursive: true, force: true }) }
   })
+
+test('accepted exit retains its finalization channel after shared dispatch validation', async () => {
+  const socket = new Duplex({ read() {}, write(_chunk, _encoding, callback) { callback() } })
+  let accepted = 0
+  const result = { accepted: true, operationId: 'exit-op' }
+  const options = { ...context, handleControl: () => result,
+    onAcceptedExit(peer, value) { assert.equal(peer, socket); assert.equal(value, result); accepted++ } }
+  await dispatchHostAction(socket, { ...request, action: 'exit', params: { budgetMs: 100 } }, options)
+  assert.equal(accepted, 1)
+  assert.equal(socket.writableEnded, false)
+  socket.destroy()
+})

@@ -1,7 +1,7 @@
 import { cp, mkdir, mkdtemp, readdir, rm, writeFile, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { spawnSync } from 'node:child_process'
 import { startServer, stopLiveServers } from './smoke-package-process.mjs'
 import assert from 'node:assert/strict'
@@ -14,6 +14,8 @@ const tempRoot = resolve(tmpdir())
 const npmCli = process.env.npm_execpath
 if (!npmCli) throw new Error('Run this check with npm run smoke:package')
 const work = await mkdtemp(join(tempRoot, 'ivoraige-package-smoke-'))
+// Keep domain registration and owner discovery inside this isolated smoke.
+process.env.IVORAIGE_HOST_REGISTRY_ROOT = join(work, 'owner-registry')
 const HTTP_TIMEOUT_MS = 10_000
 const PROCESS_TIMEOUT_MS = 180_000
 
@@ -22,7 +24,7 @@ function request(url, options = {}) {
 }
 
 function run(command, args, cwd) {
-  const env = { ...process.env }
+  const env = { ...process.env, npm_config_cache: join(work, 'npm-cache') }
   // npm run forwards npm 12's allow-scripts flag; a nested project install
   // rejects that flag. This smoke explicitly disables all lifecycle scripts.
   for (const key of Object.keys(env)) if (key.toLowerCase() === 'npm_config_allow_scripts') delete env[key]
@@ -49,19 +51,56 @@ function run(command, args, cwd) {
   return result.stdout
 }
 
-async function api(base, method, path, body) {
-  const response = await request(new URL(path, base), { method,
-    headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+async function pairOwner(cli, store, settingsDir, origin) {
+  const bootstrapModule = pathToFileURL(join(dirname(cli), 'host-bootstrap.mjs')).href
+  const { attachHost, hostConfigBinding } = await import(bootstrapModule)
+  const binding = await hostConfigBinding({ store, settingsDir,
+    components: { directory: join(dirname(store), 'components') } })
+  const attached = await attachHost({ store, binding })
+  try {
+    assert.equal(attached.reused, true)
+    const bootstrap = await attached.client.request('ownerBootstrap')
+    assert.equal(bootstrap.origin, origin)
+    const response = await request(new URL('/api/host/session', origin), {
+      method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ credential: bootstrap.credential }), redirect: 'error',
+    })
+    if (!response.ok) throw new Error(`Packaged owner pairing failed (${response.status})`)
+    const cookie = response.headers.get('set-cookie')?.split(';')[0]
+    const { csrfToken } = await response.json()
+    assert.match(cookie, /^ivoraige_owner_[a-f0-9]{32}=[A-Za-z0-9_-]{43}$/)
+    assert.match(csrfToken, /^[A-Za-z0-9_-]{43}$/)
+    const refreshed = await request(new URL('/api/host/session/refresh', origin), {
+      method: 'POST', headers: { Origin: origin, Cookie: cookie }, redirect: 'error',
+    })
+    assert.equal(refreshed.status, 200)
+    const nextCsrfToken = (await refreshed.json()).csrfToken
+    assert.match(nextCsrfToken, /^[A-Za-z0-9_-]{43}$/)
+    assert.notEqual(nextCsrfToken, csrfToken)
+    return { origin, cookie, csrfToken: nextCsrfToken }
+  } finally { await attached.dispose() }
+}
+
+function ownerFetch(owner, method, path, body) {
+  const write = !['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())
+  return request(new URL(path, owner.origin), { method, redirect: 'error',
+    headers: { Cookie: owner.cookie, ...(write ? { Origin: owner.origin,
+      'X-Ivoraige-CSRF': owner.csrfToken } : {}),
+    ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },
     body: body === undefined ? undefined : JSON.stringify(body) })
+}
+
+async function api(owner, method, path, body) {
+  const response = await ownerFetch(owner, method, path, body)
   const result = await response.json()
   if (!response.ok) throw new Error(`${method} ${path} failed (${response.status}): ${JSON.stringify(result)}`)
   assert.equal(result.apiVersion, '2.0')
   return result
 }
 
-async function waitTask(base, taskId) {
+async function waitTask(owner, taskId) {
   for (let i = 0; i < 100; i++) {
-    const { task } = await api(base, 'GET', `/api/tasks/${taskId}`)
+    const { task } = await api(owner, 'GET', `/api/tasks/${taskId}`)
     if (task.state === 'succeeded') return task
     if (['failed', 'canceled', 'paused'].includes(task.state))
       throw new Error(`Packaged task ${taskId} ended ${task.state}: ${JSON.stringify(task.error)}`)
@@ -77,7 +116,8 @@ try {
   const packed = Array.isArray(packResult) ? packResult : Object.values(packResult)
   if (packed.length !== 1) throw new Error(`Expected one package tarball; got ${packed.length}`)
   const files = new Set(packed[0].files.map(file => file.path.replaceAll('\\', '/')))
-  const required = ['src/mcp.mjs', 'src/mcp-registry.mjs', 'docs/plan/0.1.0/mcp-guide.md', 'src/app.mjs', 'src/cli.mjs', 'src/http.mjs', 'dist/dsh.mjs',
+  const required = ['src/mcp.mjs', 'src/mcp-registry.mjs', 'docs/plan/0.1.0/mcp-guide.md',
+    'docs/plan/0.1.x/host-control-guide.md', 'src/host-bootstrap.mjs', 'src/app.mjs', 'src/cli.mjs', 'src/http.mjs', 'dist/dsh.mjs',
     'dist/web/index.html', 'dist/web/app.js', 'dist/web/app.css',
     'dist/web/pdf-guide.html', 'dist/web/release-info.json', 'README.md', 'README.zh-CN.md',
     'CONTRIBUTING.md', 'SECURITY.md', 'docs/plan/0.1.0/capabilities.md',
@@ -142,9 +182,14 @@ try {
   let server = await startServer(cli, work, store, settingsDir)
   let docId, snapshotId, originalArtifacts
   try {
+    const owner = await pairOwner(cli, store, settingsDir, server.url)
+    assert.equal((await request(new URL('/api/settings/modelconfig', server.url))).status, 401)
     const mcp = new Client({ name: 'package-smoke', version: '0.1.0' })
     try {
-      await mcp.connect(new StreamableHTTPClientTransport(new URL('/mcp', server.url)))
+      await mcp.connect(new StreamableHTTPClientTransport(new URL('/mcp', server.url), {
+        requestInit: { redirect: 'error', headers: { Cookie: owner.cookie, Origin: owner.origin,
+          'X-Ivoraige-CSRF': owner.csrfToken } },
+      }))
       assert.ok((await mcp.listTools()).tools.some(tool => tool.name === 'ivoraige_import'))
       const result = await mcp.callTool({ name: 'ivoraige_capabilities', arguments: {} })
       assert.equal(result.isError, undefined)
@@ -164,44 +209,44 @@ try {
     assert.match(guide, /安装指南/)
     assert.equal(release.version, packed[0].version)
     assert.match(release.sourceCommit, /^[a-f0-9]{40}$/)
-    const before = await api(server.url, 'GET', '/api/settings/modelconfig')
+    const before = await api(owner, 'GET', '/api/settings/modelconfig')
     assert.equal(before.settings.selected, null)
-    const configured = await api(server.url, 'PATCH', '/api/settings/modelconfig', {
+    const configured = await api(owner, 'PATCH', '/api/settings/modelconfig', {
       provider: 'smoke', model: 'scientific', api: 'openai-completions',
       baseURL: 'http://127.0.0.1:9999/v1', credentialRef: 'IVORAIGE_SMOKE_KEY',
       contextWindow: 8192, maxTokens: 512,
     })
     assert.equal(configured.settings.selected.provider, 'smoke')
-    const credential = await api(server.url, 'PUT', '/api/settings/credentials',
+    const credential = await api(owner, 'PUT', '/api/settings/credentials',
       { ref: 'IVORAIGE_SMOKE_KEY', value: 'smoke-fake-token' })
     assert.doesNotMatch(JSON.stringify(credential), /smoke-fake-token/)
-    assert.equal((await api(server.url, 'GET', '/api/settings/modelconfig')).settings.credentials.smoke.configured, true)
-    const imported = await api(server.url, 'POST', '/api/documents/import', {
+    assert.equal((await api(owner, 'GET', '/api/settings/modelconfig')).settings.credentials.smoke.configured, true)
+    const imported = await api(owner, 'POST', '/api/documents/import', {
       contentBase64: Buffer.from('# Findings\n\nThe sample is stable.').toString('base64'),
       format: 'md', language: 'en', sourceId: 'package:markdown', origin: 'cli',
     })
     docId = imported.document.id
-    await waitTask(server.url, imported.taskId)
-    const { items: units } = await api(server.url, 'GET',
+    await waitTask(owner, imported.taskId)
+    const { items: units } = await api(owner, 'GET',
       `/api/documents/${docId}/units?targetLang=zh-CN`)
     assert.ok(units.length >= 2)
     for (const unit of units.filter(item => item.translatable)) {
-      const { revision } = await api(server.url, 'PATCH', `/api/units/${unit.id}`, {
+      const { revision } = await api(owner, 'PATCH', `/api/units/${unit.id}`, {
         targetLang: 'zh-CN', baseRevisionId: null, text: `译文 ${unit.sourceText}`,
       })
-      await api(server.url, 'POST', `/api/revisions/${revision.id}/accept`,
+      await api(owner, 'POST', `/api/revisions/${revision.id}/accept`,
         { expectedAcceptedRevisionId: null })
     }
-    const exported = await api(server.url, 'POST', `/api/documents/${docId}/export`, {
+    const exported = await api(owner, 'POST', `/api/documents/${docId}/export`, {
       targetLang: 'zh-CN', outputs: [{ format: 'md' }, { format: 'json' }],
     })
-    const task = await waitTask(server.url, exported.taskId)
+    const task = await waitTask(owner, exported.taskId)
     assert.equal(task.artifacts.length, 2)
     assert.ok(task.artifacts.every(item => item.snapshotId === exported.snapshotId))
     snapshotId = exported.snapshotId
     originalArtifacts = new Map()
     for (const artifact of task.artifacts) {
-      const response = await request(new URL(`/api/artifacts/${artifact.id}/download`, server.url))
+      const response = await ownerFetch(owner, 'GET', `/api/artifacts/${artifact.id}/download`)
       assert.equal(response.status, 200)
       originalArtifacts.set(artifact.id, Buffer.from(await response.arrayBuffer()))
     }
@@ -227,18 +272,19 @@ try {
     packed[0].version)
   server = await startServer(replacementCli, replacement, store, settingsDir)
   try {
-    const settings = await api(server.url, 'GET', '/api/settings/modelconfig')
+    const owner = await pairOwner(replacementCli, store, settingsDir, server.url)
+    const settings = await api(owner, 'GET', '/api/settings/modelconfig')
     assert.equal(settings.settings.selected.provider, 'smoke')
     assert.equal(settings.settings.credentials.smoke.configured, true)
-    const { document } = await api(server.url, 'GET', `/api/documents/${docId}`)
+    const { document } = await api(owner, 'GET', `/api/documents/${docId}`)
     assert.equal(document.sourceId, 'package:markdown')
-    const { items: artifacts } = await api(server.url, 'GET', `/api/documents/${docId}/artifacts`)
+    const { items: artifacts } = await api(owner, 'GET', `/api/documents/${docId}/artifacts`)
     assert.equal(artifacts.length, 2)
     assert.ok(artifacts.every(item => item.snapshotId === snapshotId))
-    const { snapshot } = await api(server.url, 'GET', `/api/documents/${docId}/snapshots/${snapshotId}`)
+    const { snapshot } = await api(owner, 'GET', `/api/documents/${docId}/snapshots/${snapshotId}`)
     assert.equal(snapshot.id, snapshotId)
     for (const artifact of artifacts) {
-      const response = await request(new URL(`/api/artifacts/${artifact.id}/download`, server.url))
+      const response = await ownerFetch(owner, 'GET', `/api/artifacts/${artifact.id}/download`)
       assert.equal(response.status, 200)
       assert.deepEqual(Buffer.from(await response.arrayBuffer()), originalArtifacts.get(artifact.id))
     }

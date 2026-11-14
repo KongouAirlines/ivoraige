@@ -41,9 +41,13 @@ ivoraige 将分散的翻译和文档工具组合成可以按需选择的工作�
 
 默认使用 Node.js **26.13.0**（`.node-version`）和 npm。Node 24 仅保留兼容，支持范围仍为 `>=24.22.1 <25 || >=26.12.1 <27`。源码运行可使用这两个受支持主版本内更新的稳定补丁版；Node 25 和未来主版本暂不在支持范围内。CI 仅在 Linux、macOS 和 Windows 上验证 Node.js 26.13.0；Node 24 仍在支持范围内，但不再单独运行 CI。DSH bundle 的构建目标为 Node 26；Windows 便携包要求固定的官方 Node.js 26.13.0 可执行文件和对应许可。
 
+Windows owner IPC 还需要内置 Windows PowerShell 5.1 与 .NET Framework，并允许 FullLanguage 与 `Add-Type`。内置命令不改变执行策略，仍受组织应用控制约束。无法核验原生命名管道权限或连接方身份时拒绝连接；详见[owner 控制指南](docs/plan/0.1.x/host-control-guide.md)。
+
 1. 打开工作台，导入 TXT 或 Markdown 文件。
 2. 需要机器翻译时配置模型，也可以直接录入自己的译文。
 3. 审校并接受修订，导出结果。
+
+启动器通过仅使用一次的 URL fragment 为本机浏览器配对；复制普通服务地址不能读取文档或设置。CLI 按 `--store`（或默认数据目录）连接已有 owner；stdio MCP 必须附加到该 owner。`--url` 仅核对其 HTTP origin，不能单独远程连接。CLI 相对 `--path` 和 `--out` 按调用者工作目录转为绝对路径后交给 owner。附加模式不支持 `--json-events`，请轮询 `task`。HTTP MCP 默认关闭，须显式使用 `serve --mcp-enabled`。中断附加请求会停止等待，不会停止 owner，也不证明已提交的工作已回滚。启动、鉴权、取消、drain 与退出行为见[本机宿主指南](docs/plan/0.1.x/host-control-guide.md)。当前仍是浏览器工作台，不是原生桌面或托盘应用。
 
 处理 PDF 时，先按 [PDF 开发参考](docs/plan/0.1.0/pdf-development.md)准备 Windows 可选环境，再按 [PDF 指南](docs/plan/0.1.0/pdf-guide.md)操作。默认在线组件源目前没有可下载的 Release。
 
@@ -140,10 +144,10 @@ HTTP 和 MCP 有相同语义；参数、恢复步骤及备份边界见[开发指
 
 进程内宿主可注册一次操作，并通过可独立选择的 CLI、REST 和 MCP 入口提供。工作台随操作变化刷新状态；产物读取共用归属和大小限制。见[组合用法](docs/plan/0.1.0/development-guide.md#p04-operation-and-entry-composition)及 [P04 验证记录](docs/plan/0.1.x/evidence/foundation-p04.md)。
 
-提交任务或长时间执行的操作使用通用 CLI `call` 时，需要持续宿主（`--url` 或调用方提供的 app）；自建本地宿主会在创建工作前拒绝调用。本地可使用既有 CLI 别名等待任务完成并取得最终退出码。
+提交任务或长时间执行的操作使用通用 CLI `call` 时，需要由同一 store 选定的常驻宿主，或调用方提供的 app；自建临时宿主会在创建工作前拒绝调用。本地可使用既有 CLI 别名等待任务完成并取得最终退出码。
 **0.1.x 入口与资源可用性。**
 
-`delete-owned` 需要资源访问和导出服务。缺少任一服务时，调用会在修改制品记录或建立清理标记之前返回 `COMPONENT_MISSING`；仅删除记录仍可由 Records 服务执行。MCP 会列出已经注册的工具；所需服务尚未挂载时，调用返回 `COMPONENT_MISSING`，服务就绪后同一工具可调用。`events: false` 仅关闭新的状态流，旧版 `/api/events` 任务流和远程 CLI `--json-events` 仍可使用。`components`、`exportDir` 和 `maxArtifactBytes` 配置需要 `store`。
+`delete-owned` 需要资源访问和导出服务。缺少任一服务时，调用会在修改制品记录或建立清理标记之前返回 `COMPONENT_MISSING`；仅删除记录仍可由 Records 服务执行。MCP 会列出已经注册的工具；所需服务尚未挂载时，调用返回 `COMPONENT_MISSING`，服务就绪后同一工具可调用。`events: false` 仅关闭状态流；`/api/events` 任务流仍需 owner 鉴权。附加的 CLI 暂不提供任务事件流，请轮询任务。`components`、`exportDir` 和 `maxArtifactBytes` 配置需要 `store`。
 
 ### 共享产物文件身份
 
@@ -160,3 +164,5 @@ Operations 可以先于 Records/Tasks 挂载。所需服务完成挂载后，即
 ### MCP 请求取消
 
 MCP HTTP 任务轮询断连会释放该请求的订阅，不取消持久任务。并行轮询互相独立；关闭入口会中止该入口尚未完成的请求。
+
+桌面浏览器打开程序失败时，启动器会提示警告，但保留本地 owner 供 CLI/MCP 使用。请在有浏览器的会话中重新运行启动器进行配对。Linux 沙箱浏览器可能无法读取私有配对页，该桌面路径仍待实测，详见[主机控制指南](docs/plan/0.1.x/host-control-guide.md#浏览器启动限制)。

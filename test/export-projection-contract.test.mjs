@@ -1,10 +1,11 @@
+import './fixtures/host-test-env.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createApp } from '../src/app.mjs'
-import { serve } from '../src/http.mjs'
+import { serve } from './fixtures/owner-http.mjs'
 
 const source = (extra = {}) => ({
   id: 'projection-source', version: '1', bindingSchemaVersion: 1, formats: ['projection-source'],

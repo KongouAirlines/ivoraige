@@ -1,16 +1,33 @@
+import './fixtures/host-test-env.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { createServer, request } from 'node:http'
+import { request } from 'node:http'
 import { mkdtemp, readdir, rm, symlink, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { serve } from '../src/http.mjs'
-import { McpRegistry } from '../src/mcp-registry.mjs'
+import { serve } from './fixtures/owner-http.mjs'
+import { serve as serveOwned } from '../src/http.mjs'
 import { KernelError } from '../src/errors.mjs'
 import { runCli } from '../src/cli.mjs'
-import { createApp } from '../src/app.mjs'
+
+function asCliApp(app, { reused = false } = {}) {
+  return { ...app, reused, cli: { invoke: (name, params) => app.operations.invoke(name, params) } }
+}
+
+test('attached CLI preserves cancellation exit code without changing the owner error', async () => {
+  let out = ''
+  const app = asCliApp({ operations: { async invoke() {
+    throw new KernelError('CONFLICT', 'request-cancelled', { reason: 'request-cancelled' })
+  } } }, { reused: true })
+  const code = await runCli(['--json', 'documents'], { app,
+    stdout: { write: chunk => { out += chunk } }, stderr: { write() {} } })
+  assert.equal(code, 5)
+  assert.deepEqual(JSON.parse(out).error, { code: 'CONFLICT', message: 'request-cancelled',
+    details: { reason: 'request-cancelled' } })
+})
+import { createApp, startHost } from '../src/app.mjs'
 
 function fixture() {
   const calls = [], listeners = new Set()
@@ -147,8 +164,8 @@ test('CLI --json-events forwards actual SSE task events as NDJSON', async t => {
   const server = await serve(app, { port: 0 })
   t.after(() => server.close())
   let out = '', err = ''
-  const code = await runCli(['--url', server.url, '--json-events', 'translate', 'doc_1', '--target-lang', 'zh-CN'],
-    { stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
+  const code = await runCli(['--json-events', 'translate', 'doc_1', '--target-lang', 'zh-CN'],
+    { app: asCliApp(app), stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
   assert.equal(code, 0, err)
   const events = out.trim().split('\n').map(JSON.parse)
   assert.deepEqual(events.map(event => event.type), ['task.queued', 'unit.completed', 'task.succeeded'])
@@ -169,8 +186,8 @@ test('CLI returns exit code 5 when an observed task is canceled', async t => {
   const server = await serve(app, { port: 0 })
   t.after(() => server.close())
   let out = '', err = ''
-  const code = await runCli(['--url', server.url, '--json-events', 'translate', 'doc_1', '--target-lang', 'zh-CN'],
-    { stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
+  const code = await runCli(['--json-events', 'translate', 'doc_1', '--target-lang', 'zh-CN'],
+    { app: asCliApp(app), stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
   assert.equal(code, 5, err)
   assert.equal(JSON.parse(out.trim()).type, 'task.canceled')
 })
@@ -220,8 +237,8 @@ for (const [state, exitCode] of [['failed', 4], ['canceled', 5]]) {
     const server = await serve(app, { port: 0 })
     t.after(() => server.close())
     let out = '', err = ''
-    const code = await runCli(['--url', server.url, '--json', 'translate', 'doc_1', '--target-lang', 'zh-CN'],
-      { stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
+    const code = await runCli(['--json', 'translate', 'doc_1', '--target-lang', 'zh-CN'],
+      { app: asCliApp(app, { reused: true }), stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
     assert.equal(code, exitCode, err)
     assert.equal(polls, 2)
     assert.equal(JSON.parse(out).taskId, 'task_1')
@@ -241,8 +258,8 @@ test('CLI remote --no-wait returns the task handle without polling', async t => 
   const server = await serve(app, { port: 0 })
   t.after(() => server.close())
   let out = '', err = ''
-  const code = await runCli(['--url', server.url, '--no-wait', 'translate', 'doc_1', '--target-lang', 'zh-CN'],
-    { stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
+  const code = await runCli(['--no-wait', 'translate', 'doc_1', '--target-lang', 'zh-CN'],
+    { app: asCliApp(app, { reused: true }), stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
   assert.equal(code, 0, err)
   assert.equal(JSON.parse(out).taskId, 'task_1')
   assert.equal(polls, 0)
@@ -250,7 +267,7 @@ test('CLI remote --no-wait returns the task handle without polling', async t => 
 
 test('CLI rejects one output path for multiple formats before invocation', async () => {
   let out = '', err = ''
-  const code = await runCli(['--url', 'http://127.0.0.1:1', '--json', 'export', 'doc_1', '--target-lang', 'zh',
+  const code = await runCli(['--json', 'export', 'doc_1', '--target-lang', 'zh',
     '--format', 'md,json', '--out', 'result.md'],
   { stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
   assert.equal(code, 2)
@@ -258,30 +275,14 @@ test('CLI rejects one output path for multiple formats before invocation', async
   assert.match(err, /exactly one/)
 })
 
-test('CLI reports malformed SSE without printing its payload and still uses task status', async t => {
-  const secret = 'private-provider-token'
-  const server = createServer((req, res) => {
-    if (req.url === '/api/events') {
-      res.writeHead(200, { 'Content-Type': 'text/event-stream' })
-      res.end(`event: task.progress\ndata: {${secret}\n\n`)
-    } else if (req.url === '/api/documents/doc_1/translate') {
-      res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ apiVersion: '2.0', taskId: 'task_1' }))
-    } else if (req.url === '/api/tasks/task_1') {
-      res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ apiVersion: '2.0', task: { id: 'task_1', state: 'failed' } }))
-    } else { res.writeHead(404); res.end() }
-  })
-  await new Promise(resolveListen => server.listen(0, '127.0.0.1', resolveListen))
-  t.after(() => server.close())
+test('attached CLI refuses unavailable task event streaming without exposing owner data', async () => {
+  const app = asCliApp({ operations: { async invoke() { throw new Error('Should not invoke') } } }, { reused: true })
   let out = '', err = ''
-  const code = await runCli(['--url', `http://127.0.0.1:${server.address().port}`, '--json-events',
-    'translate', 'doc_1', '--target-lang', 'zh'],
-  { stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
-  assert.equal(code, 4)
+  const code = await runCli(['--json-events', 'translate', 'doc_1', '--target-lang', 'zh'],
+  { app, stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
+  assert.equal(code, 3)
   assert.equal(out, '')
-  assert.match(err, /Malformed task event/)
-  assert.doesNotMatch(err, new RegExp(secret))
+  assert.match(err, /Attached CLI task events are unavailable/)
 })
 
 test('HTTP and CLI share the real store-backed operations contract', async t => {
@@ -292,8 +293,8 @@ test('HTTP and CLI share the real store-backed operations contract', async t => 
   const server = await serve(app, { port: 0 })
   t.after(async () => { await server.close(); await app.dispose(); await rm(directory, { recursive: true, force: true }) })
   let out = '', err = ''
-  const code = await runCli(['--url', server.url, '--json', 'import', source, '--source-lang', 'en'],
-    { stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
+  const code = await runCli(['--json', 'import', source, '--source-lang', 'en'],
+    { app, stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
   assert.equal(code, 0, err)
   const imported = JSON.parse(out)
   assert.equal(imported.apiVersion, '2.0')
@@ -331,9 +332,9 @@ test('CLI revisions, snapshots and artifacts honor limit and continuation cursor
     let cursor
     do {
       let out = '', err = ''
-      const code = await runCli(['--url', server.url, '--json', command, id, '--target-lang', 'zh', '--limit', '1',
+      const code = await runCli(['--json', command, id, '--target-lang', 'zh', '--limit', '1',
         ...(cursor ? ['--cursor', cursor] : [])],
-      { stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
+      { app, stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
       assert.equal(code, 0, err)
       const page = JSON.parse(out)
       assert.equal(page.items.length, 1, command)
@@ -370,7 +371,7 @@ test('CLI rejects non-object settings JSON before local initialization or remote
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-settings-json-'))
   t.after(() => rm(directory, { recursive: true, force: true }))
   const fetch = t.mock.method(globalThis, 'fetch', () => { throw new Error('Unexpected request') })
-  for (const options of [['--store', join(directory, 'store.sqlite')], ['--url', 'http://127.0.0.1:1']]) {
+  for (const options of [['--store', join(directory, 'store.sqlite')], ['--store', join(directory, 'store.sqlite'), '--url', 'http://127.0.0.1:1']]) {
     for (const input of ['null', '[]', '[1]', '"text"', '42', 'true', 'false', '{broken']) {
       let out = '', err = ''
       const code = await runCli([...options, '--json', 'settings', '--set', input], {
@@ -398,10 +399,10 @@ test('CLI preserves valid settings object payloads locally and remotely', async 
   t.after(() => server.close())
   const input = { provider: 'local', model: 'science', api: 'openai-completions',
     baseURL: 'http://127.0.0.1:9999/v1', contextWindow: 8192, maxTokens: 512 }
-  for (const options of [['--store', join(directory, 'store.sqlite')], ['--url', server.url]]) {
+  for (const [options, injected] of [[['--store', join(directory, 'store.sqlite')], undefined], [[], asCliApp(f.app, { reused: true })]]) {
     let out = '', err = ''
     const code = await runCli([...options, '--json', 'settings', '--set', JSON.stringify(input)], {
-      stdout: { write: chunk => { out += chunk } }, stderr: { write: chunk => { err += chunk } },
+      app: injected, stdout: { write: chunk => { out += chunk } }, stderr: { write: chunk => { err += chunk } },
     })
     assert.equal(code, 0, err)
     assert.equal(JSON.parse(out).error, undefined)
@@ -409,41 +410,40 @@ test('CLI preserves valid settings object payloads locally and remotely', async 
   assert.deepEqual(f.calls, [{ name: 'updateSettings', params: input }])
 })
 
-test('CLI releases SSE, HTTP port and SQLite even when MCP endpoint close fails', async t => {
-  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-mcp-close-failure-'))
+test('resident HTTP keeps store ownership after a storage-stage fault and retries shutdown', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'ivoraige-http-close-failure-'))
   const store = join(directory, 'store.sqlite')
-  const subscribe = McpRegistry.prototype.subscribe
-  const failure = new Error('Injected MCP endpoint close failure')
-  t.mock.method(McpRegistry.prototype, 'subscribe', function (listener) {
-    const unsubscribe = subscribe.call(this, listener)
-    return () => { unsubscribe(); throw failure }
-  })
-  let started
-  const ready = new Promise(resolveReady => { started = resolveReady })
-  const previousTerm = new Set(process.listeners('SIGTERM'))
-  const running = runCli(['serve', '--store', store, '--port', '0'], {
-    stdout: { write: text => started(text.trim()) }, stderr: { write() {} },
-  })
-  const rejected = assert.rejects(running, error => error === failure)
-  let response
+  let app, server
   try {
-    const url = await ready
-    response = await fetch(`${url}/api/events`)
-    const body = response.text()
-    process.emit('SIGINT')
-    await rejected
-    await body
-    await assert.rejects(fetch(`${url}/api/documents`))
-    const probe = createServer()
-    await new Promise((resolveListen, rejectListen) => {
-      probe.once('error', rejectListen)
-      probe.listen(Number(new URL(url).port), '127.0.0.1', resolveListen)
-    })
-    await new Promise(resolveClose => probe.close(resolveClose))
-    const reopened = await createApp({ store })
-    await reopened.dispose()
+    try { app = await startHost({ store }) }
+    catch (error) {
+      if (!process.env.CI && ['EPERM', 'EACCES'].includes(error.code) && error.syscall === 'listen') {
+        t.skip('Local sandbox does not permit owner socket listening'); return
+      }
+      throw error
+    }
+    server = await serveOwned(app, { port: 0, mcp: true })
+    const control = app.host.control
+    const storage = control.stages.storage
+    let calls = 0
+    control.stages.storage = async () => {
+      if (++calls === 1) throw new Error('Injected storage fault')
+      return storage()
+    }
+    await assert.rejects(app.dispose(), { code: 'PRECONDITION_FAILED' })
+    assert.equal(control.state().storeOwnership, 'held')
+    assert.equal(control.operation(control.state().operationId, { expectedGeneration: app.generation }).phase, 'storage')
+    assert.equal((await fetch(`${server.url}/api/events`)).status, 401)
+    const attached = await startHost({ store })
+    assert.equal(attached.reused, true)
+    assert.equal(attached.generation, app.generation)
+    await attached.dispose()
+    await app.dispose()
+    assert.equal(control.state().storeOwnership, 'released')
+    await assert.rejects(fetch(`${server.url}/api/events`))
   } finally {
-    for (const listener of process.listeners('SIGTERM')) if (!previousTerm.has(listener)) process.off('SIGTERM', listener)
+    await server?.close().catch(() => {})
+    if (app && !app.host.closed) await app.dispose().catch(() => {})
     await rm(directory, { recursive: true, force: true })
   }
 })

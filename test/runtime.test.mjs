@@ -1,3 +1,4 @@
+import './fixtures/host-test-env.mjs'
 import test from 'node:test'
 import { parse } from 'yaml'
 import assert from 'node:assert/strict'

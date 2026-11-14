@@ -1,3 +1,4 @@
+import './fixtures/host-test-env.mjs'
 import test from 'node:test'
 import { createCleanup } from './fixtures/cleanup.mjs'
 import assert from 'node:assert/strict'
@@ -56,19 +57,25 @@ test('accepted export requires targetLang at the entry boundary', () => {
 test('CLI accepts source content mode without a target language', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'ivoraige-source-cli-'))
   const store = join(directory, 'records.sqlite')
-  const cleanup = createCleanup(t)
-  cleanup(() => rm(directory, { recursive: true, force: true }))
-  const app = await createApp({ store })
-  cleanup(() => app.dispose())
+  let app
+  t.after(async () => {
+    try { await app?.dispose() }
+    finally { await rm(directory, { recursive: true, force: true }) }
+  })
+  app = await createApp({ store })
   const { document } = await app.records.importDocument({ format: 'txt', content: 'Original source.' },
     { sourceId: 'cli:source', language: 'en' })
-  await app.dispose()
   let out = '', err = ''
-  const code = await runCli(['--store', store, 'export', document.id, '--format', 'json',
+  const code = await runCli(['export', document.id, '--format', 'json',
     '--content-mode', 'source'],
-  { stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
+  { app, stdout: { write(chunk) { out += chunk } }, stderr: { write(chunk) { err += chunk } } })
   assert.equal(code, 0, err)
   assert.ok(JSON.parse(out).snapshotId)
+  await assert.rejects(createApp({ store }), { code: 'CONFLICT' },
+    'runCli must leave a supplied host owned by its caller')
+  await app.dispose()
+  app = await createApp({ store })
+  assert.equal(app.records.record(document.id).document.id, document.id)
 })
 
 test('version-one record remains readable and restores from a consistent backup', async t => {

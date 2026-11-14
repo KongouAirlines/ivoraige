@@ -185,6 +185,12 @@ function sendFrame(socket, frame) {
   try { socket.end(bytes) } catch { socket.destroy() }
 }
 
+function writeFrame(socket, frame) {
+  const bytes = Buffer.from(`${JSON.stringify(frame)}\n`)
+  if (bytes.length > MAX_FRAME) throw fail('INVALID_ARGUMENT', 'invalid-request')
+  socket.write(bytes)
+}
+
 export function validateHostRequest(value) {
   const base = requestShape.safeParse(value)
   if (!base.success || !Object.hasOwn(actions, base.data.action)) throw fail('INVALID_ARGUMENT', 'invalid-request')
@@ -211,7 +217,7 @@ export function validateHostAttach(value) {
 // Ephemeral owners publish only a protected marker, never a connectable IPC.
 export function createHostTransport({ directory, dataDomainRef, registrationId, generation, lifetime,
   getState, handleControl, handleBusiness, session, getSession = () => session,
-  getInfo = () => ({}) } = {}) {
+  getInfo = () => ({}), waitForAttempt } = {}) {
   if (!id.safeParse(dataDomainRef).success || (registrationId !== undefined && !id.safeParse(registrationId).success) || !id.safeParse(generation).success ||
     !['resident', 'ephemeral'].includes(lifetime) || typeof getState !== 'function' ||
     (lifetime === 'resident' && typeof handleControl !== 'function'))
@@ -220,6 +226,14 @@ export function createHostTransport({ directory, dataDomainRef, registrationId, 
   let server, record, capability, closing, socketDirectory, closed = false
   const ownerProcess = { pid: process.pid, runtimeStartTimeMs: Math.floor(performance.timeOrigin), nonce: randomUUID() }
   const sockets = new Set()
+  const exitWaiters = new Map()
+  const finalizedSockets = new Set()
+  const removeExitWaiter = socket => {
+    for (const [operationId, peers] of exitWaiters) {
+      peers.delete(socket)
+      if (!peers.size) exitWaiters.delete(operationId)
+    }
+  }
   let activeBusiness = 0
   const acquireBusiness = () => {
     if (activeBusiness >= MAX_BUSINESS_CONNECTIONS) throw fail('PRECONDITION_FAILED', 'host-busy')
@@ -232,7 +246,7 @@ export function createHostTransport({ directory, dataDomainRef, registrationId, 
     try {
       const hello = await frameSocket(socket, undefined, { timeoutMs: 5000 })
       if (hello?.action !== 'attach') { await dispatchHostAction(socket, hello, { dataDomainRef, generation, capability,
-        getState, handleControl, handleBusiness, getSession, getInfo, acquireBusiness }); return }
+        getState, handleControl, handleBusiness, getSession, getInfo, onAcceptedExit, acquireBusiness }); return }
       const parsed = validateHostAttach(hello)
       if (parsed.params.dataDomainRef !== dataDomainRef) throw fail('CONFLICT', 'stale-generation')
       if (parsed.params.requiredLifetime !== 'resident') throw fail('CONFLICT', 'temporary-owner')
@@ -247,6 +261,18 @@ export function createHostTransport({ directory, dataDomainRef, registrationId, 
     } catch (error) {
       try { sendFrame(socket, formatHostFailure(error)) } catch { socket.destroy() }
     }
+  }
+
+  function onAcceptedExit(socket, result) {
+    let peers = exitWaiters.get(result.operationId)
+    if (!peers) exitWaiters.set(result.operationId, peers = new Set())
+    peers.add(socket)
+    writeFrame(socket, { ok: true, result })
+    // Preserve the finalization channel until this attempt settles; a blocked
+    // attempt closes without a receipt instead of waiting for a later retry.
+    if (typeof waitForAttempt === 'function') Promise.resolve().then(() => waitForAttempt()).finally(() => {
+      if (peers.has(socket) && !finalizedSockets.has(socket)) socket.end()
+    }).catch(() => { socket.destroy() })
   }
 
   async function start() {
@@ -276,7 +302,7 @@ export function createHostTransport({ directory, dataDomainRef, registrationId, 
       guardSocket(socket)
       if (sockets.size >= MAX_CONNECTIONS) { socket.destroy(); return }
       sockets.add(socket)
-      socket.once('close', () => sockets.delete(socket))
+      socket.once('close', () => { sockets.delete(socket); finalizedSockets.delete(socket); removeExitWaiter(socket) })
       void handle(socket)
     })
     try {
@@ -300,10 +326,31 @@ export function createHostTransport({ directory, dataDomainRef, registrationId, 
     }
   }
 
+  async function finalize(receipt) {
+    if (!receipt || receipt.type !== 'host.finalized' || receipt.dataDomainRef !== dataDomainRef ||
+        receipt.generation !== generation || receipt.storeOwnership !== 'released' ||
+        !id.safeParse(receipt.operationId).success || (await getState()).storeOwnership !== 'released')
+      throw fail('PRECONDITION_FAILED', 'finalization-unavailable')
+    const peers = exitWaiters.get(receipt.operationId)
+    if (!peers) return
+    for (const socket of peers) {
+      if (socket.destroyed) continue
+      finalizedSockets.add(socket)
+      try { sendFrame(socket, receipt) } catch { socket.destroy() }
+    }
+  }
+
   async function close() {
     if (closed) return
     if (closing) return closing
     closing = (async () => {
+      // Permit a queued finalization frame to leave the host before tearing
+      // down its authenticated channel. A client that never reads is bounded.
+      if (finalizedSockets.size) await Promise.race([
+        Promise.all([...finalizedSockets].map(socket => socket.destroyed ? undefined :
+          new Promise(resolveClose => socket.once('close', resolveClose)))),
+        new Promise(resolveTimeout => setTimeout(resolveTimeout, 500)),
+      ])
       for (const socket of sockets) socket.destroy()
       if (server) await new Promise((resolveClose, reject) => server.close(error => {
         // Failed POSIX listen never owned a socket. Do not mask its original
@@ -322,11 +369,11 @@ export function createHostTransport({ directory, dataDomainRef, registrationId, 
     try { await closing } finally { closing = undefined }
   }
 
-  return { start, cleanupDiscovery, close, get record() { return record } }
+  return { start, cleanupDiscovery, finalize, close, get record() { return record } }
 }
 
 export async function dispatchHostAction(socket, frame, { dataDomainRef, generation, capability,
-  getState, handleControl, handleBusiness, getSession, getInfo, acquireBusiness } = {}) {
+  getState, handleControl, handleBusiness, getSession, getInfo, onAcceptedExit, acquireBusiness } = {}) {
   let businessController, cancelBusiness, releaseBusiness
   guardSocket(socket)
   try {
@@ -365,7 +412,12 @@ export async function dispatchHostAction(socket, frame, { dataDomainRef, generat
         ? await handleBusiness(parsed.params.method, parsed.params.input, { signal: businessController.signal })
         : await handleBusiness(parsed.action, parsed.params, { signal: businessController.signal })
     } else result = await handleControl(parsed.action, parsed.params, parsed)
-    if (!socket.destroyed) sendFrame(socket, { ok: true, result })
+    if (!socket.destroyed) {
+      if (parsed.action === 'exit' && result?.accepted === true &&
+          id.safeParse(result.operationId).success && typeof onAcceptedExit === 'function')
+        onAcceptedExit(socket, result)
+      else sendFrame(socket, { ok: true, result })
+    }
   } catch (error) {
     if (!socket.destroyed) try { sendFrame(socket, formatHostFailure(error)) } catch { socket.destroy() }
   } finally {

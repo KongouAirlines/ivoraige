@@ -1,3 +1,4 @@
+import './fixtures/host-test-env.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
@@ -5,7 +6,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import * as tar from 'tar'
 import { createApp } from '../src/app.mjs'
-import { serve } from '../src/http.mjs'
+import { serve } from './fixtures/owner-http.mjs'
 import { runCli } from '../src/cli.mjs'
 
 async function directory(label) {

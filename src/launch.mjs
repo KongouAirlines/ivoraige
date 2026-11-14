@@ -1,77 +1,111 @@
-import { randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
-import { mkdir, readFile, writeFile, rm, realpath } from 'node:fs/promises'
+import { mkdir, realpath, unlink, rmdir, readdir } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { defaultDataDirectory } from './data-directory.mjs'
 import { KernelError } from './errors.mjs'
 import { isSea } from 'node:sea'
-import { createApp } from './app.mjs'
+import { startHost } from './app.mjs'
 import { serve } from './http.mjs'
 import { runCli } from './cli.mjs'
+import { assertPrivateDirectory, createPrivateFile, ensurePrivateDirectory } from './host-permissions.mjs'
+
+const pairingLifetimeMs = 30_000
+
+async function removePairingDirectory(directory) {
+  try { await assertPrivateDirectory(directory) }
+  catch (error) { if (error.code === 'ENOENT') return; throw error }
+  try { await unlink(join(directory, 'open.html')) }
+  catch (error) { if (error.code !== 'ENOENT') throw error }
+  try { await rmdir(directory) }
+  catch (error) { if (error.code !== 'ENOENT') throw error }
+}
+
+export async function createBrowserPairingPage(dataDir, url, credential) {
+  const root = join(dataDir, '.browser-pairing')
+  await ensurePrivateDirectory(root)
+  // Reap only our expired, uniquely named pages. A crash cannot run a timer.
+  for (const name of await readdir(root)) {
+    const match = /^(\d{13})-([0-9a-f-]{36})$/.exec(name)
+    if (!match || Date.now() - Number(match[1]) < pairingLifetimeMs) continue
+    await removePairingDirectory(join(root, name)).catch(() => {})
+  }
+  const directory = join(root, `${Date.now()}-${randomUUID()}`)
+  await ensurePrivateDirectory(directory)
+  const path = join(directory, 'open.html')
+  const target = `${url}/#owner=${encodeURIComponent(credential)}`
+  // The opener sees only a file URL. The credential stays in a private file
+  // until the browser loads it and moves to the loopback page.
+  const html = `<!doctype html><html><head><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'"></head><body><script>location.replace(${JSON.stringify(target)})</script></body></html>`
+  let timer
+  let cleaned = false
+  const cleanup = async () => {
+    if (cleaned) return
+    clearTimeout(timer)
+    await removePairingDirectory(directory)
+    cleaned = true
+  }
+  try {
+    await createPrivateFile(path, html)
+    timer = setTimeout(() => { void cleanup().catch(() => {}) }, pairingLifetimeMs)
+    timer.unref()
+    return { url: pathToFileURL(path).href, cleanup }
+  } catch (error) {
+    await cleanup().catch(() => {})
+    throw error
+  }
+}
 
 export function openBrowser(url) {
-  // Only a locally generated loopback URL reaches the platform opener.
+  // Only a private local file URL reaches the platform opener.
   const [command, args] = process.platform === 'win32'
     ? ['rundll32.exe', ['url.dll,FileProtocolHandler', url]]
     : process.platform === 'darwin' ? ['open', [url]] : ['xdg-open', [url]]
-  const child = spawn(command, args, { detached: true, stdio: 'ignore', windowsHide: true })
-  child.on('error', () => process.stderr.write(`Open the workbench in your browser: ${url}\n`))
-  child.unref()
-}
-
-async function existingInstance(path, timeout = 1500) {
-  try {
-    const saved = JSON.parse(await readFile(path, 'utf8'))
-    const url = new URL(saved.url)
-    if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1') return
-    const response = await fetch(new URL('/api/instance', url), { signal: AbortSignal.timeout(timeout) })
-    if (response.ok && (await response.json()).id === saved.id) return saved.url
-  } catch { /* A stale instance record is replaced after acquiring the store lock. */ }
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { detached: true, stdio: 'ignore', windowsHide: true })
+    child.once('error', () => reject(new Error('Could not open the browser. Run ivoraige again to open a newly paired workbench.')))
+    child.once('spawn', () => { child.unref(); resolve() })
+  })
 }
 
 export async function launch({ dataDir = defaultDataDirectory(), open = true, port = 0,
   appRoot = process.env.IVORAIGE_APP_ROOT ?? (isSea() ? dirname(process.execPath) : resolve(import.meta.dirname, '..')),
-  components = {}, opener = openBrowser } = {}) {
+  components = {}, opener = openBrowser, stderr = process.stderr, registryRoot } = {}) {
   await mkdir(dataDir, { recursive: true })
   dataDir = await realpath(dataDir)
-  const instancePath = join(dataDir, 'instance.json')
-  const reused = await existingInstance(instancePath)
-  if (reused) {
-    if (open) opener(reused)
-    return { url: reused, reused: true, close: async () => {} }
-  }
-  let app, server
-  const id = randomUUID()
+  const app = await startHost({ store: join(dataDir, 'store.sqlite'), settingsDir: join(dataDir, 'settings'),
+    components: { directory: join(dataDir, 'components'), ...components }, registryRoot })
+  let pairing
   try {
-    app = await createApp({ store: join(dataDir, 'store.sqlite'), settingsDir: join(dataDir, 'settings'),
-      components: { directory: join(dataDir, 'components'), ...components } })
-    server = await serve(app, { port, staticDir: join(appRoot, 'dist', 'web'), instance: { id } })
-    await writeFile(instancePath, JSON.stringify({ id, url: server.url }) + '\n')
-    if (open) opener(server.url)
-    let closing
-    return { app, url: server.url, reused: false, dataDir, close() {
-      return closing ??= (async () => {
-        try { await server.close() } finally {
-          try { await rm(instancePath, { force: true }) } finally { await app.dispose() }
-        }
-      })()
-    } }
-  } catch (error) {
-    try { await server?.close() } catch (cleanupError) { console.error('HTTP cleanup failed:', cleanupError) }
-    try { await app?.dispose() } catch (cleanupError) { console.error('Kernel cleanup failed:', cleanupError) }
-    if (error.code === 'CONFLICT') {
-      // A second launch may race the first between store lock and HTTP startup.
-      const deadline = performance.now() + 10_000
-      while (performance.now() < deadline) {
-        await new Promise(done => setTimeout(done, Math.min(200, deadline - performance.now())))
-        const remaining = Math.ceil(deadline - performance.now())
-        if (remaining <= 0) break
-        const url = await existingInstance(instancePath, Math.min(1500, remaining))
-        if (url) { if (open) opener(url); return { url, reused: true, close: async () => {} } }
-      }
-      throw new KernelError('CONFLICT', '已有实例正在启动或占用数据目录，请稍后重试。', {}, { cause: error })
+    let url
+    if (app.reused) {
+      const info = await app.client.request('transportInfo')
+      if (!info.url) throw new KernelError('CONFLICT', 'The owner has no browser entry', { reason: 'owner-http-unavailable' })
+      url = info.url
+    } else {
+      const server = await serve(app, { port, staticDir: join(appRoot, 'dist', 'web'), mcp: false })
+      url = server.url
     }
+    if (open) {
+      const bootstrap = app.reused ? await app.client.request('ownerBootstrap') : app.host.browserBootstrap()
+      pairing = await createBrowserPairingPage(dataDir, url, bootstrap.credential)
+      try { await opener(pairing.url) }
+      catch {
+        await pairing.cleanup()
+        pairing = undefined
+        stderr.write('Could not open the browser; the owner remains available to CLI and MCP. Run the launcher again from a browser-enabled environment to pair the workbench.\n')
+      }
+    }
+    return { app: app.reused ? undefined : app, url, reused: app.reused, dataDir,
+      generation: app.generation, dataDomainRef: app.dataDomainRef,
+      whenClosed: app.host?.whenClosed, close: async () => {
+        await pairing?.cleanup()
+        await app.dispose()
+      } }
+  } catch (error) {
+    await pairing?.cleanup().catch(() => {})
+    try { await app.dispose() } catch { /* Incomplete disposal retains ownership. */ }
     throw error
   }
 }
@@ -89,8 +123,14 @@ export async function runLauncher(argv = process.argv.slice(2)) {
   const running = await launch(options)
   process.stdout.write(`${running.url}\n`)
   if (running.reused) return 0
-  try { await new Promise(done => { process.once('SIGINT', done); process.once('SIGTERM', done) }) }
-  finally { await running.close() }
+  let onSignal
+  try { await Promise.race([running.whenClosed, new Promise(done => {
+    onSignal = done; process.once('SIGINT', done); process.once('SIGTERM', done)
+  })]) }
+  finally {
+    if (onSignal) { process.off('SIGINT', onSignal); process.off('SIGTERM', onSignal) }
+    await running.close()
+  }
   return 0
 }
 

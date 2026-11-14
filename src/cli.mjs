@@ -4,31 +4,37 @@ import { dirname, join, resolve } from 'node:path'
 import { defaultDataDirectory } from './data-directory.mjs'
 import { mkdir, readFile, stat } from 'node:fs/promises'
 import { realpathSync } from 'node:fs'
-import { createApp } from './app.mjs'
+import { createApp, startHost } from './app.mjs'
+import { attachHost, hostConfigBinding, persistentHostBinding } from './host-bootstrap.mjs'
+import { inspectHostDomain, recoverHostDomain } from './host-domain.mjs'
 import { serve } from './http.mjs'
 import { serialize, errorEnvelope } from './protocol.mjs'
 import { KernelError } from './errors.mjs'
 
-const usage = `ivoraige [--url URL | --store FILE] [--pdf-config FILE] [--json] COMMAND [arguments] [options]
+const usage = `ivoraige [--store FILE] [--url URL] [--pdf-config FILE] [--json] COMMAND [arguments] [options]
 Commands: import, documents, units, unit, revisions, edit, accept, unaccept,
   translate, export, snapshots, artifacts, tasks, task, pause, resume, cancel, abandon,
-  settings, prompts, capabilities, components, call, serve, mcp, help
+  settings, prompts, capabilities, components, call, serve, mcp, host, help
 Internal operations: call OPERATION --set JSON
-MCP: mcp --stdio [--store FILE]; serve exposes /mcp unless --no-mcp
+MCP: mcp --stdio [--store FILE] attaches an existing resident owner; HTTP MCP is off by default
+Host: host state|drain|exit|operation ID; host domain inspect|recover --mode copy --expected-diagnostic HASH --confirm
 Components: status, catalog, credential --token-env NAME, install, local --path MANIFEST, task ID, cancel ID
 Common options: --target-lang LANG, --json, --json-events, --no-wait, --url URL, --store FILE, --pdf-config FILE
 Export: --format md,json --content-mode source|accepted-translation [--target-lang LANG]
 Import/export: --adapter ID selects a registered source/output adapter
+--url verifies the HTTP origin of the resident owner selected by --store; it is not a standalone remote connection.
+CLI file paths (--path, --out) are resolved against this process's working directory before owner invocation.
+--json-events works only with a self-owned local kernel; attached tasks require polling.
 `
 
 function parse(argv) {
   const positional = [], options = {}
-  const boolean = new Set(['json', 'json-events', 'help', 'no-wait', 'stdio', 'no-mcp'])
+  const boolean = new Set(['json', 'json-events', 'help', 'no-wait', 'stdio', 'no-mcp', 'confirm', 'mcp-enabled'])
   const known = new Set([...boolean, 'url', 'store', 'export-dir', 'settings-dir', 'pdf-config', 'host', 'port', 'static-dir',
     'path', 'format', 'adapter', 'source-id', 'external-ref', 'source-lang', 'title', 'target-lang', 'cursor',
     'limit', 'origin', 'filter', 'text', 'base-revision', 'expected-accepted', 'mode',
     'units', 'out', 'snapshot', 'on-missing-accepted', 'state', 'kind', 'set', 'ref', 'value', 'token-env',
-    'file-action', 'content-mode', 'prompt'])
+    'prompt', 'file-action', 'content-mode', 'registry-root', 'budget-ms', 'expected-generation', 'expected-diagnostic'])
   for (let i = 0; i < argv.length; i++) {
     const token = argv[i]
     if (!token.startsWith('--')) { positional.push(token); continue }
@@ -67,7 +73,7 @@ function route(command, args, o) {
           'POST', '/api/components/credential']
         case 'credential-clear': return ['componentCredentialClear', {}, 'DELETE', '/api/components/credential']
         case 'install': return ['componentInstall', { id: 'babeldoc' }, 'POST', '/api/components/install']
-        case 'local': return ['componentLocal', { path: required(o.path, '--path manifest') }, 'POST', '/api/components/local']
+        case 'local': return ['componentLocal', { path: resolve(required(o.path, '--path manifest')) }, 'POST', '/api/components/local']
         case 'task': return ['componentTask', { taskId: required(args[1], 'component task ID') }, 'GET', `/api/components/tasks/${segment(args[1])}`]
         case 'cancel': return ['componentCancel', { taskId: required(args[1], 'component task ID') }, 'POST', `/api/components/tasks/${segment(args[1])}/cancel`]
         default: throw new KernelError('INVALID_ARGUMENT', 'Unknown components command')
@@ -81,8 +87,8 @@ function route(command, args, o) {
       if (!names[action]) throw new KernelError('INVALID_ARGUMENT', 'Unknown prompts command')
       return [names[action], input, 'POST', `/api/operations/${names[action]}`]
     }
-    case 'import': return ['importDocument', { path: o.path ?? required(args[0], 'file path'),
-      format: o.format, adapterId: o.adapter, sourceId: o['source-id'], externalRef: o['external-ref'],
+    case 'import': return ['importDocument', { path: resolve(o.path ?? required(args[0], 'file path')),
+      format: o.format, adapterId: o.adapter, sourceId: o['source-id'] ?? `path:${o.path ?? args[0]}`, externalRef: o['external-ref'],
       language: required(o['source-lang'], '--source-lang'), title: o.title, origin: 'cli' }, 'POST', '/api/documents/import']
     case 'documents': return args[0] ? ['getDocument', { docId }, 'GET', `/api/documents/${segment(docId)}`] :
       ['listDocuments', { ...paging, origin: o.origin, format: o.format }, 'GET', '/api/documents']
@@ -108,7 +114,7 @@ function route(command, args, o) {
       contentMode: o['content-mode'],
       targetLang: o['content-mode'] === 'source' ? targetLang : required(targetLang, '--target-lang'),
       outputs: formats.map(format => ({ format, ...(o.adapter ? { adapterId: o.adapter } : {}),
-        ...(o.out ? { out: o.out } : {}) })),
+        ...(o.out ? { out: resolve(o.out) } : {}) })),
       snapshotId: o.snapshot, onMissingAccepted: o['on-missing-accepted'] }, 'POST', `/api/documents/${segment(docId)}/export`]
     }
     case 'snapshots': return args[1] === 'delete' ? ['deleteSnapshot',
@@ -176,22 +182,6 @@ async function webDirectory() {
   const path = resolve(import.meta.dirname, '../dist/web')
   try { return (await stat(join(path, 'index.html'))).isFile() ? path : undefined } catch { return undefined }
 }
-async function invokeRemote(base, method, path, params, signal) {
-  const url = new URL(path, base)
-  const queryMethod = method === 'GET' || method === 'DELETE'
-  const keys = queryMethod ? Object.keys(params).filter(key => params[key] !== undefined &&
-    !['docId', 'unitId', 'taskId', 'snapshotId', 'artifactId'].includes(key)) : []
-  for (const key of keys) url.searchParams.set(key, String(params[key]))
-  const response = await fetch(url, { method, signal, headers: queryMethod ? {} : { 'Content-Type': 'application/json' },
-    body: queryMethod ? undefined : JSON.stringify(clean(params)) })
-  const body = await response.json()
-  if (!response.ok) {
-    const error = new KernelError(body.error?.code ?? 'INTERNAL', body.error?.message ?? response.statusText,
-      body.error?.details)
-    throw error
-  }
-  return body
-}
 async function waitForTask(invoke, taskId) {
   while (true) {
     const body = await invoke('getTask', { taskId }, 'GET', `/api/tasks/${segment(taskId)}`)
@@ -202,12 +192,10 @@ async function waitForTask(invoke, taskId) {
   }
 }
 
-async function observeEvents(app, base, stdout, stderr) {
+async function observeEvents(app, stdout) {
   let taskId
   let terminal = false
   let wakeTerminal
-  let streamError = false
-  const diagnostic = message => { if (!streamError) stderr.write(`${message}\n`); streamError = true; wakeTerminal?.() }
   const buffer = []
   const handle = event => {
     if (!taskId) { buffer.push(event); return }
@@ -218,46 +206,12 @@ async function observeEvents(app, base, stdout, stderr) {
       }
     }
   }
-  const waitForTerminal = () => terminal || streamError ? Promise.resolve() : new Promise(resolveWait => {
+  const waitForTerminal = () => terminal ? Promise.resolve() : new Promise(resolveWait => {
     const timer = setTimeout(resolveWait, 1000)
     wakeTerminal = () => { clearTimeout(timer); resolveWait() }
   })
-  if (app) {
-    const unsubscribe = app.operations.subscribe(handle)
-    return { setTaskId(id) { taskId = id; buffer.splice(0).forEach(handle) }, waitForTerminal, close: unsubscribe }
-  }
-  const controller = new AbortController()
-  const response = await fetch(new URL('/api/events', base), { signal: controller.signal })
-  if (!response.ok) throw new KernelError('UPSTREAM_FAILURE', 'Could not subscribe to task events')
-  if (!response.body) throw new KernelError('UPSTREAM_FAILURE', 'Task event stream has no body')
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  const consume = (async () => {
-    let pending = ''
-    let eventType
-    try {
-      while (true) {
-        const { value, done } = await reader.read()
-        if (done) break
-        pending += decoder.decode(value, { stream: true })
-        let split
-        while ((split = pending.indexOf('\n')) !== -1) {
-          const line = pending.slice(0, split).replace(/\r$/, '')
-          pending = pending.slice(split + 1)
-          if (line.startsWith('event: ')) eventType = line.slice(7)
-          else if (line.startsWith('data: ') && eventType) {
-            try { handle({ type: eventType, data: JSON.parse(line.slice(6)) }) }
-            catch { diagnostic('Malformed task event received; task status will be checked directly') }
-            eventType = undefined
-          }
-        }
-      }
-      if (!controller.signal.aborted && !terminal)
-        diagnostic('Task event stream ended; task status will be checked directly')
-    } catch { if (!controller.signal.aborted) diagnostic('Task event stream failed; task status will be checked directly') }
-  })()
-  return { setTaskId(id) { taskId = id; buffer.splice(0).forEach(handle) },
-    waitForTerminal, close() { controller.abort(); reader.cancel().catch(() => {}) } }
+  const unsubscribe = app.operations.subscribe(handle)
+  return { setTaskId(id) { taskId = id; buffer.splice(0).forEach(handle) }, waitForTerminal, close: unsubscribe }
 }
 
 export async function runCli(argv = process.argv.slice(2), { stdout = process.stdout, stderr = process.stderr,
@@ -272,6 +226,8 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
     mcpStdio = command === 'mcp' && !!o.stdio
     if (o.stdio && command !== 'mcp') throw new KernelError('INVALID_ARGUMENT', '--stdio is only supported by mcp')
     if (command === 'help' || o.help) { stdout.write(usage); return 0 }
+    if (o.url && !o.store)
+      throw new KernelError('INVALID_ARGUMENT', '--url requires an explicit --store to select the resident owner')
     if (suppliedApp && (['serve', 'mcp'].includes(command) ||
         ['url', 'store', 'settings-dir', 'export-dir', 'pdf-config'].some(key => o[key] !== undefined)))
       throw new KernelError('INVALID_ARGUMENT', 'A supplied host owns its configuration; use business commands without host options')
@@ -279,57 +235,112 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
       process.once('SIGINT', onSignal); process.once('SIGTERM', onSignal)
     }
     if (command === 'mcp' && (!o.stdio || o.url))
-      throw new KernelError('INVALID_ARGUMENT', 'Use mcp --stdio for a local kernel, or connect an HTTP MCP client to the running /mcp endpoint')
-    if (command === 'serve' || command === 'mcp') {
-      if (o.url) throw new KernelError('INVALID_ARGUMENT', 'serve requires a local store')
+      throw new KernelError('INVALID_ARGUMENT', 'Use mcp --stdio to attach a resident local owner; run launch or serve first')
+    const localOptions = async () => {
       const store = storePath(o)
       await mkdir(dirname(store), { recursive: true })
-      app = await createApp({ store, exportDir: o['export-dir'],
+      return { store, exportDir: o['export-dir'], registryRoot: o['registry-root'],
         components: { directory: join(dirname(resolve(store)), 'components') },
-        settingsDir: o['settings-dir'] ?? join(dirname(store), 'settings'), pdf: await readPdfConfig(o['pdf-config']) })
+        settingsDir: o['settings-dir'] ?? join(dirname(store), 'settings'), pdf: await readPdfConfig(o['pdf-config']) }
+    }
+    if (command === 'host') {
+      if (o.url || suppliedApp) throw new KernelError('INVALID_ARGUMENT', 'Host control requires a local store selection')
+      const store = storePath(o), registryRoot = o['registry-root']
+      if (positional[0] === 'domain') {
+        let result
+        if (positional[1] === 'inspect') result = await inspectHostDomain({ store, registryRoot })
+        else if (positional[1] === 'recover') {
+          const ownerConfigBinding = persistentHostBinding(await hostConfigBinding(await localOptions()))
+          result = await recoverHostDomain({ store, registryRoot,
+            mode: o.mode, expectedDiagnostic: o['expected-diagnostic'], confirm: o.confirm === true,
+            ownerConfigBinding })
+        }
+        else throw new KernelError('INVALID_ARGUMENT', 'Use host domain inspect or recover')
+        stdout.write(`${serialize(result)}\n`)
+        return 0
+      }
+      app = await attachHost({ store, registryRoot })
+      if (o['expected-generation'] && o['expected-generation'] !== app.generation)
+        throw new KernelError('CONFLICT', 'Host generation changed', { reason: 'stale-generation' })
+      const action = positional[0] ?? 'state'
+      if (!['state', 'drain', 'exit', 'operation'].includes(action))
+        throw new KernelError('INVALID_ARGUMENT', 'Unknown host action')
+      const input = action === 'operation' ? { operationId: required(positional[1], 'operation ID') } :
+        ['drain', 'exit'].includes(action) ? { budgetMs: o['budget-ms'] === undefined ? 15000 : Number(o['budget-ms']) } : {}
+      const result = await app.client.request(action, input)
+      stdout.write(`${serialize({ apiVersion: '2.0', interfaceVersion: 'HostControl@1', minor: 0,
+        ...(action === 'state' ? { state: result } : action === 'operation' ? { operation: result } : result) })}\n`)
+      return 0 // Accepted is not a process-exit observation.
+    }
+    if (command === 'serve' || command === 'mcp') {
+      if (o.url) throw new KernelError('INVALID_ARGUMENT', 'serve requires a local store')
       if (command === 'mcp') {
-        const { runMcpStdio } = await import('./mcp.mjs')
-        await runMcpStdio(app, { stdout })
+        app = await attachHost({ store: storePath(o), registryRoot: o['registry-root'] })
+        const { runMcpOwnerStdio } = await import('./mcp.mjs')
+        await runMcpOwnerStdio(app.client, { stdout })
+        return 0
+      }
+      app = await startHost(await localOptions())
+      if (app.reused) {
+        const info = await app.client.request('transportInfo')
+        if (!info.url) throw new KernelError('CONFLICT', 'Resident owner has no HTTP view', { reason: 'owner-http-unavailable' })
+        stdout.write(`${info.url}\n`)
         return 0
       }
       server = await serve(app, { host: o.host ?? '127.0.0.1', port: o.port ? Number(o.port) : 8787,
-        mcp: !o['no-mcp'], staticDir: o['static-dir'] ?? await webDirectory() })
+        mcp: !!o['mcp-enabled'] && !o['no-mcp'], staticDir: o['static-dir'] ?? await webDirectory() })
       stdout.write(`${server.url}\n`)
-      await new Promise(resolveStop => {
+      stderr.write('Owner access is required. Run ivoraige with the same data directory to open a paired workbench.\n')
+      await Promise.race([app.host.whenClosed, new Promise(resolveStop => {
         stop = resolveStop
         requestSignal.addEventListener('abort', stop, { once: true })
         if (requestSignal.aborted) stop()
-      })
+      })])
       return 0
     }
     const [name, params, method, path] = route(command, positional, o)
-    const remote = !!o.url
-    if (remote && o['pdf-config']) throw new KernelError('INVALID_ARGUMENT', '--pdf-config only applies to a local kernel')
+    let remote = app?.reused === true
+    if (o.url && o['pdf-config']) throw new KernelError('INVALID_ARGUMENT', '--pdf-config only applies to a local kernel')
     const startsComponent = command === 'components' && ['install', 'local'].includes(positional[0])
     const startsTask = ['translate', 'export', 'import'].includes(command) || startsComponent
     if (startsComponent && o['json-events']) throw new KernelError('INVALID_ARGUMENT', 'Component installation uses task polling; use components task ID')
-    if (!remote && o['no-wait'] && startsTask)
-      throw new KernelError('INVALID_ARGUMENT', '--no-wait requires --url so the live server owns the task')
     if (o['json-events'] && o['no-wait'] && startsTask)
       throw new KernelError('INVALID_ARGUMENT', '--json-events cannot be combined with --no-wait')
-    if (!remote && !suppliedApp) {
-      const store = storePath(o)
-      await mkdir(dirname(store), { recursive: true })
-      app = await createApp({ store, exportDir: o['export-dir'],
-        components: { directory: join(dirname(resolve(store)), 'components') },
-        settingsDir: o['settings-dir'] ?? join(dirname(store), 'settings'), pdf: await readPdfConfig(o['pdf-config']) })
+    if (!suppliedApp) {
+      const options = await localOptions()
+      try { app = await attachHost({ store: options.store, registryRoot: options.registryRoot,
+        binding: await hostConfigBinding(options) }) }
+      catch (error) {
+        if (o.url && (['owner-absent', 'owner-unreachable'].includes(error.details?.reason) ||
+            ['ENOENT', 'ECONNREFUSED'].includes(error.code)))
+          throw new KernelError('PRECONDITION_FAILED',
+            '--url requires a resident owner for the selected --store; run launch or serve first',
+            { reason: 'owner-required' })
+        if (o.url || !['owner-absent', 'owner-unreachable'].includes(error.details?.reason) &&
+            !['ENOENT', 'ECONNREFUSED'].includes(error.code)) throw error
+        app = await createApp(options)
+      }
+      remote = app.reused === true
+      if (o.url) {
+        const info = await app.client.request('transportInfo')
+        if (new URL(o.url).origin !== new URL(info.url).origin)
+          throw new KernelError('UNAUTHORIZED', 'URL does not match the selected local owner')
+      }
     }
-    if (!remote && !app.cli) throw new KernelError('COMPONENT_MISSING', 'CLI entry is not enabled')
+    if (!remote && o['no-wait'] && startsTask)
+      throw new KernelError('INVALID_ARGUMENT', '--no-wait requires a resident host; run launch or serve first')
+    if (!app.cli) throw new KernelError('COMPONENT_MISSING', 'CLI entry is not enabled')
     if (command === 'call' && !remote && !suppliedApp) {
       const operation = app.operationCatalog.get(name)
       if (operation.longRunning || operation.cancellable === 'task')
         throw new KernelError('INVALID_ARGUMENT',
-          'Local call cannot own a background task; use its waiting CLI alias or --url with a persistent host')
+          'Local call cannot own a background task; use its waiting CLI alias or a resident owner selected by --store')
     }
-    const invoke = remote ? (_name, p, m, url) => invokeRemote(o.url, m, url, p, requestSignal) :
-      (operation, p) => app.cli.invoke(operation, clean(p), { signal: requestSignal })
-    if (o['json-events'] && startsTask)
-      observer = await observeEvents(app, o.url, stdout, stderr)
+    const invoke = (operation, p) => app.cli.invoke(operation, clean(p), { signal: requestSignal })
+    if (o['json-events'] && startsTask) {
+      if (remote) throw new KernelError('PRECONDITION_FAILED', 'Attached CLI task events are unavailable; use task polling')
+      observer = await observeEvents(app, stdout)
+    }
     const result = await invoke(name, params, method, path)
     if (command === 'call') { stdout.write(`${serialize(result)}\n`); return 0 }
     if (startsComponent) {
@@ -371,13 +382,12 @@ export async function runCli(argv = process.argv.slice(2), { stdout = process.st
     const mapped = errorEnvelope(error)
     if (argv.includes('--json') && !mcpStdio) stdout.write(`${serialize(mapped.body)}\n`)
     stderr.write(`${mapped.body.error.message}\n`)
-    return mapped.exitCode
+    return error.details?.reason === 'request-cancelled' ? 5 : mapped.exitCode
   } finally {
     process.off('SIGINT', onSignal); process.off('SIGTERM', onSignal)
     if (stop) requestSignal.removeEventListener('abort', stop)
     let failure
     try { observer?.close() } catch (error) { failure = error }
-    try { await server?.close() } catch (error) { failure ??= error }
     try { if (!suppliedApp) await app?.dispose() } catch (error) { failure ??= error }
     if (failure) throw failure
   }
