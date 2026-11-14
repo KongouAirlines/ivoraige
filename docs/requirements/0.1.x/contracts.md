@@ -208,6 +208,8 @@ P03 将 `format` 与 `adapterId` 分开。来源描述符声明 `formats[]`、`i
 
 输出描述符以 `formats[]` 声明所支持格式，可按 binding 和 contentMode 判定兼容，并以 `requiredViews[]` 按需索取来源插件的 `readable-text` 或 `native-markdown` 投影。`requiredViews: []` 的二进制输出只读取冻结快照，无须来源插件继续安装或保持原版本；需要来源投影的文本输出仍校验来源版本。受理时选中的输出 adapter id/version 冻结在任务中，执行和恢复必须再次匹配，产物记录实际 id/version；导入任务同样固定来源实现版本。旧记录无来源版本元数据时保留旧读取兼容路径；带版本元数据的记录在人工写入、模型 checkpoint、接受旧修订和需要来源投影的导出时，若插件缺席或同 id 不兼容替换则拒绝写入/导出，旧记录读取保持可用。直接 Exporter 调用的受理或执行失败会清除本调用新建且无引用的快照，已有快照不受影响。导入的同格式候选不让 `unavailable` 来源或不适合当前输入种类的来源改变文本/字节路线；同步或排队响应由实际选中的来源描述符决定，低分的排队候选不得改变高分同步来源的受理。来源处于 `unavailable`、`disabled` 或 `failed` 时，发现、自动／显式选择及排队执行复核均拒绝该来源；显式指定时返回缺件错误。
 
+P05 的现行 host API 1 独立适配器错误约定：source/output 回调可抛出自身 `KernelError` 类的 `Error`，携带公开错误码、非空消息和可选对象 details。宿主只在适配器回调边界把此类已知公开错误转为宿主 `KernelError`；普通 `Error` 即使带同名 code、未知 code 及未预期异常仍作为 `INTERNAL` 处理。HTTP 状态、CLI 退出码、任务失败消息遵循既有 API 2.0 错误信封，不改变 wire 版本。适配器执行不构成安全沙箱；插件的包版本、适配器版本、来源 binding schema、外部引擎版本独立，已固定的旧记录/任务不因插件升级被改写。
+
 #### P03 输入准备与统一选择补充
 
 公共 Base64 上传不在入口筛选来源或优先转成文本。Parse 准备自有 bytes 副本及严格 UTF-8 视图；路径仅作为 managed-resource，原始 string 输入仍仅为 text。每个来源的每个兼容视图只匹配一次，同一来源保留最高分视图；同一来源视图同分时优先原 bytes，不造成自身歧义。不同来源最高分并列返回 CONFLICT 且不写入任务或文档。未声明 inputKinds 的旧来源保留有效 UTF-8 文本优先的兼容行为。

@@ -4,18 +4,37 @@ import { Settings } from './model-settings.jsx'
 import { PdfSettings } from './pdf-settings.jsx'
 import { SettingsWindow } from './settings-window.jsx'
 import { createSettingsRuntime } from './settings-runtime.mjs'
-import { isSettingsPath, initialSettingsLocation, settingsLocation, readSettingsHistory, settingsHistoryState, nextSettingsHistory, reverseSettingsTraversal, hashRoute } from './settings-navigation.mjs'
+import {
+  isSettingsPath,
+  initialSettingsLocation,
+  settingsLocation,
+  readSettingsHistory,
+  settingsHistoryState,
+  nextSettingsHistory,
+  reverseSettingsTraversal,
+  hashRoute,
+} from './settings-navigation.mjs'
 import { createStateSync } from '../src/state-sync.mjs'
 import { resourcePolicy } from '../src/resource-policy.mjs'
 import { refreshDisposition, savedEditIsCurrent } from './editor-state.mjs'
+import {
+  computeWordDiff,
+  filterWorkbenchUnits,
+  insertAtSelection,
+  validatePdfPlaceholders,
+} from './workbench-helpers.mjs'
 
-const h = React.createElement
 const api = async (path, { method = 'GET', body, timeout = 20000 } = {}) => {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeout)
   try {
-    const response = await fetch(`/api${path}`, { method, headers: body ? { 'Content-Type': 'application/json' } : {},
-      body: body ? JSON.stringify(body) : undefined, signal: controller.signal, cache: 'no-store' })
+    const response = await fetch(`/api${path}`, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+      cache: 'no-store',
+    })
     const data = await response.json()
     if (!response.ok) {
       const error = new Error(data.error?.message || `请求失败 (${response.status})`)
@@ -27,242 +46,1866 @@ const api = async (path, { method = 'GET', body, timeout = 20000 } = {}) => {
   } catch (error) {
     if (error.name === 'AbortError') throw new Error('请求超时，请检查内核连接后重试。')
     throw error
-  } finally { clearTimeout(timer) }
+  } finally {
+    clearTimeout(timer)
+  }
 }
-const query = values => { const q = new URLSearchParams(); Object.entries(values).forEach(([k,v]) => { if (v !== undefined && v !== null && v !== '') q.set(k,String(v)) }); return `?${q}` }
+
+const query = values => {
+  const q = new URLSearchParams()
+  Object.entries(values).forEach(([k, v]) => {
+    if (v !== undefined && v !== null && v !== '') q.set(k, String(v))
+  })
+  return `?${q}`
+}
+
 async function allPages(path, params = {}) {
-  const items = []; let cursor
-  do { const page = await api(path + query({ ...params, limit: 500, cursor })); items.push(...page.items); cursor = page.nextCursor } while (cursor)
+  const items = []
+  let cursor
+  do {
+    const page = await api(path + query({ ...params, limit: 500, cursor }))
+    items.push(...page.items)
+    cursor = page.nextCursor
+  } while (cursor)
   return items
 }
-const fmt = date => date ? new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(date)) : '—'
-const stateNames = { queued:'排队中',running:'进行中',paused:'已暂停',succeeded:'已完成',failed:'失败',canceled:'已取消',abandoned:'已放弃' }
-const kindNames = { import:'导入',translate:'翻译',export:'导出' }
+
+const fmt = date =>
+  date
+    ? new Intl.DateTimeFormat('zh-CN', { dateStyle: 'medium', timeStyle: 'short' }).format(
+        new Date(date)
+      )
+    : '—'
+
+const stateNames = {
+  queued: '排队中',
+  running: '进行中',
+  paused: '已暂停',
+  succeeded: '已完成',
+  failed: '失败',
+  canceled: '已取消',
+  abandoned: '已放弃',
+}
+
+const kindNames = {
+  import: '导入',
+  translate: '翻译',
+  export: '导出',
+}
+
 const status = s => <span className={`status status-${s}`}>{stateNames[s] || s || '—'}</span>
-const revisionStatus = s => <span className={`status revision-${s}`}>{({ accepted:'已接受', draft:'草稿', superseded:'历史版本' })[s] || s || '—'}</span>
-const usage = n => n == null ? '未知' : n.toLocaleString()
-const navigate = path => { window.dispatchEvent(new CustomEvent('ivoraige:navigate', { detail: path })) }
+
+const revisionStatus = s => (
+  <span className={`status revision-${s}`}>
+    {{ accepted: '已接受', draft: '草稿', superseded: '历史版本' }[s] || s || '—'}
+  </span>
+)
+
+const usage = n => (n == null ? '未知' : n.toLocaleString())
+
+const navigate = path => {
+  window.dispatchEvent(new CustomEvent('ivoraige:navigate', { detail: path }))
+}
+
 const route = () => hashRoute(location.hash)
-const targetFor = language => language?.toLowerCase().startsWith('zh') ? 'en' : 'zh'
-const openImported = result => navigate(result.document?.id ? `/workbench/${result.document.id}` : '/tasks')
+
+const targetFor = language => (language?.toLowerCase().startsWith('zh') ? 'en' : 'zh')
+
+const openImported = result =>
+  navigate(result.document?.id ? `/workbench/${result.document.id}` : '/tasks')
+
 function PdfCoverage({ coverage, warnings = [] }) {
   if (!coverage && !warnings.length) return null
   const summary = coverage?.summary
   const callbackCount = summary?.callbackCount ?? coverage?.called ?? '—'
   const uncalledCount = summary?.uncalledCount ?? coverage?.uncalled?.length ?? '—'
   const auditOnlyLineCount = summary?.auditOnlyLineCount
-  return <div className="notice pdf-coverage"><strong>PDF 来源覆盖</strong>{coverage&&<>
-    <p>捕获单位 {summary?.unitCount ?? '—'} · 翻译回调 {callbackCount} · 未进入回调但保留 {uncalledCount} · 其中行审计补录 {auditOnlyLineCount ?? '—'} · 空文本单位 {summary?.emptyUnitCount ?? '—'}</p>
-    <p>行审计补录与空文本单位可能属于未进入回调的单位，不应相加。任务成功不等于全文已译；仍须核对来源与输出。</p>
-    <details><summary>查看完整覆盖信息</summary><pre>{JSON.stringify(coverage,null,2)}</pre></details>
-  </>}{warnings.map((warning,i)=><p key={i}>{typeof warning==='string'?warning:JSON.stringify(warning)}</p>)}</div>
+  return (
+    <div className="notice pdf-coverage">
+      <strong>PDF 来源覆盖</strong>
+      {coverage && (
+        <>
+          <p>
+            捕获单位 {summary?.unitCount ?? '—'} · 翻译回调 {callbackCount} · 未进入回调但保留{' '}
+            {uncalledCount} · 其中行审计补录 {auditOnlyLineCount ?? '—'} · 空文本单位{' '}
+            {summary?.emptyUnitCount ?? '—'}
+          </p>
+          <p>
+            行审计补录与空文本单位可能属于未进入回调的单位，不应相加。任务成功不等于全文已译；仍须核对来源与输出。
+          </p>
+          <details>
+            <summary>查看完整覆盖信息</summary>
+            <pre>{JSON.stringify(coverage, null, 2)}</pre>
+          </details>
+        </>
+      )}
+      {warnings.map((warning, i) => (
+        <p key={i}>{typeof warning === 'string' ? warning : JSON.stringify(warning)}</p>
+      ))}
+    </div>
+  )
 }
 
 function useRemote(loader, deps) {
-  const [value, setValue] = useState(null), [error, setError] = useState(''), [loading, setLoading] = useState(true)
-  useEffect(() => { let alive = true; setLoading(true); loader().then(v => { if(alive) { setValue(v);setError('') } },e => { if(alive) setError(e.message) }).finally(() => { if(alive) setLoading(false) }); return () => { alive=false } }, deps)
+  const [value, setValue] = useState(null)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    let alive = true
+    setLoading(true)
+    loader()
+      .then(
+        v => {
+          if (alive) {
+            setValue(v)
+            setError('')
+          }
+        },
+        e => {
+          if (alive) setError(e.message)
+        }
+      )
+      .finally(() => {
+        if (alive) setLoading(false)
+      })
+    return () => {
+      alive = false
+    }
+  }, deps)
   return { value, error, loading, setValue }
 }
-function ErrorBox({ message, onRetry }) { return message ? <div className="notice error" role="alert"><span>{message}</span>{onRetry && <button className="link" onClick={onRetry}>重试</button>}</div> : null }
-function Empty({ title, detail, action }) { return <div className="empty"><div className="empty-glyph">◇</div><h3>{title}</h3><p>{detail}</p>{action}</div> }
-function Button({ children, busy, ...props }) { return <button {...props} disabled={busy || props.disabled}>{busy ? '处理中…' : children}</button> }
 
-function Upload({ onDone, compact = false, inputFormats = [], pdfStatus }) {
-  const input = useRef(), [drag, setDrag] = useState(false), [busy,setBusy]=useState(false), [uploadingFormat,setUploadingFormat]=useState(null), [error,setError]=useState(''), [language,setLanguage]=useState('en')
+function ErrorBox({ message, onRetry }) {
+  return message ? (
+    <div className="notice error" role="alert">
+      <span>{message}</span>
+      {onRetry && (
+        <button className="link" onClick={onRetry}>
+          重试
+        </button>
+      )}
+    </div>
+  ) : null
+}
+
+function Empty({ title, detail, action }) {
+  return (
+    <div className="empty">
+      <div className="empty-glyph">◇</div>
+      <h3>{title}</h3>
+      <p>{detail}</p>
+      {action}
+    </div>
+  )
+}
+
+function Button({ children, busy, ...props }) {
+  return (
+    <button {...props} disabled={busy || props.disabled}>
+      {busy ? '处理中…' : children}
+    </button>
+  )
+}
+
+function Upload({ onDone, compact = false, inputFormats = [], pdfStatus, mineruStatus }) {
+  const input = useRef()
+  const [drag, setDrag] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [uploadingFormat, setUploadingFormat] = useState(null)
+  const [error, setError] = useState('')
+  const [language, setLanguage] = useState('en')
+
   const pdfEnabled = inputFormats.includes('pdf')
   const supported = pdfEnabled ? 'TXT、Markdown 或 PDF' : 'TXT 或 Markdown'
+
   async function upload(file) {
     // Release the native picker even when validation returns before network work.
     if (input.current) input.current.value = ''
     if (!file || busy) return
-    const format = file.name.toLowerCase().endsWith('.md') ? 'md' : file.name.toLowerCase().endsWith('.txt') ? 'txt' :
-      pdfEnabled && file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : null
-    if (!format) { setError(`目前支持 ${supported} 文件。`); return }
-    if (format === 'pdf' && !['en', 'zh', 'zh-CN', 'zh-Hans'].includes(language)) { setError('PDF 来源仅支持英文或简体中文。'); return }
-    if (file.size > resourcePolicy.uploadFileBytes) { setError('文件超过当前接口的 7 MB 上传限额。'); return }
-    setBusy(true); setUploadingFormat(format); setError('')
+    const format = file.name.toLowerCase().endsWith('.md')
+      ? 'md'
+      : file.name.toLowerCase().endsWith('.txt')
+        ? 'txt'
+        : pdfEnabled && file.name.toLowerCase().endsWith('.pdf')
+          ? 'pdf'
+          : null
+    if (!format) {
+      setError(`目前支持 ${supported} 文件。`)
+      return
+    }
+    if (format === 'pdf' && !['en', 'zh', 'zh-CN', 'zh-Hans'].includes(language)) {
+      setError('PDF 来源仅支持英文或简体中文。')
+      return
+    }
+    if (file.size > resourcePolicy.uploadFileBytes) {
+      setError('文件超过当前接口的 7 MB 上传限额。')
+      return
+    }
+    setBusy(true)
+    setUploadingFormat(format)
+    setError('')
     try {
-      const contentBase64 = await new Promise((resolve,reject) => { const reader = new FileReader(); reader.onload=()=>resolve(String(reader.result).split(',')[1]); reader.onerror=()=>reject(new Error('文件读取失败')); reader.readAsDataURL(file) })
-      const result = await api('/documents/import', { method:'POST', body:{ contentBase64,format,language,title:file.name,sourceId:`upload:${file.name}` }, timeout:300000 })
+      const contentBase64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result).split(',')[1])
+        reader.onerror = () => reject(new Error('文件读取失败'))
+        reader.readAsDataURL(file)
+      })
+      const result = await api('/documents/import', {
+        method: 'POST',
+        body: {
+          contentBase64,
+          format,
+          language,
+          title: file.name,
+          sourceId: `upload:${file.name}`,
+        },
+        timeout: 300000,
+      })
       onDone?.(result)
-    } catch(e) { setError(e.message) } finally { setBusy(false); setUploadingFormat(null); if(input.current) input.current.value='' }
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setBusy(false)
+      setUploadingFormat(null)
+      if (input.current) input.current.value = ''
+    }
   }
-  return <><div className={`upload ${drag?'drag':''} ${compact?'upload-compact':''}`} onDragEnter={e=>{e.preventDefault();setDrag(true)}} onDragOver={e=>e.preventDefault()} onDragLeave={e=>{e.preventDefault();setDrag(false)}} onDrop={e=>{e.preventDefault();setDrag(false);upload(e.dataTransfer.files[0])}}>
-    <div className="upload-icon">↥</div><div><strong>将文档拖到这里</strong><p>{busy?(uploadingFormat==='pdf'?'正在导入并解析 PDF…':'正在导入文档…'):`${supported} · 最大 7 MB${pdfEnabled ? '' : ' · 文本须为 UTF-8'}`}</p>{pdfEnabled&&<p className="hint">PDF 提供英文→中文、简体中文→英文路由（中文→英文版面待实机核验）；请选择实际原文语言。</p>}</div><label className="upload-language">原文 <select value={language} onChange={e=>setLanguage(e.target.value)}><option value="en">English</option><option value="zh">中文</option></select></label><Button className="secondary" busy={busy} onClick={()=>input.current?.click()}>选择文件</Button><input ref={input} type="file" accept={pdfEnabled?'.txt,.md,.pdf,text/plain,text/markdown,application/pdf':'.txt,.md,text/plain,text/markdown'} hidden onChange={e=>upload(e.target.files[0])}/></div>{pdfStatus&&<p className={`pdf-component-status ${pdfStatus.state}`} role="status">{pdfStatus.state==='ready'?'PDF 组件已验证':pdfStatus.state==='unavailable'?'PDF 组件不可用':'PDF 组件已配置，首次处理时验证'}{pdfStatus.state==='unavailable'&&pdfStatus.message?`：${pdfStatus.message}`:''}</p>}<ErrorBox message={error}/></>
-}
-function TaskCard({ task, refresh }) {
-  const [busy,setBusy]=useState(false), [error,setError]=useState('')
-  const action=async kind=>{setBusy(true);setError('');try{await api(`/tasks/${task.id}/${kind}`,{method:'POST',timeout:120000});refresh()}catch(e){setError(e.message)}finally{setBusy(false)}}
-  const p=task.progress||{}, pct=p.total ? Math.min(100,Math.round(p.done/p.total*100)) : 0
-  return <article className="task-card"><div className="row spread"><div><span className="eyebrow">{kindNames[task.kind]||task.kind}</span><h3>{task.id.split('.').at(-1).slice(0,10)}</h3></div>{status(task.state)}</div>
-    <p className="muted">{task.label&&<span>{task.label} · </span>}{task.docId||task.result?.document?.id?<a href={`#/workbench/${task.docId??task.result.document.id}`}>打开文档 →</a>:task.kind==='import'?'正在解析源文件':'等待文档'} · {fmt(task.createdAt)}</p><div className="progress"><i style={{width:`${pct}%`}}/></div><div className="row spread small"><span>{{complete:'完成',translate:'翻译',export:'导出',import:'导入'}[p.stage] || p.stage || '准备中'} · {p.done ?? 0}/{p.total ?? 0}</span><span>{pct}%</span></div>
-    {task.error && <ErrorBox message={`${task.error.stage}: ${task.error.message}`}/>}
-    {task.warnings?.length>0&&<div className="notice" role="status"><strong>导出提示</strong>{task.warnings.map((warning,i)=><p key={i}>{warning}</p>)}</div>}
-    <div className="metrics"><span>模型调用 <b>{usage(task.stats?.llmCalls)}</b></span><span>复用单位 <b>{usage(task.stats?.reusedUnits)}</b></span><span>输入 token <b>{usage(task.stats?.tokens?.translation?.input)}</b></span><span>输出 token <b>{usage(task.stats?.tokens?.translation?.output)}</b></span></div>
-    <div className="row action-row">{task.state==='running'&&task.kind!=='import'&&<Button className="secondary" busy={busy} onClick={()=>action('pause')}>暂停</Button>}{['paused','failed'].includes(task.state)&&task.kind!=='import'&&<Button className="secondary" busy={busy} onClick={()=>action('resume')}>恢复</Button>}{task.state==='failed'&&<Button className="ghost" busy={busy} onClick={()=>action('abandon')}>放弃任务</Button>}{['queued','running','paused'].includes(task.state)&&<Button className="ghost" busy={busy} onClick={()=>action('cancel')}>取消</Button>}{task.error?.unitId&&task.docId&&<a href={`#/workbench/${task.docId}?unit=${task.error.unitId}`}>查看出错段落 →</a>}</div><ErrorBox message={error}/>
-  </article>
-}
-function ArtifactItem({ artifact }) {
-  return <div><a className="artifact" href={`/api/artifacts/${artifact.id}/download`}>{artifact.format.toUpperCase()} · {fmt(artifact.createdAt)} ↗</a>{artifact.warnings?.length>0&&<div className="notice" role="status">{artifact.warnings.map((warning,i)=><p key={i}>{warning}</p>)}</div>}</div>
-}
-function Dashboard({ epoch, capabilities }) {
-  const [taskTick,setTaskTick]=useState(0); const docs=useRemote(()=>allPages('/documents'),[epoch]); const tasks=useRemote(()=>allPages('/tasks'),[epoch,taskTick]); const active=(tasks.value||[]).filter(t=>['queued','running','paused'].includes(t.state))
-  const [showPdfIntro,setShowPdfIntro]=useState(()=>{try{return localStorage.getItem('ivoraige.0.1.0.pdf-onboarding-dismissed')!=='1'}catch{return true}})
-  const pdfIntro=showPdfIntro&&docs.value?.length===0&&capabilities?.features?.includes('component-installation')&&!capabilities?.inputFormats?.includes('pdf')
-  const dismissPdfIntro=()=>{setShowPdfIntro(false);try{localStorage.setItem('ivoraige.0.1.0.pdf-onboarding-dismissed','1')}catch{/* private storage */}}
-  return <div className="page"><div className="hero"><div><span className="eyebrow">IVORAIGE / WORKSPACE</span><h1>让每一段译文都有来处</h1><p>导入研究材料，逐段翻译与审校，再从同一份已接受译文生成输出。</p><a className="button" href="#/documents">查看文档 <span>↗</span></a></div><div className="hero-symbol">文<span>↔</span>译</div></div>
-    {pdfIntro&&<div className="quiet-panel" role="status"><div className="row spread"><div><strong>开始使用</strong><p>可以先导入 TXT 或 Markdown，翻译前再配置模型。PDF 组件按需安装。</p>{capabilities?.dataDirectory&&<p className="hint">数据保存在：{capabilities.dataDirectory}</p>}</div><div className="row"><a className="button secondary" href="#/settings/models">配置模型</a><a className="button secondary" href="#/settings/pdf">安装 PDF</a><button className="ghost" onClick={dismissPdfIntro}>稍后设置</button></div></div></div>}
-    <div className="section-heading"><div><span className="eyebrow">START HERE</span><h2>开始处理</h2></div></div><Upload inputFormats={capabilities?.inputFormats} pdfStatus={capabilities?.components?.babeldoc} onDone={openImported}/>
-    <div className="section-heading"><div><span className="eyebrow">IN PROGRESS</span><h2>进行中的任务</h2></div><a href="#/tasks">所有任务 →</a></div>{tasks.error?<ErrorBox message={tasks.error}/>:active.length?<div className="task-grid">{active.slice(0,3).map(t=><TaskCard key={t.id} task={t} refresh={()=>setTaskTick(x=>x+1)}/>)}</div>:<div className="quiet-panel">目前没有进行中的任务。</div>}
-    <div className="section-heading"><div><span className="eyebrow">RECENT DOCUMENTS</span><h2>最近文档</h2></div><a href="#/documents">全部文档 →</a></div>{docs.error?<ErrorBox message={docs.error}/>:docs.value?.length?<div className="doc-grid">{docs.value.slice(-4).reverse().map(d=><DocumentCard key={d.id} doc={d}/>)}</div>:<Empty title="还没有文档" detail="拖入一份支持的文档，开始建立可追溯的翻译记录。"/>}</div>
-}
-function DocumentCard({doc}) {return <a className="doc-card" href={`#/workbench/${doc.id}`}><div className="doc-mark">{doc.format?.toUpperCase()}</div><strong>{doc.title}</strong><span className="muted">{doc.language?.toUpperCase()} · {doc.unitCount} 个单位</span><span className="doc-bottom">{fmt(doc.importedAt)} <b>打开工作台 →</b></span></a>}
-function Documents({epoch,inputFormats,pdfStatus}) {const docs=useRemote(()=>allPages('/documents'),[epoch]); const [search,setSearch]=useState(''); const visible=(docs.value||[]).filter(d=>`${d.title} ${d.sourceId}`.toLowerCase().includes(search.toLowerCase()));return <div className="page"><div className="page-head"><div><span className="eyebrow">LIBRARY</span><h1>文档</h1><p>所有导入材料及其翻译记录。</p></div><span className="count">{docs.value?.length ?? '—'} 份文档</span></div><Upload compact inputFormats={inputFormats} pdfStatus={pdfStatus} onDone={openImported}/><div className="toolbar"><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="搜索标题或来源…" aria-label="搜索文档"/></div><ErrorBox message={docs.error}/>{!docs.value? <div className="skeleton">正在读取文档…</div>:visible.length?<div className="doc-grid">{visible.map(d=><DocumentCard key={d.id} doc={d}/>)}</div>:<Empty title={search?'没有匹配的文档':'还没有文档'} detail={search?'试试其他关键词。':'在上方导入支持的文档。'}/>}</div>}
-function Tasks({epoch}) {const [filter,setFilter]=useState('all'),[tick,setTick]=useState(0);const data=useRemote(()=>allPages('/tasks'),[epoch,tick]);const visible=(data.value||[]).filter(t=>filter==='all'||t.state===filter).reverse();return <div className="page"><div className="page-head"><div><span className="eyebrow">ACTIVITY</span><h1>任务</h1><p>翻译进度、导出产物与模型用量。</p></div></div><div className="tabs">{[['all','全部'],['abandoned','已放弃'],['running','进行中'],['paused','已暂停'],['failed','失败'],['succeeded','已完成']].map(([v,n])=><button key={v} className={filter===v?'active':''} onClick={()=>setFilter(v)}>{n}</button>)}</div><ErrorBox message={data.error}/>{visible.length?<div className="task-grid">{visible.map(t=><TaskCard key={t.id} task={t} refresh={()=>setTick(x=>x+1)}/>)}</div>:<Empty title="这里暂无任务" detail="导入文档或发起翻译后，任务会出现在这里。"/>}</div>}
 
-function Workbench({docId,epoch,interactive=true}) {
-  const document=useRemote(()=>api(`/documents/${docId}`).then(r=>r.document),[docId,epoch])
-  const [targetLang,setTargetLang]=useState('zh'), [filter,setFilter]=useState('all'),[selected,setSelected]=useState([]),[current,setCurrent]=useState(null),[unitData,setUnitData]=useState(null),[history,setHistory]=useState([]),[text,setText]=useState(''),[dirty,setDirty]=useState(false),[mode,setMode]=useState('careful'),[busy,setBusy]=useState(''),[error,setError]=useState(''),[message,setMessage]=useState(''),[artifacts,setArtifacts]=useState([]),[snapshots,setSnapshots]=useState([]),[tasks,setTasks]=useState([]),[formats,setFormats]=useState(['md']),[contextOpen,setContextOpen]=useState(!window.matchMedia('(max-width: 1100px)').matches),[actionTick,setActionTick]=useState(0)
-  const dirtyRef=useRef(false), loadRef=useRef(0), editVersionRef=useRef(0)
-  const viewKey=JSON.stringify([docId,targetLang,current]), viewKeyRef=useRef(viewKey)
-  viewKeyRef.current=viewKey
-  const units=useRemote(()=>allPages(`/documents/${docId}/units`,{targetLang,filter}),[docId,targetLang,filter,epoch,actionTick])
-  useEffect(()=>{dirtyRef.current=false;loadRef.current++;viewKeyRef.current=JSON.stringify([docId,targetLang,null]);setDirty(false);setSelected([]);setCurrent(null);setUnitData(null);setHistory([])},[docId])
-  useEffect(()=>{ if(document.value) { setTargetLang(targetFor(document.value.language)); setFormats(current => current.filter(format => document.value.availableOutputs?.includes(format))) } },[document.value?.id])
-  const refreshSide=useCallback(async()=>{try{const [a,s,t]=await Promise.all([allPages(`/documents/${docId}/artifacts`),allPages(`/documents/${docId}/snapshots`),allPages('/tasks',{docId})]);setArtifacts(a);setSnapshots(s);setTasks(t)}catch(e){setError(e.message)}},[docId])
-  useEffect(()=>{refreshSide()},[refreshSide,epoch])
-  useEffect(()=>{const listed=units.value||[];if(dirtyRef.current&&current)return;if(!listed.length){viewKeyRef.current=JSON.stringify([docId,targetLang,null]);setCurrent(null);return}const fromUrl=new URLSearchParams(location.hash.split('?')[1]).get('unit');if(!listed.some(u=>u.id===current)){const next=listed.find(u=>u.id===fromUrl)?.id||listed[0].id;viewKeyRef.current=JSON.stringify([docId,targetLang,next]);setCurrent(next)}},[units.value])
-  const loadCurrent=useCallback(async()=>{if(!current)return;const view=JSON.stringify([docId,targetLang,current]);if(view!==viewKeyRef.current)return;const request=++loadRef.current;try{const [detail,revisions]=await Promise.all([api(`/units/${current}${query({targetLang})}`),allPages(`/units/${current}/revisions`,{targetLang})]);const disposition=refreshDisposition(request,loadRef.current,view,viewKeyRef.current,dirtyRef.current);if(!disposition.apply)return;setHistory(revisions);if(disposition.replaceEditor){setUnitData(detail);setText(detail.draft?.text??detail.accepted?.text??'')}}catch(e){if(request===loadRef.current&&view===viewKeyRef.current)setError(e.message)}},[docId,current,targetLang])
-  useEffect(()=>{loadCurrent()},[loadCurrent]);useEffect(()=>{loadCurrent()},[epoch])
-  const choose=id=>{if(id===current)return;if(dirtyRef.current&&!confirm('当前修改尚未保存。仍要切换段落吗？'))return;dirtyRef.current=false;loadRef.current++;viewKeyRef.current=JSON.stringify([docId,targetLang,id]);setDirty(false);setUnitData(null);setCurrent(id)}
-  const act=async(name,fn,savedEdit)=>{setBusy(name);setError('');setMessage('');try{const result=await fn();if(savedEdit&&savedEditIsCurrent(savedEdit.view,viewKeyRef.current,savedEdit.version,editVersionRef.current)){dirtyRef.current=false;setDirty(false)}await loadCurrent();setActionTick(x=>x+1);await refreshSide();setMessage(name==='save'?'草稿已保存':name==='accept'?'已接受译文':name==='export'?'导出任务已创建':'操作已提交');return result}catch(e){setError(e.code==='CONFLICT'?`${e.message} 请重新读取当前版本。`:e.message)}finally{setBusy('')}}
-  const save=()=>act('save',()=>api(`/units/${current}`,{method:'PATCH',body:{targetLang,text,baseRevisionId:unitData?.draft?.id??unitData?.accepted?.id??null}}),{view:viewKeyRef.current,version:editVersionRef.current})
-  const accept=(id=unitData?.draft?.id)=>act('accept',()=>api(`/revisions/${id}/accept`,{method:'POST',body:{expectedAcceptedRevisionId:unitData?.accepted?.id??null}}))
-  const unaccept=()=>act('unaccept',()=>api(`/units/${current}/unaccept`,{method:'POST',body:{targetLang,expectedAcceptedRevisionId:unitData?.accepted?.id??null}}))
-  const translate=scope=>act('translate',()=>api(`/documents/${docId}/translate`,{method:'POST',body:{targetLang,mode,...(scope==='one'?{unitIds:[current]}:scope==='selected'?{unitIds:selected}:{} )}}))
-  const exportNow=()=>act('export',()=>api(`/documents/${docId}/export`,{method:'POST',body:{targetLang,outputs:formats.map(format=>({format}))}}))
-  const visible=units.value||[], index=visible.findIndex(u=>u.id===current), currentUnit=unitData?.unit
-  useEffect(()=>{if(!interactive)return;const onKey=e=>{if(!(e.ctrlKey||e.metaKey)||!current)return;if(e.key==='Enter'){e.preventDefault();if(unitData?.draft&&!dirty){accept().then(result=>{if(result&&index<visible.length-1)choose(visible[index+1].id)})}else if(dirty)save()}if(e.key.toLowerCase()==='r'){e.preventDefault();translate('one')}};window.addEventListener('keydown',onKey);return()=>window.removeEventListener('keydown',onKey)},[interactive,current,unitData,dirty,text,index,visible])
-  useEffect(()=>{const before=e=>{if(dirty){e.preventDefault();e.returnValue=''}};window.addEventListener('beforeunload',before);return()=>window.removeEventListener('beforeunload',before)},[dirty])
-  if(document.error)return <div className="page"><ErrorBox message={document.error}/></div>
-  return <div className="workbench"><div className="workbench-head"><div><a className="back" href="#/documents">← 文档</a><h1>{document.value?.title||'工作台'}</h1><span className="muted">{document.value?.format?.toUpperCase()} · {document.value?.unitCount??'—'} 个单位</span></div><div className="row"><label className="inline-label">目标语言 <select value={targetLang} onChange={e=>{if(dirty&&!confirm('修改尚未保存。仍要切换语言吗？'))return;dirtyRef.current=false;loadRef.current++;viewKeyRef.current=JSON.stringify([docId,e.target.value,current]);setDirty(false);setSelected([]);setTargetLang(e.target.value);setUnitData(null)}}>{document.value?.format==='pdf' ? document.value.language==='en' ? <><option value="zh-CN">简体中文（zh-CN）</option><option value="zh">中文（zh）</option></> : <option value="en">English</option> : <><option value="zh-CN">简体中文（zh-CN）</option><option value="zh">中文（zh）</option><option value="en">English</option></>}</select></label><select value={mode} onChange={e=>setMode(e.target.value)} aria-label="翻译模式"><option value="careful">精细 · 保留草稿</option><option value="fast">快速 · 自动接受</option></select><Button className="secondary" busy={!!busy} onClick={()=>translate('all')}>翻译全文</Button></div></div>
-    {document.value?.format==='pdf'&&<PdfCoverage coverage={document.value.sourceCoverage} warnings={document.value.warnings}/>}
-    <div className="workbench-toolbar"><div className="row"><span className="eyebrow">TRANSLATION WORKBENCH</span><span className="divider"/><span>{visible.length} 个单位</span></div><div className="row"><span>{selected.length} 项已选</span><Button className="ghost" disabled={!selected.length||!!busy} onClick={()=>translate('selected')}>翻译所选</Button></div></div><ErrorBox message={error}/>{message&&<div className="notice success">{message}</div>}
-    <div className={`workbench-grid ${contextOpen?'':'context-hidden'}`}><aside className="unit-list"><div className="unit-list-head"><strong>段落</strong><select value={filter} onChange={e=>setFilter(e.target.value)} aria-label="筛选段落"><option value="all">全部</option><option value="untranslated">未译</option><option value="draft">草稿</option><option value="accepted">已接受</option></select></div><div className="unit-scroll">{visible.map((u,i)=><div key={u.id} className={`unit-item ${current===u.id?'active':''}`}><input type="checkbox" disabled={!u.translatable} checked={selected.includes(u.id)} onChange={e=>setSelected(e.target.checked?[...selected,u.id]:selected.filter(id=>id!==u.id))} aria-label={`选择段落 ${i+1}`}/><button onClick={()=>choose(u.id)}><span className="unit-number">{String(u.order+1).padStart(2,'0')}</span><span className="unit-snippet">{u.sourceText.slice(0,110)}</span><small>{u.acceptedRevisionId?'✓ 已接受':u.draftRevisionId?'● 草稿':u.translatable?'○ 未译':'— 原文保留'}</small></button></div>)}</div></aside>
-    <main className="editor-panel">{currentUnit?<><div className="editor-meta"><span>段落 {currentUnit.order+1} / {document.value?.unitCount}</span><span>{currentUnit.kind}</span>{currentUnit.locator?.page!=null&&<span>第 {currentUnit.locator.page} 页</span>}</div><div className="editor-section"><div className="section-label">原文 <span>SOURCE</span></div><div className="source-text">{currentUnit.sourceText}</div></div><div className="editor-section"><div className="section-label">译文 <span>TRANSLATION</span></div><textarea value={text} onChange={e=>{dirtyRef.current=true;editVersionRef.current++;setText(e.target.value);setDirty(true)}} placeholder="译文将在这里显示。您也可以直接输入译文…" aria-label="译文编辑" disabled={!currentUnit.translatable||!!busy}/><div className="editor-actions"><span className="muted">{dirty?'● 尚未保存':unitData?.draft?'草稿待接受':unitData?.accepted?'已接受':'暂无译文'}</span><div className="row"><Button className="ghost" busy={!!busy} onClick={()=>translate('one')} disabled={!currentUnit.translatable}>翻译此段</Button><Button className="secondary" busy={!!busy} onClick={save} disabled={!dirty||!text.trim()}>保存草稿</Button><Button className="primary" busy={!!busy} onClick={()=>accept()} disabled={dirty||!unitData?.draft}>接受译文</Button></div></div></div><div className="history"><div className="row spread"><div><span className="eyebrow">REVISION HISTORY</span><h3>修订历史</h3></div>{unitData?.accepted&&<Button className="ghost" busy={!!busy} onClick={unaccept}>取消接受</Button>}</div>{history.length?<div className="history-list">{[...history].reverse().map(r=><div className="revision" key={r.id}><div className="row spread"><span><b>{r.origin==='machine'?'机器':r.origin==='human'?'人工':'导入'}</b> · {revisionStatus(r.status)}</span><span className="muted">{fmt(r.createdAt)}</span></div><p>{r.text}</p><div className="row"><button className="link" onClick={()=>{dirtyRef.current=true;editVersionRef.current++;setText(r.text);setDirty(true)}}>加载到编辑器</button>{r.status!=='accepted'&&<button className="link" disabled={!!busy} onClick={()=>accept(r.id)}>接受此版本</button>}</div></div>)}</div>:<p className="muted">尚无修订。保存草稿或发起翻译后会保留历史。</p>}</div></>:<Empty title="选择一个段落" detail="从左侧列表选择需要翻译或审校的段落。"/>}</main>
-    {contextOpen&&<aside className="context-panel"><div className="row spread"><strong>上下文与输出</strong><button className="icon-button" onClick={()=>setContextOpen(false)} aria-label="收起侧栏">×</button></div><div className="context-block"><span className="eyebrow">POSITION</span><h4>来源位置</h4><p>段落 #{currentUnit?currentUnit.order+1:'—'} · {currentUnit?.kind||'—'}</p>{currentUnit?.locator?.page!=null&&<p>第 {currentUnit.locator.page} 页</p>}{currentUnit?.locator?.bbox&&<p>坐标 {JSON.stringify(currentUnit.locator.bbox)}</p>}{currentUnit?.locator&&<details><summary>完整来源信息</summary><pre>{JSON.stringify(currentUnit.locator,null,2)}</pre></details>}</div><div className="context-block"><span className="eyebrow">NEIGHBORS</span><h4>前后文</h4><p>{visible[index-1]?.sourceText?.slice(0,120)||'—'}</p><div className="hairline"/><p>{visible[index+1]?.sourceText?.slice(0,120)||'—'}</p></div><div className="context-block"><span className="eyebrow">EXPORT</span><h4>导出已接受译文</h4><div className="check-list">{['pdf','md','json'].filter(f=>document.value?.availableOutputs?.includes(f)).map(f=><label key={f}><input type="checkbox" checked={formats.includes(f)} onChange={e=>setFormats(e.target.checked?[...formats,f]:formats.filter(x=>x!==f))}/>{f.toUpperCase()}</label>)}</div><Button className="primary full" busy={!!busy} disabled={!formats.length} onClick={exportNow}>创建冻结快照并导出</Button><p className="hint">所有所选格式共享同一份快照。</p></div><div className="context-block"><span className="eyebrow">ARTIFACTS</span><h4>已生成文件</h4>{artifacts.length?artifacts.slice().reverse().map(a=><ArtifactItem key={a.id} artifact={a}/>):<p className="muted">暂无产物</p>}</div>{tasks.filter(t=>['queued','running','paused','failed'].includes(t.state)).slice(-2).map(t=><TaskCard key={t.id} task={t} refresh={refreshSide}/>)}</aside>}</div>{!contextOpen&&<button className="context-toggle" onClick={()=>setContextOpen(true)}>显示上下文与输出 →</button>}</div>
+  return (
+    <>
+      <div
+        className={`upload ${drag ? 'drag' : ''} ${compact ? 'upload-compact' : ''}`}
+        onDragEnter={e => {
+          e.preventDefault()
+          setDrag(true)
+        }}
+        onDragOver={e => e.preventDefault()}
+        onDragLeave={e => {
+          e.preventDefault()
+          setDrag(false)
+        }}
+        onDrop={e => {
+          e.preventDefault()
+          setDrag(false)
+          upload(e.dataTransfer.files[0])
+        }}
+      >
+        <div className="upload-icon">↥</div>
+        <div>
+          <strong>将文档拖到这里</strong>
+          <p>
+            {busy
+              ? uploadingFormat === 'pdf'
+                ? '正在导入并解析 PDF…'
+                : '正在导入文档…'
+              : `${supported} · 最大 7 MB${pdfEnabled ? '' : ' · 文本须为 UTF-8'}`}
+          </p>
+          {pdfEnabled && (
+            <p className="hint">
+              PDF 提供英文→中文、简体中文→英文路由（中文→英文版面待实机核验）；请选择实际原文语言。
+            </p>
+          )}
+        </div>
+        <label className="upload-language">
+          原文{' '}
+          <select value={language} onChange={e => setLanguage(e.target.value)}>
+            <option value="en">English</option>
+            <option value="zh">中文</option>
+          </select>
+        </label>
+        <Button className="secondary" busy={busy} onClick={() => input.current?.click()}>
+          选择文件
+        </Button>
+        <input
+          ref={input}
+          type="file"
+          accept={
+            pdfEnabled
+              ? '.txt,.md,.pdf,text/plain,text/markdown,application/pdf'
+              : '.txt,.md,text/plain,text/markdown'
+          }
+          hidden
+          onChange={e => upload(e.target.files[0])}
+        />
+      </div>
+      {pdfStatus && (
+        <p className={`pdf-component-status ${pdfStatus.state}`} role="status">
+          {pdfStatus.state === 'ready'
+            ? 'PDF 组件已验证'
+            : pdfStatus.state === 'unavailable'
+              ? 'PDF 组件不可用'
+              : 'PDF 组件已配置，首次处理时验证'}
+          {pdfStatus.state === 'unavailable' && pdfStatus.message
+            ? `：${pdfStatus.message}`
+            : ''}
+        </p>
+      )}
+      {mineruStatus && (
+        <p className={`pdf-component-status ${mineruStatus.state}`} role="status">
+          {mineruStatus.state === 'ready'
+            ? 'MinerU 解析组件已验证'
+            : mineruStatus.state === 'unavailable'
+              ? 'MinerU 解析组件不可用'
+              : 'MinerU 解析组件已配置，首次处理时验证'}
+          {mineruStatus.state === 'unavailable' && mineruStatus.message
+            ? `：${mineruStatus.message}`
+            : ''}
+        </p>
+      )}
+      <ErrorBox message={error} />
+    </>
+  )
+}
+
+function TaskCard({ task, refresh }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const action = async kind => {
+    setBusy(true)
+    setError('')
+    try {
+      await api(`/tasks/${task.id}/${kind}`, { method: 'POST', timeout: 120000 })
+      refresh()
+    } catch (e) {
+      setError(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const p = task.progress || {}
+  const pct = p.total ? Math.min(100, Math.round((p.done / p.total) * 100)) : 0
+
+  return (
+    <article className="task-card">
+      <div className="row spread">
+        <div>
+          <span className="eyebrow">{kindNames[task.kind] || task.kind}</span>
+          <h3>{task.id.split('.').at(-1).slice(0, 10)}</h3>
+        </div>
+        {status(task.state)}
+      </div>
+      <p className="muted">
+        {task.label && <span>{task.label} · </span>}
+        {task.docId || task.result?.document?.id ? (
+          <a href={`#/workbench/${task.docId ?? task.result.document.id}`}>打开文档 →</a>
+        ) : task.kind === 'import' ? (
+          '正在解析源文件'
+        ) : (
+          '等待文档'
+        )}{' '}
+        · {fmt(task.createdAt)}
+      </p>
+      <div className="progress">
+        <i style={{ width: `${pct}%` }} />
+      </div>
+      <div className="row spread small">
+        <span>
+          {{ complete: '完成', translate: '翻译', export: '导出', import: '导入' }[p.stage] ||
+            p.stage ||
+            '准备中'}{' '}
+          · {p.done ?? 0}/{p.total ?? 0}
+        </span>
+        <span>{pct}%</span>
+      </div>
+      {task.error && <ErrorBox message={`${task.error.stage}: ${task.error.message}`} />}
+      {task.warnings?.length > 0 && (
+        <div className="notice" role="status">
+          <strong>导出提示</strong>
+          {task.warnings.map((warning, i) => (
+            <p key={i}>{warning}</p>
+          ))}
+        </div>
+      )}
+      <div className="metrics">
+        <span>
+          模型调用 <b>{usage(task.stats?.llmCalls)}</b>
+        </span>
+        <span>
+          复用单位 <b>{usage(task.stats?.reusedUnits)}</b>
+        </span>
+        <span>
+          输入 token <b>{usage(task.stats?.tokens?.translation?.input)}</b>
+        </span>
+        <span>
+          输出 token <b>{usage(task.stats?.tokens?.translation?.output)}</b>
+        </span>
+      </div>
+      <div className="row action-row">
+        {task.state === 'running' && task.kind !== 'import' && (
+          <Button className="secondary" busy={busy} onClick={() => action('pause')}>
+            暂停
+          </Button>
+        )}
+        {['paused', 'failed'].includes(task.state) && task.kind !== 'import' && (
+          <Button className="secondary" busy={busy} onClick={() => action('resume')}>
+            恢复
+          </Button>
+        )}
+        {task.state === 'failed' && (
+          <Button className="ghost" busy={busy} onClick={() => action('abandon')}>
+            放弃任务
+          </Button>
+        )}
+        {['queued', 'running', 'paused'].includes(task.state) && (
+          <Button className="ghost" busy={busy} onClick={() => action('cancel')}>
+            取消
+          </Button>
+        )}
+        {task.error?.unitId && task.docId && (
+          <a href={`#/workbench/${task.docId}?unit=${task.error.unitId}`}>查看出错段落 →</a>
+        )}
+      </div>
+      <ErrorBox message={error} />
+    </article>
+  )
+}
+
+function ArtifactItem({ artifact }) {
+  return (
+    <div>
+      <a className="artifact" href={`/api/artifacts/${artifact.id}/download`}>
+        {artifact.format.toUpperCase()} · {fmt(artifact.createdAt)} ↗
+      </a>
+      {artifact.warnings?.length > 0 && (
+        <div className="notice" role="status">
+          {artifact.warnings.map((warning, i) => (
+            <p key={i}>{warning}</p>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Dashboard({ epoch, capabilities }) {
+  const [taskTick, setTaskTick] = useState(0)
+  const docs = useRemote(() => allPages('/documents'), [epoch])
+  const tasks = useRemote(() => allPages('/tasks'), [epoch, taskTick])
+  const active = (tasks.value || []).filter(t => ['queued', 'running', 'paused'].includes(t.state))
+
+  const [showPdfIntro, setShowPdfIntro] = useState(() => {
+    try {
+      return localStorage.getItem('ivoraige.0.1.0.pdf-onboarding-dismissed') !== '1'
+    } catch {
+      return true
+    }
+  })
+
+  const pdfIntro =
+    showPdfIntro &&
+    docs.value?.length === 0 &&
+    capabilities?.features?.includes('component-installation') &&
+    !capabilities?.inputFormats?.includes('pdf')
+
+  const dismissPdfIntro = () => {
+    setShowPdfIntro(false)
+    try {
+      localStorage.setItem('ivoraige.0.1.0.pdf-onboarding-dismissed', '1')
+    } catch {
+      /* private storage */
+    }
+  }
+
+  return (
+    <div className="page">
+      <div className="hero">
+        <div>
+          <span className="eyebrow">IVORAIGE / WORKSPACE</span>
+          <h1>让每一段译文都有来处</h1>
+          <p>导入研究材料，逐段翻译与审校，再从同一份已接受译文生成输出。</p>
+          <a className="button" href="#/documents">
+            查看文档 <span>↗</span>
+          </a>
+        </div>
+        <div className="hero-symbol">
+          文<span>↔</span>译
+        </div>
+      </div>
+
+      {pdfIntro && (
+        <div className="quiet-panel" role="status">
+          <div className="row spread">
+            <div>
+              <strong>开始使用</strong>
+              <p>可以先导入 TXT 或 Markdown，翻译前再配置模型。PDF 组件按需安装。</p>
+              {capabilities?.dataDirectory && (
+                <p className="hint">数据保存在：{capabilities.dataDirectory}</p>
+              )}
+            </div>
+            <div className="row">
+              <a className="button secondary" href="#/settings/models">
+                配置模型
+              </a>
+              <a className="button secondary" href="#/settings/pdf">
+                安装 PDF
+              </a>
+              <button className="ghost" onClick={dismissPdfIntro}>
+                稍后设置
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="section-heading">
+        <div>
+          <span className="eyebrow">START HERE</span>
+          <h2>开始处理</h2>
+        </div>
+      </div>
+      <Upload
+        inputFormats={capabilities?.inputFormats}
+        pdfStatus={capabilities?.components?.babeldoc}
+        mineruStatus={capabilities?.components?.mineru}
+        onDone={openImported}
+      />
+
+      <div className="section-heading">
+        <div>
+          <span className="eyebrow">IN PROGRESS</span>
+          <h2>进行中的任务</h2>
+        </div>
+        <a href="#/tasks">所有任务 →</a>
+      </div>
+      {tasks.error ? (
+        <ErrorBox message={tasks.error} />
+      ) : active.length ? (
+        <div className="task-grid">
+          {active.slice(0, 3).map(t => (
+            <TaskCard key={t.id} task={t} refresh={() => setTaskTick(x => x + 1)} />
+          ))}
+        </div>
+      ) : (
+        <div className="quiet-panel">目前没有进行中的任务。</div>
+      )}
+
+      <div className="section-heading">
+        <div>
+          <span className="eyebrow">RECENT DOCUMENTS</span>
+          <h2>最近文档</h2>
+        </div>
+        <a href="#/documents">全部文档 →</a>
+      </div>
+      {docs.error ? (
+        <ErrorBox message={docs.error} />
+      ) : docs.value?.length ? (
+        <div className="doc-grid">
+          {docs.value
+            .slice(-4)
+            .reverse()
+            .map(d => (
+              <DocumentCard key={d.id} doc={d} />
+            ))}
+        </div>
+      ) : (
+        <Empty
+          title="还没有文档"
+          detail="拖入一份支持的文档，开始建立可追溯的翻译记录。"
+        />
+      )}
+    </div>
+  )
+}
+
+function DocumentCard({ doc }) {
+  return (
+    <a className="doc-card" href={`#/workbench/${doc.id}`}>
+      <div className="doc-mark">{doc.format?.toUpperCase()}</div>
+      <strong>{doc.title}</strong>
+      <span className="muted">
+        {doc.language?.toUpperCase()} · {doc.unitCount} 个单位
+      </span>
+      <span className="doc-bottom">
+        {fmt(doc.importedAt)} <b>打开工作台 →</b>
+      </span>
+    </a>
+  )
+}
+
+function Documents({ epoch, inputFormats, pdfStatus, mineruStatus }) {
+  const docs = useRemote(() => allPages('/documents'), [epoch])
+  const [search, setSearch] = useState('')
+  const visible = (docs.value || []).filter(d =>
+    `${d.title} ${d.sourceId}`.toLowerCase().includes(search.toLowerCase())
+  )
+
+  return (
+    <div className="page">
+      <div className="page-head">
+        <div>
+          <span className="eyebrow">LIBRARY</span>
+          <h1>文档</h1>
+          <p>所有导入材料及其翻译记录。</p>
+        </div>
+        <span className="count">{docs.value?.length ?? '—'} 份文档</span>
+      </div>
+      <Upload
+        compact
+        inputFormats={inputFormats}
+        pdfStatus={pdfStatus}
+        mineruStatus={mineruStatus}
+        onDone={openImported}
+      />
+      <div className="toolbar">
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="搜索标题或来源…"
+          aria-label="搜索文档"
+        />
+      </div>
+      <ErrorBox message={docs.error} />
+      {!docs.value ? (
+        <div className="skeleton">正在读取文档…</div>
+      ) : visible.length ? (
+        <div className="doc-grid">
+          {visible.map(d => (
+            <DocumentCard key={d.id} doc={d} />
+          ))}
+        </div>
+      ) : (
+        <Empty
+          title={search ? '没有匹配的文档' : '还没有文档'}
+          detail={search ? '试试其他关键词。' : '在上方导入支持的文档。'}
+        />
+      )}
+    </div>
+  )
+}
+
+function Tasks({ epoch }) {
+  const [filter, setFilter] = useState('all')
+  const [tick, setTick] = useState(0)
+  const data = useRemote(() => allPages('/tasks'), [epoch, tick])
+  const visible = (data.value || [])
+    .filter(t => filter === 'all' || t.state === filter)
+    .reverse()
+
+  return (
+    <div className="page">
+      <div className="page-head">
+        <div>
+          <span className="eyebrow">ACTIVITY</span>
+          <h1>任务</h1>
+          <p>翻译进度、导出产物与模型用量。</p>
+        </div>
+      </div>
+      <div className="tabs">
+        {[
+          ['all', '全部'],
+          ['abandoned', '已放弃'],
+          ['running', '进行中'],
+          ['paused', '已暂停'],
+          ['failed', '失败'],
+          ['succeeded', '已完成'],
+        ].map(([v, n]) => (
+          <button
+            key={v}
+            className={filter === v ? 'active' : ''}
+            onClick={() => setFilter(v)}
+          >
+            {n}
+          </button>
+        ))}
+      </div>
+      <ErrorBox message={data.error} />
+      {visible.length ? (
+        <div className="task-grid">
+          {visible.map(t => (
+            <TaskCard key={t.id} task={t} refresh={() => setTick(x => x + 1)} />
+          ))}
+        </div>
+      ) : (
+        <Empty
+          title="这里暂无任务"
+          detail="导入文档或发起翻译后，任务会出现在这里。"
+        />
+      )}
+    </div>
+  )
+}
+
+function Workbench({ docId, epoch, interactive = true }) {
+  const document = useRemote(
+    () => api(`/documents/${docId}`).then(r => r.document),
+    [docId, epoch]
+  )
+  const [targetLang, setTargetLang] = useState('zh')
+  const [filter, setFilter] = useState('all')
+  const [unitSearch, setUnitSearch] = useState('')
+  const [selected, setSelected] = useState([])
+  const [current, setCurrent] = useState(null)
+  const [unitData, setUnitData] = useState(null)
+  const [history, setHistory] = useState([])
+  const [text, setText] = useState('')
+  const [dirty, setDirty] = useState(false)
+  const [mode, setMode] = useState('careful')
+  const [busy, setBusy] = useState('')
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const [artifacts, setArtifacts] = useState([])
+  const [snapshots, setSnapshots] = useState([])
+  const [tasks, setTasks] = useState([])
+  const [formats, setFormats] = useState(['md'])
+  const [contextOpen, setContextOpen] = useState(
+    !window.matchMedia('(max-width: 1100px)').matches
+  )
+  const [showDiff, setShowDiff] = useState(false)
+  const [actionTick, setActionTick] = useState(0)
+
+  const textareaRef = useRef(null)
+  const dirtyRef = useRef(false)
+  const loadRef = useRef(0)
+  const editVersionRef = useRef(0)
+  const viewKey = JSON.stringify([docId, targetLang, current])
+  const viewKeyRef = useRef(viewKey)
+  viewKeyRef.current = viewKey
+
+  const units = useRemote(
+    () => allPages(`/documents/${docId}/units`, { targetLang, filter }),
+    [docId, targetLang, filter, epoch, actionTick]
+  )
+
+  useEffect(() => {
+    dirtyRef.current = false
+    loadRef.current++
+    viewKeyRef.current = JSON.stringify([docId, targetLang, null])
+    setDirty(false)
+    setSelected([])
+    setCurrent(null)
+    setUnitData(null)
+    setHistory([])
+  }, [docId])
+
+  useEffect(() => {
+    if (document.value) {
+      setTargetLang(targetFor(document.value.language))
+      setFormats(prev =>
+        prev.filter(format => document.value.availableOutputs?.includes(format))
+      )
+    }
+  }, [document.value?.id])
+
+  const refreshSide = useCallback(async () => {
+    try {
+      const [a, s, t] = await Promise.all([
+        allPages(`/documents/${docId}/artifacts`),
+        allPages(`/documents/${docId}/snapshots`),
+        allPages('/tasks', { docId }),
+      ])
+      setArtifacts(a)
+      setSnapshots(s)
+      setTasks(t)
+    } catch (e) {
+      setError(e.message)
+    }
+  }, [docId])
+
+  useEffect(() => {
+    refreshSide()
+  }, [refreshSide, epoch])
+
+  useEffect(() => {
+    const listed = units.value || []
+    if (dirtyRef.current && current) return
+    if (!listed.length) {
+      viewKeyRef.current = JSON.stringify([docId, targetLang, null])
+      setCurrent(null)
+      return
+    }
+    const fromUrl = new URLSearchParams(location.hash.split('?')[1]).get('unit')
+    if (!listed.some(u => u.id === current)) {
+      const next = listed.find(u => u.id === fromUrl)?.id || listed[0].id
+      viewKeyRef.current = JSON.stringify([docId, targetLang, next])
+      setCurrent(next)
+    }
+  }, [units.value])
+
+  const loadCurrent = useCallback(async () => {
+    if (!current) return
+    const view = JSON.stringify([docId, targetLang, current])
+    if (view !== viewKeyRef.current) return
+    const request = ++loadRef.current
+    try {
+      const [detail, revisions] = await Promise.all([
+        api(`/units/${current}${query({ targetLang })}`),
+        allPages(`/units/${current}/revisions`, { targetLang }),
+      ])
+      const disposition = refreshDisposition(
+        request,
+        loadRef.current,
+        view,
+        viewKeyRef.current,
+        dirtyRef.current
+      )
+      if (!disposition.apply) return
+      setHistory(revisions)
+      if (disposition.replaceEditor) {
+        setUnitData(detail)
+        setText(detail.draft?.text ?? detail.accepted?.text ?? '')
+      }
+    } catch (e) {
+      if (request === loadRef.current && view === viewKeyRef.current) setError(e.message)
+    }
+  }, [docId, current, targetLang])
+
+  useEffect(() => {
+    loadCurrent()
+  }, [loadCurrent])
+
+  useEffect(() => {
+    loadCurrent()
+  }, [epoch])
+
+  const choose = id => {
+    if (id === current) return
+    if (dirtyRef.current && !confirm('当前修改尚未保存。仍要切换段落吗？')) return
+    dirtyRef.current = false
+    loadRef.current++
+    viewKeyRef.current = JSON.stringify([docId, targetLang, id])
+    setDirty(false)
+    setUnitData(null)
+    setCurrent(id)
+  }
+
+  const act = async (name, fn, savedEdit, { refreshSideData = false } = {}) => {
+    setBusy(name)
+    setError('')
+    setMessage('')
+    try {
+      const result = await fn()
+      if (
+        savedEdit &&
+        savedEditIsCurrent(
+          savedEdit.view,
+          viewKeyRef.current,
+          savedEdit.version,
+          editVersionRef.current
+        )
+      ) {
+        dirtyRef.current = false
+        setDirty(false)
+      }
+      await loadCurrent()
+      setActionTick(x => x + 1)
+      if (refreshSideData) await refreshSide()
+      setMessage(
+        name === 'save'
+          ? '草稿已保存'
+          : name === 'accept' || name === 'save-accept'
+            ? '已接受译文'
+            : name === 'batch-accept'
+              ? '已批量接受所选草稿'
+              : name === 'export'
+                ? '导出任务已创建'
+                : '操作已提交'
+      )
+      return result
+    } catch (e) {
+      setError(
+        e.code === 'CONFLICT' ? `${e.message} 请重新读取当前版本。` : e.message
+      )
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const save = () =>
+    act(
+      'save',
+      () =>
+        api(`/units/${current}`, {
+          method: 'PATCH',
+          body: {
+            targetLang,
+            text,
+            baseRevisionId: unitData?.draft?.id ?? unitData?.accepted?.id ?? null,
+          },
+        }),
+      { view: viewKeyRef.current, version: editVersionRef.current }
+    )
+
+  const accept = (id = unitData?.draft?.id) =>
+    act('accept', () =>
+      api(`/revisions/${id}/accept`, {
+        method: 'POST',
+        body: { expectedAcceptedRevisionId: unitData?.accepted?.id ?? null },
+      })
+    )
+
+  const unaccept = () =>
+    act('unaccept', () =>
+      api(`/units/${current}/unaccept`, {
+        method: 'POST',
+        body: { targetLang, expectedAcceptedRevisionId: unitData?.accepted?.id ?? null },
+      })
+    )
+
+  const translate = scope =>
+    act(
+      'translate',
+      () =>
+        api(`/documents/${docId}/translate`, {
+          method: 'POST',
+          body: {
+            targetLang,
+            mode,
+            ...(scope === 'one'
+              ? { unitIds: [current] }
+              : scope === 'selected'
+                ? { unitIds: selected }
+                : {}),
+          },
+        }),
+      undefined,
+      { refreshSideData: true }
+    )
+
+  const exportNow = () =>
+    act(
+      'export',
+      () =>
+        api(`/documents/${docId}/export`, {
+          method: 'POST',
+          body: { targetLang, outputs: formats.map(format => ({ format })) },
+        }),
+      undefined,
+      { refreshSideData: true }
+    )
+
+  const visible = useMemo(
+    () => filterWorkbenchUnits(units.value || [], { filter: 'all', query: unitSearch }),
+    [units.value, unitSearch]
+  )
+
+  const index = visible.findIndex(u => u.id === current)
+  const currentUnit = unitData?.unit
+
+  const saveAndAccept = async () => {
+    if (!current || !currentUnit?.translatable) return
+    if (!dirty && unitData?.draft) {
+      const result = await accept()
+      if (result && index < visible.length - 1) choose(visible[index + 1].id)
+      return
+    }
+    if (!text.trim()) return
+    const result = await act(
+      'save-accept',
+      async () => {
+        const saved = await api(`/units/${current}`, {
+          method: 'PATCH',
+          body: {
+            targetLang,
+            text,
+            baseRevisionId: unitData?.draft?.id ?? unitData?.accepted?.id ?? null,
+          },
+        })
+        const revId = saved?.revision?.id ?? saved?.draft?.id
+        if (revId) {
+          await api(`/revisions/${revId}/accept`, {
+            method: 'POST',
+            body: { expectedAcceptedRevisionId: unitData?.accepted?.id ?? null },
+          })
+        }
+        return saved
+      },
+      { view: viewKeyRef.current, version: editVersionRef.current }
+    )
+    if (result && index < visible.length - 1) choose(visible[index + 1].id)
+  }
+
+  const selectedDraftUnits = useMemo(
+    () =>
+      (units.value || []).filter(
+        u =>
+          selected.includes(u.id) &&
+          (u.draftRevisionId || u.currentDraftRevisionId) &&
+          !u.acceptedRevisionId
+      ),
+    [units.value, selected]
+  )
+
+  const batchAcceptSelected = () =>
+    act('batch-accept', async () => {
+      for (const u of selectedDraftUnits) {
+        const revId = u.draftRevisionId || u.currentDraftRevisionId
+        if (revId) {
+          await api(`/revisions/${revId}/accept`, {
+            method: 'POST',
+            body: { expectedAcceptedRevisionId: null },
+          })
+        }
+      }
+      return { count: selectedDraftUnits.length }
+    })
+
+  const visibleTranslatableIds = useMemo(
+    () => visible.filter(u => u.translatable).map(u => u.id),
+    [visible]
+  )
+
+  const allVisibleSelected =
+    visibleTranslatableIds.length > 0 &&
+    visibleTranslatableIds.every(id => selected.includes(id))
+
+  const toggleSelectAllVisible = () => {
+    if (allVisibleSelected) {
+      const removeSet = new Set(visibleTranslatableIds)
+      setSelected(prev => prev.filter(id => !removeSet.has(id)))
+    } else {
+      setSelected(prev => [...new Set([...prev, ...visibleTranslatableIds])])
+    }
+  }
+
+  const placeholderCheck = useMemo(() => {
+    if (!currentUnit) return null
+    const check = validatePdfPlaceholders(currentUnit.sourceText, text)
+    return check.required.length ? check : null
+  }, [currentUnit?.sourceText, text])
+
+  const insertPlaceholderToken = token => {
+    const el = textareaRef.current
+    const start = el ? el.selectionStart : text.length
+    const end = el ? el.selectionEnd : text.length
+    const { text: nextText, cursor } = insertAtSelection(text, start, end, token)
+    dirtyRef.current = true
+    editVersionRef.current++
+    setText(nextText)
+    setDirty(true)
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus()
+        textareaRef.current.setSelectionRange(cursor, cursor)
+      }
+    })
+  }
+
+  useEffect(() => {
+    if (!interactive) return undefined
+    const onKey = e => {
+      if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+        if (index === -1) return
+        const nextIndex = e.key === 'ArrowDown' ? index + 1 : index - 1
+        if (visible[nextIndex]) {
+          e.preventDefault()
+          choose(visible[nextIndex].id)
+        }
+        return
+      }
+      if (!(e.ctrlKey || e.metaKey) || !current) return
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        if (e.shiftKey) {
+          saveAndAccept()
+        } else if (unitData?.draft && !dirty) {
+          accept().then(result => {
+            if (result && index < visible.length - 1) choose(visible[index + 1].id)
+          })
+        } else if (dirty) {
+          save()
+        }
+      } else if (e.key.toLowerCase() === 's') {
+        if (dirty && text.trim()) {
+          e.preventDefault()
+          save()
+        }
+      } else if (e.key.toLowerCase() === 'r') {
+        e.preventDefault()
+        translate('one')
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [interactive, current, unitData, dirty, text, index, visible])
+
+  useEffect(() => {
+    const before = e => {
+      if (dirty) {
+        e.preventDefault()
+        e.returnValue = ''
+      }
+    }
+    window.addEventListener('beforeunload', before)
+    return () => window.removeEventListener('beforeunload', before)
+  }, [dirty])
+
+  if (document.error) {
+    return (
+      <div className="page">
+        <ErrorBox message={document.error} />
+      </div>
+    )
+  }
+
+  return (
+    <div className="workbench">
+      <div className="workbench-head">
+        <div>
+          <a className="back" href="#/documents">
+            ← 文档
+          </a>
+          <h1>{document.value?.title || '工作台'}</h1>
+          <span className="muted">
+            {document.value?.format?.toUpperCase()} · {document.value?.unitCount ?? '—'} 个单位
+          </span>
+        </div>
+        <div className="row">
+          <label className="inline-label">
+            目标语言{' '}
+            <select
+              value={targetLang}
+              onChange={e => {
+                if (dirty && !confirm('修改尚未保存。仍要切换语言吗？')) return
+                dirtyRef.current = false
+                loadRef.current++
+                viewKeyRef.current = JSON.stringify([docId, e.target.value, current])
+                setDirty(false)
+                setSelected([])
+                setTargetLang(e.target.value)
+                setUnitData(null)
+              }}
+            >
+              {document.value?.format === 'pdf' ? (
+                document.value.language === 'en' ? (
+                  <>
+                    <option value="zh-CN">简体中文（zh-CN）</option>
+                    <option value="zh">中文（zh）</option>
+                  </>
+                ) : (
+                  <option value="en">English</option>
+                )
+              ) : (
+                <>
+                  <option value="zh-CN">简体中文（zh-CN）</option>
+                  <option value="zh">中文（zh）</option>
+                  <option value="en">English</option>
+                </>
+              )}
+            </select>
+          </label>
+          <select
+            value={mode}
+            onChange={e => setMode(e.target.value)}
+            aria-label="翻译模式"
+          >
+            <option value="careful">精细 · 保留草稿</option>
+            <option value="fast">快速 · 自动接受</option>
+          </select>
+          <Button className="secondary" busy={!!busy} onClick={() => translate('all')}>
+            翻译全文
+          </Button>
+        </div>
+      </div>
+
+      {document.value?.format === 'pdf' && (
+        <PdfCoverage
+          coverage={document.value.sourceCoverage}
+          warnings={document.value.warnings}
+        />
+      )}
+
+      <div className="workbench-toolbar">
+        <div className="row">
+          <span className="eyebrow">TRANSLATION WORKBENCH</span>
+          <span className="divider" />
+          <span>{visible.length} 个单位</span>
+          {visibleTranslatableIds.length > 0 && (
+            <button
+              type="button"
+              className="ghost"
+              onClick={toggleSelectAllVisible}
+            >
+              {allVisibleSelected ? '取消全选' : '全选'}
+            </button>
+          )}
+        </div>
+        <div className="row">
+          <span>{selected.length} 项已选</span>
+          <Button
+            className="ghost"
+            disabled={!selected.length || !!busy}
+            onClick={() => translate('selected')}
+          >
+            翻译所选
+          </Button>
+          {selectedDraftUnits.length > 0 && (
+            <Button
+              className="secondary"
+              disabled={!!busy}
+              onClick={batchAcceptSelected}
+            >
+              接受所选草稿 ({selectedDraftUnits.length})
+            </Button>
+          )}
+        </div>
+      </div>
+
+      <ErrorBox message={error} />
+      {message && <div className="notice success">{message}</div>}
+
+      <div className={`workbench-grid ${contextOpen ? '' : 'context-hidden'}`}>
+        <aside className="unit-list">
+          <div className="unit-list-head">
+            <strong>段落</strong>
+            <select
+              value={filter}
+              onChange={e => setFilter(e.target.value)}
+              aria-label="筛选段落"
+            >
+              <option value="all">全部</option>
+              <option value="untranslated">未译</option>
+              <option value="draft">草稿</option>
+              <option value="accepted">已接受</option>
+            </select>
+          </div>
+          <div className="unit-search-box">
+            <input
+              type="search"
+              aria-label="搜索段落"
+              value={unitSearch}
+              onChange={e => setUnitSearch(e.target.value)}
+              placeholder="搜索原文、#序号 或 p:页码…"
+            />
+          </div>
+          <div className="unit-scroll">
+            {visible.map((u, i) => (
+              <div key={u.id} className={`unit-item ${current === u.id ? 'active' : ''}`}>
+                <input
+                  type="checkbox"
+                  disabled={!u.translatable}
+                  checked={selected.includes(u.id)}
+                  onChange={e =>
+                    setSelected(
+                      e.target.checked
+                        ? [...selected, u.id]
+                        : selected.filter(id => id !== u.id)
+                    )
+                  }
+                  aria-label={`选择段落 ${i + 1}`}
+                />
+                <button onClick={() => choose(u.id)}>
+                  <span className="unit-number">{String(u.order + 1).padStart(2, '0')}</span>
+                  <span className="unit-snippet">{u.sourceText.slice(0, 110)}</span>
+                  <small>
+                    {u.acceptedRevisionId
+                      ? '✓ 已接受'
+                      : u.draftRevisionId || u.currentDraftRevisionId
+                        ? '● 草稿'
+                        : u.translatable
+                          ? '○ 未译'
+                          : '— 原文保留'}
+                  </small>
+                </button>
+              </div>
+            ))}
+          </div>
+        </aside>
+
+        <main className="editor-panel">
+          {currentUnit ? (
+            <>
+              <div className="editor-meta">
+                <span>
+                  段落 {currentUnit.order + 1} / {document.value?.unitCount}
+                </span>
+                <span>{currentUnit.kind}</span>
+                {currentUnit.locator?.page != null && (
+                  <span>第 {currentUnit.locator.page} 页</span>
+                )}
+              </div>
+
+              <div className="editor-section">
+                <div className="section-label">
+                  原文 <span>SOURCE</span>
+                </div>
+                <div className="source-text">{currentUnit.sourceText}</div>
+              </div>
+
+              <div className="editor-section">
+                <div className="section-label">
+                  译文 <span>TRANSLATION</span>
+                </div>
+
+                {placeholderCheck && (
+                  <div className="placeholder-toolbar" aria-label="PDF 占位符工具栏">
+                    <div className="placeholder-toolbar-head">
+                      <span
+                        className={`placeholder-status ${placeholderCheck.valid ? 'ok' : 'warn'}`}
+                      >
+                        {placeholderCheck.valid
+                          ? `✓ ${placeholderCheck.message}`
+                          : `⚠ ${placeholderCheck.message}`}
+                      </span>
+                      {!placeholderCheck.valid && placeholderCheck.missing.length > 0 && (
+                        <button
+                          type="button"
+                          className="ghost small"
+                          onClick={() =>
+                            insertPlaceholderToken(placeholderCheck.missing.join(''))
+                          }
+                        >
+                          一键补齐缺失标记
+                        </button>
+                      )}
+                    </div>
+                    <div className="placeholder-chips">
+                      <span className="muted small">点击插入：</span>
+                      {placeholderCheck.required.map((token, idx) => (
+                        <button
+                          key={`${token}-${idx}`}
+                          type="button"
+                          className={`placeholder-chip ${placeholderCheck.missing.includes(token) ? 'missing' : ''}`}
+                          onClick={() => insertPlaceholderToken(token)}
+                          title={`在光标处插入 ${token}`}
+                        >
+                          {token}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <textarea
+                  ref={textareaRef}
+                  value={text}
+                  onChange={e => {
+                    dirtyRef.current = true
+                    editVersionRef.current++
+                    setText(e.target.value)
+                    setDirty(true)
+                  }}
+                  placeholder="译文将在这里显示。您也可以直接输入译文…"
+                  aria-label="译文编辑"
+                  disabled={!currentUnit.translatable || !!busy}
+                />
+
+                <div className="editor-actions">
+                  <span className="muted">
+                    {dirty
+                      ? '● 尚未保存'
+                      : unitData?.draft
+                        ? '草稿待接受'
+                        : unitData?.accepted
+                          ? '已接受'
+                          : '暂无译文'}
+                  </span>
+                  <div className="row">
+                    <Button
+                      className="ghost"
+                      busy={!!busy}
+                      onClick={() => translate('one')}
+                      disabled={!currentUnit.translatable}
+                    >
+                      翻译此段
+                    </Button>
+                    <Button
+                      className="secondary"
+                      busy={!!busy}
+                      onClick={save}
+                      disabled={!dirty || !text.trim()}
+                    >
+                      保存草稿
+                    </Button>
+                    {dirty && (
+                      <Button
+                        className="primary"
+                        busy={!!busy}
+                        onClick={saveAndAccept}
+                        disabled={
+                          !text.trim() ||
+                          (placeholderCheck ? !placeholderCheck.valid : false)
+                        }
+                      >
+                        保存并接受
+                      </Button>
+                    )}
+                    <Button
+                      className="primary"
+                      busy={!!busy}
+                      onClick={() => accept()}
+                      disabled={dirty || !unitData?.draft}
+                    >
+                      接受译文
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="shortcut-hint-bar">
+                  <span>⌘/Ctrl+Enter 保存或接受 · ⌘/Ctrl+⇧+Enter 保存并接受</span>
+                  <span>⌘/Ctrl+S 仅保存 · ⌘/Ctrl+R 重译此段 · Alt+↑/↓ 切换段落</span>
+                </div>
+              </div>
+
+              <div className="history">
+                <div className="row spread">
+                  <div>
+                    <span className="eyebrow">REVISION HISTORY</span>
+                    <h3>修订历史</h3>
+                  </div>
+                  <div className="row">
+                    {history.length > 0 && (
+                      <button
+                        type="button"
+                        className="ghost small"
+                        onClick={() => setShowDiff(v => !v)}
+                      >
+                        {showDiff ? '隐藏差异' : '对比差异'}
+                      </button>
+                    )}
+                    {unitData?.accepted && (
+                      <Button className="ghost" busy={!!busy} onClick={unaccept}>
+                        取消接受
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                {history.length ? (
+                  <div className="history-list">
+                    {[...history].reverse().map(r => {
+                      const diffBase =
+                        unitData?.accepted && unitData.accepted.id !== r.id
+                          ? unitData.accepted.text
+                          : currentUnit?.sourceText || ''
+                      const diffSegments = showDiff
+                        ? computeWordDiff(diffBase, r.text)
+                        : null
+                      return (
+                        <div className="revision" key={r.id}>
+                          <div className="row spread">
+                            <span>
+                              <b>
+                                {r.origin === 'machine'
+                                  ? '机器'
+                                  : r.origin === 'human'
+                                    ? '人工'
+                                    : '导入'}
+                              </b>{' '}
+                              · {revisionStatus(r.status)}
+                            </span>
+                            <span className="muted">{fmt(r.createdAt)}</span>
+                          </div>
+                          {showDiff && diffSegments ? (
+                            <div className="diff-view">
+                              {diffSegments.map((seg, idx) =>
+                                seg.type === 'same' ? (
+                                  <span key={idx}>{seg.text}</span>
+                                ) : (
+                                  <span
+                                    key={idx}
+                                    className={seg.type === 'add' ? 'diff-add' : 'diff-del'}
+                                  >
+                                    {seg.text}
+                                  </span>
+                                )
+                              )}
+                            </div>
+                          ) : (
+                            <p>{r.text}</p>
+                          )}
+                          <div className="row">
+                            <button
+                              className="link"
+                              onClick={() => {
+                                dirtyRef.current = true
+                                editVersionRef.current++
+                                setText(r.text)
+                                setDirty(true)
+                              }}
+                            >
+                              加载到编辑器
+                            </button>
+                            {r.status !== 'accepted' && (
+                              <button
+                                className="link"
+                                disabled={!!busy}
+                                onClick={() => accept(r.id)}
+                              >
+                                接受此版本
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <p className="muted">尚无修订。保存草稿或发起翻译后会保留历史。</p>
+                )}
+              </div>
+            </>
+          ) : (
+            <Empty
+              title="选择一个段落"
+              detail="从左侧列表选择需要翻译或审校的段落。"
+            />
+          )}
+        </main>
+
+        {contextOpen && (
+          <aside className="context-panel">
+            <div className="row spread">
+              <strong>上下文与输出</strong>
+              <button
+                className="icon-button"
+                onClick={() => setContextOpen(false)}
+                aria-label="收起侧栏"
+              >
+                ×
+              </button>
+            </div>
+            <div className="context-block">
+              <span className="eyebrow">POSITION</span>
+              <h4>来源位置</h4>
+              <p>
+                段落 #{currentUnit ? currentUnit.order + 1 : '—'} ·{' '}
+                {currentUnit?.kind || '—'}
+              </p>
+              {currentUnit?.locator?.page != null && (
+                <p>第 {currentUnit.locator.page} 页</p>
+              )}
+              {currentUnit?.locator?.bbox && (
+                <p>坐标 {JSON.stringify(currentUnit.locator.bbox)}</p>
+              )}
+              {currentUnit?.locator && (
+                <details>
+                  <summary>完整来源信息</summary>
+                  <pre>{JSON.stringify(currentUnit.locator, null, 2)}</pre>
+                </details>
+              )}
+            </div>
+            <div className="context-block">
+              <span className="eyebrow">NEIGHBORS</span>
+              <h4>前后文</h4>
+              <p>{visible[index - 1]?.sourceText?.slice(0, 120) || '—'}</p>
+              <div className="hairline" />
+              <p>{visible[index + 1]?.sourceText?.slice(0, 120) || '—'}</p>
+            </div>
+            <div className="context-block">
+              <span className="eyebrow">EXPORT</span>
+              <h4>导出已接受译文</h4>
+              <div className="check-list">
+                {['pdf', 'md', 'json']
+                  .filter(f => document.value?.availableOutputs?.includes(f))
+                  .map(f => (
+                    <label key={f}>
+                      <input
+                        type="checkbox"
+                        checked={formats.includes(f)}
+                        onChange={e =>
+                          setFormats(
+                            e.target.checked
+                              ? [...formats, f]
+                              : formats.filter(x => x !== f)
+                          )
+                        }
+                      />
+                      {f.toUpperCase()}
+                    </label>
+                  ))}
+              </div>
+              <Button
+                className="primary full"
+                busy={!!busy}
+                disabled={!formats.length}
+                onClick={exportNow}
+              >
+                创建冻结快照并导出
+              </Button>
+              <p className="hint">所有所选格式共享同一份快照。</p>
+            </div>
+            <div className="context-block">
+              <span className="eyebrow">ARTIFACTS</span>
+              <h4>已生成文件</h4>
+              {artifacts.length ? (
+                artifacts
+                  .slice()
+                  .reverse()
+                  .map(a => <ArtifactItem key={a.id} artifact={a} />)
+              ) : (
+                <p className="muted">暂无产物</p>
+              )}
+            </div>
+            {tasks
+              .filter(t => ['queued', 'running', 'paused', 'failed'].includes(t.state))
+              .slice(-2)
+              .map(t => (
+                <TaskCard key={t.id} task={t} refresh={refreshSide} />
+              ))}
+          </aside>
+        )}
+      </div>
+      {!contextOpen && (
+        <button className="context-toggle" onClick={() => setContextOpen(true)}>
+          显示上下文与输出 →
+        </button>
+      )}
+    </div>
+  )
 }
 
 function App() {
-  const [locationState,setLocationState]=useState(()=>{
-    const path=route(), meta=readSettingsHistory(history.state)
-    const initial=initialSettingsLocation(path)
-    return meta&&isSettingsPath(path) ? {...initial,background:meta.background} : initial
-  }),[epoch,setEpoch]=useState(0),[capabilityTick,setCapabilityTick]=useState(0),[connected,setConnected]=useState(false),[theme,setTheme]=useState(localStorage.getItem('ivoraige.theme')||'system'),[collapsed,setCollapsed]=useState(localStorage.getItem('ivoraige.sidebar')==='collapsed')
-  const capabilities=useRemote(()=>api('/capabilities'),[capabilityTick]), taskData=useRemote(()=>allPages('/tasks'),[epoch]);const active=(taskData.value||[]).filter(t=>['queued','running'].includes(t.state)).length
+  const [locationState, setLocationState] = useState(() => {
+    const path = route()
+    const meta = readSettingsHistory(history.state)
+    const initial = initialSettingsLocation(path)
+    return meta && isSettingsPath(path)
+      ? { ...initial, background: meta.background }
+      : initial
+  })
+  const [epoch, setEpoch] = useState(0)
+  const [capabilityTick, setCapabilityTick] = useState(0)
+  const [connected, setConnected] = useState(false)
+  const [theme, setTheme] = useState(localStorage.getItem('ivoraige.theme') || 'system')
+  const [collapsed, setCollapsed] = useState(
+    localStorage.getItem('ivoraige.sidebar') === 'collapsed'
+  )
+
+  const capabilities = useRemote(() => api('/capabilities'), [capabilityTick])
+  const taskData = useRemote(() => allPages('/tasks'), [epoch])
+  const active = (taskData.value || []).filter(t =>
+    ['queued', 'running'].includes(t.state)
+  ).length
+
   const path = locationState.background
   const settingsOpen = isSettingsPath(locationState.path)
   const locationRef = useRef(locationState)
-  const historyRef = useRef(readSettingsHistory(history.state)??{index:0,origin:null,background:locationState.background})
+  const historyRef = useRef(
+    readSettingsHistory(history.state) ?? {
+      index: 0,
+      origin: null,
+      background: locationState.background,
+    }
+  )
   const restoringRef = useRef(null)
   const handlingRef = useRef(false)
-  const guardRef = useRef({dirty:false,busy:false})
-  const [settingsRuntime] = useState(()=>createSettingsRuntime({models:Settings,pdf:PdfSettings}))
-  const [settingsError,setSettingsError] = useState('')
-  const [confirmation,setConfirmation] = useState(null)
+  const guardRef = useRef({ dirty: false, busy: false })
+  const [settingsRuntime] = useState(() =>
+    createSettingsRuntime({ models: Settings, pdf: PdfSettings })
+  )
+  const [settingsError, setSettingsError] = useState('')
+  const [confirmation, setConfirmation] = useState(null)
   const confirmationRef = useRef(null)
-  const confirmDiscard = useCallback(message=>new Promise(resolve=>{
-    if(confirmationRef.current){resolve(false);return}
-    confirmationRef.current=resolve;setConfirmation(message)
-  }),[])
-  const answerConfirmation = useCallback(answer=>{
-    const resolve=confirmationRef.current;confirmationRef.current=null;setConfirmation(null);resolve?.(answer)
-  },[])
-  const onGuardChange = useCallback(value=>{guardRef.current=value},[])
-  const allowSettingsExit = useCallback(async()=>{
-    if(confirmationRef.current || guardRef.current.busy)return false
-    return !guardRef.current.dirty || await confirmDiscard('设置修改尚未保存。放弃修改并离开吗？')
-  },[confirmDiscard])
-  const moveSettings = useCallback(async(next,{replace=false,confirmed=false}={})=>{
-    next=hashRoute(next)
-    const current=locationRef.current
-    if(next===current.path)return
-    if(isSettingsPath(current.path)&&!confirmed&&!await allowSettingsExit())return
-    const state=settingsLocation(current,next)
-    const meta=nextSettingsHistory(historyRef.current,current,next,replace)
-    history[replace?'replaceState':'pushState'](settingsHistoryState(history.state,meta),'',`#${next}`)
-    historyRef.current=meta
-    locationRef.current=state;setLocationState(state)
-  },[allowSettingsExit])
-  // Every in-app link and programmatic navigation uses the same history writer.
-  useEffect(()=>{
-    const requested=event=>{void moveSettings(event.detail)}
-    const clicked=event=>{
-      if(event.defaultPrevented||event.button!==0||event.ctrlKey||event.metaKey||event.shiftKey||event.altKey)return
-      const anchor=event.target.closest?.('a[href]')
-      if(!anchor||anchor.hasAttribute('download')||(anchor.target&&anchor.target!=='_self'))return
-      const url=new URL(anchor.href,location.href)
-      if(url.origin!==location.origin||url.pathname!==location.pathname||url.search!==location.search||!url.hash.startsWith('#/'))return
-      event.preventDefault();void moveSettings(url.hash.slice(1))
-    }
-    window.addEventListener('ivoraige:navigate',requested)
-    document.addEventListener('click',clicked)
-    return()=>{window.removeEventListener('ivoraige:navigate',requested);document.removeEventListener('click',clicked)}
-  },[moveSettings])
-  const closeSettings = useCallback(async()=>{
-    if(!await allowSettingsExit())return
-    const {origin,index}=historyRef.current
-    if(origin!==null && origin<index){
-      restoringRef.current=origin
-      history.go(origin-index)
-    }else{
-      await moveSettings(locationRef.current.background,{replace:true,confirmed:true})
-    }
-  },[allowSettingsExit,moveSettings])
-  const refreshCapabilities = useCallback(()=>setCapabilityTick(x=>x+1),[])
-  useEffect(()=>{
-    if(!readSettingsHistory(history.state))history.replaceState(settingsHistoryState(history.state,historyRef.current),'')
-    const sync=async()=>{
-      if(handlingRef.current)return
-      handlingRef.current=true
-      try{
-        const next=route(),current=locationRef.current,previous=historyRef.current
-        let target=readSettingsHistory(history.state)
-        if(!target){
-          target=nextSettingsHistory(previous,current,next)
-          history.replaceState(settingsHistoryState(history.state,target),'')
-        }
-        const confirmedTraversal=restoringRef.current===target.index
-        if(confirmedTraversal){
-          restoringRef.current=null
-          if(next===current.path)return // Canceled Back/Forward reached the original entry.
-        }
-        if(next===current.path){historyRef.current=target;return}
-        if(isSettingsPath(current.path)&&!confirmedTraversal&&!await allowSettingsExit()){
-          const delta=reverseSettingsTraversal(previous,target)
-          restoringRef.current=previous.index
-          if(delta)history.go(delta)
+
+  const confirmDiscard = useCallback(
+    message =>
+      new Promise(resolve => {
+        if (confirmationRef.current) {
+          resolve(false)
           return
         }
-        const state=settingsLocation(current,next)
-        historyRef.current=target
-        locationRef.current=state;setLocationState(state)
-      }finally{handlingRef.current=false}
+        confirmationRef.current = resolve
+        setConfirmation(message)
+      }),
+    []
+  )
+
+  const answerConfirmation = useCallback(answer => {
+    const resolve = confirmationRef.current
+    confirmationRef.current = null
+    setConfirmation(null)
+    resolve?.(answer)
+  }, [])
+
+  const onGuardChange = useCallback(value => {
+    guardRef.current = value
+  }, [])
+
+  const allowSettingsExit = useCallback(async () => {
+    if (confirmationRef.current || guardRef.current.busy) return false
+    return (
+      !guardRef.current.dirty ||
+      (await confirmDiscard('设置修改尚未保存。放弃修改并离开吗？'))
+    )
+  }, [confirmDiscard])
+
+  const moveSettings = useCallback(
+    async (next, { replace = false, confirmed = false } = {}) => {
+      next = hashRoute(next)
+      const current = locationRef.current
+      if (next === current.path) return
+      if (isSettingsPath(current.path) && !confirmed && !(await allowSettingsExit())) return
+      const state = settingsLocation(current, next)
+      const meta = nextSettingsHistory(historyRef.current, current, next, replace)
+      history[replace ? 'replaceState' : 'pushState'](
+        settingsHistoryState(history.state, meta),
+        '',
+        `#${next}`
+      )
+      historyRef.current = meta
+      locationRef.current = state
+      setLocationState(state)
+    },
+    [allowSettingsExit]
+  )
+
+  // Every in-app link and programmatic navigation uses the same history writer.
+  useEffect(() => {
+    const requested = event => {
+      void moveSettings(event.detail)
     }
-    window.addEventListener('popstate',sync)
-    window.addEventListener('hashchange',sync)
-    return()=>{window.removeEventListener('popstate',sync);window.removeEventListener('hashchange',sync)}
-  },[allowSettingsExit])
-  useEffect(()=>{let alive=true;settingsRuntime.sync(capabilities.value?.settingsPages??[]).catch(error=>{if(alive)setSettingsError(error.message)});return()=>{alive=false}},[settingsRuntime,capabilities.value])
-  useEffect(()=>()=>{settingsRuntime.dispose()},[settingsRuntime])
-  useEffect(()=>{if(!settingsOpen)guardRef.current={dirty:false,busy:false}},[settingsOpen])
-  useEffect(()=>{const apply=()=>{document.documentElement.dataset.theme=theme==='system'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):theme};apply();localStorage.setItem('ivoraige.theme',theme);const media=matchMedia('(prefers-color-scheme: dark)');media.addEventListener('change',apply);return()=>media.removeEventListener('change',apply)},[theme])
-  useEffect(()=>{localStorage.setItem('ivoraige.sidebar',collapsed?'collapsed':'expanded')},[collapsed])
+    const clicked = event => {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        event.altKey
+      ) {
+        return
+      }
+      const anchor = event.target.closest?.('a[href]')
+      if (
+        !anchor ||
+        anchor.hasAttribute('download') ||
+        (anchor.target && anchor.target !== '_self')
+      ) {
+        return
+      }
+      const url = new URL(anchor.href, location.href)
+      if (
+        url.origin !== location.origin ||
+        url.pathname !== location.pathname ||
+        url.search !== location.search ||
+        !url.hash.startsWith('#/')
+      ) {
+        return
+      }
+      event.preventDefault()
+      void moveSettings(url.hash.slice(1))
+    }
+    window.addEventListener('ivoraige:navigate', requested)
+    document.addEventListener('click', clicked)
+    return () => {
+      window.removeEventListener('ivoraige:navigate', requested)
+      document.removeEventListener('click', clicked)
+    }
+  }, [moveSettings])
+
+  const closeSettings = useCallback(async () => {
+    if (!(await allowSettingsExit())) return
+    const { origin, index } = historyRef.current
+    if (origin !== null && origin < index) {
+      restoringRef.current = origin
+      history.go(origin - index)
+    } else {
+      await moveSettings(locationRef.current.background, {
+        replace: true,
+        confirmed: true,
+      })
+    }
+  }, [allowSettingsExit, moveSettings])
+
+  const refreshCapabilities = useCallback(() => setCapabilityTick(x => x + 1), [])
+
+  useEffect(() => {
+    if (!readSettingsHistory(history.state)) {
+      history.replaceState(settingsHistoryState(history.state, historyRef.current), '')
+    }
+    const sync = async () => {
+      if (handlingRef.current) return
+      handlingRef.current = true
+      try {
+        const next = route()
+        const current = locationRef.current
+        const previous = historyRef.current
+        let target = readSettingsHistory(history.state)
+        if (!target) {
+          target = nextSettingsHistory(previous, current, next)
+          history.replaceState(settingsHistoryState(history.state, target), '')
+        }
+        const confirmedTraversal = restoringRef.current === target.index
+        if (confirmedTraversal) {
+          restoringRef.current = null
+          if (next === current.path) return // Canceled Back/Forward reached the original entry.
+        }
+        if (next === current.path) {
+          historyRef.current = target
+          return
+        }
+        if (
+          isSettingsPath(current.path) &&
+          !confirmedTraversal &&
+          !(await allowSettingsExit())
+        ) {
+          const delta = reverseSettingsTraversal(previous, target)
+          restoringRef.current = previous.index
+          if (delta) history.go(delta)
+          return
+        }
+        const state = settingsLocation(current, next)
+        historyRef.current = target
+        locationRef.current = state
+        setLocationState(state)
+      } finally {
+        handlingRef.current = false
+      }
+    }
+    window.addEventListener('popstate', sync)
+    window.addEventListener('hashchange', sync)
+    return () => {
+      window.removeEventListener('popstate', sync)
+      window.removeEventListener('hashchange', sync)
+    }
+  }, [allowSettingsExit])
+
+  useEffect(() => {
+    let alive = true
+    settingsRuntime
+      .sync(capabilities.value?.settingsPages ?? [])
+      .catch(error => {
+        if (alive) setSettingsError(error.message)
+      })
+    return () => {
+      alive = false
+    }
+  }, [settingsRuntime, capabilities.value])
+
+  useEffect(
+    () => () => {
+      settingsRuntime.dispose()
+    },
+    [settingsRuntime]
+  )
+
+  useEffect(() => {
+    if (!settingsOpen) guardRef.current = { dirty: false, busy: false }
+  }, [settingsOpen])
+
+  useEffect(() => {
+    const apply = () => {
+      document.documentElement.dataset.theme =
+        theme === 'system'
+          ? matchMedia('(prefers-color-scheme: dark)').matches
+            ? 'dark'
+            : 'light'
+          : theme
+    }
+    apply()
+    localStorage.setItem('ivoraige.theme', theme)
+    const media = matchMedia('(prefers-color-scheme: dark)')
+    media.addEventListener('change', apply)
+    return () => media.removeEventListener('change', apply)
+  }, [theme])
+
+  useEffect(() => {
+    localStorage.setItem('ivoraige.sidebar', collapsed ? 'collapsed' : 'expanded')
+  }, [collapsed])
+
   useEffect(() => {
     const sync = createStateSync({
       connect({ onReady, onNotice, onDisconnect }) {
         const stream = new EventSource('/api/events/state')
-        const read = listener => event => { try { listener(JSON.parse(event.data)) } catch { onDisconnect() } }
+        const read = listener => event => {
+          try {
+            listener(JSON.parse(event.data))
+          } catch {
+            onDisconnect()
+          }
+        }
         stream.addEventListener('state.ready', read(onReady))
         stream.addEventListener('state.invalidated', read(onNotice))
         stream.addEventListener('resync-required', read(onNotice))
@@ -270,23 +1913,195 @@ function App() {
         return () => stream.close()
       },
       async snapshot(ready, { signal }) {
-        const response = await fetch('/api/state?subscriptionId=' + encodeURIComponent(ready.subscriptionId),
-          { signal, cache: 'no-store' })
+        const response = await fetch(
+          '/api/state?subscriptionId=' + encodeURIComponent(ready.subscriptionId),
+          { signal, cache: 'no-store' }
+        )
         if (!response.ok) throw new Error('State synchronization failed')
         return response.json()
       },
-      onState() { setEpoch(x => x + 1); setCapabilityTick(x => x + 1) },
-      onStatus(status) { setConnected(status === 'synchronized') },
+      onState() {
+        setEpoch(x => x + 1)
+        setCapabilityTick(x => x + 1)
+      },
+      onStatus(status) {
+        setConnected(status === 'synchronized')
+      },
     })
     return () => sync.stop()
   }, [])
-  const pages=[['/','主页','⌂'],['/documents','文档','▤'],...(capabilities.value?.features?.includes('workbench')?[['/workbench','工作台','◫']]:[]),...(capabilities.value?.features?.includes('tasks')?[['/tasks','任务','◷']]:[])]
-  useEffect(()=>{const key=e=>{if(settingsOpen)return;if(!(e.ctrlKey||e.metaKey)||!/^\d$/.test(e.key))return;const item=pages[Number(e.key)-1];if(item){e.preventDefault();navigate(item[0]==='/workbench'?'/documents':item[0])}};window.addEventListener('keydown',key);return()=>window.removeEventListener('keydown',key)},[pages.map(p=>p[0]).join(','),settingsOpen])
-  const title=path.startsWith('/workbench/')?'精翻工作台':path.startsWith('/documents')?'文档':path.startsWith('/tasks')?'任务':path.startsWith('/settings')?'设置':'主页'
-  const features=capabilities.value?.features||[]
-  return <><div className={`app-shell ${collapsed?'collapsed':''}`}><aside className="sidebar"><a className="brand" href="#/"><span className="brand-icon">i.</span><span className="brand-word">ivoraige<small>TRANSLATION STUDIO</small></span></a><div className="nav-label">WORKSPACE</div><nav aria-label="主导航">{pages.filter(p=>p[0]!=='/workbench').map(([href,label,icon])=><a key={href} href={`#${href}`} title={label} className={(href==='/'?path==='/':path.startsWith(href))?'active':''}><span className="nav-icon">{icon}</span><span className="nav-text">{label}</span>{label==='任务'&&active>0&&<b className="badge">{active}</b>}</a>)}</nav><div className="sidebar-bottom"><button className="collapse-button" onClick={()=>setCollapsed(!collapsed)} title={collapsed?'展开侧栏':'折叠侧栏'}>{collapsed?'→':'←'} <span>折叠侧栏</span></button>{features.includes('settings')&&<a className={settingsOpen?'active':''} href="#/settings" onClick={event=>{event.preventDefault();void moveSettings('/settings')}} title="设置"><span className="nav-icon">⚙</span><span className="nav-text">设置</span></a>}<div className="sidebar-footer">v0.1 · LOCAL</div></div></aside><div className="content"><header className="topbar"><div className="breadcrumbs">工作空间 <span>/</span> <strong>{title}</strong></div><div className="top-actions"><button className="theme-button" onClick={()=>setTheme(theme==='light'?'dark':theme==='dark'?'system':'light')} title={`主题：${theme}`} aria-label="切换主题">{theme==='light'?'☼':theme==='dark'?'☾':'◐'}</button><a className="task-indicator" href="#/tasks">{active>0&&<span className="pulse"/>} {active} 项进行中</a><span className={`connection ${connected?'online':'offline'}`} title={connected?'已连接内核':'连接已断开，正在重连'}>{connected?'● 已连接':'● 正在重连'}</span></div></header><div className="content-scroll">{capabilities.error&&<ErrorBox message={capabilities.error}/>} {path.startsWith('/workbench/')&&features.includes('workbench')?<Workbench docId={path.split('/')[2]?.split('?')[0]} epoch={epoch} interactive={!settingsOpen}/>:path.startsWith('/documents')&&features.includes('documents')?<Documents epoch={epoch} inputFormats={capabilities.value?.inputFormats} pdfStatus={capabilities.value?.components?.babeldoc}/>:path.startsWith('/tasks')&&features.includes('tasks')?<Tasks epoch={epoch}/>:<Dashboard epoch={epoch} capabilities={capabilities.value}/>}</div></div></div>{settingsOpen&&<SettingsWindow runtime={settingsRuntime} path={locationState.path}
-    navigate={moveSettings} close={closeSettings} confirmDiscard={confirmDiscard} confirmation={confirmation} answerConfirmation={answerConfirmation} onGuardChange={onGuardChange} refreshKey={capabilityTick}
-    capabilities={{...capabilities,error:capabilities.error||settingsError}} refreshCapabilities={refreshCapabilities}
-    api={api} useRemote={useRemote} Button={Button} ErrorBox={ErrorBox}/>}</>
+
+  const pages = [
+    ['/', '主页', '⌂'],
+    ['/documents', '文档', '▤'],
+    ...(capabilities.value?.features?.includes('workbench')
+      ? [['/workbench', '工作台', '◫']]
+      : []),
+    ...(capabilities.value?.features?.includes('tasks')
+      ? [['/tasks', '任务', '◷']]
+      : []),
+  ]
+
+  useEffect(() => {
+    const key = e => {
+      if (settingsOpen) return
+      if (!(e.ctrlKey || e.metaKey) || !/^\d$/.test(e.key)) return
+      const item = pages[Number(e.key) - 1]
+      if (item) {
+        e.preventDefault()
+        navigate(item[0] === '/workbench' ? '/documents' : item[0])
+      }
+    }
+    window.addEventListener('keydown', key)
+    return () => window.removeEventListener('keydown', key)
+  }, [pages.map(p => p[0]).join(','), settingsOpen])
+
+  const title = path.startsWith('/workbench/')
+    ? '精翻工作台'
+    : path.startsWith('/documents')
+      ? '文档'
+      : path.startsWith('/tasks')
+        ? '任务'
+        : path.startsWith('/settings')
+          ? '设置'
+          : '主页'
+
+  const features = capabilities.value?.features || []
+
+  return (
+    <>
+      <div className={`app-shell ${collapsed ? 'collapsed' : ''}`}>
+        <aside className="sidebar">
+          <a className="brand" href="#/">
+            <span className="brand-icon">i.</span>
+            <span className="brand-word">
+              ivoraige
+              <small>TRANSLATION STUDIO</small>
+            </span>
+          </a>
+          <div className="nav-label">WORKSPACE</div>
+          <nav aria-label="主导航">
+            {pages
+              .filter(p => p[0] !== '/workbench')
+              .map(([href, label, icon]) => (
+                <a
+                  key={href}
+                  href={`#${href}`}
+                  title={label}
+                  className={
+                    (href === '/' ? path === '/' : path.startsWith(href)) ? 'active' : ''
+                  }
+                >
+                  <span className="nav-icon">{icon}</span>
+                  <span className="nav-text">{label}</span>
+                  {label === '任务' && active > 0 && <b className="badge">{active}</b>}
+                </a>
+              ))}
+          </nav>
+          <div className="sidebar-bottom">
+            <button
+              className="collapse-button"
+              onClick={() => setCollapsed(!collapsed)}
+              title={collapsed ? '展开侧栏' : '折叠侧栏'}
+            >
+              {collapsed ? '→' : '←'} <span>折叠侧栏</span>
+            </button>
+            {features.includes('settings') && (
+              <a
+                className={settingsOpen ? 'active' : ''}
+                href="#/settings"
+                onClick={event => {
+                  event.preventDefault()
+                  void moveSettings('/settings')
+                }}
+                title="设置"
+              >
+                <span className="nav-icon">⚙</span>
+                <span className="nav-text">设置</span>
+              </a>
+            )}
+            <div className="sidebar-footer">v0.1 · LOCAL</div>
+          </div>
+        </aside>
+
+        <div className="content">
+          <header className="topbar">
+            <div className="breadcrumbs">
+              工作空间 <span>/</span> <strong>{title}</strong>
+            </div>
+            <div className="top-actions">
+              <button
+                className="theme-button"
+                onClick={() =>
+                  setTheme(
+                    theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light'
+                  )
+                }
+                title={`主题：${theme}`}
+                aria-label="切换主题"
+              >
+                {theme === 'light' ? '☼' : theme === 'dark' ? '☾' : '◐'}
+              </button>
+              <a className="task-indicator" href="#/tasks">
+                {active > 0 && <span className="pulse" />} {active} 项进行中
+              </a>
+              <span
+                className={`connection ${connected ? 'online' : 'offline'}`}
+                title={connected ? '已连接内核' : '连接已断开，正在重连'}
+              >
+                {connected ? '● 已连接' : '● 正在重连'}
+              </span>
+            </div>
+          </header>
+
+          <div className="content-scroll">
+            {capabilities.error && <ErrorBox message={capabilities.error} />}
+            {path.startsWith('/workbench/') && features.includes('workbench') ? (
+              <Workbench
+                docId={path.split('/')[2]?.split('?')[0]}
+                epoch={epoch}
+                interactive={!settingsOpen}
+              />
+            ) : path.startsWith('/documents') && features.includes('documents') ? (
+              <Documents
+                epoch={epoch}
+                inputFormats={capabilities.value?.inputFormats}
+                pdfStatus={capabilities.value?.components?.babeldoc}
+                mineruStatus={capabilities.value?.components?.mineru}
+              />
+            ) : path.startsWith('/tasks') && features.includes('tasks') ? (
+              <Tasks epoch={epoch} />
+            ) : (
+              <Dashboard epoch={epoch} capabilities={capabilities.value} />
+            )}
+          </div>
+        </div>
+      </div>
+
+      {settingsOpen && (
+        <SettingsWindow
+          runtime={settingsRuntime}
+          path={locationState.path}
+          navigate={moveSettings}
+          close={closeSettings}
+          confirmDiscard={confirmDiscard}
+          confirmation={confirmation}
+          answerConfirmation={answerConfirmation}
+          onGuardChange={onGuardChange}
+          refreshKey={capabilityTick}
+          capabilities={{
+            ...capabilities,
+            error: capabilities.error || settingsError,
+          }}
+          refreshCapabilities={refreshCapabilities}
+          api={api}
+          useRemote={useRemote}
+          Button={Button}
+          ErrorBox={ErrorBox}
+        />
+      )}
+    </>
+  )
 }
-createRoot(document.getElementById('root')).render(<App/>)
+
+createRoot(document.getElementById('root')).render(<App />)

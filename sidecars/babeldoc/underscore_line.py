@@ -1,7 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2026 ivoraige contributors
 
-"""Keep a narrowly identified low ASCII underscore with its word during line split."""
+"""Historical BabelDOC 0.6.4 Python underscore policy prototypes.
+
+The 0.7.1+ivoraige.3 runtime uses native ascii-alnum-base-v1 instead. This
+module is retained only for the version-gated historical regression suite.
+"""
 
 import math
 from contextlib import contextmanager

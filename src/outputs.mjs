@@ -1,10 +1,12 @@
 import { Service } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
+import { callAdapter } from './adapter-error.mjs'
 
 function available(adapter, contentMode) {
-  const state = adapter.status?.().state
+  const state = (adapter.status ? callAdapter(adapter, 'status') : undefined)?.state
   if (state === 'disabled' || state === 'failed') return false
-  return state !== 'unavailable' || adapter.canRunUnavailable?.(contentMode) === true
+  return state !== 'unavailable' ||
+    (adapter.canRunUnavailable ? callAdapter(adapter, 'canRunUnavailable', [contentMode]) : undefined) === true
 }
 
 export class Outputs extends Service {
@@ -53,7 +55,8 @@ export class Outputs extends Service {
   availableAdapters(options = {}) {
     const { binding, contentMode } = options
     return [...this.adapters.values()].filter(adapter => available(adapter, contentMode) &&
-      (binding === undefined || adapter.supports(binding, contentMode)) && !this.viewError(adapter, options))
+      (binding === undefined || callAdapter(adapter, 'supports', [binding, contentMode])) &&
+      !this.viewError(adapter, options))
   }
 
   availableFor(binding, options = {}) { return this.listFormats({ ...options, binding }) }
@@ -73,7 +76,7 @@ export class Outputs extends Service {
       `Output adapter for ${format} is not installed`, { format, adapterId })
     const compatible = candidates.filter(adapter =>
       available(adapter, contentMode) &&
-      (binding === undefined || adapter.supports(binding, contentMode)))
+      (binding === undefined || callAdapter(adapter, 'supports', [binding, contentMode])))
     if (!compatible.length) throw new KernelError('PRECONDITION_FAILED',
       'Output adapter does not support the frozen source binding or mode', { format, adapterId })
     const checked = compatible.map(adapter => ({ adapter, error: this.viewError(adapter, { binding, provenance }) }))
@@ -85,9 +88,10 @@ export class Outputs extends Service {
     if (adapterVersion !== undefined && adapterVersion !== (adapter.version ?? 'unversioned'))
       throw new KernelError('PRECONDITION_FAILED', 'Pinned output adapter version is unavailable',
         { adapterId: adapter.id, adapterVersion })
-    if (binding !== undefined && contentMode !== undefined) adapter.validateExport?.(Object.freeze({ contentMode, targetLang,
+    if (binding !== undefined && contentMode !== undefined && adapter.validateExport)
+      callAdapter(adapter, 'validateExport', [Object.freeze({ contentMode, targetLang,
       binding: Object.freeze(structuredClone(binding)),
-      provenance: provenance === undefined ? undefined : Object.freeze(structuredClone(provenance)) }))
+      provenance: provenance === undefined ? undefined : Object.freeze(structuredClone(provenance)) })])
     return adapter
   }
 }
