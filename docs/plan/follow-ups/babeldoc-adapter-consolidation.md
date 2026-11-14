@@ -22,3 +22,4 @@
 ## 处理记录
 
 2026-11-10：登记待评估；PR #98 的局部错误边界修复及版本区分不能替代完整收口。
+2026-11-14：已将 `plugins/babeldoc/index.mjs` 与 `plugins/babeldoc/pdf-text.mjs` 的 `cleanupPath`、`recordCleanupError`、`isReferenced` 异常保护、`exportSource` 引擎标识校验及 `renderPdfMarkdown` 占位符渲染同步回 `src/adapters/pdf.mjs` 与 `src/adapters/pdf-text.mjs`；因独立插件打包（`npm pack`）严禁跨越 `../src/` 导入私有宿主模块，故保留双入口文件并维持行为与错误边界对齐，待内置路径正式退役时再移除 `src/adapters/pdf.mjs`。

@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Optional installed-engine regression; no model, PDF, or downloaded assets.
+"""Historical BabelDOC 0.6.4 layout regression, not native .3 acceptance.
 
-Run explicitly with a matching BabelDOC runtime. The regular preflight tests
-remain dependency-free. PyMuPDF's built-in Helvetica supplies real font metrics.
+Run only with the old matching runtime to preserve evidence of the Python
+prototype. The 0.7.1+ivoraige.3 fit-box-v1 is implemented and tested in Rust.
 """
 import importlib.metadata as metadata
 import sys
@@ -25,8 +25,11 @@ def require_layout_runtime(babeldoc, pymupdf, python):
 class InstalledLayoutTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        # Reject mismatched runtimes before importing the optional engine.
-        require_layout_runtime(metadata.version("babeldoc"), metadata.version("PyMuPDF"), sys.version_info)
+        # Do not import the deleted 0.6.4 engine modules under a .3 runtime.
+        try:
+            require_layout_runtime(metadata.version("babeldoc"), metadata.version("PyMuPDF"), sys.version_info)
+        except (metadata.PackageNotFoundError, RuntimeError) as error:
+            raise unittest.SkipTest(str(error)) from error
         cls.cache = tempfile.TemporaryDirectory(prefix="ivoraige-layout-test-")
         with patch.object(Path, "home", return_value=Path(cls.cache.name)):
             import pymupdf
