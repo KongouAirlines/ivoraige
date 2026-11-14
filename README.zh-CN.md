@@ -160,3 +160,8 @@ Operations 可以先于 Records/Tasks 挂载。所需服务完成挂载后，即
 ### MCP 请求取消
 
 MCP HTTP 任务轮询断连会释放该请求的订阅，不取消持久任务。并行轮询互相独立；关闭入口会中止该入口尚未完成的请求。
+
+独立本地来源插件通过停机后的 `ivoraige-plugins` 入口安装、禁用及恢复。
+MinerU 的 MIT 桥接包与主体分开打包，不包含原生运行时或模型。
+参见[离线插件安装](docs/plan/0.1.0/installation-guide.md#offline-independent-source-plugins)
+和 [P05 开发说明](docs/plan/0.1.x/plugin-delivery-development.md)。
