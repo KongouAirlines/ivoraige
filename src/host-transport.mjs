@@ -14,6 +14,9 @@ import { acquireRegistryLockBounded } from './host-domain.mjs'
 export const HOST_INTERFACE_VERSION = 'HostControl@1'
 export const HOST_INTERFACE_MINOR = 0
 const MAX_FRAME = 1024 * 1024
+// Bound an entire business result independently of the one-megabyte wire frame.
+const MAX_RESPONSE = 32 * 1024 * 1024
+const TRANSFER_CHUNK = 512 * 1024
 const MAX_CONNECTIONS = 64
 const MAX_BUSINESS_CONNECTIONS = 56
 // The native Windows broker may need its existing 20-second cold start before
@@ -37,7 +40,8 @@ const actions = {
   'mcp.read': shape({ name: id, uri: z.string().min(1).max(2048), variables: z.record(z.string(), z.string().max(2048)) }),
 }
 const requestShape = shape({ interfaceVersion: z.string(), minor: z.number().int(), requestId: id,
-  action: z.string(), expectedGeneration: id, params: z.unknown(), capability: z.string().min(1).optional() })
+  action: z.string(), expectedGeneration: id, params: z.unknown(), capability: z.string().min(1).optional(),
+  acceptTransfer: z.literal('base64-json').optional() })
 const attachShape = shape({ interfaceVersion: z.string(), minor: z.number().int(), requestId: id,
   action: z.literal('attach'), params: shape({ dataDomainRef: id, requiredLifetime: z.enum(['resident', 'ephemeral']) }),
   capability: z.string().min(1).optional() })
@@ -126,9 +130,10 @@ function equalSecret(a, b) {
   return aa.length === bb.length && timingSafeEqual(aa, bb)
 }
 
-function frameSocket(socket, payload, { timeoutMs, timeoutReason = 'owner-unreachable', invalidFrameReason = 'invalid-request', socketErrorReason, signal } = {}) {
+function frameSocket(socket, payload, { timeoutMs, timeoutReason = 'owner-unreachable', invalidFrameReason = 'invalid-request', socketErrorReason, signal,
+  allowTransfer = false } = {}) {
   return new Promise((resolveFrame, reject) => {
-    let size = 0
+    let buffered = Buffer.alloc(0), transfer, received = 0
     const chunks = []
     const timer = timeoutMs === undefined ? undefined : setTimeout(() => socket.destroy(fail('CONFLICT', timeoutReason)), timeoutMs)
     const cleanup = () => { clearTimeout(timer); signal?.removeEventListener('abort', abort); socket.off('data', data); socket.off('error', error); socket.off('end', end); socket.off('close', end) }
@@ -142,16 +147,50 @@ function frameSocket(socket, payload, { timeoutMs, timeoutReason = 'owner-unreac
     const abort = () => socket.destroy(fail('CONFLICT', 'request-cancelled'))
     const invalidFrame = () => fail(invalidFrameReason === 'invalid-request' ? 'INVALID_ARGUMENT' : 'CONFLICT', invalidFrameReason)
     const data = chunk => {
-      size += chunk.length
-      if (size > MAX_FRAME) { socket.destroy(invalidFrame()); return }
-      chunks.push(chunk)
-      const all = Buffer.concat(chunks)
-      const newline = all.indexOf(10)
-      if (newline < 0) return
-      cleanup()
-      if (newline !== all.length - 1) { reject(invalidFrame()); return }
-      try { resolveFrame(JSON.parse(all.subarray(0, newline).toString('utf8'))) }
-      catch { reject(invalidFrame()) }
+      buffered = Buffer.concat([buffered, chunk])
+      while (true) {
+        const newline = buffered.indexOf(10)
+        if (newline < 0) {
+          if (buffered.length > MAX_FRAME) socket.destroy(invalidFrame())
+          return
+        }
+        if (newline + 1 > MAX_FRAME) { socket.destroy(invalidFrame()); return }
+        let parsed
+        try { parsed = JSON.parse(buffered.subarray(0, newline).toString('utf8')) }
+        catch { rejectFrame(invalidFrame()); return }
+        buffered = buffered.subarray(newline + 1)
+        if (!transfer) {
+          if (allowTransfer && parsed?.ok === true && parsed.transfer) {
+            const info = parsed.transfer
+            if (Object.keys(parsed).length !== 2 || !info || typeof info !== 'object' || Array.isArray(info) ||
+              Object.keys(info).sort().join(',') !== 'bytes,chunks,encoding' || info.encoding !== 'base64-json' ||
+              !Number.isSafeInteger(info.bytes) || info.bytes <= MAX_FRAME || info.bytes > MAX_RESPONSE ||
+              !Number.isSafeInteger(info.chunks) || info.chunks !== Math.ceil(info.bytes / TRANSFER_CHUNK)) {
+              rejectFrame(invalidFrame()); return
+            }
+            transfer = info
+            continue
+          }
+          if (buffered.length) { rejectFrame(invalidFrame()); return }
+          cleanup(); resolveFrame(parsed); return
+        }
+        const expected = Math.min(TRANSFER_CHUNK, transfer.bytes - received)
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) ||
+          Object.keys(parsed).sort().join(',') !== 'data,index' || parsed.index !== chunks.length ||
+          typeof parsed.data !== 'string' || parsed.data.length !== Math.ceil(expected / 3) * 4 ||
+          !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(parsed.data)) {
+          rejectFrame(invalidFrame()); return
+        }
+        const bytes = Buffer.from(parsed.data, 'base64')
+        if (bytes.length !== expected) { rejectFrame(invalidFrame()); return }
+        chunks.push(bytes); received += bytes.length
+        if (received === transfer.bytes) {
+          if (buffered.length || chunks.length !== transfer.chunks) { rejectFrame(invalidFrame()); return }
+          try { parsed = JSON.parse(Buffer.concat(chunks, received).toString('utf8')) }
+          catch { rejectFrame(invalidFrame()); return }
+          cleanup(); resolveFrame(parsed); return
+        }
+      }
     }
     socket.on('data', data).once('error', error).once('end', end).once('close', end)
     signal?.addEventListener('abort', abort, { once: true })
@@ -171,7 +210,7 @@ function guardSocket(socket) {
   socket.on('error', () => socket.destroy())
 }
 
-function sendFrame(socket, frame) {
+async function sendFrame(socket, frame, { allowTransfer = false } = {}) {
   // A handler has already run. Failure to deliver its result must never be
   // described as invalid input with no side effects.
   let bytes
@@ -179,7 +218,32 @@ function sendFrame(socket, frame) {
     if (frame.ok === true && frame.result === undefined) throw new Error('Missing result')
     bytes = Buffer.from(`${JSON.stringify(frame)}\n`)
   } catch { throw fail('CONFLICT', 'outcome-unknown') }
-  if (bytes.length > MAX_FRAME) throw fail('CONFLICT', 'outcome-unknown')
+  if (bytes.length > MAX_FRAME) {
+    if (!allowTransfer) throw fail('CONFLICT', 'outcome-unknown')
+    if (bytes.length > MAX_RESPONSE) throw fail('CONFLICT', 'response-too-large')
+    const writeChunk = wire => new Promise((resolveWrite, rejectWrite) => {
+      const closed = () => rejectWrite(fail('CONFLICT', 'outcome-unknown'))
+      const done = error => {
+        socket.off('close', closed)
+        if (error) rejectWrite(error)
+        else resolveWrite()
+      }
+      socket.once('close', closed)
+      try { socket.write(wire, done) } catch (error) { done(error) }
+    })
+    try {
+      await writeChunk(Buffer.from(`${JSON.stringify({ ok: true, transfer: { encoding: 'base64-json', bytes: bytes.length,
+        chunks: Math.ceil(bytes.length / TRANSFER_CHUNK) } })}\n`))
+      for (let offset = 0, index = 0; offset < bytes.length; offset += TRANSFER_CHUNK, index++) {
+        const part = bytes.subarray(offset, offset + TRANSFER_CHUNK)
+        const wire = Buffer.from(`${JSON.stringify({ index, data: part.toString('base64') })}\n`)
+        if (wire.length > MAX_FRAME) throw fail('CONFLICT', 'outcome-unknown')
+        await writeChunk(wire)
+      }
+      socket.end()
+    } catch { socket.destroy() }
+    return
+  }
   // A disconnect can race the write even after destroyed was checked. The
   // lifetime error observer contains asynchronous EPIPE/broker errors.
   try { socket.end(bytes) } catch { socket.destroy() }
@@ -197,6 +261,8 @@ export function validateHostRequest(value) {
   validVersion(base.data)
   const params = actions[base.data.action].safeParse(base.data.params)
   if (!params.success) throw fail('INVALID_ARGUMENT', 'invalid-request')
+  if (base.data.acceptTransfer && !['business', 'mcp.describe', 'mcp.call', 'mcp.read'].includes(base.data.action))
+    throw fail('INVALID_ARGUMENT', 'invalid-request')
   const method = params.data.method ?? params.data.name
   if (['__proto__', 'prototype', 'constructor'].includes(method)) throw fail('INVALID_ARGUMENT', 'invalid-request')
   return { ...base.data, params: params.data }
@@ -255,11 +321,11 @@ export function createHostTransport({ directory, dataDomainRef, registrationId, 
       const state = await getState()
       if (state.dataDomainRef !== dataDomainRef || state.generation !== generation ||
         state.storeOwnership !== 'held') throw fail('CONFLICT', 'owner-unreachable')
-      sendFrame(socket, { ok: true, result: { reused: true, dataDomainRef, generation,
-        supportedMinors: [HOST_INTERFACE_MINOR], state, ownerProcess,
+      await sendFrame(socket, { ok: true, result: { reused: true, dataDomainRef, generation,
+        supportedMinors: [HOST_INTERFACE_MINOR], supportedTransfers: ['base64-json'], state, ownerProcess,
         ...(registrationId === undefined ? {} : { registrationId }) } })
     } catch (error) {
-      try { sendFrame(socket, formatHostFailure(error)) } catch { socket.destroy() }
+      try { await sendFrame(socket, formatHostFailure(error)) } catch { socket.destroy() }
     }
   }
 
@@ -336,7 +402,7 @@ export function createHostTransport({ directory, dataDomainRef, registrationId, 
     for (const socket of peers) {
       if (socket.destroyed) continue
       finalizedSockets.add(socket)
-      try { sendFrame(socket, receipt) } catch { socket.destroy() }
+      try { await sendFrame(socket, receipt) } catch { socket.destroy() }
     }
   }
 
@@ -416,10 +482,12 @@ export async function dispatchHostAction(socket, frame, { dataDomainRef, generat
       if (parsed.action === 'exit' && result?.accepted === true &&
           id.safeParse(result.operationId).success && typeof onAcceptedExit === 'function')
         onAcceptedExit(socket, result)
-      else sendFrame(socket, { ok: true, result })
+      else await sendFrame(socket, { ok: true, result },
+        { allowTransfer: parsed.acceptTransfer === 'base64-json' &&
+          (parsed.action === 'business' || parsed.action.startsWith('mcp.')) })
     }
   } catch (error) {
-    if (!socket.destroyed) try { sendFrame(socket, formatHostFailure(error)) } catch { socket.destroy() }
+    if (!socket.destroyed) try { await sendFrame(socket, formatHostFailure(error)) } catch { socket.destroy() }
   } finally {
     if (cancelBusiness) socket.off('close', cancelBusiness)
     releaseBusiness?.()
@@ -451,7 +519,9 @@ export async function exchangeHostFrame(address, frame, { timeoutMs, signal,
     const response = await frameSocket(socket, frame, { timeoutMs,
       timeoutReason: frame.action === 'attach' ? 'owner-unreachable' : 'outcome-unknown',
       invalidFrameReason: frame.action === 'attach' ? 'owner-unreachable' : 'outcome-unknown',
-      socketErrorReason: frame.action === 'attach' ? 'owner-unreachable' : 'outcome-unknown', signal })
+      socketErrorReason: frame.action === 'attach' ? 'owner-unreachable' : 'outcome-unknown', signal,
+      allowTransfer: frame.acceptTransfer === 'base64-json' &&
+        ['business', 'mcp.describe', 'mcp.call', 'mcp.read'].includes(frame.action) })
     const validResponse = response?.ok === true ? Object.hasOwn(response, 'result')
       : response?.ok === false && response.apiVersion === '2.0' &&
         Object.hasOwn(ERROR_STATUSES, response.error?.code) && typeof response.error?.message === 'string' &&
@@ -517,7 +587,10 @@ export async function connectHostTransport({ directory, dataDomainRef, expectedR
       ? undefined : ['drain', 'exit'].includes(action) ? params.budgetMs + 5000 : 5000)
     return exchangeHostFrame(record.address, { interfaceVersion: HOST_INTERFACE_VERSION,
       minor: HOST_INTERFACE_MINOR, requestId: randomUUID(), action,
-      expectedGeneration: record.generation, params, ...(capability ? { capability } : {}) },
+      expectedGeneration: record.generation, params, ...(capability ? { capability } : {}),
+      ...(Array.isArray(attached.supportedTransfers) && attached.supportedTransfers.includes('base64-json') &&
+        ['business', 'mcp.describe', 'mcp.call', 'mcp.read'].includes(action)
+        ? { acceptTransfer: 'base64-json' } : {}) },
     { timeoutMs, signal: options.signal })
   }, close() {} }
 }

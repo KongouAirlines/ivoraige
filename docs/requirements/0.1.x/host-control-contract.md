@@ -78,7 +78,7 @@ bootstrap 只取得一次 store lease，并将它交给同一长寿命 host 组�
 
 本机 OwnerIPC 是独立传输，不把它的帧冒充为上述九个通用 HostControl Request。当前 A1 实现的 owner 帧动作是 `attach, state, drain, exit, operation, ownerBootstrap, transportInfo, prepareForceExit, forceExit, business, mcp.describe, mcp.call, mcp.read`；`start` 只在本机 bootstrap 中执行，不经 IPC。OwnerIPC 的 `business` 只转发到已安装的 P04 catalog，`mcp.*` 只转发到该 owner 的 MCP 操作/资源适配，不开放任意方法或宿主内部对象。此路径仅供已核实的本机 owner 调用者，不把 OS 用户身份当外部共享授权；向远端或多用户开放仍需要 I01.shared 授权隔离。所有业务转发在提交/派发点重新检查同一业务闸门与 generation，drain 后返回 `PRECONDITION_FAILED/host-draining`；`state/operation` 在释锁后仍可查询原 generation，其他动作不得恢复业务或签发凭证。`transportInfo` 只返回本机入口连接信息，不提供业务调用或权限提升。
 
-OwnerIPC 一连接只收一帧，成功帧为 `{ ok: true, result }`，失败帧为 `{ ok: false, apiVersion: "2.0", error: { code, message, details: { reason, supportedMinors? } } }`。失败的 `error` 与 HTTP/CLI/MCP 的 `ErrorResponse` 共享同一错误信封；`ok` 仅为 IPC 帧判别位，不能把整个 IPC 帧作为外部错误响应。`result` 按动作返回 HostControl 投影或 P04 既有业务结果，不把业务结果当管理授权。ownerBootstrap/force challenge 的秘密结果仍须在具体实现验证，不进入公开 fixture。
+OwnerIPC 一连接只收一请求帧，通常成功响应为 `{ ok: true, result }`，失败帧为 `{ ok: false, apiVersion: "2.0", error: { code, message, details: { reason, supportedMinors? } } }`。新 owner 在 attach 结果中宣告 `supportedTransfers: ["base64-json"]`；新客户端仅对 `business` 与 `mcp.*` 请求附加 `acceptTransfer: "base64-json"`，旧 owner/客户端继续使用原单帧协议。仅在本次请求明确接受时，超过 1 MiB 单帧上限的成功响应改为 `{ ok: true, transfer: { encoding: "base64-json", bytes, chunks } }`，后接按 `index` 从零递增的 `{ index, data }` 帧；`data` 是原完整 JSON 响应帧的分段 base64，单段原始字节最多 512 KiB，总响应最多 32 MiB。客户端只在受保护的同一连接上按声明长度、段数和顺序重组，截断或格式异常均视为结果未知，不自动重试；超过总上限则返回 `CONFLICT/response-too-large`，但业务可能已产生副作用，同样不得自动重试。请求及其他响应仍受 1 MiB 单帧上限约束；此分段不改变认证、generation 或业务闸门。失败的 `error` 与 HTTP/CLI/MCP 的 `ErrorResponse` 共享同一错误信封；`ok` 仅为 IPC 帧判别位，不能把整个 IPC 帧作为外部错误响应。`result` 按动作返回 HostControl 投影或 P04 既有业务结果，不把业务结果当管理授权。ownerBootstrap/force challenge 的秘密结果仍须在具体实现验证，不进入公开 fixture。
 
 Windows 实现采用独立原生传输 helper，保留 `HostControl@1` minor 0、generation、capability 与帧语义；权限与双向身份校验由实际 pipe handle/token 提供。实现、依赖、原生探针和仍待验收项目见[Windows pipe 边界](../../plan/0.1.x/evidence/host-windows-pipe.md)，不能用编写了探针代替运行结果。
 
@@ -195,7 +195,7 @@ inspect 不启动业务 host；返回观察条件的 diagnosticRevision、域/�
 
 ## 7. 管理会话与旧入口迁移
 
-常驻启动器通过已认证本机通道获取一次性 bootstrap 凭证，候选 TTL 60 秒，绑定域/generation/真实 origin，重放原子拒绝。首轮默认最多保留 64 个未兑换凭证与 64 个活动会话：签发时清理过期凭证并淘汰最旧的超额条目，会话满额时淘汰最旧会话；不能让常驻 owner 的内存随打开管理页次数无限增长。WebUI 只从 fragment 接收、立即清除 fragment，再同源 POST 交换；不放 query/日志/Referer/连接地址或长期存储。浏览器仅持有 HttpOnly、SameSite=Strict 的 host-only 会话 cookie，HTTPS 加 Secure；写操作另有 CSRF 校验与完整 Origin/Host 验证。CSRF 刷新会改变服务端状态，A3 接线只允许 POST 且必须核验完整 request Origin 与本页 origin 相同，不能由带 cookie 的跨端口 GET 触发。会话在重启、owner 撤销时失效；网络断连本身不升级身份。
+常驻启动器通过已认证本机通道获取一次性 bootstrap 凭证，候选 TTL 60 秒，绑定域/generation/真实 origin，重放原子拒绝。首轮默认最多保留 64 个未兑换凭证与 64 个活动会话：签发时清理过期凭证并淘汰最旧的超额条目，会话满额时淘汰最旧会话；不能让常驻 owner 的内存随打开管理页次数无限增长。WebUI 只从 fragment 接收、立即清除 fragment，再同源 POST 交换；不放 query/日志/Referer/连接地址或长期存储。浏览器仅持有 HttpOnly、SameSite=Strict 的 host-only 会话 cookie，HTTPS 加 Secure；写操作另有 CSRF 校验与完整 Origin/Host 验证。CSRF 刷新会改变服务端状态，A3 接线只允许 POST 且必须核验完整 request Origin 与本页 origin 相同，不能由带 cookie 的跨端口 GET 触发。同浏览器多页面共享 cookie，但 CSRF token 各自仅存内存。HTTP 鉴权在业务分发前确认 token 不匹配时返回 `403`、`owner-csrf-stale` 及 `X-Ivoraige-CSRF-Refresh: required`；页面只对该信号同源刷新并重试原请求一次。业务层的 403 或同名 reason 不带该信号，不能自动重试；再次冲突保留编辑器与未保存内容。401 才视为会话失效并要求配对。会话在重启、owner 撤销时失效；网络断连本身不升级身份。
 
 交换端点只消费已有凭证，不能匿名签发；其成功/失败都不返回密钥。生产日志、导出诊断及 schema fixtures 不含真实 credential/token。无配对页面仅显示本机授权步骤，不提供私有快照。临时 CLI owner 无管理页会话。
 
@@ -217,7 +217,7 @@ inspect 不启动业务 host；返回观察条件的 diagnosticRevision、域/�
 | PRECONDITION_FAILED / host-draining、force-unavailable | 业务不受理或强退不可安全执行 |
 | PRECONDITION_FAILED / host-not-ready、owner-unavailable、store-ownership-unknown | 宿主尚未就绪、必要 owner 服务不可用、store 归属不明；均不得受理业务或新退出副作用 |
 | CONFLICT / registry-intent-pending、diagnostic-changed | 目标登记操作待核验或恢复诊断条件已变化；目标意图只阻塞该目标，不连坐其他域 |
-| CONFLICT / outcome-unknown、request-cancelled | 请求可能已产生副作用；不得自动重发，按 generation 查询 state/operation；取消只停止等待，不证明回滚 |
+| CONFLICT / outcome-unknown、request-cancelled、response-too-large | 请求可能已产生副作用；不得自动重发，按 generation 查询 state/operation；取消只停止等待，不证明回滚；response-too-large 表示本机业务响应超过 32 MiB 总上限 |
 | PRECONDITION_FAILED / host-busy | 业务并发容量已满，本次未派发；退避并保留管理查询通道，不推断 owner 缺席 |
 | CONFLICT / registry-busy | 共享登记锁忙；该次请求有界等待/拒绝，不能据此宣称其他域存在未决意图 |
 | PRECONDITION_FAILED / source-retirement-unverified | migrate 的旧位置退役无法证明；保持原登记和域 ID |

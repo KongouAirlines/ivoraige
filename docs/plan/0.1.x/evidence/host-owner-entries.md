@@ -151,10 +151,10 @@ Any later source head needs its own applicable CI.
 Trusted process-exit observation, force-exit ownership/challenges, full migration
 and registration repair, persisted MCP enable policy, real tray integration and
 management UI for lifecycle operations are not completed. Force operations fail
-closed. A different persisted settings/component/PDF binding still fails after
-restart; explicit reconfiguration remains unavailable. Only the output directory
-can change after stopping; live attachment still rejects a conflicting output
-root. These limits must not be hidden by the successful compatibility tests.
+closed. A different persisted settings/component directory binding still fails after
+restart; explicit identity reconfiguration remains unavailable. PDF/translation
+options, component repository/release and the output directory may change after
+stopping. Live attachment still rejects conflicting runtime composition. These limits must not be hidden by the successful compatibility tests.
 
 The selected DSH/Cordis and PDF runtime versions are unchanged. No runtime
 migration, alternate task scheduler, model operation during export, or automatic
@@ -166,9 +166,11 @@ The dependency order is [#87 contract](https://github.com/KongouAirlines/ivoraig
 → [#88 ownership](https://github.com/KongouAirlines/ivoraige/pull/88)
 → [#90 lifecycle](https://github.com/KongouAirlines/ivoraige/pull/90)
 → [#93 entries](https://github.com/KongouAirlines/ivoraige/pull/93).
-Their base/head chain is contiguous. Integrating only a lower layer does not
-activate the entry guarantees described here; after integration, recheck the
-resulting main head and preserve the existing compatibility tests.
+#87 and #88 were merged on 2026-11-11; #90 was merged on 2026-11-13
+(`9f135c8447436179f0557cc16f6985f290415272`). #93 supplies the entry layer
+above those integrated dependencies. Their merge alone does not activate the
+entry guarantees described here; after #93 integration, recheck the resulting
+main head and preserve the existing compatibility tests.
 
 Once this stack is integrated, subsequent work can use the one-owner bootstrap,
 P04 registration/events, authenticated owner routes and retryable drain/exit
@@ -252,3 +254,39 @@ the stronger session boundary instead of restoring the old shared cookie.
 383f0ee 的三平台 CI 在 p04-review-regressions 中失败：运行时已按审查将建议改为由 --store 选择常驻 owner，但该用例仍断言旧的 --url 文案。这是本次修复遗漏的测试更新，不回退正确的运行时行为。现已更新断言，并补独立回归：自持 generic task 在任务准入前拒绝，提示 --store，不再提示 --url，且没有写入任务记录。
 
 补充验证：Node 24.22.1 下 npm test（含构建）共 784 项，751 通过、33 跳过、0 失败；p04-review-regressions 的 4 项真实通过。跳过包括 Unix owner socket 受限项和 Windows 专属项；目标平台 CI 以新提交结果为准，未将本地结果称为三平台通过。
+
+## Multi-page sessions and bounded owner responses (2026-11-15)
+
+- A page retries a stale CSRF write once only when the HTTP authentication
+  boundary marks its pre-dispatch rejection. Refresh/re-pair in another page
+  no longer turns an otherwise valid owner cookie into an editor teardown.
+  Business 403 responses, including a matching reason string, are not replayed.
+  A second refresh race preserves the editor and reports the failed save.
+- Updated peers negotiate chunked business/MCP results. The 1 MiB wire-frame
+  limit remains; chunks contain at most 512 KiB of the original response and
+  the total serialized response is capped at 32 MiB. Oversized results report
+  `response-too-large`, not a successful empty read or proof of rollback.
+  Old peers retain the single-frame protocol. Malformed, out-of-order and
+  truncated transfers fail without retrying the business operation.
+- The Windows broker now acknowledges each write only after native
+  `Stream.WriteAsync` completion. The chunk sender waits for that acknowledgment;
+  neither the broker's 8 MiB queue nor the native peer's 2 MiB pending-write
+  bound is relaxed. The JavaScript per-socket queue is also bounded at 8 MiB.
+- User guidance distinguishes durable settings/component roots from runtime
+  PDF/translation/repository/release/output options, and the English browser
+  opener section has matching bilingual README links.
+
+Verification on Linux / Node 24.22.1 (compatibility runtime): the real loopback
+multi-page/re-pair tests and the 800 KiB socket-free dispatcher/client roundtrip
+passed. Broker fault injection verifies delayed native ACK, premature close,
+slow writes and bounded queues. A real attached MCP 800 KiB regression and a
+native Windows 9 MiB pipe regression are included for platform CI; the local
+Unix socket restriction still prevents the former and Windows is not available
+here. Package smoke installed the tarball and passed its library-level
+persistence/export probe, but packaged CLI serve failed with Unix socket
+`listen EPERM`, including the expanded-execution retry. That is not a package
+smoke pass or cross-account/desktop acceptance. Exact-head CI remains separate.
+
+The final local `npm test` (including a fresh DSH/Web build) completed with
+795 tests: 760 passed, 35 conditional/platform skips, zero failures or
+cancellations. `git diff --check` passed.

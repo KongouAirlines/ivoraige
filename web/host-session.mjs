@@ -39,8 +39,27 @@ export async function ownerFetch(url, options = {}) {
   if (write && !csrfToken) throw new Error('本机管理会话未授权，请重新打开启动器提供的页面。')
   const headers = new Headers(options.headers)
   if (write) headers.set('X-Ivoraige-CSRF', csrfToken)
-  const response = await fetch(url, { ...options, method, headers, credentials: 'same-origin', cache: 'no-store' })
-  if (response.status === 401 || response.status === 403) {
+  const send = () => fetch(url, { ...options, method, headers, credentials: 'same-origin', cache: 'no-store' })
+  let response = await send()
+  // Another tab can refresh the shared session or pair a replacement cookie.
+  // Retry once only when HTTP authentication rejected the request before any
+  // business dispatch. Never retry a business failure or a consumed stream.
+  if (write && response.status === 403 && response.headers.get('X-Ivoraige-CSRF-Refresh') === 'required' &&
+      !(typeof ReadableStream !== 'undefined' && options.body instanceof ReadableStream)) {
+    const refreshed = await fetch('/api/host/session/refresh', { method: 'POST',
+      credentials: 'same-origin', cache: 'no-store', signal: options.signal })
+    if (refreshed.ok) {
+      const result = await refreshed.json()
+      if (typeof result.csrfToken === 'string' && /^[A-Za-z0-9_-]{43}$/.test(result.csrfToken)) {
+        csrfToken = result.csrfToken
+        headers.set('X-Ivoraige-CSRF', csrfToken)
+        response = await send()
+      }
+    } else if (refreshed.status === 401) response = refreshed
+  }
+  // A denied write is not proof that the cookie/owner is gone. Preserve the
+  // mounted editor (and unsaved edits) even if a second refresh race occurs.
+  if (response.status === 401) {
     csrfToken = null
     globalThis.window?.dispatchEvent(new Event('ivoraige:owner-lost'))
   }

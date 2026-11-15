@@ -229,8 +229,16 @@ async function listenHttp(app, { host = '127.0.0.1', port = 8787, staticDir, all
               requestOrigin: req.headers.origin, host: req.headers.host, method: req.method }) })
             return
           }
-          ownerSession.authenticate({ cookie: req.headers.cookie, requestOrigin: req.headers.origin,
-            host: req.headers.host, csrfToken: req.headers['x-ivoraige-csrf'], method: req.method })
+          try {
+            ownerSession.authenticate({ cookie: req.headers.cookie, requestOrigin: req.headers.origin,
+              host: req.headers.host, csrfToken: req.headers['x-ivoraige-csrf'], method: req.method })
+          } catch (error) {
+            // Only this pre-dispatch boundary may authorize a safe write retry.
+            // A business error with the same status/reason must not replay work.
+            if (error.code === 'FORBIDDEN_HOST' && error.details?.reason === 'owner-csrf-stale')
+              res.setHeader('X-Ivoraige-CSRF-Refresh', 'required')
+            throw error
+          }
         } else if (await authorizeOwner(req) !== true) throw new KernelError('UNAUTHORIZED',
           'Owner authorization required', { reason: 'owner-authentication-required' })
       }

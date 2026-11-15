@@ -9,7 +9,7 @@ import { KernelError } from '../src/errors.mjs'
 
 const request = { interfaceVersion: 'HostControl@1', minor: 0, requestId: 'outcome-test',
   expectedGeneration: 'generation-test', action: 'business', params: { method: 'operation', input: {} },
-  capability: 'synthetic-unit-test-capability' }
+  capability: 'synthetic-unit-test-capability', acceptTransfer: 'base64-json' }
 const context = { dataDomainRef: 'domain-test', generation: 'generation-test', capability: request.capability,
   getState: () => ({ dataDomainRef: 'domain-test', generation: 'generation-test',
     storeOwnership: 'held', acceptingBusiness: true }) }
@@ -50,7 +50,7 @@ test('socket-free response corruption/size failure is outcome-unknown, not rejec
 
 test('socket-free handler result delivery failure never claims a committed side effect did not happen', async () => {
   let effects = 0
-  for (const result of [{ large: 'x'.repeat(1024 * 1024) }, undefined, { notJson: 1n }]) {
+  for (const result of [{ large: 'x'.repeat(32 * 1024 * 1024) }, undefined, { notJson: 1n }]) {
     let reply = ''
     const socket = new Duplex({ read() {}, write(chunk, _encoding, callback) { reply += chunk; callback() } })
     await dispatchHostAction(socket, request, { ...context, handleBusiness: () => { effects++; return result } })
@@ -58,7 +58,7 @@ test('socket-free handler result delivery failure never claims a committed side 
     assert.equal(failure.ok, false)
     assert.equal(failure.apiVersion, '2.0')
     assert.equal(failure.error.code, 'CONFLICT')
-    assert.deepEqual(failure.error.details, { reason: 'outcome-unknown' })
+    assert.deepEqual(failure.error.details, { reason: result?.large ? 'response-too-large' : 'outcome-unknown' })
     socket.destroy()
   }
   assert.equal(effects, 3)
@@ -67,6 +67,92 @@ test('socket-free handler result delivery failure never claims a committed side 
   await dispatchHostAction(socket, request, { ...context,
     handleBusiness: () => { throw new KernelError('INVALID_ARGUMENT', 'Invalid input', { reason: 'invalid-request' }) } })
   assert.equal(JSON.parse(reply).error.code, 'INVALID_ARGUMENT')
+  socket.destroy()
+})
+
+test('chunked business reply rejects malformed, oversized, and truncated transfers as outcome-unknown', async () => {
+  const header = (bytes, chunks) => `${JSON.stringify({ ok: true,
+    transfer: { encoding: 'base64-json', bytes, chunks } })}\n`
+  const body = Buffer.from(JSON.stringify({ ok: true, result: { data: 'x'.repeat(1024 * 1024) } }))
+  const first = body.subarray(0, 512 * 1024)
+  const part = (index, bytes) => `${JSON.stringify({ index, data: bytes.toString('base64') })}\n`
+  const cases = [
+    header(33 * 1024 * 1024, 66),
+    header(body.length, 1),
+    header(body.length, 3),
+    header(body.length, 3) + part(1, first),
+    header(body.length, 3) + part(0, Buffer.alloc(first.length, 0)),
+    header(body.length, 3) + part(0, first) + 'not-json\n',
+  ]
+  for (const reply of cases)
+    await assert.rejects(exchangeHostFrame('unused', request, {
+      createSocket: () => {
+        const socket = new Duplex({ read() {}, write(_chunk, _encoding, callback) {
+          queueMicrotask(() => { this.push(Buffer.from(reply)); this.push(null) })
+          callback()
+        } })
+        queueMicrotask(() => socket.emit('connect'))
+        return socket
+      } }), unknown)
+})
+
+test('800 KiB artifact crosses bounded business frames without a Unix socket', async () => {
+  const artifact = Buffer.alloc(800 * 1024, 0xa5).toString('base64')
+  const result = { contents: [{ uri: 'ivoraige://artifact/one', blob: artifact }] }
+  const frames = []
+  const socket = new Duplex({ read() {}, write(chunk, _encoding, callback) {
+    frames.push(Buffer.from(chunk)); callback()
+  } })
+  await dispatchHostAction(socket, { ...request, action: 'mcp.read',
+    params: { name: 'artifact', uri: 'ivoraige://artifact/one', variables: {} } },
+  { ...context, handleBusiness: () => result })
+  assert.ok(frames.length >= 4)
+  assert.ok(frames.every(frame => frame.length <= 1024 * 1024))
+  assert.deepEqual(await exchangeHostFrame('unused', request, {
+    createSocket: () => replySocket(Buffer.concat(frames)) }), result)
+  socket.destroy()
+})
+
+test('legacy business requester is never sent a transfer it did not accept', async () => {
+  const frames = []
+  const socket = new Duplex({ read() {}, write(chunk, _encoding, callback) {
+    frames.push(Buffer.from(chunk)); callback()
+  } })
+  const { acceptTransfer, ...legacy } = request
+  await dispatchHostAction(socket, legacy, { ...context,
+    handleBusiness: () => ({ artifact: 'x'.repeat(1024 * 1024) }) })
+  assert.equal(frames.length, 1)
+  assert.deepEqual(JSON.parse(frames[0]).error.details, { reason: 'outcome-unknown' })
+  socket.destroy()
+})
+
+test('chunk sender waits for each slow write before queuing the next broker frame', async () => {
+  const frames = [], callbacks = []
+  const socket = new Duplex({ read() {}, write(chunk, _encoding, callback) {
+    frames.push(Buffer.from(chunk)); callbacks.push(callback)
+  } })
+  const pending = dispatchHostAction(socket, request, { ...context,
+    handleBusiness: () => ({ artifact: 'x'.repeat(4 * 1024 * 1024) }) })
+  const until = async count => {
+    for (let i = 0; i < 100 && frames.length < count; i++)
+      await new Promise(resolve => setTimeout(resolve, 1))
+    assert.equal(frames.length, count)
+  }
+  await until(1)
+  for (let i = 0; i < 3; i++) {
+    await new Promise(resolve => setTimeout(resolve, 1))
+    assert.equal(frames.length, i + 1)
+    callbacks[i]()
+    await until(i + 2)
+  }
+  while (!socket.writableEnded) {
+    const index = callbacks.length - 1
+    callbacks[index]()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    if (frames.length === index + 1 && !socket.writableEnded) await until(index + 2)
+  }
+  await pending
+  assert.ok(frames.every(frame => frame.length <= 1024 * 1024))
   socket.destroy()
 })
 
@@ -133,7 +219,8 @@ test('accepted exit retains its finalization channel after shared dispatch valid
   const result = { accepted: true, operationId: 'exit-op' }
   const options = { ...context, handleControl: () => result,
     onAcceptedExit(peer, value) { assert.equal(peer, socket); assert.equal(value, result); accepted++ } }
-  await dispatchHostAction(socket, { ...request, action: 'exit', params: { budgetMs: 100 } }, options)
+  await dispatchHostAction(socket, { ...request, acceptTransfer: undefined,
+    action: 'exit', params: { budgetMs: 100 } }, options)
   assert.equal(accepted, 1)
   assert.equal(socket.writableEnded, false)
   socket.destroy()
