@@ -39,7 +39,7 @@ npm run build
 node src/cli.mjs serve --store ./evaluation/runs/workbench/store.sqlite --pdf-config ./examples/pdf-windows.json
 ```
 
-也可在 VS Code“运行和调试”中选 **ivoraige: 启动 PDF 工作台**；首次按上一步准备 Python 组件。浏览器打开终端给出的地址（默认 `http://127.0.0.1:8787`）。使用同一 SQLite 文件时只运行一个服务进程；其他 CLI 命令用 `--url` 连接它。
+也可在 VS Code“运行和调试”中选 **ivoraige: 启动 PDF 工作台**；首次按上一步准备 Python 组件。浏览器打开终端给出的地址（默认 `http://127.0.0.1:8787`）。使用同一 SQLite 文件时只运行一个服务进程；其他 CLI 命令用相同的 `--store` 附加到 owner；`--url` 只能附带核对 HTTP origin。
 
 在“设置”页保存翻译模型及凭据。首页或“文档”页上传不超过 7 MiB 的原生文本英文 PDF，原文语言选 English。导入立即返回任务句柄，任务页显示捕获进度、失败与取消；完成后点击“打开文档”。PDF 组件状态显示“已配置，首次处理时验证”“已验证”或“不可用”，首次显示配置状态不代表资产已通过检查。
 
@@ -48,12 +48,12 @@ node src/cli.mjs serve --store ./evaluation/runs/workbench/store.sqlite --pdf-co
 CLI 示例（服务已启动）：
 
 ```powershell
-node src/cli.mjs --url http://127.0.0.1:8787 import --path C:/path/to/native-text.pdf --source-lang en --format pdf --json
-node src/cli.mjs --url http://127.0.0.1:8787 documents --json
-node src/cli.mjs --url http://127.0.0.1:8787 export DOC_ID --target-lang zh-CN --format pdf,md,json --json
+node src/cli.mjs --store ./evaluation/runs/workbench/store.sqlite import --path C:/path/to/native-text.pdf --source-lang en --format pdf --json
+node src/cli.mjs --store ./evaluation/runs/workbench/store.sqlite documents --json
+node src/cli.mjs --store ./evaluation/runs/workbench/store.sqlite export DOC_ID --target-lang zh-CN --format pdf,md,json --json
 ```
 
-默认 CLI 会等 PDF 导入任务完成并输出一次带 `document` 和 `taskId` 的 JSON；远程 `--no-wait` 立即返回 `taskId`，随后用 `task TASK_ID --json` 查询。远程 `--path` 是**服务端**能访问的路径；浏览器上传则使用二进制 PDF 的 Base64。重新启动服务时保持相同的 `--store` 和 `--pdf-config`；受管理的原始 PDF 副本放在数据库旁的 `pdf/sources/`，不要手工修改。
+默认 CLI 会等 PDF 导入任务完成并输出一次带 `document` 和 `taskId` 的 JSON；远程 `--no-wait` 立即返回 `taskId`，随后用 `task TASK_ID --json` 查询。CLI 相对 `--path` 按调用者工作目录转为绝对路径，owner 仍须能访问该文件；浏览器上传则使用二进制 PDF 的 Base64。重新启动服务时保持相同的 `--store` 和 `--pdf-config`；受管理的原始 PDF 副本放在数据库旁的 `pdf/sources/`，不要手工修改。
 
 ## 当前验收边界
 

@@ -105,8 +105,10 @@ export function createHostSession({ dataDomainRef, generation, lifetime, origin,
     const session = sessions.get(digest(id).toString('hex'))
     if (!session) throw authError()
     const write = !['GET', 'HEAD', 'OPTIONS'].includes(method)
-    if (write && (requestOrigin !== url.origin || typeof csrfToken !== 'string' ||
-      !tokenPattern.test(csrfToken) || !constantEqual(session.csrfHash, digest(csrfToken)))) throw forbidden()
+    if (write && requestOrigin !== url.origin) throw forbidden()
+    if (write && (typeof csrfToken !== 'string' || !tokenPattern.test(csrfToken) ||
+      !constantEqual(session.csrfHash, digest(csrfToken)))) throw new KernelError(
+      'FORBIDDEN_HOST', 'Owner CSRF token must be refreshed', { reason: 'owner-csrf-stale' })
     return { dataDomainRef: session.dataDomainRef, generation: session.generation }
   }
 

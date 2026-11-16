@@ -142,7 +142,7 @@ public static class HostPipe {
             Peer removed; Peers.TryRemove(Id, out removed);
             Send(new { type = "closed", id = Id });
         }
-        public void Write(byte[] bytes, bool end) {
+        public void Write(byte[] bytes, bool end, string sequence) {
             lock (this) {
                 if (Ending || Interlocked.Add(ref Buffered, bytes.Length) > 2 * Limit) { Close(); return; }
                 Ending = end;
@@ -151,6 +151,7 @@ public static class HostPipe {
                         await previous;
                         await Stream.WriteAsync(bytes, 0, bytes.Length);
                         Interlocked.Add(ref Buffered, -bytes.Length);
+                        if (!end) Send(new { type = "written", id = Id, seq = sequence });
                         if (end) {
                             // EOF follows delivery, not just a successful write
                             // into a kernel buffer. Bound an unresponsive peer.
@@ -303,7 +304,10 @@ public static class HostPipe {
                         if (data.Length > ((Limit + 2) / 3) * 4) throw new InvalidDataException();
                         byte[] bytes = Convert.FromBase64String(data);
                         if (bytes.Length > Limit) throw new InvalidDataException();
-                        peer.Write(bytes, type == "end");
+                        string sequence = type == "write" ? Text(message, "seq") : null;
+                        if (type == "write" && !System.Text.RegularExpressions.Regex.IsMatch(sequence, @"^[0-9]{1,16}$"))
+                            throw new InvalidDataException();
+                        peer.Write(bytes, type == "end", sequence);
                     } else throw new InvalidDataException();
                 }
             }

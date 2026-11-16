@@ -1,3 +1,4 @@
+import './fixtures/host-test-env.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Context, z } from '../dist/dsh.mjs'

@@ -6,9 +6,9 @@ ivoraige 的 MCP 入口把已装插件贡献的内核能力提供给本机 AI �
 
 目前不提供预构建下载包，请使用源码构建；默认使用 Node.js 26.13.0，Node 24 仅保留兼容（支持范围 `>=24.22.1 <25 || >=26.12.1 <27`），并先按[开发指南](development-guide.md)完成依赖和 DSH 构建。源码运行可使用这两个受支持主版本内更新的稳定补丁版。从仓库运行时，命令可写成 `node C:/path/to/ivoraige/src/cli.mjs`；安装包含 MCP 的 npm 包后使用 `ivoraige` 命令。以下示例中的路径都要换成服务器上的实际绝对路径。
 
-**连接已经运行的工作台**：常驻服务 `ivoraige serve --store C:/data/ivoraige/store.sqlite` 默认在 `http://127.0.0.1:8787/mcp` 提供 Streamable HTTP。桌面启动器也默认在其实际监听端口的 `/mcp` 提供同一入口；它会在启动时输出服务 URL。HTTP MCP、WebUI 和 HTTP CLI 共用该进程的内核、数据库、设置与任务。`ivoraige serve --no-mcp` 关闭 MCP 入口。为保证本机访问边界，HTTP 服务只允许回环监听，并检查 Host 与 Origin；当前没有非回环认证配置。
+**连接已经运行的工作台**：常驻服务 `ivoraige serve --store C:/data/ivoraige/store.sqlite` 默认关闭 HTTP MCP。只在本次运行中需要它时使用 `ivoraige serve --store C:/data/ivoraige/store.sqlite --mcp-enabled`，在 `http://127.0.0.1:8787/mcp` 提供 Streamable HTTP；`--no-mcp` 优先将它关闭。启动器不会默认启用 HTTP MCP，目前也没有持久的启用开关。`/mcp` 与所有 `/api/*` 路由一样需要已配对的浏览器 owner 会话；普通 HTTP MCP 客户端不能凭回环地址或服务 URL 获得授权。HTTP 仅监听回环地址，并另外检查 Host 与 Origin。具体边界见[本机宿主指南](../0.1.x/host-control-guide.md)。
 
-**由客户端启动独立进程**：使用 `ivoraige mcp --stdio --store C:/data/ivoraige/store.sqlite`。这个进程持有自己的内核与数据库锁，标准输出供 MCP 协议使用。不要让它与已打开相同数据库的工作台并行运行；若需要共用工作台中的文档和任务，请连接工作台的 `/mcp`。省略 `--store` 会使用 CLI 的默认数据路径，先用 `ivoraige_capabilities` 核对实际数据目录。
+**由客户端启动 stdio 桥接进程**：先启动同一 store 的常驻宿主，再使用 `ivoraige mcp --stdio --store C:/data/ivoraige/store.sqlite`。桥接进程连接已有 owner，不创建内核或持有第二把数据库锁；owner 缺席或只是临时 owner 时直接报错。标准输出仅供 MCP 协议使用；关闭客户端/stdin 只断开桥接，不停止常驻宿主。省略 `--store` 会使用 CLI 的默认数据路径，须确保与已启动宿主一致。
 
 通用 MCP 客户端的 stdio 配置形状如下。客户端产品的配置文件位置和字段名称可能不同，以该客户端文档为准：
 
@@ -23,7 +23,7 @@ ivoraige 的 MCP 入口把已装插件贡献的内核能力提供给本机 AI �
 }
 ```
 
-若客户端支持 Streamable HTTP，连接地址为运行中的服务 URL 加 `/mcp`，例如 `http://127.0.0.1:8787/mcp`。连接 HTTP 不另启一个持有数据库的进程。以上是通用配置示意；本次真实 AI 客户端验证使用 DSH headless 的 Streamable HTTP，具体证据见源码中的 [MCP 阶段记录](mcp.md)。从本源码构建的 Windows 目录发行包，其 stdio 客户端宜直接把 `runtime/node.exe` 的绝对路径作为 command，args 为 `["C:/包目录/app/src/cli.mjs", "mcp", "--stdio", "--store", "C:/data/ivoraige/store.sqlite"]`，无需依赖系统 Node 或让客户端执行 `.cmd`。仅升级系统 Node 不会更新旧程序目录中的便携运行时；更新目录包时应替换程序目录，并保留外置数据目录。官方 SDK 的 [HTTP 服务说明](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/serving/http.md)、[stdio 服务说明](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/serving/stdio.md) 和 [客户端连接说明](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/clients/connect.md) 解释传输机制。
+若客户端支持 Streamable HTTP，只有在显式启用且客户端已具备 owner 会话时才能连接运行中的服务 URL 加 `/mcp`。本次源码变更前的 DSH headless HTTP 验证记录见 [MCP 阶段记录](mcp.md)，不能作为现行匿名连接的验收证据。上面的 stdio 配置只是形状示意。从本源码构建的 Windows 目录发行包，其 stdio 客户端宜直接把 `runtime/node.exe` 的绝对路径作为 command，args 为 `["C:/包目录/app/src/cli.mjs", "mcp", "--stdio", "--store", "C:/data/ivoraige/store.sqlite"]`，无需依赖系统 Node 或让客户端执行 `.cmd`。仅升级系统 Node 不会更新旧程序目录中的便携运行时；更新目录包时应替换程序目录，并保留外置数据目录。官方 SDK 的 [HTTP 服务说明](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/serving/http.md)、[stdio 服务说明](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/serving/stdio.md) 和 [客户端连接说明](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/clients/connect.md) 解释传输机制。
 
 ## 工具与工作流程
 
@@ -35,11 +35,11 @@ TXT／Markdown 导入可直接返回完成结果；PDF 导入返回持久任务�
 
 `ivoraige_artifacts_list` 可查到已保存产物，随后读取 `ivoraige://artifacts/{artifactId}` 资源，得到 MIME 类型和 base64 二进制内容。文档、单位、任务资源分别是 `ivoraige://docs/{docId}`、`ivoraige://docs/{docId}/units/{unitId}?targetLang={language}`、`ivoraige://tasks/{taskId}`；它们返回包含 JSON 的 Markdown。资源本身不枚举 ID，先通过对应列表工具取得 ID。读取产物资源只读取已有字节，不重新导出。
 
-当前还提供快照列表／读取／删除与任务列表工具。设置服务存在时才显示 `ivoraige_settings_get`、`ivoraige_settings_update`、`ivoraige_credential_set`；组件安装服务存在时才显示 `ivoraige_component_*` 工具。设置修改、保存模型凭据／仓库令牌和安装组件拥有本机内核的完整写入能力，应在用户明确要求后调用。服务仅限回环访问，但同机可访问该端口的客户端将获得这些工具；请控制本机客户端的访问。当前没有 RAG、术语库或独立文本翻译工具。
+当前还提供快照列表／读取／删除与任务列表工具。设置服务存在时才显示 `ivoraige_settings_get`、`ivoraige_settings_update`、`ivoraige_credential_set`；组件安装服务存在时才显示 `ivoraige_component_*` 工具。设置修改、保存模型凭据／仓库令牌和安装组件拥有本机内核的完整写入能力，应在用户明确要求后调用。受保护的 stdio 桥接与已配对的 HTTP owner 会话可以看到这些工具；回环地址本身不是授权。当前没有 RAG、术语库或独立文本翻译工具。
 
 完整当前工具映射见 [v2.0 API 协议 §6](../../requirements/v2.0/03_API-protocol_v2.0.md#6-mcp-tools-映射)。成功工具响应的 `structuredContent` 是带 `apiVersion` 的内核业务对象，文本 content 是同一对象的 JSON。业务错误标记 `isError: true`，并在 `structuredContent` 中返回 `{ apiVersion, error: { code, message, details } }`；参数违反工具输入 schema 时由 MCP SDK 返回协议级校验错误。资源失败返回 MCP 协议错误。若任务失败，查询任务状态和其中的错误信息。
 
-插件装卸后，支持现代协议订阅的 HTTP 客户端会收到工具／资源列表变化通知；使用官方 JS SDK 2.x 时配置 `versionNegotiation: { mode: "auto" }` 和 `listChanged` 回调。旧协议无状态 HTTP 不推送变化（`listChanged: false`），需要重新查询列表；stdio 保留连接内通知。
+插件装卸后，支持现代协议订阅的已授权 HTTP 客户端会收到工具／资源列表变化通知；使用官方 JS SDK 2.x 时配置 `versionNegotiation: { mode: "auto" }` 和 `listChanged` 回调。旧协议无状态 HTTP 不推送变化（`listChanged: false`），需要重新查询列表；当前附加式 stdio 桥接没有列表变化通知，需要重新查询或重连。
 
 
 ### 开发验收依赖

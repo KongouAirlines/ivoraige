@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import test from 'node:test'
 import { JSDOM } from 'jsdom'
+import { mockOwnerSession } from './fixtures/browser-owner.mjs'
 
 const bundle = await readFile(new URL('../dist/web/app.js', import.meta.url), 'utf8')
 async function until(check) {
@@ -27,6 +28,7 @@ test('Chinese PDF selection uploads its declared language and can be selected ag
     const data = path === '/capabilities' ? { features: ['documents', 'tasks'], settingsPages: [], inputFormats: ['pdf'], components: {} } : { items: [], nextCursor: null }
     return { ok: true, status: 200, json: async () => data }
   }
+  mockOwnerSession(window)
   window.eval(bundle)
   await until(() => window.document.querySelector('input[type=file]')?.accept.includes('.pdf'))
   const input = window.document.querySelector('input[type=file]'), language = window.document.querySelector('.upload-language select')

@@ -77,22 +77,31 @@ class Broker {
       this.stopTimer = setTimeout(() => this.child.kill(), 1500)
     }, 250)
   }
-  send(message) {
-    if (this.stopped) return
+  send(message, callback) {
+    if (callback) {
+      const original = callback
+      let called = false
+      callback = error => { if (!called) { called = true; original(error) } }
+    }
+    if (this.stopped) { callback?.(this.failure || unavailable()); return }
     const line = `${JSON.stringify(message)}\n`
     const size = Buffer.byteLength(line)
-    if (size > MAX_LINE) { this.fail(); return }
+    if (size > MAX_LINE) { this.fail(); callback?.(this.failure); return }
     if (!this.ready) {
-      if (this.waiting.length >= 256 || this.waitingBytes + size > 8 * MAX_BYTES) { this.fail(); return }
-      this.waiting.push(line)
+      if (this.waiting.length >= 256 || this.waitingBytes + size > 8 * MAX_BYTES) {
+        this.fail(); callback?.(this.failure); return
+      }
+      this.waiting.push({ line, callback })
       this.waitingBytes += size
       return
     }
-    this.sendLine(line)
+    this.sendLine(line, callback)
   }
-  sendLine(line) {
-    if (this.child.stdin.writableLength + Buffer.byteLength(line) > 8 * MAX_BYTES) { this.fail(); return }
-    this.child.stdin.write(line)
+  sendLine(line, callback) {
+    if (this.child.stdin.writableLength + Buffer.byteLength(line) > 8 * MAX_BYTES) {
+      this.fail(); callback?.(this.failure); return
+    }
+    this.child.stdin.write(line, callback)
   }
   fail(error = unavailable()) {
     if (this.stopped) return
@@ -105,6 +114,7 @@ class Broker {
     this.child.kill() // a request is not proof of exit; only the exit event is
     for (const endpoint of [...this.endpoints.values()]) endpoint.failed(error)
     this.endpoints.clear()
+    for (const pending of this.waiting) pending.callback?.(error)
     this.waiting.length = 0
   }
   receive(message) {
@@ -114,9 +124,13 @@ class Broker {
       this.sid = message.sid
       this.ready = true
       clearTimeout(this.startup)
-      for (const pending of this.waiting) this.sendLine(pending)
-      this.waiting.length = 0
+      const waiting = this.waiting
+      this.waiting = []
       this.waitingBytes = 0
+      for (const pending of waiting) {
+        if (this.stopped) pending.callback?.(this.failure)
+        else this.sendLine(pending.line, pending.callback)
+      }
       return
     }
     if (message.type === 'connection') {
@@ -140,23 +154,46 @@ class PipeSocket extends Duplex {
     super({ allowHalfOpen: false })
     this.owner = owner
     this.id = id
+    this.writeSequence = 0
+    this.pendingWrite = null
     owner.add(this)
     // A peer disconnect is ordinary. Keep asynchronous native failures from
     // becoming an unhandled EventEmitter error during application cleanup.
     this.on('error', () => {})
   }
   _read() {}
+  write(chunk, encoding, callback) {
+    // Node queues writes behind an unacknowledged native write. Bound that
+    // queue independently of the broker's own pre-start and stdin caps.
+    const size = Buffer.isBuffer(chunk) ? chunk.length : Buffer.byteLength(chunk,
+      typeof encoding === 'string' ? encoding : undefined)
+    if (this.writableLength + size > 8 * MAX_BYTES) {
+      const error = unavailable()
+      this.destroy(error)
+      const done = typeof encoding === 'function' ? encoding : callback
+      done?.(error)
+      return false
+    }
+    return super.write(chunk, encoding, callback)
+  }
   _write(chunk, encoding, callback) {
     if (chunk.length > MAX_BYTES) { callback(unavailable()); return }
-    this.owner.send({ type: 'write', id: this.id, data: chunk.toString('base64') })
-    callback()
+    const seq = String(++this.writeSequence)
+    this.pendingWrite = { seq, callback }
+    this.owner.send({ type: 'write', id: this.id, seq, data: chunk.toString('base64') }, error => {
+      if (error) this.failed(error)
+    })
   }
   _final(callback) {
-    this.owner.send({ type: 'end', id: this.id, data: '' })
-    callback()
+    this.owner.send({ type: 'end', id: this.id, data: '' }, callback)
   }
   _destroy(error, callback) {
     clearTimeout(this.connectTimer)
+    if (this.pendingWrite) {
+      const pending = this.pendingWrite
+      this.pendingWrite = null
+      pending.callback(error || unavailable())
+    }
     this.owner.send({ type: 'destroy', id: this.id })
     this.owner.remove(this)
     callback(error)
@@ -174,8 +211,14 @@ class PipeSocket extends Duplex {
       const bytes = Buffer.from(message.data, 'base64')
       if (this.readableLength + bytes.length > MAX_BYTES) { this.destroy(unavailable()); return }
       this.push(bytes)
+    } else if (message.type === 'written') {
+      if (!this.pendingWrite || message.seq !== this.pendingWrite.seq) { this.owner.fail(); return }
+      const pending = this.pendingWrite
+      this.pendingWrite = null
+      pending.callback()
     } else if (message.type === 'end') this.push(null)
     else if (message.type === 'closed') {
+      if (this.pendingWrite) { this.destroy(unavailable()); return }
       this.once('end', () => this.destroy())
       this.push(null)
       this.resume()
