@@ -156,6 +156,76 @@ test('chunk sender waits for each slow write before queuing the next broker fram
   socket.destroy()
 })
 
+test('stalled chunk delivery expires once, frees its business slot, and never reruns the handler', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  for (const action of ['business', 'mcp.read']) {
+    let effects = 0, active = 0, released = 0, writing
+    const frames = []
+    const socket = new Duplex({ read() {}, write(chunk, _encoding, callback) {
+      frames.push(Buffer.from(chunk)); writing = callback
+    } })
+    const pending = dispatchHostAction(socket, action === 'business' ? request : {
+      ...request, action, params: { name: 'artifact', uri: 'ivoraige://artifact/one', variables: {} },
+    }, { ...context,
+      acquireBusiness() { active++; return () => { active--; released++ } },
+      handleBusiness() { effects++; return { artifact: 'x'.repeat(2 * 1024 * 1024) } },
+    })
+    // Allow state lookup and handler completion without advancing fake time.
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(frames.length, 1)
+    assert.equal(active, 1)
+    t.mock.timers.tick(20_000)
+    writing() // Header completed, but the first data chunk now stalls.
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(frames.length, 2)
+    t.mock.timers.tick(9_999)
+    assert.equal(socket.destroyed, false)
+    assert.equal(active, 1)
+    t.mock.timers.tick(1) // One total deadline, not a fresh budget per chunk.
+    await pending
+    assert.equal(socket.destroyed, true)
+    assert.equal(active, 0)
+    assert.equal(released, 1)
+    assert.equal(effects, 1)
+    assert.equal(frames.length, 2) // No fallback frame appended to a partial reply.
+    assert.equal(socket.listenerCount('close'), 0)
+    writing() // A late native write acknowledgment must not release twice.
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(released, 1)
+    // The receiver reports truncated delivery as outcome-unknown, not rollback.
+    await assert.rejects(exchangeHostFrame('unused', request, {
+      createSocket: () => {
+        const peer = replySocket(Buffer.concat(frames))
+        queueMicrotask(() => peer.push(null))
+        return peer
+      },
+    }), unknown)
+  }
+})
+
+test('chunk deadline starts after business and is cleared on successful delivery', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let finishBusiness, active = 0, released = 0
+  const socket = new Duplex({ read() {}, write(_chunk, _encoding, callback) { callback() } })
+  const pending = dispatchHostAction(socket, request, { ...context,
+    acquireBusiness() { active++; return () => { active--; released++ } },
+    handleBusiness: () => new Promise(resolve => { finishBusiness = resolve }),
+  })
+  await new Promise(resolve => setImmediate(resolve))
+  t.mock.timers.tick(60_000)
+  assert.equal(socket.destroyed, false)
+  assert.equal(active, 1)
+  finishBusiness({ artifact: 'x'.repeat(2 * 1024 * 1024) })
+  await pending
+  assert.equal(socket.writableEnded, true)
+  assert.equal(active, 0)
+  assert.equal(released, 1)
+  t.mock.timers.tick(60_000)
+  assert.equal(socket.destroyed, false)
+  assert.equal(socket.listenerCount('close'), 0)
+  socket.destroy()
+})
+
 test('local broker and stream failures after submission are outcome-unknown, not permission rejections', async () => {
   const permissionFailure = () => new KernelError('PRECONDITION_FAILED', 'Native helper failed',
     { reason: 'owner-permissions-unverified' })

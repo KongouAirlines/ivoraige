@@ -17,6 +17,8 @@ const MAX_FRAME = 1024 * 1024
 // Bound an entire business result independently of the one-megabyte wire frame.
 const MAX_RESPONSE = 32 * 1024 * 1024
 const TRANSFER_CHUNK = 512 * 1024
+// Bound delivery after business completes, not the duration of business itself.
+const TRANSFER_TIMEOUT_MS = 30_000
 const MAX_CONNECTIONS = 64
 const MAX_BUSINESS_CONNECTIONS = 56
 // The native Windows broker may need its existing 20-second cold start before
@@ -221,13 +223,26 @@ async function sendFrame(socket, frame, { allowTransfer = false } = {}) {
   if (bytes.length > MAX_FRAME) {
     if (!allowTransfer) throw fail('CONFLICT', 'outcome-unknown')
     if (bytes.length > MAX_RESPONSE) throw fail('CONFLICT', 'response-too-large')
+    let rejectPendingWrite
+    const timeout = setTimeout(() => {
+      // Reject directly as well as destroying: a broker may delay its close
+      // event. The dispatch finally block must still release the business slot.
+      rejectPendingWrite?.(fail('CONFLICT', 'outcome-unknown'))
+      socket.destroy()
+    }, TRANSFER_TIMEOUT_MS)
     const writeChunk = wire => new Promise((resolveWrite, rejectWrite) => {
-      const closed = () => rejectWrite(fail('CONFLICT', 'outcome-unknown'))
+      let settled = false
+      const closed = () => done(fail('CONFLICT', 'outcome-unknown'))
       const done = error => {
+        if (settled) return
+        settled = true
         socket.off('close', closed)
+        rejectPendingWrite = undefined
         if (error) rejectWrite(error)
         else resolveWrite()
       }
+      if (socket.destroyed) { closed(); return }
+      rejectPendingWrite = done
       socket.once('close', closed)
       try { socket.write(wire, done) } catch (error) { done(error) }
     })
@@ -242,6 +257,7 @@ async function sendFrame(socket, frame, { allowTransfer = false } = {}) {
       }
       socket.end()
     } catch { socket.destroy() }
+    finally { clearTimeout(timeout) }
     return
   }
   // A disconnect can race the write even after destroyed was checked. The

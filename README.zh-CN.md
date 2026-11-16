@@ -47,7 +47,7 @@ Windows owner IPC 还需要内置 Windows PowerShell 5.1 与 .NET Framework，�
 2. 需要机器翻译时配置模型，也可以直接录入自己的译文。
 3. 审校并接受修订，导出结果。
 
-启动器通过仅使用一次的 URL fragment 为本机浏览器配对；复制普通服务地址不能读取文档或设置。CLI 按 `--store`（或默认数据目录）连接已有 owner；stdio MCP 必须附加到该 owner。`--url` 仅核对其 HTTP origin，不能单独远程连接。CLI 相对 `--path` 和 `--out` 按调用者工作目录转为绝对路径后交给 owner。附加模式不支持 `--json-events`，请轮询 `task`。HTTP MCP 默认关闭，须显式使用 `serve --mcp-enabled`。中断附加请求会停止等待，不会停止 owner，也不证明已提交的工作已回滚。启动、鉴权、取消、drain 与退出行为见[本机宿主指南](docs/plan/0.1.x/host-control-guide.md)。当前仍是浏览器工作台，不是原生桌面或托盘应用。
+启动器通过仅使用一次的 URL fragment 为本机浏览器配对；复制普通服务地址不能读取文档或设置。CLI 按 `--store`（或默认数据目录）连接已有 owner；stdio MCP 必须附加到该 owner。`--url` 仅核对其 HTTP origin，不能单独远程连接。CLI 相对 `--path` 和 `--out` 按调用者工作目录转为绝对路径后交给 owner。附加模式不支持 `--json-events`，请轮询 `task`。HTTP MCP 默认关闭，须显式使用 `serve --mcp-enabled`。中断附加请求会停止等待，不会停止 owner，也不证明已提交的工作已回滚。大响应分块发送在业务处理完成后限时 30 秒；发送停滞会关闭连接，不会重放操作。启动、鉴权、取消、drain 与退出行为见[本机宿主指南](docs/plan/0.1.x/host-control-guide.md)。当前仍是浏览器工作台，不是原生桌面或托盘应用。
 
 处理 PDF 时，先按 [PDF 开发参考](docs/plan/0.1.0/pdf-development.md)准备 Windows 可选环境，再按 [PDF 指南](docs/plan/0.1.0/pdf-guide.md)操作。默认在线组件源目前没有可下载的 Release。
 

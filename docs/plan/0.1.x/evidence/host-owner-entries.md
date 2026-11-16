@@ -290,3 +290,30 @@ smoke pass or cross-account/desktop acceptance. Exact-head CI remains separate.
 The final local `npm test` (including a fresh DSH/Web build) completed with
 795 tests: 760 passed, 35 conditional/platform skips, zero failures or
 cancellations. `git diff --check` passed.
+
+## Bounded chunk delivery lifetime (2026-11-16)
+
+- Chunked business/MCP delivery now has one 30-second deadline starting after
+  the handler returns. Slow progress does not reset the budget, and long-running
+  business operations retain their existing execution semantics.
+- On expiry, the pending write is rejected and the connection destroyed. The
+  dispatch cleanup releases its business slot even if a native broker delays
+  its close notification. A partial response remains `outcome-unknown`; no
+  fallback response is appended and no business operation is replayed.
+- Write/close callbacks settle once; success, failure and expiry remove pending
+  listeners and clear the deadline. Existing per-frame/response limits,
+  sequential write backpressure, authentication and admission bounds remain.
+
+Linux / Node 24.22.1 compatibility validation: the transport-outcome suite
+passed 11/11, including fake-time business/MCP stalls, a shared deadline across
+chunks, exactly-once slot release with late ACK, incomplete receiver outcome,
+long business execution and timer cleanup after successful delivery. Package
+smoke installed the tarball and passed its library persistence/export probe,
+but packaged CLI serve failed at Unix socket `listen EPERM`; this is not a
+package smoke pass. Native Windows transport and real desktop/cross-account
+acceptance remain outside this local verification.
+
+Final `npm test`, including a fresh DSH/Web build: 797 tests, 762 passed,
+35 conditional/platform skips, zero failures or cancellations. `git diff
+--check` passed. Native three-platform CI is checked separately on the pushed
+commit; prior-head approvals and results do not establish new-head validation.
