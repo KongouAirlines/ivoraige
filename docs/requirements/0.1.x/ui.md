@@ -1,5 +1,7 @@
 # 0.1.x 导航、普通翻译与能力管理 UI 草案
 
+桌面外壳、WebUI 逐页重置与按需组合的讨论路线见[桌面/UI 渐进路线](../../plan/0.1.x/desktop-ui-roadmap.md)；目标尚未代表实现，沿用既有工作包 ID。
+
 本页定义全局导航、独立普通翻译及管理页面。[workflows](workflows.md)负责项目内工作台和编排，[contracts](contracts.md)负责操作/事件/生命周期；交付状态查[工作包索引](../../plan/0.1.x/work-packages.md#状态与证据)，版本范围查[releases](../../plan/0.1.x/releases.md)。
 
 ## 现有设计与替代范围

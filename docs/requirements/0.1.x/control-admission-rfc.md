@@ -11,7 +11,7 @@
 - 延续[组合契约](contracts.md)、[工作流模型](workflows.md)、[外部 API](external-api.md)及其[协议附录](external-protocol.md)。HostControl 汇总既有 HostSession/退出语义；EntryControl 细化[首版最小托盘](../../plan/0.1.x/desktop.md#首版最小托盘子集)；PluginDelivery 细化 P05/P08；RunAdmission 细化 W02/I01.callable@1。它们不是四个强制独立 npm 包。
 - 当前实现与兼容协议继续有效；下文明确列出的 owner/授权/冻结行为在对应实现切片通过迁移验收后才替换旧行为。本文不替换 P04 operation catalog、事件 barrier、Records 或 ExportSnapshot；已启用部分见 [P04 证据](../../plan/0.1.x/evidence/foundation-p04.md)。现有工作包表中的分支历史标签不能替代本次 main 源码核对，也不在本 RFC 中批量整理。
 - **运行时迁移暂缓：只有 Cordis 上游正式稳定且 DSH 已完成对应迁移两个条件同时满足，才评估 ivoraige 的依赖迁移。** 两条件是必要条件，不自动批准升级；仍须固定精确版本元组并通过本项目兼容验证。决策记录见 [ADR-0003](../../decisions/0003-runtime-migration-gate-0.1.x.md)。该顺序取代[旧评估](../../plan/0.1.x/runtime-sequence.md)中“基础改造前段优先采用候选”的建议；旧源码证据和验证矩阵保留。当前功能设计、固定 pin 下的实现与测试可继续，不等待迁移。
-- 不选择桌面框架，不增加远程控制、系统服务、自启、安装市场、任意插件热卸载或全新账号体系；不改当前发行版本号。首版目标仍是最小托盘和插件管理页可安装官方 PDF 能力，完整原生 UI 后置。发行物及平台支持必须另有实际证据。
+- 不选择桌面框架，不增加远程控制、系统服务、自启、安装市场、任意插件热卸载或全新账号体系；不改当前发行版本号。最小托盘和官方 PDF 插件管理仍可独立交付，完整桌面与 WebUI 依[渐进路线](../../plan/0.1.x/desktop-ui-roadmap.md)逐页推进。发行物及平台支持必须另有实际证据。
 
 ### 已有基础与缺口
 
@@ -133,7 +133,7 @@ host generation 应复用该 incarnation 的 P04 bridge generation 或提供固�
 
 ### 首次启用、身份与旧入口迁移
 
-首次安装及从匿名版本升级时，MCP/外部入口缺少显式已授权配置一律默认关闭，不把旧版默认开放推断为授权。owner 设置的 enabled 和 entryRevision 持久保存；`--no-mcp` 是本次启动的最高优先级关闭约束，不擦除保存值，UI 同时显示保存期望与本次阻断原因，不能通过菜单绕过。尚未实现的 OpenAI 入口显示 unavailable/未实现、不可开启和空地址；托盘不用等待整个 I01.callable 就能交付。
+首次安装及从匿名版本升级时，MCP/外部入口缺少显式已授权配置一律默认关闭，不把旧版默认开放推断为授权。owner 设置的 enabled 和 entryRevision 持久保存；目标调整：`--no-mcp` 使本次启动初始关闭，不擦除保存值；后续受信 owner 明确开启可以覆盖，普通 attach/重连不能隐式开启。覆盖是否持久化待定。现有强制关闭实现须另行迁移和验证，UI 区分保存期望、启动初始状态与当前运行状态。尚未实现的 OpenAI 入口显示 unavailable/未实现、不可开启和空地址；托盘不用等待整个 I01.callable 就能交付。
 
 | 调用者 | 首版允许的边界 |
 | --- | --- |
@@ -292,7 +292,7 @@ PDF 闭环：启动控制器 start 得到 g7（或 attach 已有 g7）→ 插件
 | 顺序 / 归属 | 最小可证实验收 |
 | --- | --- |
 | A：D01/D05、P04 | launch/serve/CLI/stdio 同域竞争仅一 owner；不同 data/settings/组件目录仍使用同一 OS 用户登记根；无 ID 存量 store 静默登记且保留原记录/任务身份，并发及写入中断重启不产生第二 ID；已有 ID 登记缺失/损坏/权限错误、路径别名/文件替换/配置冲突及迁移/副本分别验收，不清空登记或抢锁；无 TTY 的 serve/CLI/stdio 及时非零退出、无业务受理/模型调用且不污染协议 stdout，经显式本机恢复后才重试；临时 CLI owner 拒绝常驻 attach，结束仅收尾自己创建的 owner；两客户端 attach 常驻 host generation 相同、重启后旧句柄拒绝；关窗任务继续；drain 超时管理通道仍可查询和重试，强退不误杀/不早释锁；无托盘明确手动重启 |
-| A：P04、D05、U02；外部另接 I01.shared | 未启用外部入口也须先通过本地 owner bootstrap 完成管理页安装；凭证过期/重放/跨源/错域/重启拒绝，旧会话失效；未配对 WebUI、匿名/业务令牌不能安装或退出；旧 component_install、HTTP、事件及产物无旁路；历史 owner 与新主体隔离；旧匿名配置升级默认关闭、保存 enabled/CLI 强制关闭优先级正确；MCP 关开不装卸 Loader 插件、不影响 WebUI，未实现 OpenAI 不可开启；entry/catalog/P04 修订不混用 |
+| A：P04、D05、U02；外部另接 I01.shared | 未启用外部入口也须先通过本地 owner bootstrap 完成管理页安装；凭证过期/重放/跨源/错域/重启拒绝，旧会话失效；未配对 WebUI、匿名/业务令牌不能安装或退出；旧 component_install、HTTP、事件及产物无旁路；历史 owner 与新主体隔离；旧匿名配置升级默认关闭、保存 enabled、CLI 初始关闭、受信显式覆盖与普通重连不启用正确（覆盖持久化策略待定）；MCP 关开不装卸 Loader 插件、不影响 WebUI，未实现 OpenAI 不可开启；entry/catalog/P04 修订不混用 |
 | B：P05/P08、U02 | Windows 干净主体经管理页安装真实受控 PDF 候选包；清单/摘要/引擎/协议/能力匹配；断网、缺资产、磁盘失败和崩溃恢复不损坏旧包；installed/pendingRestart 与 active/ready 分离且各界面一致；重启探针与 pdf-config 覆盖不会伪报 ready |
 | B：P05、Q02、Tasks | 暂停/重启后旧导出引用仍保护资源；升级和同版本修复不覆盖在用内容；首版必测当前精确匹配恢复与不匹配/缺旧包/未知版本持续阻塞；仅在提供切回功能时另测显式选择、重启验证及失败恢复，新版新运行需选择；不阻塞无侧车依赖翻译，不声称导入续传；共享槽可见忙碌/有界等待 |
 | C：W02.admission-text@1、U01；外部另接 I01.shared | 一段文本跨协议/并发/重启重发仅一个 run/task；受理崩溃无丢输入、双重扣额或重复任务；按 [W-V02.admission-text](../../plan/0.1.x/validation/workflows.md#w-v02-admission-text) 证明真实 DSH 跨重启相关配置不一致阻塞且零误发、恢复匹配配置可继续、准备/写入竞态安全；可传入的 model/参数使用冻结值，无关 provider revision 变化不误阻塞；凭据只存引用，当前授权继续检查 |

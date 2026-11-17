@@ -31,13 +31,13 @@
 | D02 | WebUI 草稿日志及恢复 | 可先用 D01 草案做夹具；接线依赖 D01/P04 | 草案 | [桌面生命周期](packages/desktop.md#d02) |
 | D03 | UI session 客户端与事件定向失效 | P04；测量与设计可并行 | 草案 | [桌面生命周期](packages/desktop.md#d03) |
 | D04 | 现有 host/browser 性能和故障基线 | [测量协议](desktop.md)；可并行 | 草案 | [桌面生命周期](packages/desktop.md#d04) |
-| D05 | 桌面候选探针、选型及集成验收 | D01–D04；正式壳依赖稳定接口 | 草案 | [桌面生命周期](packages/desktop.md#d05) |
+| D05 | 外壳候选、独立托盘/窗口与逐页集成验收 | 探针并行；最小窗口接 D01/D03 稳定接口；最终验收汇总 D01–D04，见[渐进路线](desktop-ui-roadmap.md) | 草案 | [桌面生命周期](packages/desktop.md#d05) |
 | W01 | 能力/产物/来源契约与默认链的真实组合证明 | P02、P03、P04；独立插件证据接 P05 | 草案 | [可组合工作流](packages/workflows.md#w01) |
 | W02 | 可保存模板/实例版本、运行追溯与局部重跑 | 完整工作流依赖 W01，复用 P02/P04/P05；[admission-text@1](packages/workflows.md#w02-admission-text) 先行仅需现有 Records/Tasks/P04，外部另接 I01.shared | 草案 | [可组合工作流](packages/workflows.md#w02)；[W-V02.admission-text](validation/workflows.md#w-v02-admission-text) |
 | W03 | 内容优先工作台与卡片/参数编辑 | W01、W02、D03；发布管理 UI 子交付 W03.publish-ui@1 另接 I01.callable@1；自动销毁另依赖 D02 | 草案 | [可组合工作流](packages/workflows.md#w03) |
 | W04 | 高级节点图编辑与无损视图切换 | W02、W03；不作为真实组合保存的前置 | 草案 | [可组合工作流](packages/workflows.md#w04) |
 | U01 | 独立普通翻译、可选即时预览、局部候选与修订交互 | P04；仅预览切片另需 U02 模型/连接与预览设置交付（[U-V02.preview-settings](validation/ui.md#u-v02-preview-settings)），普通页不等 U02；保留既有 Records/翻译服务；预览独立选用已有配置模型，内置引擎/语言包及 #39 非前置，转项目另接 W02 | 草案 | [普通翻译与管理 UI](packages/ui.md#u01) |
-| U02 | 分组导航、五类设置（含独立预览默认模型及普通页配置入口）、模型/连接管理与插件配置归属 | P04、P05；项目区接 W02，资源准备接 P08/对应插件 | 草案 | [普通翻译与管理 UI](packages/ui.md#u02) |
+| U02 | 分组导航、五类设置（含独立预览默认模型及普通页配置入口）、模型/连接管理与插件配置归属 | 导航/模型设置依赖 P04；插件管理另接 P05；项目区接 W02，资源准备接 P08/对应插件 | 草案 | [普通翻译与管理 UI](packages/ui.md#u02) |
 | U03 | 术语后端、术语页、数据与存储设置子页及可解释预检切片 | U03.terms@1 仅需 P01/P02 及现有翻译接点，不等 U02/UI；术语页接 U02 与该后端，存储接 Q02/P02，项目挂载接 W02，预检接 P03 | 草案 | [普通翻译与管理 UI](packages/ui.md#u03) |
 | F01 | DOCX 窄范围提取、草稿与原生回写 | P02、P03；公共入口 P04，独立交付 P05 | 草案 | [格式与软件协作](packages/formats-integrations.md#f01) |
 | F02 | 可重排 EPUB 窄范围读取与原生回写 | P02、P03；公共入口 P04，独立交付 P05 | 草案 | [格式与软件协作](packages/formats-integrations.md#f02) |
