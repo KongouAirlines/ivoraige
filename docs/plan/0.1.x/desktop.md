@@ -21,7 +21,7 @@ HostSession/TaskCapabilities/WorkerLifecycle 适配既有 ivoraige.tasks 和 DSH
 
 | 部分 | 拥有的责任 | 生命周期要求 |
 | --- | --- | --- |
-| 后台 host | 唯一内核/SQLite 所有者；装配 DSH jobs、存储、凭据；任务编排、快照、进程监管、事件和资源策略 | UI 不存在时仍可运行任务；无任务时不加载 Python/GPU；复用现有服务，不新建另一套任务系统 |
+| 后台 host | 同一数据域唯一内核/SQLite 所有者；装配 DSH jobs、存储、凭据；任务编排、快照、进程监管、事件和资源策略 | UI 不存在时仍可运行任务；无业务任务时不默认预热 Python/GPU 引擎 worker；框架图形 helper 单独归因测量；复用现有服务，不新建另一套任务系统 |
 | 托盘与右键菜单控制层 | 原生图标、摘要状态、打开工作台/任务/设置、退出；只调用命令契约 | 创建菜单不启动 renderer；菜单和图标不依赖隐藏网页；状态通过订阅更新，进度适度合并 |
 | 按需 UI | 展示、编辑、导航、草稿日志、连接状态；复用 WebUI | 需要时启动，关闭后销毁拥有的 renderer/webview；不拥有长任务、SQLite 或 Python；重开靠快照恢复 |
 | 可选能力 worker | Python/外部引擎及后代；插件声明 spawn、取消、回收、恢复能力 | 忙时持有任务 lease；空闲到期可停止会话，下次请求重启；回收 session 不能永久关闭整个可复用 client |
@@ -34,7 +34,7 @@ HostSession/TaskCapabilities/WorkerLifecycle 适配既有 ivoraige.tasks 和 DSH
 
 - 管理供外部客户端调用的入站 OpenAI 兼容入口和 MCP 入口：显示各自真实运行状态、查看/复制实际连接地址，并分别启停。入站 OpenAI 入口与上游模型连接配置是不同对象。尚未实现的入口显示“未实现/不可开启”和空地址，首版托盘不等待完整 I01.callable。
 - 状态和地址取自当前 host 的实际运行信息；尚未就绪、启动失败或地址/端口未知时明确显示原因，不显示推测地址或伪报可用；菜单和复制内容不暴露凭据。
-- 停止一个入口只停止该入口，不关闭共用 HTTP 监听、WebUI 或 host，也不影响另一个入口；所有操作复用唯一 host，不另启第二个 SQLite 所有者。
+- 停止一个入口只停止该入口，不关闭共用 HTTP 监听、WebUI 或 host，也不影响另一个入口；同一数据域的所有操作复用唯一 host，不另启第二个 SQLite 所有者。
 
 安装状态共用 PluginDelivery 的权威投影，显示“已安装，待重启并验证”，实际探针通过才显示可用；显式配置覆盖不能冒充新包已激活。本地 owner bootstrap 是管理页安装的前置，即使未启用外部入口也要通过受信启动器/终端交接短时一次性凭证并换取浏览器会话，不等待完整 I01.shared；临时 CLI owner 拒绝常驻 attach。配对、MCP 保存开关/启动约束、stdio 桥接与超时后保留管理通道按[四接口 RFC](../../requirements/0.1.x/control-admission-rfc.md)的 A/B 验收。纯 WebUI/serve 首版允许提示手动重启；host 不负责拉起自己。
 
@@ -44,7 +44,7 @@ HostSession/TaskCapabilities/WorkerLifecycle 适配既有 ivoraige.tasks 和 DSH
 
 | 契约 | 最小内容与依赖 |
 | --- | --- |
-| HostSession | protocolVersion、instanceId/generation、ready/stopping 状态、capabilities；复用真实数据目录与 store lock；二次启动只激活现有 UI |
+| HostSession | protocolVersion、instanceId/generation、ready/stopping 状态、capabilities；复用真实数据目录与 store lock；同一数据域二次启动复用唯一 host，按明确启动意图打开或聚焦对应入口；无可视化启动不隐式开窗 |
 | 命令 | 显式 requestId 与响应；openView(route)、getStatus、prepareShutdown、commitShutdown；任务命令复用现有服务。断线重试需幂等或查询原结果，避免重复导入/翻译 |
 | TaskCapabilities | 每任务 allowedActions、取消结果、可恢复性、进度/收尾阶段；导入、安装、翻译、导出分别声明；UI 不按格式名猜按钮 |
 | Snapshot + Events | 摘要查询与细节查询分开；跨域事件独立注册和 disposer；带 host generation/状态 revision。遵循[状态同步边界](../../requirements/0.1.x/contracts.md#状态快照与订阅的同步边界)：先完成原子 barrier 的订阅就绪握手并缓冲，再取一致快照；重取期间保留订阅，断线/换代/溢出重新握手。持久事件重放可以延后 |
@@ -97,7 +97,7 @@ HostSession/TaskCapabilities/WorkerLifecycle 适配既有 ivoraige.tasks 和 DSH
 **建议初始门槛（待基线测量后固定；不是现有实测值）：**
 
 1. 硬门槛：仅后台时没有本应用 renderer；未使用 PDF 时不常驻 Python/GPU 业务 worker；启动就绪探针可短暂握手并及时退出，不初始化 GPU；菜单不启动 UI；退出或故障清理 deadline 后零拥有孤儿；关闭 UI 不改变任务语义；已确认日志可恢复。
-2. 托盘+host 空闲相对同配置 host-only：增量私有内存预算 30 MiB，首次平台样本可调整一次并说明原因；没有意外的定时全量查询。全树空闲平均 CPU ≤0.2% 单核，10 秒窗口 p95 ≤1%；新增应用归因唤醒平均 ≤1 次/秒。跨 OS 使用各自规定内存口径验收，不假装数值等价。
+2. 托盘+host 空闲相对同配置 host-only：增量私有内存预算 30 MiB，作为初始建议；依据固定条件实测合理复审并记录平台差异、调整原因与对照结果，不能仅为通过验收而放宽；没有意外的定时全量查询。全树空闲平均 CPU ≤0.2% 单核，10 秒窗口 p95 ≤1%；新增应用归因唤醒平均 ≤1 次/秒。跨 OS 使用各自规定内存口径验收，不假装数值等价。
 3. UI 关闭后 5 秒内回到同阶段后台基线+10 MiB；100 次循环后不单调增长且末态仍在该范围。已触发 PDF 的状态须等到 TTL/回收结束再与“已回收 worker”基线比较。
 4. 托盘菜单响应 p95 ≤100 ms；host 已运行的 UI 重开到恢复位置且能编辑 p95 ≤2 s，冷启动单列并以 ≤5 s 为初始目标。输入数据和参考硬件固定。
 5. 正常退出目标 ≤5 s；忙任务/异常 worker 的收尾 deadline 初设 15 s，超时必须明确报告并保留管理通道，提供继续等待/明确强退选择，不自动强退；15 s 仅为测量初值，控制/操作/任务层贯穿同一剩余预算，不把它当已经保证的数据安全上限。GPU 释放目标在 worker 退出后 5 s 内观测回落，平台无法归因则该格待验收。

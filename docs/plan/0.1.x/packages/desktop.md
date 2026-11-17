@@ -23,7 +23,7 @@ HostSession、TaskCapabilities、shutdown/drain、worker lease/idle-stop/final-d
 
 ## D03
 
-API/session 客户端、分页/必要虚拟化、定向事件失效、不可见订阅停止。
+API/session 客户端、分页/必要虚拟化、定向事件失效、不可见订阅停止。既有编辑迁移复用现有 Records/P04，不等待 W01/W02；新增项目/工作流工作台才依赖 W03 的 W01/W02 前置。
 
 - 交付：按[渐进路线](../desktop-ui-roadmap.md)拆 client/session、feature controller、页面注册与导航适配；逐页完成整体 UI 重置。
 - 不做：不一次性重写全部 UI，不先移除 SSE 另造轮询。
@@ -44,7 +44,7 @@ API/session 客户端、分页/必要虚拟化、定向事件失效、不可见�
 
 按[渐进路线](../desktop-ui-roadmap.md)拆候选/安装探针、独立托盘、最小窗口、页面覆盖与原生集成验收。最小托盘不等待完整桌面；窗口和共用页面并行推进，最终验收才汇总 D01–D04。框架与包边界尚未选定。
 
-- 不做：不带文件管理器右键/自启/服务安装/自动升级/常驻 GPU。
+- 不做：不带文件管理器右键/自启/服务安装/自动升级；不默认预热业务引擎 GPU worker。框架图形 helper 不在此禁令内，其实际成本仍须计入进程树预算。
 - 验收：[D05 专项](../validation/desktop.md#d05)。
 - 回退：桌面壳独立禁用/卸载，继续 CLI/MCP/browser；保留数据及草稿日志。
 

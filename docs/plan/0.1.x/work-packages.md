@@ -29,12 +29,12 @@
 | D01 | 桌面 HostSession/任务/worker/退出契约探针 | P01；集成依赖 P04 | [契约](../../requirements/0.1.x/host-control-contract.md)与 A1/A2/A3 实现分支待集成；[生命周期](evidence/host-control-lifecycle.md)、[Windows pipe 边界](evidence/host-windows-pipe.md)、[入口验证及未完成门禁](evidence/host-owner-entries.md)：`4882a83c` 历史三平台全套/安装包 smoke 通过；上游安全/生命周期修正接续中，[域恢复](evidence/host-domain-review.md)与[传输/会话](evidence/host-transport-review.md)见各层证据，新组合原生 CI 尚待核验，跨账户验收仍未完成；[分块发送期限回归](evidence/host-owner-entries.md#bounded-chunk-delivery-lifetime-2026-11-16)已在分支验证；[后续接线边界](evidence/host-owner-entries.md#integration-handoff)，D01 不标完成 | [桌面生命周期](packages/desktop.md#d01) |
 
 | D02 | WebUI 草稿日志及恢复 | 可先用 D01 草案做夹具；接线依赖 D01/P04 | 草案 | [桌面生命周期](packages/desktop.md#d02) |
-| D03 | UI session 客户端与事件定向失效 | P04；测量与设计可并行 | 草案 | [桌面生命周期](packages/desktop.md#d03) |
+| D03 | UI session 客户端、既有编辑迁移与事件定向失效 | P04/现有 Records；既有编辑不等待 W01/W02；测量与设计可并行 | 草案 | [桌面生命周期](packages/desktop.md#d03) |
 | D04 | 现有 host/browser 性能和故障基线 | [测量协议](desktop.md)；可并行 | 草案 | [桌面生命周期](packages/desktop.md#d04) |
 | D05 | 外壳候选、独立托盘/窗口与逐页集成验收 | 探针并行；最小窗口接 D01/D03 稳定接口；最终验收汇总 D01–D04，见[渐进路线](desktop-ui-roadmap.md) | 草案 | [桌面生命周期](packages/desktop.md#d05) |
 | W01 | 能力/产物/来源契约与默认链的真实组合证明 | P02、P03、P04；独立插件证据接 P05 | 草案 | [可组合工作流](packages/workflows.md#w01) |
 | W02 | 可保存模板/实例版本、运行追溯与局部重跑 | 完整工作流依赖 W01，复用 P02/P04/P05；[admission-text@1](packages/workflows.md#w02-admission-text) 先行仅需现有 Records/Tasks/P04，外部另接 I01.shared | 草案 | [可组合工作流](packages/workflows.md#w02)；[W-V02.admission-text](validation/workflows.md#w-v02-admission-text) |
-| W03 | 内容优先工作台与卡片/参数编辑 | W01、W02、D03；发布管理 UI 子交付 W03.publish-ui@1 另接 I01.callable@1；自动销毁另依赖 D02 | 草案 | [可组合工作流](packages/workflows.md#w03) |
+| W03 | 新增项目/工作流内容工作台与卡片/参数编辑（既有编辑迁移属 D03） | W01、W02、D03；发布管理 UI 子交付 W03.publish-ui@1 另接 I01.callable@1；自动销毁另依赖 D02 | 草案 | [可组合工作流](packages/workflows.md#w03) |
 | W04 | 高级节点图编辑与无损视图切换 | W02、W03；不作为真实组合保存的前置 | 草案 | [可组合工作流](packages/workflows.md#w04) |
 | U01 | 独立普通翻译、可选即时预览、局部候选与修订交互 | P04；仅预览切片另需 U02 模型/连接与预览设置交付（[U-V02.preview-settings](validation/ui.md#u-v02-preview-settings)），普通页不等 U02；保留既有 Records/翻译服务；预览独立选用已有配置模型，内置引擎/语言包及 #39 非前置，转项目另接 W02 | 草案 | [普通翻译与管理 UI](packages/ui.md#u01) |
 | U02 | 分组导航、五类设置（含独立预览默认模型及普通页配置入口）、模型/连接管理与插件配置归属 | 导航/模型设置依赖 P04；插件管理另接 P05；项目区接 W02，资源准备接 P08/对应插件 | 草案 | [普通翻译与管理 UI](packages/ui.md#u02) |
