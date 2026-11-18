@@ -87,8 +87,8 @@ test('workbench-helpers: insertAtSelection, filterWorkbenchUnits, and computeWor
   assert.ok(diff.some(part => part.type === 'same' && part.text.includes('版译文测试')))
 })
 
-for (const editDuringRequest of [false, true]) test(
-  `Workbench retries partial saves and batch acceptance (new edit during save: ${editDuringRequest})`, async () => {
+for (const dirtyDuringBatch of [false, true]) for (const editDuringRequest of [false, true]) test(
+  `Workbench retries partial saves and batch acceptance (new edit during save: ${editDuringRequest}, dirty batch: ${dirtyDuringBatch})`, async () => {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
     url: 'http://localhost/#/workbench/doc',
     runScripts: 'outside-only',
@@ -179,6 +179,22 @@ for (const editDuringRequest of [false, true]) test(
       data = { items: unitDetails.u0.revisions, nextCursor: null }
     } else if (path === '/units/u1/revisions') {
       data = { items: unitDetails.u1.revisions, nextCursor: null }
+    } else if (path === '/units/u1' && method === 'PATCH') {
+      assert.equal(body.baseRevisionId, unitDetails.u1.draft?.id ?? unitDetails.u1.accepted?.id ?? null)
+      const revision = { id: 'rev-u1-new', text: body.text, origin: 'human', status: 'draft' }
+      unitDetails.u1.draft = revision
+      unitDetails.u1.revisions.push(revision)
+      units[1].draftRevisionId = revision.id
+      data = { revision }
+    } else if (path === '/revisions/rev-u1-new/accept' && method === 'POST') {
+      if (body.expectedAcceptedRevisionId !== unitDetails.u1.accepted.id) {
+        return { ok: false, status: 409, json: async () => ({ error: { code: 'CONFLICT', message: 'Accepted revision changed' } }) }
+      }
+      unitDetails.u1.accepted = { ...unitDetails.u1.draft, status: 'accepted' }
+      unitDetails.u1.draft = null
+      delete units[1].draftRevisionId
+      units[1].acceptedRevisionId = 'rev-u1-new'
+      data = { acceptedRevisionId: 'rev-u1-new' }
     } else if (path === '/units/u0' && method === 'PATCH') {
       assert.equal(body.baseRevisionId, unitDetails.u0.draft?.id ?? null)
       if (++patchCount === 1) await firstPatch
@@ -289,6 +305,13 @@ for (const editDuringRequest of [false, true]) test(
     diffBtn.click()
     await until(() => window.document.querySelector('.diff-view'), 'Diff view did not render')
 
+    if (dirtyDuringBatch) {
+      setValue.call(editor(), '本地未保存的新编辑')
+      editor().dispatchEvent(new window.Event('input', { bubbles: true }))
+      await until(() => [...window.document.querySelectorAll('.editor-actions button')]
+        .some(b => b.textContent === '保存并接受'))
+    }
+
     // 4. Unit search & Select-All & Batch Accept
     const searchInput = window.document.querySelector('input[aria-label="搜索段落"]')
     assert.ok(searchInput, 'expected unit search input')
@@ -316,6 +339,17 @@ for (const editDuringRequest of [false, true]) test(
     await until(() => window.document.body.textContent.includes('已批量接受所选草稿'))
     assert.equal(calls.filter(c => c.path === '/revisions/rev-u1-draft/accept').length, 1)
     assert.equal(u2Attempts, 2)
+    if (dirtyDuringBatch) {
+      assert.equal(editor().value, '本地未保存的新编辑', 'batch acceptance must preserve unsaved text')
+      shortcut()
+      await until(() => calls.some(c => c.path === '/revisions/rev-u1-new/accept'))
+      const acceptNew = calls.find(c => c.path === '/revisions/rev-u1-new/accept')
+      assert.equal(acceptNew.body.expectedAcceptedRevisionId, 'rev-u1-draft',
+        'the accepted baseline must include our successful batch write even after a later unit failed')
+      assert.equal(unitDetails.u1.accepted.text, '本地未保存的新编辑')
+      assert.equal(calls.filter(c => c.path === '/units/u1' && c.method === 'PATCH').length, 1)
+      assert.equal(calls.filter(c => c.path === '/revisions/rev-u1-new/accept').length, 1)
+    }
   } finally {
     window.close()
   }
