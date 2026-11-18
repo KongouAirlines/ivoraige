@@ -1,0 +1,122 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 424dc3f..c033992 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,6 +1,6 @@
+ [project]
+ name = "BabelDOC"
+-version = "0.7.1"
++version = "0.7.1+ivoraige.1"
+ description = "Yet Another Document Translator"
+ license = "AGPL-3.0"
+ readme = "README.md"
+diff --git a/rust/p2_bridge/src/lib.rs b/rust/p2_bridge/src/lib.rs
+index 476b7c5..4abab10 100644
+--- a/rust/p2_bridge/src/lib.rs
++++ b/rust/p2_bridge/src/lib.rs
+@@ -111,6 +111,7 @@ impl FromPyValue for CurveDebugInfo {
+ #[pymodule]
+ fn _rust_il(module: &Bound<'_, PyModule>) -> PyResult<()> {
+     module.add("ParserResourceLimitError", module.py().import("babeldoc.format.pdf.parser_resource")?.getattr("ParserResourceLimitError")?)?;
++    module.add("ivoraige_source_bridge_version", 1)?;
+     callbacks::register(module)?;
+     logging::register(module)?;
+     shared_context::register(module)?;
+diff --git a/rust/p2_bridge/src/m_transfer.rs b/rust/p2_bridge/src/m_transfer.rs
+index 9b32ed5..9e8a662 100644
+--- a/rust/p2_bridge/src/m_transfer.rs
++++ b/rust/p2_bridge/src/m_transfer.rs
+@@ -769,6 +769,38 @@ impl MDocument {
+         if capture_stages {
+             capture_at(&self.document, &capture_paths, "styles")?;
+         }
++        // ivoraige bridge v1: read-only inventory before any translation changes.
++        // Opt-in only; ordinary upstream translators retain their behavior.
++        let source_translator = executors
++            .get_item("translation")?
++            .ok_or_else(|| PyValueError::new_err("missing translation callback executor"))?
++            .getattr("service")?
++            .getattr("translator")?;
++        if source_translator.hasattr("ivoraige_source_inventory")? {
++            let view = self.document.view::<ir::ReadOnlyView>();
++            let mut inventory = Vec::new();
++            for (page_index, page) in view.document().page_iter(&view).map_err(access_error)?.enumerate() {
++                let page = page.map_err(access_error)?;
++                for (paragraph_index, paragraph) in page.pdf_paragraph_iter(&view).map_err(access_error)?.enumerate() {
++                    let paragraph = paragraph.map_err(access_error)?;
++                    let bbox = paragraph.r#box(&view).map_err(access_error)?.map(|b| {
++                        Ok::<_, PyErr>([
++                            b.x(&view).map_err(access_error)?, b.y(&view).map_err(access_error)?,
++                            b.x2(&view).map_err(access_error)?, b.y2(&view).map_err(access_error)?,
++                        ])
++                    }).transpose()?;
++                    inventory.push(serde_json::json!({
++                        "pageIndex": page_index, "paragraphIndex": paragraph_index,
++                        "page": page.page_number(&view).map_err(access_error)?,
++                        "bbox": bbox,
++                        "sourceUnicode": paragraph.unicode(&view).map_err(access_error)?,
++                        "layoutLabel": paragraph.layout_label(&view).map_err(access_error)?,
++                    }));
++                }
++            }
++            let payload = serde_json::to_string(&inventory).map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
++            source_translator.call_method1("ivoraige_source_inventory", (payload,))?;
++        }
+         // The 0.6.4 probe happens after styles and before term extraction. Keep
+         // it as a Python callback so caller supplied translator objects retain
+         // their own behavior and the original exception/logging policy.
+diff --git a/rust/p2_bridge/src/ordinary_translation.rs b/rust/p2_bridge/src/ordinary_translation.rs
+index 67c4986..b3bb612 100644
+--- a/rust/p2_bridge/src/ordinary_translation.rs
++++ b/rust/p2_bridge/src/ordinary_translation.rs
+@@ -1468,6 +1468,7 @@ pub fn process(
+     let _native_font_mapper = &mapper.mapper;
+     let root = crate::shared_context::root_from_handle(shared_context)?;
+     let translator = translator_service.bind(py).clone();
++    let source_bridge = translator.getattr("translator")?.hasattr("ivoraige_source_inventory")?;
+     let supports_llm = translator
+         .call_method0("probe_il_translator")?
+         .extract::<bool>()?;
+@@ -1641,6 +1642,7 @@ pub fn process(
+                         flag.clone(),
+                         progress.clone(),
+                         admitted,
++                        source_bridge,
+                     );
+                     submitted += 1;
+                     if submitted <= workers {
+@@ -1657,6 +1659,7 @@ pub fn process(
+                         flag.clone(),
+                         progress.clone(),
+                         admitted,
++                        source_bridge,
+                     );
+                     submitted += 1;
+                     if submitted <= workers {
+@@ -1951,6 +1954,7 @@ fn spawn_request(
+     flag: CancelFlag,
+     progress: PythonProgress,
+     recorded: Arc<AtomicBool>,
++    source_bridge: bool,
+ ) -> oneshot::Receiver<()> {
+     let (admitted_tx, admitted_rx) = oneshot::channel();
+     tasks.spawn(async move {
+@@ -1959,6 +1963,18 @@ fn spawn_request(
+             let args = PyTuple::new(py, [input.clone()])?.unbind();
+             let params = PyDict::new(py);
+             params.set_item("paragraph_token_count", job.token_count)?;
++            if source_bridge {
++                use babeldoc_p2_stages::translation::python_semantics::{PythonJsonValue, json_dumps};
++                let input = job.input.as_ref().ok_or_else(|| PyRuntimeError::new_err("source bridge request has no input"))?;
++                let placeholders = PythonJsonValue::Array(tracking_placeholders(input).iter().map(stage::PlaceholderRecord::to_json_value).collect());
++                let context = PyDict::new(py);
++                context.set_item("version", 1)?;
++                context.set_item("pageIndex", job.page)?;
++                context.set_item("paragraphIndex", job.paragraph)?;
++                context.set_item("preparedInput", input.text.clone())?;
++                context.set_item("placeholderPayloadsJson", json_dumps(&placeholders))?;
++                params.set_item("ivoraigeSource", context)?;
++            }
+             let kwargs = PyDict::new(py);
+             kwargs.set_item("rate_limit_params", params)?;
+             Ok((args, kwargs.unbind()))

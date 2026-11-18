@@ -1,3 +1,4 @@
+import './fixtures/host-test-env.mjs'
 import test from 'node:test'
 import { createCleanup } from './fixtures/cleanup.mjs'
 import assert from 'node:assert/strict'
@@ -5,7 +6,7 @@ import { mkdtemp, rm, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createApp } from '../src/app.mjs'
-import { serve } from '../src/http.mjs'
+import { serve } from './fixtures/owner-http.mjs'
 import fs from 'node:fs'
 import { syncBuiltinESMExports } from 'node:module'
 
@@ -149,8 +150,9 @@ test('shutdown keeps storage owned when a resource file-stat acquisition misses 
   cleanup(() => { fs.promises.open = originalOpen; syncBuiltinESMExports(); resume() })
   const pending = app.resources.openArtifact(item.id).catch(error => error)
   await entered
-  app.resources.drainTimeoutMs = 10
-  await assert.rejects(app.dispose(), /Resource reads did not drain/)
+  await assert.rejects(app.dispose({ budgetMs: 10 }), error =>
+    error.code === 'PRECONDITION_FAILED' && error.details?.reason === 'deadline-exceeded' &&
+    error.details?.phase === 'resources')
   assert.ok(app.ctx.get('ivoraige.records'))
   await assert.rejects(createApp({ store: join(dir, 'store.sqlite') }), { code: 'CONFLICT' })
   resume()

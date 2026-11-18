@@ -1,0 +1,774 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index 424dc3f..d3d45a2 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -1,6 +1,6 @@
+ [project]
+ name = "BabelDOC"
+-version = "0.7.1"
++version = "0.7.1+ivoraige.3"
+ description = "Yet Another Document Translator"
+ license = "AGPL-3.0"
+ readme = "README.md"
+diff --git a/rust/p2_bridge/src/lib.rs b/rust/p2_bridge/src/lib.rs
+index 476b7c5..032a09a 100644
+--- a/rust/p2_bridge/src/lib.rs
++++ b/rust/p2_bridge/src/lib.rs
+@@ -111,6 +111,9 @@ impl FromPyValue for CurveDebugInfo {
+ #[pymodule]
+ fn _rust_il(module: &Bound<'_, PyModule>) -> PyResult<()> {
+     module.add("ParserResourceLimitError", module.py().import("babeldoc.format.pdf.parser_resource")?.getattr("ParserResourceLimitError")?)?;
++    module.add("ivoraige_source_bridge_version", 1)?;
++    module.add("ivoraige_layout_fit_policy", "fit-box-v1")?;
++    module.add("ivoraige_underscore_line_policy", "ascii-alnum-base-v1")?;
+     callbacks::register(module)?;
+     logging::register(module)?;
+     shared_context::register(module)?;
+diff --git a/rust/p2_bridge/src/m_transfer.rs b/rust/p2_bridge/src/m_transfer.rs
+index 9b32ed5..9e8a662 100644
+--- a/rust/p2_bridge/src/m_transfer.rs
++++ b/rust/p2_bridge/src/m_transfer.rs
+@@ -769,6 +769,38 @@ impl MDocument {
+         if capture_stages {
+             capture_at(&self.document, &capture_paths, "styles")?;
+         }
++        // ivoraige bridge v1: read-only inventory before any translation changes.
++        // Opt-in only; ordinary upstream translators retain their behavior.
++        let source_translator = executors
++            .get_item("translation")?
++            .ok_or_else(|| PyValueError::new_err("missing translation callback executor"))?
++            .getattr("service")?
++            .getattr("translator")?;
++        if source_translator.hasattr("ivoraige_source_inventory")? {
++            let view = self.document.view::<ir::ReadOnlyView>();
++            let mut inventory = Vec::new();
++            for (page_index, page) in view.document().page_iter(&view).map_err(access_error)?.enumerate() {
++                let page = page.map_err(access_error)?;
++                for (paragraph_index, paragraph) in page.pdf_paragraph_iter(&view).map_err(access_error)?.enumerate() {
++                    let paragraph = paragraph.map_err(access_error)?;
++                    let bbox = paragraph.r#box(&view).map_err(access_error)?.map(|b| {
++                        Ok::<_, PyErr>([
++                            b.x(&view).map_err(access_error)?, b.y(&view).map_err(access_error)?,
++                            b.x2(&view).map_err(access_error)?, b.y2(&view).map_err(access_error)?,
++                        ])
++                    }).transpose()?;
++                    inventory.push(serde_json::json!({
++                        "pageIndex": page_index, "paragraphIndex": paragraph_index,
++                        "page": page.page_number(&view).map_err(access_error)?,
++                        "bbox": bbox,
++                        "sourceUnicode": paragraph.unicode(&view).map_err(access_error)?,
++                        "layoutLabel": paragraph.layout_label(&view).map_err(access_error)?,
++                    }));
++                }
++            }
++            let payload = serde_json::to_string(&inventory).map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
++            source_translator.call_method1("ivoraige_source_inventory", (payload,))?;
++        }
+         // The 0.6.4 probe happens after styles and before term extraction. Keep
+         // it as a Python callback so caller supplied translator objects retain
+         // their own behavior and the original exception/logging policy.
+diff --git a/rust/p2_bridge/src/ordinary_translation.rs b/rust/p2_bridge/src/ordinary_translation.rs
+index 67c4986..b3bb612 100644
+--- a/rust/p2_bridge/src/ordinary_translation.rs
++++ b/rust/p2_bridge/src/ordinary_translation.rs
+@@ -1468,6 +1468,7 @@ pub fn process(
+     let _native_font_mapper = &mapper.mapper;
+     let root = crate::shared_context::root_from_handle(shared_context)?;
+     let translator = translator_service.bind(py).clone();
++    let source_bridge = translator.getattr("translator")?.hasattr("ivoraige_source_inventory")?;
+     let supports_llm = translator
+         .call_method0("probe_il_translator")?
+         .extract::<bool>()?;
+@@ -1641,6 +1642,7 @@ pub fn process(
+                         flag.clone(),
+                         progress.clone(),
+                         admitted,
++                        source_bridge,
+                     );
+                     submitted += 1;
+                     if submitted <= workers {
+@@ -1657,6 +1659,7 @@ pub fn process(
+                         flag.clone(),
+                         progress.clone(),
+                         admitted,
++                        source_bridge,
+                     );
+                     submitted += 1;
+                     if submitted <= workers {
+@@ -1951,6 +1954,7 @@ fn spawn_request(
+     flag: CancelFlag,
+     progress: PythonProgress,
+     recorded: Arc<AtomicBool>,
++    source_bridge: bool,
+ ) -> oneshot::Receiver<()> {
+     let (admitted_tx, admitted_rx) = oneshot::channel();
+     tasks.spawn(async move {
+@@ -1959,6 +1963,18 @@ fn spawn_request(
+             let args = PyTuple::new(py, [input.clone()])?.unbind();
+             let params = PyDict::new(py);
+             params.set_item("paragraph_token_count", job.token_count)?;
++            if source_bridge {
++                use babeldoc_p2_stages::translation::python_semantics::{PythonJsonValue, json_dumps};
++                let input = job.input.as_ref().ok_or_else(|| PyRuntimeError::new_err("source bridge request has no input"))?;
++                let placeholders = PythonJsonValue::Array(tracking_placeholders(input).iter().map(stage::PlaceholderRecord::to_json_value).collect());
++                let context = PyDict::new(py);
++                context.set_item("version", 1)?;
++                context.set_item("pageIndex", job.page)?;
++                context.set_item("paragraphIndex", job.paragraph)?;
++                context.set_item("preparedInput", input.text.clone())?;
++                context.set_item("placeholderPayloadsJson", json_dumps(&placeholders))?;
++                params.set_item("ivoraigeSource", context)?;
++            }
+             let kwargs = PyDict::new(py);
+             kwargs.set_item("rate_limit_params", params)?;
+             Ok((args, kwargs.unbind()))
+diff --git a/rust/p2_stages/src/stages/paragraph_finder.rs b/rust/p2_stages/src/stages/paragraph_finder.rs
+index 3f6757f..a6915be 100644
+--- a/rust/p2_stages/src/stages/paragraph_finder.rs
++++ b/rust/p2_stages/src/stages/paragraph_finder.rs
+@@ -6,7 +6,7 @@ use crate::shared::layout_helper::{
+ };
+ use crate::shared::style::{INDIGO, PaletteColor, WHITE};
+ use crate::{StageContext, StageError};
+-use babeldoc_il_types::Box as B;
++use babeldoc_il_types::{Box as B, PdfCharacter};
+ use babeldoc_ir_core::{self as ir, Cursor, ParagraphFinderView, TreeView, types};
+ use log::{error, warn};
+ use regex::Regex;
+@@ -163,6 +163,140 @@ fn line(
+     }
+     .into_value())
+ }
++fn finite_rect(b: Option<&B>) -> Option<(f64, f64, f64, f64)> {
++    let b = b?;
++    let (x, y, x2, y2) = (b.x?, b.y?, b.x2?, b.y2?);
++    (x.is_finite() && y.is_finite() && x2.is_finite() && y2.is_finite() && x2 > x && y2 > y)
++        .then_some((x, y, x2, y2))
++}
++
++fn ascii_alnum(text: Option<&str>) -> bool {
++    text.is_some_and(|text| text.len() == 1 && text.as_bytes()[0].is_ascii_alphanumeric())
++}
++
++// Only a low underscore between adjacent, same-baseline ASCII word glyphs borrows
++// their ink bounds for line classification. The source glyph and geometry stay intact.
++fn ascii_alnum_base_v1_bounds(
++    left: &PdfCharacter,
++    underscore: &PdfCharacter,
++    right: &PdfCharacter,
++) -> Option<(f64, f64)> {
++    if underscore.char_unicode.as_deref() != Some("_")
++        || !ascii_alnum(left.char_unicode.as_deref())
++        || !ascii_alnum(right.char_unicode.as_deref())
++        || [left, underscore, right].iter().any(|c| c.vertical != Some(false))
++    {
++        return None;
++    }
++    let xobj = left.xobj_id?;
++    if underscore.xobj_id != Some(xobj) || right.xobj_id != Some(xobj) {
++        return None;
++    }
++    let styles = [left, underscore, right].map(|c| c.pdf_style.as_deref());
++    let [Some(ls), Some(us), Some(rs)] = styles else { return None; };
++    let font = ls.font_id.as_ref()?;
++    let em = ls.font_size?;
++    if !em.is_finite() || em <= 0. || us.font_id.as_ref() != Some(font)
++        || rs.font_id.as_ref() != Some(font)
++        || us.font_size != Some(em) || rs.font_size != Some(em)
++    {
++        return None;
++    }
++    let [l, u, r] = [left, underscore, right].map(|c| {
++        finite_rect(c.visual_bbox.as_deref()?.r#box.as_deref())
++    });
++    let (Some(l), Some(u), Some(r)) = (l, u, r) else { return None; };
++    if !(l.0 < u.0 && u.0 < r.0) {
++        return None;
++    }
++    for gap in [u.0 - l.2, r.0 - u.2] {
++        if gap < -0.15 * em || gap > 0.5 * em {
++            return None;
++        }
++    }
++    let lc = (l.1 + l.3) / 2.;
++    let uc = (u.1 + u.3) / 2.;
++    let rc = (r.1 + r.3) / 2.;
++    if uc > lc.min(rc) - 0.2 * em || lc.max(rc) - uc > em
++        || l.3.min(r.3) <= l.1.max(r.1)
++    {
++        return None;
++    }
++    let [ln, un, rn] = [left, underscore, right]
++        .map(|c| finite_rect(c.r#box.as_deref()));
++    let (Some(ln), Some(un), Some(rn)) = (ln, un, rn) else { return None; };
++    let low = ln.1.min(un.1).min(rn.1);
++    let high = ln.1.max(un.1).max(rn.1);
++    let top_low = ln.3.min(un.3).min(rn.3);
++    let top_high = ln.3.max(un.3).max(rn.3);
++    (high - low <= 0.05 * em && top_high - top_low <= 0.05 * em)
++        .then_some((l.1.min(r.1), l.3.max(r.3)))
++}
++
++#[cfg(test)]
++mod ivoraige_underscore_tests {
++    use super::*;
++    use babeldoc_il_types::{PdfStyle, VisualBbox};
++
++    fn glyph(symbol: &str, x: f64, nominal_y: f64, ink_y: f64, ink_h: f64) -> PdfCharacter {
++        let b = |y, h| B { x: Some(x), y: Some(y), x2: Some(x + 4.), y2: Some(y + h) };
++        PdfCharacter {
++            char_unicode: Some(symbol.into()),
++            r#box: Some(Box::new(b(nominal_y, 12.))),
++            visual_bbox: Some(Box::new(VisualBbox { r#box: Some(Box::new(b(ink_y, ink_h))) })),
++            pdf_style: Some(Box::new(PdfStyle { font_id: Some("F".into()), font_size: Some(12.), ..Default::default() })),
++            vertical: Some(false),
++            xobj_id: Some(1),
++            ..Default::default()
++        }
++    }
++
++    #[test]
++    fn joins_only_a_low_same_baseline_ascii_identifier() {
++        let left = glyph("X", 0., 8., 8., 3.);
++        let low = glyph("_", 5., 8., 0., 1.);
++        let right = glyph("Y", 10., 8., 8., 6.);
++        assert_eq!(ascii_alnum_base_v1_bounds(&left, &low, &right), Some((8., 14.)));
++        let hyphen = glyph("-", 5., 8., 0., 1.);
++        assert_eq!(ascii_alnum_base_v1_bounds(&left, &hyphen, &right), None);
++    }
++
++    #[test]
++    fn leaves_formula_neighbours_offsets_and_unrelated_glyphs_alone() {
++        let left = glyph("X", 0., 8., 8., 3.);
++        let low = glyph("_", 5., 8., 0., 1.);
++        let right = glyph("Y", 10., 8., 8., 6.);
++        assert!(ascii_alnum_base_v1_bounds(&left, &low, &glyph("2", 10., 8., 8., 6.)).is_some());
++        for other in [glyph("+", 10., 8., 8., 6.),
++            glyph("א", 10., 8., 8., 6.)] {
++            assert_eq!(ascii_alnum_base_v1_bounds(&left, &low, &other), None);
++        }
++        for other in [glyph("_", 5., 6., 0., 1.), glyph("_", 5., 8., -20., 1.),
++            glyph("_", 20., 8., 0., 1.)] {
++            assert_eq!(ascii_alnum_base_v1_bounds(&left, &other, &right), None);
++        }
++        assert_eq!(ascii_alnum_base_v1_bounds(&left, &low, &glyph("2", 10., 3., 3., 6.)), None);
++        let mut subscript = glyph("2", 10., 3., 3., 6.);
++        subscript.pdf_style.as_mut().unwrap().font_size = Some(10.);
++        assert_eq!(ascii_alnum_base_v1_bounds(&left, &low, &subscript), None);
++        let mut other = low.clone();
++        other.xobj_id = Some(2);
++        assert_eq!(ascii_alnum_base_v1_bounds(&left, &other, &right), None);
++        other = low.clone();
++        other.vertical = Some(true);
++        assert_eq!(ascii_alnum_base_v1_bounds(&left, &other, &right), None);
++        other = low.clone();
++        other.pdf_style.as_mut().unwrap().font_size = Some(8.);
++        assert_eq!(ascii_alnum_base_v1_bounds(&left, &other, &right), None);
++        other = low.clone();
++        other.pdf_style.as_mut().unwrap().font_id = Some("G".into());
++        assert_eq!(ascii_alnum_base_v1_bounds(&left, &other, &right), None);
++        other = low.clone();
++        other.r#box.as_mut().unwrap().y = Some(f64::NAN);
++        assert_eq!(ascii_alnum_base_v1_bounds(&left, &other, &right), None);
++    }
++}
++
+ fn split_lines(p: &P, v: &mut View<'_>) -> Result<(), StageError> {
+     let mut cs = vec![];
+     let mut others = vec![];
+@@ -177,13 +311,27 @@ fn split_lines(p: &P, v: &mut View<'_>) -> Result<(), StageError> {
+     if cs.is_empty() {
+         return Ok(());
+     }
+-    let bounds = cs
++    let mut bounds = cs
+         .iter()
+         .map(|c| {
+             let b = visual(c, v)?;
+             Ok((need(b.y, "y")?, need(b.y2, "y2")?))
+         })
+         .collect::<Result<Vec<_>, StageError>>()?;
++    if std::env::var("IVORAIGE_ASCII_ALNUM_BASE_V1").as_deref() == Ok("1") {
++        for index in 1..cs.len().saturating_sub(1) {
++            if cs[index].char_unicode(v)?.as_deref() != Some("_") {
++                continue;
++            }
++            let values = [index - 1, index, index + 1]
++                .map(|i| character(&cs[i], v));
++            if let [Ok(left), Ok(underscore), Ok(right)] = values {
++                if let Some(b) = ascii_alnum_base_v1_bounds(&left, &underscore, &right) {
++                    bounds[index] = b;
++                }
++            }
++        }
++    }
+     let min = bounds.iter().map(|b| b.0).fold(f64::INFINITY, f64::min);
+     let max = bounds.iter().map(|b| b.1).fold(f64::NEG_INFINITY, f64::max);
+     let step = 0.25;
+diff --git a/rust/p2_stages/src/stages/typesetting.rs b/rust/p2_stages/src/stages/typesetting.rs
+index a5e51c8..5312acd 100644
+--- a/rust/p2_stages/src/stages/typesetting.rs
++++ b/rust/p2_stages/src/stages/typesetting.rs
+@@ -1007,6 +1007,21 @@ struct FontTable {
+     fonts: HashMap<(Option<i64>, String), SourceFontStyle>,
+     xobjects: HashSet<i64>,
+ }
++// Plans belong to one process invocation, not to a shared Typesetting instance.
++// Page/paragraph indices stay stable between preprocess and render in this stage.
++#[derive(Clone)]
++struct FitPlan {
++    original: Box,
++    fitted: Box,
++    scale: f64,
++}
++type FitPlans = HashMap<(usize, usize), FitPlan>;
++fn valid_rectangle(b: &Box) -> bool {
++    box_coordinates(b).is_ok_and(|(x, y, x2, y2)| {
++        [x, y, x2, y2].iter().all(|n| n.is_finite()) && x < x2 && y < y2
++    })
++}
++
+ pub struct Typesetting {
+     mapper: Arc<FontMapper>,
+     is_cjk: bool,
+@@ -1365,9 +1380,9 @@ impl Typesetting {
+         english: bool,
+         apply: bool,
+         v: &mut View<'_>,
+-    ) -> Result<f64, StageError> {
++    ) -> Result<(f64, Option<Box>), StageError> {
+         let Some(b) = p.r#box(v)? else {
+-            return Ok(initial);
++            return Ok((initial, None));
+         };
+         let mut b = read_box(b, v)?;
+         let mut scale = initial;
+@@ -1418,12 +1433,12 @@ impl Typesetting {
+                         }
+                     }
+                     if !failed {
+-                        return Ok(scale);
++                        return Ok((scale, Some(b)));
+                     }
+                 }
+             }
+             if p.debug_id(v)?.as_deref().unwrap_or_default().is_empty() {
+-                return Ok(scale);
++                return Ok((scale, None));
+             }
+             scale -= if scale > 0.6 { 0.05 } else { 0.1 };
+             if scale < 0.7 {
+@@ -1464,8 +1479,44 @@ impl Typesetting {
+         if english {
+             self.optimal(p, page, index, units, initial, false, apply, v)
+         } else {
+-            Ok(0.1)
++            Ok((0.1, None))
++        }
++    }
++    fn permitted_fit_box(
++        &self,
++        p: &P,
++        page: &Page,
++        index: usize,
++        plan: &FitPlan,
++        scale: f64,
++        v: &View<'_>,
++    ) -> Result<Option<Box>, StageError> {
++        let Some(current) = p.r#box(v)? else { return Ok(None) };
++        let current = read_box(current, v)?;
++        if !valid_rectangle(&current) || !valid_rectangle(&plan.fitted)
++            || !same_box(&current, &plan.original)
++            || !scale.is_finite() || !plan.scale.is_finite()
++            || (scale - plan.scale).abs() > 1e-9
++        {
++            return Ok(None);
+         }
++        let (x, y, x2, y2) = box_coordinates(&current)?;
++        let (tx, ty, tx2, ty2) = box_coordinates(&plan.fitted)?;
++        if tx != x || ty2 != y2 || ty > y || tx2 < x2 {
++            return Ok(None);
++        }
++        // Use upstream's current obstacle checks and exact expansion margins.
++        if ty < y {
++            let bottom = self.conflict(&current, page, index, true, v)? + 2.;
++            if !bottom.is_finite() || ty < bottom { return Ok(None) }
++        }
++        if tx2 > x2 {
++            let mut vertical = current.clone();
++            vertical.y = Some(ty);
++            let right = self.conflict(&vertical, page, index, false, v)? - 5.;
++            if !right.is_finite() || tx2 > right { return Ok(None) }
++        }
++        Ok((!same_box(&current, &plan.fitted)).then(|| plan.fitted.clone()))
+     }
+     fn render_paragraph(
+         &self,
+@@ -1473,6 +1524,7 @@ impl Typesetting {
+         page: &Page,
+         index: usize,
+         fonts: &FontTable,
++        plan: Option<FitPlan>,
+         v: &mut View<'_>,
+     ) -> Result<(), StageError> {
+         let mut units = self.create_units(p, fonts, v)?;
+@@ -1503,6 +1555,13 @@ impl Typesetting {
+             return Ok(());
+         }
+         let initial = p.optimal_scale(v)?.unwrap_or(1.);
++        if let Some(plan) = plan {
++            // A failed/stale space check retains the unmodified upstream path.
++            if let Ok(Some(fitted)) = self.permitted_fit_box(p, page, index, &plan, initial, v) {
++                p.set_box(v, Some(box_field(fitted)))?;
++            }
++        }
++        // Always rerun the native layout/overflow check; cache no placed content.
+         p.set_pdf_paragraph_composition(v, vec![])?;
+         self.optimal(p, page, index, &mut units, initial, true, true, v)?;
+         if let Some(order) = p.render_order(v)? {
+@@ -1521,13 +1580,14 @@ impl Typesetting {
+     fn preprocess(
+         &self,
+         pages: &[Page],
++        plans: &mut Option<FitPlans>,
+         v: &mut View<'_>,
+         ctx: &mut StageContext<'_>,
+     ) -> Result<(), StageError> {
+         let mut weighted_scales = HashMap::<u64, (f64, usize)>::new();
+         let mut nan_min = None;
+         let mut has_weighted_scale = false;
+-        for page in pages.iter() {
++        for (page_index, page) in pages.iter().enumerate() {
+             ctx.report_progress(1, Some(pages.len() as u64 * 2))?;
+             let fonts = self.font_map(page, v)?;
+             for index in 0..page.pdf_paragraph_len(v)? {
+@@ -1538,12 +1598,20 @@ impl Typesetting {
+                         .iter()
+                         .map(|u| u.formula.as_ref().map_or(1, |f| f.pdf_character.len()))
+                         .sum::<usize>();
+-                    let scale = if units.iter_mut().all(TypesettingUnit::can_passthrough) {
+-                        1.
++                    let (scale, fitted) = if units.iter_mut().all(TypesettingUnit::can_passthrough) {
++                        (1., None)
+                     } else {
+                         self.optimal(&p, page, index, &mut units, 1., true, false, v)?
+                     };
+                     p.set_optimal_scale(v, Some(scale))?;
++                    if let Some(plans) = plans.as_mut() {
++                        if let (Some(fitted), Some(original)) = (fitted, p.r#box(v)?) {
++                            let original = read_box(original, v)?;
++                            if valid_rectangle(&original) && valid_rectangle(&fitted) && scale.is_finite() {
++                                plans.insert((page_index, index), FitPlan { original, fitted, scale });
++                            }
++                        }
++                    }
+                     Ok::<_, StageError>(count)
+                 })();
+                 let count = match result {
+@@ -1599,7 +1667,9 @@ impl Typesetting {
+         }
+         Ok(())
+     }
+-    fn render_page(&self, page: &Page, v: &mut View<'_>) -> Result<(), StageError> {
++    fn render_page(
++        &self, page: &Page, page_index: usize, plans: &mut Option<FitPlans>, v: &mut View<'_>,
++    ) -> Result<(), StageError> {
+         let fonts = self.font_map(page, v)?;
+         let paragraph_len = page.pdf_paragraph_len(v)?;
+         let mut indexed = vec![];
+@@ -1647,7 +1717,8 @@ impl Typesetting {
+         }
+         for index in 0..paragraph_len {
+             let p = page.pdf_paragraph_at(v, index)?;
+-            self.render_paragraph(&p, page, index, &fonts, v)?
++            let plan = plans.as_mut().and_then(|plans| plans.remove(&(page_index, index)));
++            self.render_paragraph(&p, page, index, &fonts, plan, v)?
+         }
+         Ok(())
+     }
+@@ -1656,14 +1727,23 @@ impl Typesetting {
+         d: &mut ir::Document,
+         ctx: &mut StageContext<'_>,
+     ) -> Result<(), StageError> {
++        self.process_with_fit_box(d, ctx, std::env::var("IVORAIGE_FIT_BOX_V1").as_deref() == Ok("1"))
++    }
++    fn process_with_fit_box(
++        &self,
++        d: &mut ir::Document,
++        ctx: &mut StageContext<'_>,
++        enabled: bool,
++    ) -> Result<(), StageError> {
++        let mut plans = enabled.then(FitPlans::new);
+         let mut v = d.view::<TypesettingView>();
+         let pages = v.document().page_iter(&v)?.collect::<Result<Vec<_>, _>>()?;
+         if self.progress {
+-            self.preprocess(&pages, &mut v, ctx)?
++            self.preprocess(&pages, &mut plans, &mut v, ctx)?
+         }
+-        for p in pages.iter() {
++        for (page_index, p) in pages.iter().enumerate() {
+             ctx.check_cancelled()?;
+-            self.render_page(p, &mut v)?;
++            self.render_page(p, page_index, &mut plans, &mut v)?;
+             if self.progress {
+                 ctx.report_progress(1, Some(pages.len() as u64 * 2))?;
+             }
+diff --git a/rust/p2_stages/src/stages/typesetting_tests.rs b/rust/p2_stages/src/stages/typesetting_tests.rs
+new file mode 100644
+index 0000000..61807ba
+--- /dev/null
++++ b/rust/p2_stages/src/stages/typesetting_tests.rs
+@@ -0,0 +1,242 @@
++// SPDX-License-Identifier: AGPL-3.0-only
++// Real native layout, font metrics, IR writes and obstacle checks. No PDF/model.
++use super::*;
++use babeldoc_font_core::{FontFamily, PrimaryFontFamily};
++use crate::{NoopCancellation, NoopProgress};
++
++const TEXT: &str = "An invented heading with ordinary alphabetic words";
++fn engine() -> Typesetting {
++    let path = std::env::var("IVORAIGE_TEST_FONT")
++        .expect("set IVORAIGE_TEST_FONT to NimbusSans-Regular.otf (URW Base35)");
++    let font = FontFace::load("ivoraige-test-font", path).unwrap();
++    let mapper = FontMapper::new(FontFamily {
++        normal: vec![font.clone()], base: vec![font], ..Default::default()
++    }, PrimaryFontFamily::SansSerif).unwrap();
++    Typesetting::new("en", Arc::new(mapper), true, HashMap::new())
++}
++fn b(x: f64, y: f64, x2: f64, y2: f64) -> Box {
++    Box { x: Some(x), y: Some(y), x2: Some(x2), y2: Some(y2) }
++}
++fn paragraph(box_: Box, text: &str) -> FieldValue<types::PdfParagraph> {
++    ir::PdfParagraphInit {
++        r#box: Some(box_field(box_)),
++        debug_id: Some("ivoraige-fit-fixture".into()),
++        unicode: Some(text.into()),
++        pdf_paragraph_composition: vec![ir::PdfParagraphCompositionInit {
++            pdf_same_style_unicode_characters: Some(ir::PdfSameStyleUnicodeCharactersInit {
++                unicode: Some(text.into()),
++                pdf_style: Some(ir::PdfStyleInit {
++                    font_id: Some("ivoraige-test-font".into()), font_size: Some(12.),
++                    ..Default::default()
++                }.into_value()), ..Default::default()
++            }.into_value()), ..Default::default()
++        }.into_value()], ..Default::default()
++    }.into_value()
++}
++fn document(width: f64, height: f64, bottom: f64, right: f64) -> ir::Document {
++    let mut d = ir::Document::from_parts(
++        ir::Node::new(ir::NodeData::Document(Default::default())),
++        Default::default(), Default::default()).unwrap();
++    let mut v = d.view::<TypesettingView>();
++    v.document().push_page(&mut v, ir::PageInit {
++        cropbox: Some(ir::CropboxInit {
++            // conflict() uses crop.y * 1.1 and crop.x2 * 0.9.
++            r#box: Some(box_field(b(0., bottom / 1.1, right / 0.9, 300.))),
++        }.into_value()),
++        pdf_paragraph: vec![paragraph(b(0., 0., width, height), TEXT)],
++        ..Default::default()
++    }.into_value()).unwrap();
++    drop(v);
++    d
++}
++#[derive(Default, Clone, Copy, Debug)]
++struct Change { bottom: bool, right: bool, geometry: bool, scale: bool, content: bool }
++fn trial(enabled: bool, width: f64, height: f64, bottom: f64, right: f64, change: Change)
++    -> (f64, f64, Box, usize)
++{
++    let engine = engine();
++    let mut d = document(width, height, bottom, right);
++    let mut v = d.view::<TypesettingView>();
++    let page = v.document().page_at(&v, 0).unwrap();
++    let p = page.pdf_paragraph_at(&v, 0).unwrap();
++    let original = read_box(p.r#box(&v).unwrap().unwrap(), &v).unwrap();
++    let mut plans = enabled.then(FitPlans::new);
++    engine.preprocess(&[page], &mut plans, &mut v,
++        &mut StageContext::new(&NoopCancellation, &NoopProgress)).unwrap();
++    let preflight = p.optimal_scale(&v).unwrap().unwrap();
++    assert!(same_box(&read_box(p.r#box(&v).unwrap().unwrap(), &v).unwrap(), &original));
++    if change.bottom {
++        page.push_pdf_figure(&mut v, ir::PdfFigureInit {
++            r#box: Some(box_field(b(0., -12., width, -5.))), ..Default::default()
++        }.into_value()).unwrap();
++    }
++    if change.right {
++        page.push_pdf_figure(&mut v, ir::PdfFigureInit {
++            r#box: Some(box_field(b(width+5., -10., width+20., height))), ..Default::default()
++        }.into_value()).unwrap();
++    }
++    if change.geometry { p.set_box(&mut v, Some(box_field(b(0., 1., width, height)))).unwrap(); }
++    if change.scale { p.set_optimal_scale(&mut v, Some(0.6)).unwrap(); }
++    if change.content {
++        let extra = paragraph(b(0.,0.,width,height), &TEXT.repeat(4));
++        page.push_pdf_paragraph(&mut v, extra).unwrap();
++        let q = page.pdf_paragraph_at(&v, 1).unwrap();
++        let mut composition = vec![];
++        for i in 0..q.pdf_paragraph_composition_len(&v).unwrap() {
++            let c = q.pdf_paragraph_composition_at(&v, i).unwrap();
++            composition.push(c.share(&mut v).unwrap());
++        }
++        p.set_pdf_paragraph_composition(&mut v, composition).unwrap();
++        // Remove the temporary fixture paragraph before obstacle checks.
++        let shared = p.share(&mut v).unwrap();
++        page.set_pdf_paragraph(&mut v, vec![shared]).unwrap();
++    }
++    let plan = plans.as_mut().and_then(|plans| plans.remove(&(0,0)));
++    if change.bottom || change.right || change.geometry || change.scale {
++        if let Some(plan) = &plan {
++            assert!(engine.permitted_fit_box(&p, &page, 0, plan,
++                p.optimal_scale(&v).unwrap().unwrap(), &v).unwrap().is_none());
++        }
++    }
++    let fonts = engine.font_map(&page, &v).unwrap();
++    engine.render_paragraph(&p, &page, 0, &fonts, plan, &mut v).unwrap();
++    assert!(plans.as_ref().is_none_or(|plans| plans.is_empty()));
++    let rendered = p.scale(&v).unwrap().unwrap();
++    let box_ = read_box(p.r#box(&v).unwrap().unwrap(), &v).unwrap();
++    let n = p.pdf_paragraph_composition_len(&v).unwrap();
++    assert!(n > 0);
++    for c in p.pdf_paragraph_composition_iter(&v).unwrap() {
++        let character = c.unwrap().pdf_character(&v).unwrap().unwrap();
++        let glyph = read_box(character.r#box(&v).unwrap().unwrap(), &v).unwrap();
++        let (x,y,x2,y2) = box_coordinates(&glyph).unwrap();
++        let (bx,by,bx2,by2) = box_coordinates(&box_).unwrap();
++        assert!(x >= bx-1e-8 && y >= by-1e-8 && x2 <= bx2+1e-8 && y2 <= by2+1e-8,
++            "glyph outside box: {:?}, {:?}", (x,y,x2,y2), (bx,by,bx2,by2));
++    }
++    (preflight, rendered, box_, n)
++}
++fn assert_same(a: (f64, f64, Box, usize), b: (f64, f64, Box, usize)) {
++    assert_eq!((a.0,a.1,a.3),(b.0,b.1,b.3));
++    assert!(same_box(&a.2,&b.2));
++}
++#[test]
++fn preflight_box_and_scale_survive_real_native_render() {
++    let baseline = trial(false,70.,24.,-22.,75.,Change::default());
++    let fixed = trial(true,70.,24.,-22.,75.,Change::default());
++    eprintln!("native preflight={} baseline={} fit-box-v1={}",baseline.0,baseline.1,fixed.1);
++    assert!((baseline.0-0.7).abs()<1e-9);
++    assert!((baseline.1-0.65).abs()<1e-9);
++    assert!((fixed.0-0.7).abs()<1e-9 && (fixed.1-0.7).abs()<1e-9);
++    assert_eq!(fixed.2.y,Some(-20.));
++    assert_eq!(baseline.3,fixed.3);
++}
++#[test]
++fn changed_original_global_scale_and_bottom_obstacle_use_upstream_fallback() {
++    for change in [Change {bottom:true,..Default::default()},
++                   Change {geometry:true,..Default::default()},
++                   Change {scale:true,..Default::default()}] {
++        let baseline=trial(false,70.,24.,-22.,75.,change);
++        let fixed=trial(true,70.,24.,-22.,75.,change);
++        assert_same(baseline,fixed);
++    }
++}
++#[test]
++fn horizontal_expansion_rechecks_current_obstacles() {
++    let fixed=trial(true,70.,24.,0.,160.,Change::default());
++    assert!(fixed.2.x2.unwrap()>70. && fixed.2.x2.unwrap()<=155.);
++    let change=Change{right:true,..Default::default()};
++    assert_same(trial(false,70.,24.,0.,160.,change),trial(true,70.,24.,0.,160.,change));
++}
++#[test]
++fn normal_fit_and_no_expansion_space_keep_native_results() {
++    for (width,height,bottom,right) in [(300.,40.,-22.,305.),(70.,24.,0.,75.)] {
++        assert_same(trial(false,width,height,bottom,right,Change::default()),
++                   trial(true,width,height,bottom,right,Change::default()));
++    }
++}
++#[test]
++fn reused_geometry_still_checks_all_current_units() {
++    let fixed=trial(true,70.,24.,-22.,75.,Change{content:true,..Default::default()});
++    assert!(fixed.1<fixed.0,"changed content must still undergo native fitting");
++}
++#[test]
++fn plans_are_consumed_per_paragraph_and_not_retained_between_documents() {
++    let engine=engine();
++    for enabled in [true,false,true] {
++        let mut d=document(70.,24.,-22.,75.);
++        engine.process_with_fit_box(&mut d,&mut StageContext::new(&NoopCancellation,&NoopProgress),enabled).unwrap();
++        let v=d.read();
++        let p=v.document().page_at(&v,0).unwrap().pdf_paragraph_at(&v,0).unwrap();
++        assert!((p.scale(&v).unwrap().unwrap()-if enabled{0.7}else{0.65}).abs()<1e-9);
++    }
++}
++#[test]
++fn malformed_or_non_expanding_plan_is_never_reused() {
++    let engine=engine(); let mut d=document(70.,24.,-22.,160.);
++    let v=d.view::<TypesettingView>(); let page=v.document().page_at(&v,0).unwrap();
++    let p=page.pdf_paragraph_at(&v,0).unwrap(); let original=b(0.,0.,70.,24.);
++    for fitted in [b(1.,-20.,70.,24.),b(0.,-20.,69.,24.),b(0.,-20.,70.,25.),
++                   b(0.,f64::NAN,70.,24.),b(0.,-20.,f64::INFINITY,24.),original.clone()] {
++        let plan=FitPlan{original:original.clone(),fitted,scale:0.7};
++        assert!(engine.permitted_fit_box(&p,&page,0,&plan,0.7,&v).unwrap().is_none());
++    }
++}
++#[test]
++fn public_process_uses_exact_environment_opt_in() {
++    let engine=engine(); let mut d=document(70.,24.,-22.,75.);
++    let expected=if std::env::var("IVORAIGE_FIT_BOX_V1").as_deref()==Ok("1"){0.7}else{0.65};
++    engine.process(&mut d,&mut StageContext::new(&NoopCancellation,&NoopProgress)).unwrap();
++    let v=d.read(); let p=v.document().page_at(&v,0).unwrap().pdf_paragraph_at(&v,0).unwrap();
++    assert!((p.scale(&v).unwrap().unwrap()-expected).abs()<1e-9);
++}
++#[test]
++fn current_right_obstacle_is_checked_in_expanded_vertical_region() {
++    let engine=engine(); let mut d=document(70.,24.,-22.,160.);
++    let mut v=d.view::<TypesettingView>(); let page=v.document().page_at(&v,0).unwrap();
++    let p=page.pdf_paragraph_at(&v,0).unwrap();
++    let plan=FitPlan{original:b(0.,0.,70.,24.),fitted:b(0.,-20.,155.,24.),scale:0.7};
++    assert!(engine.permitted_fit_box(&p,&page,0,&plan,0.7,&v).unwrap().is_some());
++    page.push_pdf_figure(&mut v,ir::PdfFigureInit{
++        r#box:Some(box_field(b(100.,-15.,120.,-5.))),..Default::default()
++    }.into_value()).unwrap();
++    assert!(engine.permitted_fit_box(&p,&page,0,&plan,0.7,&v).unwrap().is_none());
++}
++#[test]
++fn native_document_mode_change_rejects_the_preflight_plan() {
++    fn run(enabled:bool)->(f64,f64,Box,usize){
++        let engine=engine();let mut d=document(70.,24.,-22.,75.);
++        let mut v=d.view::<TypesettingView>();
++        v.document().push_page(&mut v,ir::PageInit{
++            cropbox:Some(ir::CropboxInit{r#box:Some(box_field(b(0.,-20.,75./0.9,300.)))}.into_value()),
++            pdf_paragraph:vec![paragraph(b(0.,0.,70.,24.),&TEXT.repeat(2))],..Default::default()
++        }.into_value()).unwrap();
++        let pages=v.document().page_iter(&v).unwrap().collect::<Result<Vec<_>,_>>().unwrap();
++        let p=pages[0].pdf_paragraph_at(&v,0).unwrap();
++        let mut plans=enabled.then(FitPlans::new);
++        engine.preprocess(&pages,&mut plans,&mut v,
++            &mut StageContext::new(&NoopCancellation,&NoopProgress)).unwrap();
++        let selected=p.optimal_scale(&v).unwrap().unwrap();
++        assert!(selected<0.7-1e-9,"second page must change the native weighted mode");
++        if let Some(plans)=&plans {
++            let plan=plans.get(&(0,0)).unwrap();
++            assert!((plan.scale-0.7).abs()<1e-9);
++            assert!(engine.permitted_fit_box(&p,&pages[0],0,plan,selected,&v).unwrap().is_none());
++            assert_eq!(plans.len(),2);
++        }
++        for (i,page) in pages.iter().enumerate(){engine.render_page(page,i,&mut plans,&mut v).unwrap();}
++        assert!(plans.is_none_or(|plans|plans.is_empty()));
++        (selected,p.scale(&v).unwrap().unwrap(),read_box(p.r#box(&v).unwrap().unwrap(),&v).unwrap(),
++            p.pdf_paragraph_composition_len(&v).unwrap())
++    }
++    assert_same(run(false),run(true));
++}
++#[test]
++fn unsuccessful_preflight_never_supplies_a_fit_box() {
++    let engine=engine();let mut d=document(0.1,1.,0.,0.1);
++    let mut v=d.view::<TypesettingView>();let page=v.document().page_at(&v,0).unwrap();
++    let p=page.pdf_paragraph_at(&v,0).unwrap();p.set_debug_id(&mut v,Some(String::new())).unwrap();
++    let fonts=engine.font_map(&page,&v).unwrap();
++    let mut units=engine.create_units(&p,&fonts,&mut v).unwrap();
++    let (scale,fitted)=engine.optimal(&p,&page,0,&mut units,1.,true,false,&mut v).unwrap();
++    assert_eq!(scale,1.);assert!(fitted.is_none());
++}
+diff --git a/rust/p2_stages/tests/ivoraige_layout_fit.rs b/rust/p2_stages/tests/ivoraige_layout_fit.rs
+new file mode 100644
+index 0000000..396b7b2
+--- /dev/null
++++ b/rust/p2_stages/tests/ivoraige_layout_fit.rs
+@@ -0,0 +1,5 @@
++//! Standalone target for the derived typesetting regression. The release source
++//! omits upstream unit-test modules, so do not enable cfg(test) on the whole lib.
++pub use babeldoc_p2_stages::{StageContext, StageError, NoopCancellation, NoopProgress, shared};
++#[path = "../src/stages/typesetting.rs"]
++mod native_typesetting;

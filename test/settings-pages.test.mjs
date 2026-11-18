@@ -1,3 +1,4 @@
+import './fixtures/host-test-env.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
@@ -11,7 +12,7 @@ import { Outputs } from '../src/outputs.mjs'
 import { Pdf } from '../src/adapters/pdf.mjs'
 import { KernelError } from '../src/errors.mjs'
 import { errorEnvelope } from '../src/protocol.mjs'
-import { serve } from '../src/http.mjs'
+import { serve } from './fixtures/owner-http.mjs'
 import { bootModelSettings } from '../src/model-settings.mjs'
 
 test('settings pages follow mounted plugins, including unavailable PDF, without duplicates', async t => {

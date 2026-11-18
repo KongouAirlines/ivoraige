@@ -43,11 +43,19 @@ The goal is a shared foundation for people and AI: choose the capabilities you n
 
 Use Node.js **26.13.0** with npm by default (`.node-version`). Node 24 is retained only for compatibility; the supported range remains `>=24.22.1 <25 || >=26.12.1 <27`. Later stable patches within either supported major are suitable for source use; Node 25 and future majors are outside the current supported range. CI validates Node.js 26.13.0 on Linux, macOS and Windows; Node 24 remains supported but no longer has a CI job. The DSH bundle targets Node 26. Windows portable builds require the official fixed Node.js 26.13.0 executable and its matching license.
 
+Windows owner IPC also requires built-in Windows PowerShell 5.1 and .NET Framework with FullLanguage and `Add-Type` permitted. Its fixed command does not change execution policy and remains subject to organizational application controls. It fails closed when native pipe permissions or peer identity cannot be verified; see the [owner control guide](docs/plan/0.1.x/host-control-guide.md).
+
 1. Open the workbench and import a TXT or Markdown file.
 2. Configure a model when you want machine translation, or enter translations yourself.
 3. Review and accept revisions, then export the result.
 
+The launcher pairs the local browser with a one-use URL fragment; copying the plain server URL does not grant access to documents or settings. CLI commands attach to the resident owner selected by `--store` (or the default data directory), and stdio MCP requires that owner. `--url` only checks its HTTP origin; it is not a standalone remote connection. Relative CLI `--path` and `--out` values are resolved from the caller’s working directory before being passed to the owner. Attached CLI tasks do not support `--json-events`; poll `task` instead. HTTP MCP is off by default and requires `serve --mcp-enabled`. Interrupting an attached request stops its wait without stopping the owner or proving that submitted work was rolled back. Large chunked replies have a 30-second delivery deadline after business processing finishes; a stalled delivery closes the connection without replaying the operation. See the [local owner guide](docs/plan/0.1.x/host-control-guide.md) for startup, authentication, cancellation, drain and exit behavior. This is still a browser-based workbench, not a native desktop or tray app.
+
 For PDF, prepare the optional Windows development environment using the [PDF development guide (中文)](docs/plan/0.1.0/pdf-development.md), then follow the [PDF guide (中文)](docs/plan/0.1.0/pdf-guide.md). The default online component source currently has no downloadable Release.
+
+The matching PDF sidecar now requires the explicitly derived **BabelDOC 0.7.1+ivoraige.3** source bridge, with parser resource limits enabled and a narrow same-baseline ASCII underscore line guard. The stock 0.7.1 wheel cannot supply location-safe replay callbacks. Earlier 0.6.4, `0.7.1+ivoraige.1` and `.2` bindings remain readable but translated-PDF replay requires re-import and explicit revision reconciliation. See the [build and migration guide](docs/plan/0.1.x/babeldoc-0.7.1.md); the tested derived build is Linux x64/glibc 2.34, with Windows/macOS packaging still unverified.
+
+The PDF runtime lock now requires **Pillow 13.0.0**. Reinstall the full lock and rebuild frozen components; editing a lock or historical snapshot does not update an installed executable. See the [dependency checks and remaining acceptance](docs/plan/0.1.x/evidence/pillow-13.0.0.md).
 
 The source tree also includes an opt-in MinerU 4.0.10 package. A DSH profile row loads it from a local copy; it saves the original, full MiddleJson and image resources, then supports source-mode MD/JSON and byte-identical original PDF export without a translation model. An experimental same-engine renderer can replay manually accepted text from a frozen snapshot as PDF without using BabelDOC's renderer or calling a translator. Narrow live Linux CPU/flash tests imported original selectable-text and image-only synthetic PDFs and replayed both, but exposed table/formula text and PDF typography gaps. This does not establish general quality or distribution readiness. See the [PDF guide](docs/plan/0.1.0/pdf-guide.md) before trying it with an already prepared local MinerU environment.
 
@@ -61,9 +69,9 @@ URLs enclosed in angle brackets keep their trailing address characters. Invalid 
 
 When a new PDF import reaches the placeholder alignment search limit, it keeps available formula payloads or visible placeholder tokens and records a warning. Existing bindings are unchanged; this does not verify page layout.
 
-New PDF captures also pin a layout-fit policy: replay can reuse a dry-run box together with its scale after rechecking available space, then runs BabelDOC's normal fit checks. Existing bindings retain the previous path. This avoids one extra shrink step; it does not establish visual correctness.
+New PDF captures also pin a layout-fit policy: replay can reuse a dry-run box together with its scale after rechecking available space, then runs BabelDOC's normal fit checks. The native `fit-box-v1` port keeps this behavior in the derived 0.7.1 runtime. Earlier engine bindings require re-import; metadata is not silently upgraded. This avoids one extra shrink step in the targeted case; it does not establish visual correctness.
 
-New captures keep a clearly identified low underscore between nearby, same-style horizontal ASCII letters with its word during line splitting. The rule changes temporary line bounds only; it neither moves glyphs nor sorts text globally. Older captures retain their recorded behavior, and other formulas and page layouts still need review.
+New captures keep a clearly identified low underscore between nearby, same-style horizontal ASCII letters or digits with its word during line splitting. The rule changes temporary line bounds only; it neither moves glyphs nor sorts text globally. The recorded policy is `ascii-alnum-base-v1`; earlier engine captures require re-import for translated PDF replay. Other formulas and page layouts still need review.
 
 The source sidecar in this branch routes declared `en` PDF sources to `zh`/`zh-CN`/`zh-Hans`, and declared `zh`/`zh-CN`/`zh-Hans` sources to `en`. Select the real source language; the app does not detect it. Chinese-to-English PDF rendering is an implemented candidate pending real BabelDOC and Mac visual verification. It requires the matching source sidecar; existing installed components may still accept English only. Source-mode PDF export copies the verified original without a target language.
 
@@ -117,9 +125,9 @@ Built with Cordis and DSH, with optional BabelDOC support. See [third-party ackn
 
 In-process hosts can register operations once and expose them through optional CLI, REST and MCP entries. The workbench refreshes state as operations change, and artifact reads share ownership and size limits. See [composition usage](docs/plan/0.1.0/development-guide.md#p04-operation-and-entry-composition) and [P04 evidence](docs/plan/0.1.x/evidence/foundation-p04.md).
 
-For task-admitting or long-running operations, generic CLI `call` needs a persistent host (`--url` or a caller-supplied app); a self-owned local host rejects the call before creating work. Use the existing local CLI aliases to wait for task completion and receive its final exit code.
+For task-admitting or long-running operations, generic CLI `call` needs a resident owner selected by the same store, or a caller-supplied app. A self-owned temporary host rejects the call before creating work. Use the existing local CLI aliases to wait for task completion and receive its final exit code.
 
-`delete-owned` requires resource access and export services. If either is unavailable, it returns `COMPONENT_MISSING` before changing the artifact record or creating a cleanup marker; record-only deletion still works with Records alone. MCP lists registered tools while required services are absent, and invocation returns `COMPONENT_MISSING` until they become available. `events: false` disables state streams while retaining the legacy `/api/events` task stream and remote CLI `--json-events`. The `components`, `exportDir`, and `maxArtifactBytes` options require a store.
+`delete-owned` requires resource access and export services. If either is unavailable, it returns `COMPONENT_MISSING` before changing the artifact record or creating a cleanup marker; record-only deletion still works with Records alone. MCP lists registered tools while required services are absent, and invocation returns `COMPONENT_MISSING` until they become available. `events: false` disables state streams while retaining the authenticated `/api/events` task stream. Attached CLI task events are not yet streamed; use task polling. The `components`, `exportDir`, and `maxArtifactBytes` options require a store.
 
 ### Adapter availability and readable outputs
 
@@ -147,3 +155,5 @@ Independent local source plugins use the stopped-host `ivoraige-plugins` recover
 entry. The MinerU MIT bridge is packed separately from the core; native runtimes
 and models are not included. See [offline plugin installation](docs/plan/0.1.0/installation-guide.md#offline-independent-source-plugins)
 and the [P05 development notes](docs/plan/0.1.x/plugin-delivery-development.md).
+
+If the desktop browser opener fails, the launcher reports a warning but keeps the local owner running for CLI/MCP. Re-run the launcher from a browser-enabled session to pair the workbench. Sandboxed Linux browsers may be unable to read the private pairing file; this desktop path remains unverified. See the [host control guide](docs/plan/0.1.x/host-control-guide.md#browser-opener-limits).

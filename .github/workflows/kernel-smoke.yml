@@ -43,6 +43,9 @@ jobs:
       - name: PDF sidecar unit tests (no engine)
         timeout-minutes: 3
         run: python -m unittest discover -s sidecars/babeldoc -p test_server.py
+      - name: BabelDOC source and frozen runtime fixtures
+        timeout-minutes: 3
+        run: python -m unittest discover -s test -p build_babeldoc_runtime_test.py
       - name: Release archive audit fixtures
         timeout-minutes: 3
         run: python -m unittest discover -s test -p audit_release_archives_test.py

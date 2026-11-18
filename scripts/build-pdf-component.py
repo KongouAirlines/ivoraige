@@ -15,8 +15,11 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 VERSION = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))["version"]
-COMPONENT_VERSION = "0.6.4"
+COMPONENT_VERSION = "0.7.1+ivoraige.3"
 PYMUPDF_VERSION = "1.26.7"
+PILLOW_VERSION = "13.0.0"
+LAYOUT_FIT_POLICY = "fit-box-v1"
+UNDERSCORE_LINE_POLICY = "ascii-alnum-base-v1"
 PYINSTALLER_VERSION = "6.22.3"
 
 
@@ -76,6 +79,28 @@ def license_text() -> str:
     return "\n\n====================\n\n".join(sections) + "\n"
 
 
+def frozen_runtime_versions(executable: Path, cwd: Path) -> dict:
+    """Check the bundled libraries, not just the interpreter doing packaging."""
+    with tempfile.TemporaryDirectory(prefix="ivoraige-runtime-probe-", dir=cwd) as home:
+        env = {key: value for key, value in os.environ.items() if key not in {"PYTHONHOME", "PYTHONPATH"}}
+        env.update(HOME=str(Path(home).resolve()), USERPROFILE=str(Path(home).resolve()), PYTHONNOUSERSITE="1")
+        result = subprocess.run([str(executable), "--runtime-versions"], input="", cwd=cwd,
+                                text=True, encoding="utf-8", stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, timeout=120, check=True, env=env)
+    try:
+        versions = json.loads(result.stdout)
+    except ValueError as error:
+        raise RuntimeError("Frozen runtime cannot report its dependencies; rebuild without --reuse-pyinstaller-build") from error
+    expected = {"babeldoc": COMPONENT_VERSION, "pymupdf": PYMUPDF_VERSION, "pillow": PILLOW_VERSION,
+                "sourceBridge": 1, "layoutFitPolicy": LAYOUT_FIT_POLICY,
+                "underscoreLinePolicy": UNDERSCORE_LINE_POLICY}
+    if (not isinstance(versions, dict)
+            or str(versions.get("python", "")).split(".")[:2] != ["3", "13"]
+            or any(versions.get(key) != value for key, value in expected.items())):
+        raise RuntimeError(f"Unexpected frozen runtime versions: {versions}; rebuild without --reuse-pyinstaller-build")
+    return versions
+
+
 def smoke(executable: Path, cwd: Path, asset_dir: Path) -> dict:
     with tempfile.TemporaryDirectory(prefix="ivoraige-pdf-component-smoke-", dir=cwd) as temp:
         requests = [
@@ -112,8 +137,8 @@ def smoke(executable: Path, cwd: Path, asset_dir: Path) -> dict:
 
 
 def stage_sidecar_sources(source: Path, stage: Path) -> None:
-    """Include the readable sidecar and its local policy modules in the component."""
-    for name in ("server.py", "layout_fit.py", "underscore_line.py", "requirements.lock", "LICENSE", "COPYING"):
+    """Include current readable sources; policy implementations live in the native wheel."""
+    for name in ("server.py", "requirements.lock", "LICENSE", "COPYING"):
         shutil.copyfile(source / name, stage / name)
 
 
@@ -144,16 +169,25 @@ def main() -> None:
     python = require_build_python(args.python)
     import platform
 
+    if sys.version_info[:2] != (3, 13):
+        raise RuntimeError(f"Python 3.13 required for PDF component builds; found {sys.version.split()[0]}")
     if sys.platform != "win32" or platform.machine().lower() not in {"amd64", "x86_64"}:
         raise RuntimeError("BabelDOC component builds must run on Windows x64")
     import babeldoc.const as babeldoc_const
+    from babeldoc import _rust_il
+    from PIL import Image
     import pymupdf
     import PyInstaller
     from PyInstaller.utils.hooks import collect_delvewheel_libs_directory
 
-    if babeldoc_const.__version__ != COMPONENT_VERSION or pymupdf.VersionBind != PYMUPDF_VERSION:
+    if (babeldoc_const.__version__ != "0.7.1" or metadata.version("BabelDOC") != COMPONENT_VERSION
+            or getattr(_rust_il, "ivoraige_source_bridge_version", None) != 1
+            or getattr(_rust_il, "ivoraige_layout_fit_policy", None) != LAYOUT_FIT_POLICY
+            or getattr(_rust_il, "ivoraige_underscore_line_policy", None) != UNDERSCORE_LINE_POLICY
+            or pymupdf.VersionBind != PYMUPDF_VERSION or Image.__version__ != PILLOW_VERSION):
         raise RuntimeError(
-            f"Unexpected runtime versions: BabelDOC {babeldoc_const.__version__}, PyMuPDF {pymupdf.VersionBind}"
+            f"Unexpected runtime versions or native policies: BabelDOC {metadata.version('BabelDOC')}, "
+            f"PyMuPDF {pymupdf.VersionBind}, Pillow {Image.__version__}; rebuild the matching derived runtime"
         )
     if PyInstaller.__version__ != PYINSTALLER_VERSION:
         raise RuntimeError(f"PyInstaller {PYINSTALLER_VERSION} required; found {PyInstaller.__version__}")
@@ -199,6 +233,7 @@ def main() -> None:
         run(pyinstaller, ROOT)
     if not (built / "babeldoc-sidecar.exe").is_file():
         raise RuntimeError("PyInstaller did not produce babeldoc-sidecar.exe")
+    frozen_versions = frozen_runtime_versions(built / "babeldoc-sidecar.exe", built)
     bundled_hyperscan_libs = [built / "_internal" / destination / Path(source).name
                               for source, destination in delvewheel_binaries]
     missing_hyperscan_libs = [str(path) for path in bundled_hyperscan_libs if not path.is_file()]
@@ -207,9 +242,23 @@ def main() -> None:
     shutil.copytree(built, stage, dirs_exist_ok=True)
     stage_sidecar_sources(ROOT / "sidecars/babeldoc", stage)
     (stage / "README.md").write_text(
-        "BabelDOC sidecar 0.6.4 for Windows x64. Install the separate asset archive under ./assets before PDF capture.\n",
+        "BabelDOC derived sidecar 0.7.1+ivoraige.3 for Windows x64. Install the separate asset archive under ./assets before PDF capture.\n",
         encoding="utf-8",
     )
+    # Preserve the repository-relative layout expected by the source build recipe.
+    recipe_root = stage / "source"
+    (recipe_root / "scripts").mkdir(parents=True, exist_ok=True)
+    shutil.copytree(ROOT / "sidecars/babeldoc/patches",
+                    recipe_root / "sidecars/babeldoc/patches", dirs_exist_ok=True)
+    shutil.copyfile(ROOT / "scripts/build-babeldoc-runtime.py",
+                    recipe_root / "scripts/build-babeldoc-runtime.py")
+    # The native Rust closure is independent of Python distribution metadata.
+    babeldoc_dist = metadata.distribution("BabelDOC")
+    sboms = [entry for entry in (babeldoc_dist.files or []) if "/sboms/" in str(entry).replace("\\", "/")]
+    for entry in sboms:
+        target = stage / "sboms" / Path(str(entry)).name
+        target.parent.mkdir(exist_ok=True)
+        shutil.copyfile(babeldoc_dist.locate_file(entry), target)
     (stage / "THIRD_PARTY_LICENSES.txt").write_text(license_text(), encoding="utf-8")
     python_license = Path(sys.base_prefix) / "LICENSE_PYTHON.txt"
     if not python_license.is_file():
@@ -240,7 +289,7 @@ def main() -> None:
     for name in required_asset_paths:
         shutil.copytree(source_cache / name, assets_root / name)
     (assets_root / "ASSET-SOURCES.md").write_text(
-        "BabelDOC offline assets, packaged from the existing BabelDOC 0.6.4 cache.\n\n"
+        "BabelDOC offline assets, packaged from the verified BabelDOC 0.7.1 cache.\n\n"
         "The fonts/ and cmap/ files come from BabelDOC-Assets. The per-file sources,\n"
         "font notices, and included upstream license texts are documented in licenses/.\n"
         "The model file doclayout_yolo_docstructbench_imgsz1024.onnx comes from\n"
@@ -286,8 +335,11 @@ def main() -> None:
     }
     (output / "components-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     evidence = {
-        "runtime": {"python": sys.version.split()[0], "babeldoc": babeldoc_const.__version__,
-                    "pymupdf": pymupdf.VersionBind, "pyinstaller": PyInstaller.__version__},
+        "runtime": {"python": sys.version.split()[0], "babeldoc": metadata.version("BabelDOC"),
+                    "babeldocUpstream": babeldoc_const.__version__, "sourceBridge": 1,
+                    "layoutFitPolicy": LAYOUT_FIT_POLICY, "underscoreLinePolicy": UNDERSCORE_LINE_POLICY,
+                    "pymupdf": pymupdf.VersionBind, "pillow": Image.__version__, "pyinstaller": PyInstaller.__version__},
+        "frozenRuntime": frozen_versions,
         "pyinstallerBuildReused": args.reuse_pyinstaller_build,
         "hyperscanDelvewheelBinaries": [str(path.relative_to(built)).replace("\\", "/")
                                         for path in bundled_hyperscan_libs],

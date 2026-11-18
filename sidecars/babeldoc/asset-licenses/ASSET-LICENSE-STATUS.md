@@ -17,3 +17,18 @@ This directory contains upstream license texts and copyright notices for the ass
 | `tiktoken/fb374d419588a4632f3f557e76b4b70aebbca790` | `tiktoken-MIT.txt` | This is **o200k_base**, not cl100k_base: its cache filename is SHA-1 of the [official encoding URL](https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken), and its SHA-256 `446a9538cb6c348e3516120d7c08b09f57c36495e2acfffe59a5bf8b0cfb1a2d` matches [tiktoken's expected hash](https://github.com/openai/tiktoken/blob/main/tiktoken_ext/openai_public.py). A [tiktoken maintainer confirmed](https://github.com/openai/tiktoken/issues/92) that the repository [MIT license](https://github.com/openai/tiktoken/blob/main/LICENSE) also applies to encoding files. |
 
 The BabelDOC-Assets repository does not document the command used to convert Adobe's source format to JSON, so the exact conversion script and reason for the small omissions above are unknown. The direct record comparisons establish Adobe data lineage across all cached registry groups; this status does not assume a separate dataset license is needed for a format conversion. All source links above were checked on 2026-10-11. Do not replace any upstream text with a generic license template or describe Go Noto font binaries as Unlicense.
+
+
+## 0.7.1 asset revalidation (2026-11-09)
+
+The 0.7.1 embedded metadata still selects 34 TTF files and 146 CMap JSON files.
+All were downloaded from official BabelDOC-Assets GitHub revision
+`1eeeec2a63b05fe6fe7a1f45f0955a8fa98793c4` and verified against the 0.7.1
+embedded SHA3-256 values (273,513,046 bytes together). The exact ONNX model
+from its official Hugging Face repository revision
+`ee7c3d744e5c47c58e267044ac825f95abe69653` is 75,324,598 bytes and matches
+`60be061226930524958b5465c8c04af3d7c03bcb0beb66454f5da9f792e3cf2a`.
+The official o200k_base file also matches the embedded digest. The complete
+selected cache is 352,451,566 bytes (336.12 MiB). Existing family notices are
+retained; this is asset identity verification, not a complete native Rust
+binary license audit. No asset archive is published by this source change.

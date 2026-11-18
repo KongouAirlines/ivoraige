@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import { createHash } from 'node:crypto'
 import { once } from 'node:events'
 import { syncBuiltinESMExports } from 'node:module'
-import { Duplex } from 'node:stream'
+import { Duplex, PassThrough } from 'node:stream'
 import { DatabaseSync } from 'node:sqlite'
 import Ajv2020 from 'ajv/dist/2020.js'
 import { tmpdir } from 'node:os'
@@ -13,6 +13,7 @@ import { join } from 'node:path'
 import { createHostTransport, connectHostTransport, dispatchHostAction, exchangeHostFrame,
   formatHostFailure, validateHostAttach, validateHostRequest } from '../src/host-transport.mjs'
 import { KernelError } from '../src/errors.mjs'
+import { runMcpOwnerStdio } from '../src/mcp.mjs'
 import { hostSocketDirectory } from '../src/host-socket-directory.mjs'
 import { assertPrivateDirectory, assertPrivateFile, createPrivateFile, ensurePrivateDirectory } from '../src/host-permissions.mjs'
 
@@ -202,6 +203,50 @@ test('protected transport handshakes generation and rejects stale/unknown action
     assert.equal((await client.request('state')).action, 'state')
   } finally { await host.cleanupDiscovery(); await host.close() }
 }))
+
+test('real attached MCP resource returns an 800 KiB base64 artifact across bounded owner frames',
+  async t => fixture(async directory => {
+    const state = { dataDomainRef: 'large-mcp', generation: 'large-generation',
+      storeOwnership: 'held', acceptingBusiness: true }
+    const artifact = Buffer.alloc(800 * 1024, 0xa5).toString('base64')
+    const host = createHostTransport({ directory, ...state, lifetime: 'resident',
+      getState: () => state, handleControl: () => ({}),
+      handleBusiness: action => action === 'mcp.describe'
+        ? { tools: [], resources: [{ name: 'artifact', template: 'ivoraige://artifact/{id}' }] }
+        : { contents: [{ uri: 'ivoraige://artifact/one', blob: artifact, mimeType: 'application/octet-stream' }] } })
+    try {
+      try { await host.start() }
+      catch (error) {
+        if (!process.env.CI && ['EPERM', 'EACCES'].includes(error.code)) {
+          t.skip('Local sandbox does not permit Unix socket listening'); return
+        }
+        throw error
+      }
+      const client = await connectHostTransport({ directory, dataDomainRef: state.dataDomainRef })
+      const stdin = new PassThrough(), stdout = new PassThrough()
+      let output = ''
+      stdout.on('data', chunk => { output += chunk })
+      const running = runMcpOwnerStdio(client, { stdin, stdout })
+      const send = value => stdin.write(`${JSON.stringify({ jsonrpc: '2.0', ...value })}\n`)
+      const until = async id => {
+        for (let i = 0; i < 200; i++) {
+          const frame = output.split('\n').filter(Boolean).map(line => JSON.parse(line))
+            .find(message => message.id === id)
+          if (frame) return frame
+          await new Promise(resolve => setTimeout(resolve, 10))
+        }
+        throw new Error(`MCP response ${id} did not arrive`)
+      }
+      try {
+        send({ id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26',
+          capabilities: {}, clientInfo: { name: 'test', version: '1' } } })
+        assert.ok((await until(1)).result)
+        send({ method: 'notifications/initialized' })
+        send({ id: 2, method: 'resources/read', params: { uri: 'ivoraige://artifact/one' } })
+        assert.equal((await until(2)).result.contents[0].blob, artifact)
+      } finally { stdin.end(); await running; stdout.destroy() }
+    } finally { await host.cleanupDiscovery(); await host.close() }
+  }))
 
 test('ephemeral owner publishes only an in-process marker and refuses attach', async () => fixture(async directory => {
   const host = createHostTransport({ directory, dataDomainRef: 'domain-a', generation: 'generation-a',

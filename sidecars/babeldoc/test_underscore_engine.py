@@ -1,19 +1,18 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Copyright (c) 2026 ivoraige contributors
 
-"""Synthetic line-split regressions against installed BabelDOC 0.6.4."""
+"""Historical BabelDOC 0.6.4 line regression, not native .3 acceptance.
 
+The .3 line policy is implemented in Rust, with separate native test source.
+Keep this suite only
+for a matching installed 0.6.4 engine to preserve Python prototype evidence.
+"""
+
+import importlib.metadata as metadata
+import sys
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-
-with patch.object(Path, "home", return_value=Path("/tmp/ivoraige-underscore-test-cache")):
-    from babeldoc.format.pdf.document_il.il_version_1 import (
-        Box, PdfCharacter, PdfParagraph, PdfParagraphComposition, PdfStyle,
-        VisualBbox,
-    )
-    from babeldoc.format.pdf.document_il.midend.paragraph_finder import ParagraphFinder
-    from babeldoc.format.pdf.document_il.midend.styles_and_formulas import StylesAndFormulas
 
 from underscore_line import (UNDERSCORE_LINE_POLICY, UNDERSCORE_LINE_POLICY_V2,
                              underscore_line_scope)
@@ -44,6 +43,24 @@ def lines(chars, enabled, policy=UNDERSCORE_LINE_POLICY):
 
 
 class UnderscoreLineTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        try:
+            historical = (metadata.version("babeldoc"), metadata.version("PyMuPDF"), sys.version_info[:2])
+        except metadata.PackageNotFoundError as error:
+            raise unittest.SkipTest(f"Historical BabelDOC 0.6.4 runtime unavailable: {error}") from error
+        if historical != ("0.6.4", "1.26.7", (3, 13)):
+            raise unittest.SkipTest(f"Historical BabelDOC 0.6.4 runtime unavailable: {historical}")
+        global Box, PdfCharacter, PdfParagraph, PdfParagraphComposition, PdfStyle
+        global VisualBbox, ParagraphFinder, StylesAndFormulas
+        with patch.object(Path, "home", return_value=Path("/tmp/ivoraige-underscore-test-cache")):
+            from babeldoc.format.pdf.document_il.il_version_1 import (
+                Box, PdfCharacter, PdfParagraph, PdfParagraphComposition, PdfStyle,
+                VisualBbox,
+            )
+            from babeldoc.format.pdf.document_il.midend.paragraph_finder import ParagraphFinder
+            from babeldoc.format.pdf.document_il.midend.styles_and_formulas import StylesAndFormulas
+
     def test_only_bracketed_low_ascii_identifier_joins_baseline(self):
         chars = [glyph("X", 0, 8), glyph("_", 1, 0), glyph("Y", 2, 8)]
         self.assertEqual(UNDERSCORE_LINE_POLICY, "ascii-base-v1")

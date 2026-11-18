@@ -48,3 +48,7 @@ P08 必须逐项核对：
 5. 每个实际发行包记录文件名、字节数、摘要、构建源码提交、构建 run/工具链、插件及引擎版本、文档/通知/源码入口。脱离 `.git` 的源码归档、未装 PDF 的主体安装、插件安装后冻结回放都需实测。
 
 恢复相应 Windows/PDF 二进制分发前完成 F-B/P2 对应的实际包验证；纯 Node 包须通过自身实际闭包/许可与安装门禁，不因旧 PDF 附件的问题一概停止，也不因不带 Python 自动视为合规。npm 准备见[就绪清单](../0.1.0/npm-readiness.md)，本轮不安排上架。旧附件撤下停止继续下载，不代表旧包已修。不得主动恢复历史 tag/附件，或把文档计划写成已经发布。源码开源、仓库边界、包分发边界分别决策，P08 不以全面重写或更换 PyMuPDF 为默认前提。
+
+## BabelDOC 0.7.1 派生运行时边界
+
+本切片保持 protocol v1 及 records/snapshot 载荷，沿用 native source bridge v1，以 `0.7.1+ivoraige.3` 标识来源桥、`captureConfig.underscoreLinePolicy=ascii-alnum-base-v1` 原生分行策略和 `captureConfig.layoutFitPolicy=fit-box-v1` 原生布局预检策略。运行时校验对应原生能力标记，不再导入 0.6.4 的 Python monkeypatch。0.6.4、`0.7.1+ivoraige.1` 及 `.2` 绑定的译文 PDF 回放明确版本失败；旧可读输出、修订和原件复制保留，重新捕获后的分段与接受修订需明确核对，不自动改写旧绑定。详见[升级指南](babeldoc-0.7.1.md)、[原桥接证据](evidence/babeldoc-0.7.1.md)、[分行证据](evidence/babeldoc-underscore-0.7.1.md)与[原生集成证据](evidence/babeldoc-native-fit-0.1.x.md)。本切片不完成 P05/P08 的全平台独立分发。

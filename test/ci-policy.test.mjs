@@ -26,7 +26,12 @@ test('CI retains native three-platform regression and isolated installation cove
   assert.equal(steps.filter(step => step.run === 'npm run build').length, 1)
   assert.equal(steps.filter(step => step.run === 'npm run test:ci').length, 1)
   assert.equal(steps.filter(step => step.run === 'npm run smoke:package').length, 1)
-  assert.equal(steps.filter(step => step.run.startsWith('python -m unittest')).length, 3)
+  for (const command of [
+    'python -m unittest discover -s test -p audit_pdf_closure_test.py',
+    'python -m unittest discover -s sidecars/babeldoc -p test_server.py',
+    'python -m unittest discover -s test -p build_babeldoc_runtime_test.py',
+    'python -m unittest discover -s test -p audit_release_archives_test.py',
+  ]) assert.equal(steps.filter(step => step.run === command).length, 1)
   const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
   assert.match(pkg.scripts['test:ci'], /--test-timeout=120000/)
   assert.match(pkg.scripts['test:ci'], /test\/\*\.test\.mjs/)

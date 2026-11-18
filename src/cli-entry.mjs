@@ -22,3 +22,11 @@ export class CliEntry extends Service {
     for (const controller of this.controllers) controller.abort()
   }
 }
+
+// Attached CLI calls must enter the same availability/cancellation boundary
+// as calls made inside the owner process.
+export async function ownerCli(app, operation, input, options) {
+  const entry = app.ctx.get('ivoraige.cliEntry')
+  if (!entry) throw new KernelError('COMPONENT_MISSING', 'CLI entry is unavailable')
+  return entry.invoke(operation, input, options)
+}

@@ -272,7 +272,7 @@ CLI 对应 `components status|catalog|credential --token-env NAME|credential-cle
 
 0.1.0 清单契约：`version` 必须是严格 SemVer（允许 prerelease 与 build metadata，不接受 `v` 前缀、范围或不完整版本），每个 `(id, platform, arch)` 只允许一个候选版本；不同平台可并列。catalog 和本地／远程安装均在读取清单时拒绝重复候选，不由数组顺序隐式选版本。入口仍不提供版本选择参数。普通安装在下载／激活前按 SemVer 优先级比较当前有效已选组件，拒绝更旧版本并保留原选择；允许升级和同版本修复。build metadata 不改变优先级。未提供显式降级／rollback 操作。
 
-独立启动器默认使用用户数据目录，`--data-dir` 可覆盖；同一目录已有工作台时复用实例。仅启动器会提供 `GET /api/instance` 的随机实例标识，用于排除遗留端口记录；它不是授权凭据，服务仍仅监听本机回环地址。
+独立启动器默认使用用户数据目录，`--data-dir` 可覆盖；同一目录已有工作台时复用实例。当前启动器不提供 `GET /api/instance`；owner 发现和配对由本机宿主注册与认证机制完成，服务仍仅监听本机回环地址。
 
 ### 3.9 当前逐单位翻译提示词库（0.1.0 增量）
 
@@ -302,12 +302,12 @@ Records 域的 prompt 字段写入前先将 DSH unit 版本从 1／2 提升到 3
 ## 5. CLI 输出协议
 
 - `--json` 时 stdout 输出与该操作对应的 REST 响应体**逐字节同构**（同一序列化函数）。
-- 长任务：`ivoraige translate --json-events` 输出 NDJSON，每行一个 §4 事件对象；脚本可逐行消费。
+- 自持本地内核的长任务：`ivoraige translate --json-events` 输出 NDJSON，每行一个 §4 事件对象；附加到常驻 owner 时不支持 `--json-events`，应轮询 `task`。CLI 相对 `import --path`、`export --out`、`components local --path` 由 CLI 按调用者工作目录转为绝对路径后传给 owner。`--store` 选择本机 owner；`--url` 仅核验其 HTTP origin，不能单独远程连接。
 - 退出码映射见 §1.3；stderr 只写人类可读提示，脚本不应解析。
 
 ## 6. MCP tools 映射
 
-**当前实现（0.1.0 开发阶段）**：CLI `mcp --stdio` 独立启动持有数据库的内核；常驻 `serve` 与桌面启动器默认在 `/mcp` 提供 Streamable HTTP，`serve --no-mcp` 可关闭。两种传输使用同一内核操作和参数 schema。MCP tool 成功结果以 `structuredContent` 返回完整业务对象，并在文本 content 中提供其 JSON；业务失败设置 `isError: true`，`structuredContent` 为与 REST／CLI 共用的 `{ apiVersion, error: { code, message, details } }`。输入 schema 不符由 MCP SDK 返回协议级校验错误，不保证包装为业务错误。资源读取失败返回 MCP 协议错误，并附公开的业务错误信息：`NOT_FOUND` 映射为 `-32002`，`INVALID_ARGUMENT` 映射为 `-32602`，其余失败映射为 `-32603`；业务错误对象保留在协议错误的 data 中。
+**当前实现（0.1.0 开发阶段）**：CLI `mcp --stdio --store FILE` 仅附加已有常驻 owner；`serve` 的 Streamable HTTP `/mcp` 默认关闭，需显式 `--mcp-enabled` 开启。两种传输使用同一内核操作和参数 schema。MCP tool 成功结果以 `structuredContent` 返回完整业务对象，并在文本 content 中提供其 JSON；业务失败设置 `isError: true`，`structuredContent` 为与 REST／CLI 共用的 `{ apiVersion, error: { code, message, details } }`。输入 schema 不符由 MCP SDK 返回协议级校验错误，不保证包装为业务错误。资源读取失败返回 MCP 协议错误，并附公开的业务错误信息：`NOT_FOUND` 映射为 `-32002`，`INVALID_ARGUMENT` 映射为 `-32602`，其余失败映射为 `-32603`；业务错误对象保留在协议错误的 data 中。
 
 MCP 是可选入口服务 `ivoraige.mcp`，不拥有文档或 PDF 业务逻辑。能力插件通过 `registry.registerTool(name, { description, inputSchema, invoke(input, { signal }) })` 与 `registry.registerResource(name, { template, metadata, read(uri, variables) })` 注册，并把注销函数交给 Cordis `ctx.effect()`；插件卸载时已注册能力从后续查询中移除。stdio 通过连接内 SDK 通知；现代 HTTP 协议通过 SDK 的 `subscriptions/listen` 通道向已订阅客户端推送工具／资源列表变化，注册表订阅随 HTTP 服务关闭而释放。旧协议无状态 HTTP 不支持跨请求通知，声明 `listChanged: false`，客户端应主动重新查询列表。`createApp({ mcp: false })` 不装配此入口；`serve` 的 `mcp: false`／CLI `--no-mcp` 关闭 HTTP 挂载。当前文档／任务工具由内核操作插件贡献，组件工具由可选组件插件贡献；格式能力仍由既有输入／输出适配器提供，MCP 运行时不识别特定 PDF 引擎。
 
@@ -429,6 +429,6 @@ Q02 event and entry detail: `task.abandoned` carries `{ taskId }` after a failed
 
 The existing API_VERSION `2.0`, CLI aliases, HTTP REST aliases and MCP tool names are preserved. A registered operation is validated once by the kernel catalog, including MCP argument errors; result payloads are checked as JSON data against the operation result schema. The internal generic invocation adapters are CLI `call OPERATION --set JSON`, HTTP `POST /api/operations/{operationId}` and MCP `ivoraige_op_{operationId}` for contributed operations without an existing alias. They do not establish the complete stable external client/authentication API.
 
-The facade owns the top-level `apiVersion` field and sets it to `2.0` after validating the business result; a contribution cannot replace it through its result schema or payload. A self-owned local generic CLI call refuses operations declared long-running or task-cancellable before admission (also with `--no-wait`); use a waiting CLI alias or a persistent host via `--url` / a caller-supplied app. HTTP path identifiers use one percent-decoding boundary; malformed encodings return `400 INVALID_ARGUMENT`.
+The facade owns the top-level `apiVersion` field and sets it to `2.0` after validating the business result; a contribution cannot replace it through its result schema or payload. A self-owned local generic CLI call refuses operations declared long-running or task-cancellable before admission (also with `--no-wait`); use a waiting CLI alias or a resident owner selected by `--store` / a caller-supplied app. HTTP path identifiers use one percent-decoding boundary; malformed encodings return `400 INVALID_ARGUMENT`.
 
 `GET /api/events/state` accepts optional `docId`, `taskId` or `componentId` scope and first emits `state.ready` with `{subscriptionId,generation,scope,barrierRevision}`. The live session is read through `GET /api/state?subscriptionId=...`, returning the v2 envelope plus the same identity and `{stateRevision,state}`. `state.invalidated` notices above the applied revision trigger refetch on the same session. `resync-required`, disconnect, changed generation/scope and bounded-buffer overflow require a new subscription and snapshot. Transport backpressure pauses writes until `drain`, then resumes from the bounded session buffer without repeating accepted frames; buffer overflow still requires resynchronization. State is a public summary, not replayable events or a complete atomic workbench text copy. The previous task SSE endpoints retain their existing `{type,data}` projection.
