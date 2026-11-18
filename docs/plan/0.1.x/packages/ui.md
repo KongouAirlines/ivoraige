@@ -1,5 +1,7 @@
 # 普通翻译与管理 UI工作包
 
+桌面外壳、WebUI 逐页重置与按需组合的讨论路线见[桌面/UI 渐进路线](../desktop-ui-roadmap.md)；目标尚未代表实现，沿用既有工作包 ID。
+
 [执行索引](../work-packages.md) · [领域契约](../../../requirements/0.1.x/ui.md) · [验证索引](../validation.md)
 
 ## U01
