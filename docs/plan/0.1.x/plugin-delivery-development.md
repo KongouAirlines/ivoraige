@@ -14,6 +14,18 @@ package; only the host `dist/dsh.mjs` exports the manager's `runProfilePnpm`,
 atomic writer and run-tree helpers. `execa@10.0.0` and `undici@7.28.0` (MIT) close
 the newly reached upstream subprocess/proxy dependencies. No manager UI is loaded.
 
+Host API 1 accepts adapter callback failures whose thrown value is an `Error`
+of a `KernelError` class (the constructor need not be the host's), with a known
+public code, nonempty message, and optional object details. A generic `Error`
+with a copied code is not treated as a declared plugin failure. The
+host normalizes these at the Parse/Outputs callback boundary to its own
+`KernelError` before HTTP, CLI, and task handling; independent packages cannot
+share constructor identity with the host. Unknown codes and unexpected errors
+remain internal with a trace ID. This is a trusted installed-plugin contract,
+not a sandbox or permission to expose arbitrary internal failures. It preserves
+the existing wire codes/status/exit values in API 2.0 and avoids changing
+bundled adapters or requiring a new host service in independent packages.
+
 DSH's manager restores manifest/lockfiles after cancellation or installation
 failure, but that is not a complete package-directory rollback. Without HMR it
 reports restart-required, and running bundle removal can require stopping the

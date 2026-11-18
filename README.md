@@ -156,4 +156,6 @@ entry. The MinerU MIT bridge is packed separately from the core; native runtimes
 and models are not included. See [offline plugin installation](docs/plan/0.1.0/installation-guide.md#offline-independent-source-plugins)
 and the [P05 development notes](docs/plan/0.1.x/plugin-delivery-development.md).
 
+Optional independent BabelDOC source/output package `0.1.1` for engine `0.7.1+ivoraige.3`: [setup and compatibility](plugins/babeldoc/README.md). Runtime preparation and PDF quality limits remain separate.
+
 If the desktop browser opener fails, the launcher reports a warning but keeps the local owner running for CLI/MCP. Re-run the launcher from a browser-enabled session to pair the workbench. Sandboxed Linux browsers may be unable to read the private pairing file; this desktop path remains unverified. See the [host control guide](docs/plan/0.1.x/host-control-guide.md#browser-opener-limits).

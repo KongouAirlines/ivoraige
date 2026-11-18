@@ -11,6 +11,23 @@ import { readablePdfText, renderPdfMarkdown, validatePdfTranslation } from './pd
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex')
 const fail = message => { throw new KernelError('PRECONDITION_FAILED', message) }
+// Cleanup must not replace the operation's code, cancellation or termination
+// details. On success, a cleanup failure still fails the operation. Retain any
+// secondary failures on the original Error for local diagnostics.
+function recordCleanupError(primary, error) {
+  if (primary instanceof Error && Object.isExtensible(primary)) {
+    const descriptor = Object.getOwnPropertyDescriptor(primary, 'cleanupErrors')
+    if (!descriptor || descriptor.configurable) Object.defineProperty(primary, 'cleanupErrors', {
+      value: [...(Array.isArray(descriptor?.value) ? descriptor.value : []), error], configurable: true,
+    })
+  }
+}
+async function cleanupPath(path, options, primary) {
+  try { await rm(path, options) } catch (error) {
+    if (primary === undefined) throw error
+    recordCleanupError(primary, error)
+  }
+}
 const chinese = new Set(['zh', 'zh-CN', 'zh-Hans'])
 const validateSourceLanguage = language => {
   if (language !== 'en' && !chinese.has(language)) fail('PDF source capture supports only en, zh, zh-CN or zh-Hans')
@@ -78,6 +95,7 @@ class PdfRuntime {
   }
 
   async exportSource(binding) {
+    if (binding?.adapterId !== 'babeldoc') fail('BabelDOC cannot replay another engine source binding')
     const { sourcePath, sourceDigest } = binding
     if (typeof sourceDigest !== 'string' || !/^[a-f0-9]{64}$/.test(sourceDigest) ||
         typeof sourcePath !== 'string' || !isAbsolute(sourcePath) ||
@@ -144,17 +162,21 @@ class PdfRuntime {
     }
     try { await this.verifySource(sourcePath, sourceDigest) } catch (error) {
       if (created) {
-        await rm(sourcePath, { force: true })
+        await cleanupPath(sourcePath, { force: true }, error)
         throw error
       }
       // Capture has already hashed the original. Publish the validated bytes
       // beside the destination and replace the damaged file with one rename.
       const replacement = `${sourcePath}.${randomUUID()}.repair`
+      let failure
       try {
         await copyFile(temporary, replacement, constants.COPYFILE_EXCL)
         await this.verifySource(replacement, sourceDigest)
         await rename(replacement, sourcePath)
-      } finally { await rm(replacement, { force: true }); this.verified.delete(replacement) }
+      } catch (error) { failure = error; throw error } finally {
+        try { await cleanupPath(replacement, { force: true }, failure) }
+        finally { this.verified.delete(replacement) }
+      }
       this.verified.delete(sourcePath)
       await this.verifySource(sourcePath, sourceDigest)
     }
@@ -178,6 +200,7 @@ class PdfRuntime {
     const work = join(this.directory, 'work')
     await mkdir(work, { recursive: true })
     const temporary = await mkdtemp(join(work, 'import-'))
+    let failure
     try {
       const input = join(temporary, 'source.pdf')
       const parsed = await this.capture(file, input)
@@ -185,7 +208,9 @@ class PdfRuntime {
       file.signal?.throwIfAborted()
       await this.withSourceLock(sourceDigest, () => this.publish(input, sourcePath, sourceDigest))
       return parsed
-    } finally { await rm(temporary, { recursive: true, force: true }) }
+    } catch (error) { failure = error; throw error } finally {
+      await cleanupPath(temporary, { recursive: true, force: true }, failure)
+    }
   }
 
   async import(file, persist, isReferenced) {
@@ -193,6 +218,7 @@ class PdfRuntime {
     const work = join(this.directory, 'work')
     await mkdir(work, { recursive: true })
     const temporary = await mkdtemp(join(work, 'import-'))
+    let failure
     try {
       const input = join(temporary, 'source.pdf')
       const parsed = await this.capture(file, input)
@@ -203,14 +229,21 @@ class PdfRuntime {
         try { return await persist(parsed) } catch (error) {
           // This path belongs to the locked store. Legacy digest-only sources
           // remain readable through saved bindings and are never cleanup targets.
-          if (created && !isReferenced(sourcePath)) {
-            await rm(sourcePath, { force: true })
-            this.verified.delete(sourcePath)
+          if (created) {
+            let referenced = true
+            try { referenced = isReferenced(sourcePath) }
+            catch (lookupError) { recordCleanupError(error, lookupError) }
+            if (!referenced) {
+              await cleanupPath(sourcePath, { force: true }, error)
+              this.verified.delete(sourcePath)
+            }
           }
           throw error
         }
       })
-    } finally { await rm(temporary, { recursive: true, force: true }) }
+    } catch (error) { failure = error; throw error } finally {
+      await cleanupPath(temporary, { recursive: true, force: true }, failure)
+    }
   }
 
   async rebuild(frozen, { signal } = {}) {
@@ -231,6 +264,7 @@ class PdfRuntime {
     const jobs = join(this.directory, 'work')
     await mkdir(jobs, { recursive: true })
     const temporary = await mkdtemp(join(jobs, 'export-'))
+    let failure
     try {
       const docRef = join(temporary, 'source.json')
       const revisionsRef = join(temporary, 'snapshot.json')
@@ -242,7 +276,9 @@ class PdfRuntime {
       const content = await readFile(out)
       if (!content.subarray(0, 1024).includes(Buffer.from('%PDF-'))) fail('PDF component returned invalid output')
       return { content, warnings: result.evidence?.warnings ?? [] }
-    } finally { await rm(temporary, { recursive: true, force: true }) }
+    } catch (error) { failure = error; throw error } finally {
+      await cleanupPath(temporary, { recursive: true, force: true }, failure)
+    }
   }
 }
 

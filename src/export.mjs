@@ -6,6 +6,7 @@ import { mkdir, writeFile, unlink } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { Service } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
+import { invokeAdapter } from './adapter-error.mjs'
 
 function freeze(value) {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -77,8 +78,8 @@ export class Exporter extends Service {
           if (!parser) throw new KernelError('COMPONENT_MISSING', 'Source adapter registry is unavailable')
           view = freeze(parser.projectOutputView(frozen, { views: requiredViews }))
         }
-        const rendered = await rebuild(view, Object.freeze({ format: outputs[index].format,
-          ...(signal ? { signal } : {}) }))
+        const rendered = await invokeAdapter(rebuild, undefined, [view,
+          Object.freeze({ format: outputs[index].format, ...(signal ? { signal } : {}) })])
         signal?.throwIfAborted()
         const wrapped = rendered !== null && typeof rendered === 'object' && !Buffer.isBuffer(rendered)
         const content = wrapped ? rendered.content : rendered
