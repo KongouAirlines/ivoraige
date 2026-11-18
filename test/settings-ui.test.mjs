@@ -67,6 +67,9 @@ function fixture({ hash = '#/workbench/doc', modelReadFails = 0, deferModelSave 
       id: 'unit-1', order: 0, kind: 'paragraph', translatable: true, sourceText: 'Source text',
     }], nextCursor: null }
     else if (path.startsWith('/units/unit-1/revisions')) data = { items: [], nextCursor: null }
+    else if (path === '/units/unit-1' && options.method === 'PATCH') data = {
+      revision: { id: 'rev-1', text: JSON.parse(options.body).text },
+    }
     else if (path.startsWith('/units/unit-1')) data = {
       unit: { id: 'unit-1', order: 0, kind: 'paragraph', translatable: true, sourceText: 'Source text' },
       draft: null, accepted: null,
@@ -128,6 +131,7 @@ test('settings overlay preserves Workbench draft and suspends its shortcuts', as
     await until(() => !window.document.querySelector('dialog[open]'), 'settings did not close')
     assert.equal(key(window, 'Enter').defaultPrevented, true)
     await until(() => writes(calls).some(call => call.path === '/units/unit-1' && call.method === 'PATCH'), 'save shortcut did not resume')
+    await until(() => window.document.body.textContent.includes('草稿已保存'), 'save did not finish')
     assert.equal(key(window, 'r').defaultPrevented, true)
     await until(() => writes(calls).some(call => call.path === '/documents/doc/translate'), 'Workbench shortcut did not resume')
   } finally { app.close() }

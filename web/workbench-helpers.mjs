@@ -76,7 +76,7 @@ export function insertAtSelection(text, selectionStart, selectionEnd, token) {
 export function unitTranslationStatus(unit) {
   if (!unit?.translatable) return 'non-translatable'
   if (unit.acceptedRevisionId) return 'accepted'
-  if (unit.currentDraftRevisionId) return 'draft'
+  if (unit.draftRevisionId) return 'draft'
   return 'untranslated'
 }
 

@@ -8,6 +8,7 @@ import {
   extractPdfPlaceholders,
   filterWorkbenchUnits,
   insertAtSelection,
+  unitTranslationStatus,
   validatePdfPlaceholders,
 } from '../web/workbench-helpers.mjs'
 
@@ -77,13 +78,17 @@ test('workbench-helpers: insertAtSelection, filterWorkbenchUnits, and computeWor
     ['u1']
   )
 
+  assert.equal(unitTranslationStatus(units[1]), 'draft')
+  assert.deepEqual(filterWorkbenchUnits(units, { filter: 'draft' }), [units[1]])
+
   const diff = computeWordDiff('初版译文测试', '修订版译文测试通过')
   assert.ok(diff.some(part => part.type === 'del' && part.text.includes('初')))
   assert.ok(diff.some(part => part.type === 'add' && part.text.includes('修订')))
   assert.ok(diff.some(part => part.type === 'same' && part.text.includes('版译文测试')))
 })
 
-test('Workbench supports PDF placeholder chips, one-step Save & Accept, keyboard navigation, search, batch accept, and diff view', async () => {
+for (const editDuringRequest of [false, true]) test(
+  `Workbench retries partial saves and batch acceptance (new edit during save: ${editDuringRequest})`, async () => {
   const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
     url: 'http://localhost/#/workbench/doc',
     runScripts: 'outside-only',
@@ -113,9 +118,12 @@ test('Workbench supports PDF placeholder chips, one-step Save & Accept, keyboard
       kind: 'paragraph',
       translatable: true,
       draftRevisionId: 'rev-u1-draft',
+      acceptedRevisionId: 'rev-u1-old',
       locator: { page: 2 },
     },
   ]
+  units.push({ id: 'u2', order: 2, sourceText: 'Last unit', kind: 'paragraph', translatable: true,
+    draftRevisionId: 'rev-u2-draft', locator: { page: 2 } })
   const unitDetails = {
     u0: {
       unit: units[0],
@@ -126,7 +134,7 @@ test('Workbench supports PDF placeholder chips, one-step Save & Accept, keyboard
     u1: {
       unit: units[1],
       draft: { id: 'rev-u1-draft', text: '第二段模型草稿。', origin: 'machine', status: 'draft', createdAt: '2026-11-14T00:00:00.000Z' },
-      accepted: null,
+      accepted: { id: 'rev-u1-old', text: '旧译文' },
       revisions: [
         { id: 'rev-u1-old', text: '第二段初版草稿。', origin: 'machine', status: 'superseded', createdAt: '2026-11-13T00:00:00.000Z' },
         { id: 'rev-u1-draft', text: '第二段模型草稿。', origin: 'machine', status: 'draft', createdAt: '2026-11-14T00:00:00.000Z' },
@@ -134,6 +142,12 @@ test('Workbench supports PDF placeholder chips, one-step Save & Accept, keyboard
     },
   }
 
+  let releasePatch
+  const firstPatch = new Promise(resolve => { releasePatch = resolve })
+  let patchCount = 0
+  let acceptCount = 0
+  let u2Attempts = 0
+  const unavailable = () => ({ ok: false, status: 503, json: async () => ({ error: { message: '暂时无法接受' } }) })
   window.fetch = async (url, options = {}) => {
     const rawPath = String(url).replace(/^\/api/, '')
     const path = rawPath.split('?')[0]
@@ -151,7 +165,7 @@ test('Workbench supports PDF placeholder chips, one-step Save & Accept, keyboard
           format: 'pdf',
           language: 'en',
           title: 'PDF Efficiency Doc',
-          unitCount: 2,
+          unitCount: 3,
           availableOutputs: ['pdf', 'md'],
         },
       }
@@ -166,8 +180,10 @@ test('Workbench supports PDF placeholder chips, one-step Save & Accept, keyboard
     } else if (path === '/units/u1/revisions') {
       data = { items: unitDetails.u1.revisions, nextCursor: null }
     } else if (path === '/units/u0' && method === 'PATCH') {
+      assert.equal(body.baseRevisionId, unitDetails.u0.draft?.id ?? null)
+      if (++patchCount === 1) await firstPatch
       const rev = {
-        id: 'rev-u0-1',
+        id: `rev-u0-${patchCount}`,
         text: body.text,
         origin: 'human',
         status: 'draft',
@@ -177,16 +193,25 @@ test('Workbench supports PDF placeholder chips, one-step Save & Accept, keyboard
       unitDetails.u0.revisions.push(rev)
       units[0].draftRevisionId = rev.id
       data = { revision: rev }
-    } else if (path === '/revisions/rev-u0-1/accept' && method === 'POST') {
+    } else if (path === `/revisions/${units[0].draftRevisionId}/accept` && method === 'POST') {
+      if (++acceptCount === 1) return unavailable()
       unitDetails.u0.accepted = { ...unitDetails.u0.draft, status: 'accepted' }
       unitDetails.u0.draft = null
-      units[0].acceptedRevisionId = 'rev-u0-1'
-      data = { acceptedRevisionId: 'rev-u0-1' }
+      units[0].acceptedRevisionId = units[0].draftRevisionId
+      delete units[0].draftRevisionId
+      data = { acceptedRevisionId: units[0].acceptedRevisionId }
     } else if (path === '/revisions/rev-u1-draft/accept' && method === 'POST') {
+      assert.equal(body.expectedAcceptedRevisionId, 'rev-u1-old')
+      delete units[1].draftRevisionId
       unitDetails.u1.accepted = { ...unitDetails.u1.draft, status: 'accepted' }
       unitDetails.u1.draft = null
       units[1].acceptedRevisionId = 'rev-u1-draft'
       data = { acceptedRevisionId: 'rev-u1-draft' }
+    } else if (path === '/revisions/rev-u2-draft/accept' && method === 'POST') {
+      if (++u2Attempts === 1) return unavailable()
+      delete units[2].draftRevisionId
+      units[2].acceptedRevisionId = 'rev-u2-draft'
+      data = { acceptedRevisionId: units[2].acceptedRevisionId }
     } else {
       data = { items: [], nextCursor: null }
     }
@@ -216,6 +241,12 @@ test('Workbench supports PDF placeholder chips, one-step Save & Accept, keyboard
     )
     assert.equal(saveAndAcceptBtn.disabled, true, 'Save & Accept must be disabled while PDF placeholders are missing')
 
+    const shortcut = () => window.dispatchEvent(new window.KeyboardEvent('keydown', {
+      key: 'Enter', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true,
+    }))
+    shortcut()
+    assert.equal(calls.filter(c => c.method === 'PATCH').length, 0)
+
     // Click "一键补齐缺失标记" to insert all missing placeholders
     const fillBtn = [...toolbar.querySelectorAll('button')].find(b => b.textContent.includes('一键补齐缺失标记'))
     assert.ok(fillBtn, 'expected missing placeholder quick-fill button')
@@ -224,14 +255,31 @@ test('Workbench supports PDF placeholder chips, one-step Save & Accept, keyboard
     assert.match(toolbar.textContent, /✓ 占位符完整 \(3\/3\)/)
     assert.equal(saveAndAcceptBtn.disabled, false)
 
-    // 2. Click "保存并接受" -> saves u0, accepts rev-u0-1, and automatically advances to u1!
+    // A click and two shortcuts share one pending write, even before React re-renders.
     saveAndAcceptBtn.click()
+    shortcut()
+    shortcut()
+    await until(() => patchCount === 1)
+    const newerText = editor().value + ' 新编辑'
+    if (editDuringRequest) {
+      setValue.call(editor(), newerText)
+      editor().dispatchEvent(new window.Event('input', { bubbles: true }))
+    }
+    releasePatch()
+    await until(() => window.document.body.textContent.includes('暂时无法接受') && !editor().disabled)
+    assert.equal(calls.filter(c => c.method === 'PATCH').length, 1)
+    if (editDuringRequest) assert.equal(editor().value, newerText)
+    shortcut()
     await until(
       () => editor()?.value === '第二段模型草稿。',
       'Save & Accept did not advance to the next unit u1'
     )
     assert.ok(calls.some(c => c.path === '/units/u0' && c.method === 'PATCH'))
     assert.ok(calls.some(c => c.path === '/revisions/rev-u0-1/accept' && c.method === 'POST'))
+
+    assert.equal(patchCount, editDuringRequest ? 2 : 1)
+    assert.equal(acceptCount, 2)
+    if (editDuringRequest) assert.equal(unitDetails.u0.accepted.text, newerText)
 
     // 3. Revision diff toggle in u1
     const diffBtn = await until(
@@ -248,8 +296,8 @@ test('Workbench supports PDF placeholder chips, one-step Save & Accept, keyboard
     setInputValue.call(searchInput, 'p:2')
     searchInput.dispatchEvent(new window.Event('input', { bubbles: true }))
     await until(
-      () => window.document.querySelectorAll('.unit-item').length === 1,
-      'Page search p:2 did not filter unit list to 1 item'
+      () => window.document.querySelectorAll('.unit-item').length === 2,
+      'Page search p:2 did not filter the unit list'
     )
 
     const selectAllBtn = [...window.document.querySelectorAll('.workbench-toolbar button')].find(b => b.textContent === '全选')
@@ -261,10 +309,13 @@ test('Workbench supports PDF placeholder chips, one-step Save & Accept, keyboard
       'Batch accept button did not appear after selecting draft unit'
     )
     batchAcceptBtn.click()
-    await until(
-      () => calls.some(c => c.path === '/revisions/rev-u1-draft/accept' && c.method === 'POST'),
-      'Batch accept did not accept rev-u1-draft'
-    )
+    await until(() => window.document.body.textContent.includes('已接受 1 段，第 3 段接受失败'))
+    const remaining = [...window.document.querySelectorAll('.unit-item input:checked')]
+    assert.equal(remaining.length, 1)
+    batchAcceptBtn.click()
+    await until(() => window.document.body.textContent.includes('已批量接受所选草稿'))
+    assert.equal(calls.filter(c => c.path === '/revisions/rev-u1-draft/accept').length, 1)
+    assert.equal(u2Attempts, 2)
   } finally {
     window.close()
   }

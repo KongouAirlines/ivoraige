@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Settings } from './model-settings.jsx'
 import { PdfSettings } from './pdf-settings.jsx'
@@ -745,6 +745,7 @@ function Workbench({ docId, epoch, interactive = true }) {
   const [dirty, setDirty] = useState(false)
   const [mode, setMode] = useState('careful')
   const [busy, setBusy] = useState('')
+  const actionPending = useRef(false)
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [artifacts, setArtifacts] = useState([])
@@ -872,24 +873,14 @@ function Workbench({ docId, epoch, interactive = true }) {
     setCurrent(id)
   }
 
-  const act = async (name, fn, savedEdit, { refreshSideData = false } = {}) => {
+  const act = async (name, fn, { refreshSideData = false } = {}) => {
+    if (actionPending.current) return
+    actionPending.current = true
     setBusy(name)
     setError('')
     setMessage('')
     try {
       const result = await fn()
-      if (
-        savedEdit &&
-        savedEditIsCurrent(
-          savedEdit.view,
-          viewKeyRef.current,
-          savedEdit.version,
-          editVersionRef.current
-        )
-      ) {
-        dirtyRef.current = false
-        setDirty(false)
-      }
       await loadCurrent()
       setActionTick(x => x + 1)
       if (refreshSideData) await refreshSide()
@@ -906,36 +897,48 @@ function Workbench({ docId, epoch, interactive = true }) {
       )
       return result
     } catch (e) {
+      if (name === 'save-accept' || name === 'batch-accept') {
+        await loadCurrent()
+        setActionTick(x => x + 1)
+      }
       setError(
         e.code === 'CONFLICT' ? `${e.message} 请重新读取当前版本。` : e.message
       )
     } finally {
+      actionPending.current = false
       setBusy('')
     }
   }
 
-  const save = () =>
-    act(
-      'save',
-      () =>
-        api(`/units/${current}`, {
-          method: 'PATCH',
-          body: {
-            targetLang,
-            text,
-            baseRevisionId: unitData?.draft?.id ?? unitData?.accepted?.id ?? null,
-          },
-        }),
-      { view: viewKeyRef.current, version: editVersionRef.current }
-    )
+  const captureEdit = () => ({ view: viewKey, version: editVersionRef.current })
+  const editIsCurrent = edit =>
+    savedEditIsCurrent(edit.view, viewKeyRef.current, edit.version, editVersionRef.current)
 
-  const accept = (id = unitData?.draft?.id) =>
-    act('accept', () =>
-      api(`/revisions/${id}/accept`, {
-        method: 'POST',
-        body: { expectedAcceptedRevisionId: unitData?.accepted?.id ?? null },
-      })
-    )
+  const saveDraft = async edit => {
+    const { revision } = await api(`/units/${current}`, {
+      method: 'PATCH',
+      body: { targetLang, text, baseRevisionId: unitData.draft?.id ?? unitData.accepted?.id ?? null },
+    })
+    if (edit.view === viewKeyRef.current) {
+      loadRef.current++
+      setUnitData(prev => prev && { ...prev, draft: revision })
+      if (editIsCurrent(edit)) {
+        dirtyRef.current = false
+        setDirty(false)
+      }
+    }
+    return revision
+  }
+
+  const currentUnit = unitData?.unit
+  const canSave = currentUnit?.translatable && dirty && !!text.trim()
+  const save = () => canSave && act('save', () => saveDraft(captureEdit()))
+
+  const acceptRevision = id => api(`/revisions/${id}/accept`, {
+    method: 'POST',
+    body: { expectedAcceptedRevisionId: unitData?.accepted?.id ?? null },
+  })
+  const accept = (id = unitData?.draft?.id) => act('accept', () => acceptRevision(id))
 
   const unaccept = () =>
     act('unaccept', () =>
@@ -961,7 +964,6 @@ function Workbench({ docId, epoch, interactive = true }) {
                 : {}),
           },
         }),
-      undefined,
       { refreshSideData: true }
     )
 
@@ -973,7 +975,6 @@ function Workbench({ docId, epoch, interactive = true }) {
           method: 'POST',
           body: { targetLang, outputs: formats.map(format => ({ format })) },
         }),
-      undefined,
       { refreshSideData: true }
     )
 
@@ -983,64 +984,43 @@ function Workbench({ docId, epoch, interactive = true }) {
   )
 
   const index = visible.findIndex(u => u.id === current)
-  const currentUnit = unitData?.unit
 
   const saveAndAccept = async () => {
-    if (!current || !currentUnit?.translatable) return
-    if (!dirty && unitData?.draft) {
-      const result = await accept()
-      if (result && index < visible.length - 1) choose(visible[index + 1].id)
-      return
-    }
-    if (!text.trim()) return
-    const result = await act(
-      'save-accept',
-      async () => {
-        const saved = await api(`/units/${current}`, {
-          method: 'PATCH',
-          body: {
-            targetLang,
-            text,
-            baseRevisionId: unitData?.draft?.id ?? unitData?.accepted?.id ?? null,
-          },
-        })
-        const revId = saved?.revision?.id ?? saved?.draft?.id
-        if (revId) {
-          await api(`/revisions/${revId}/accept`, {
-            method: 'POST',
-            body: { expectedAcceptedRevisionId: unitData?.accepted?.id ?? null },
-          })
-        }
-        return saved
-      },
-      { view: viewKeyRef.current, version: editVersionRef.current }
-    )
-    if (result && index < visible.length - 1) choose(visible[index + 1].id)
+    if (!currentUnit?.translatable || !text.trim() || placeholderCheck?.valid === false) return
+    if (!dirty && !unitData.draft) return
+    const edit = captureEdit()
+    const result = await act('save-accept', async () => {
+      const revision = dirty ? await saveDraft(edit) : unitData.draft
+      const accepted = await acceptRevision(revision.id)
+      if (edit.view === viewKeyRef.current) {
+        loadRef.current++
+        setUnitData(prev => prev && { ...prev, draft: null, accepted: revision })
+      }
+      return accepted
+    })
+    if (result && editIsCurrent(edit) && visible[index + 1]) choose(visible[index + 1].id)
   }
 
   const selectedDraftUnits = useMemo(
-    () =>
-      (units.value || []).filter(
-        u =>
-          selected.includes(u.id) &&
-          (u.draftRevisionId || u.currentDraftRevisionId) &&
-          !u.acceptedRevisionId
-      ),
+    () => (units.value || []).filter(u => selected.includes(u.id) && u.draftRevisionId),
     [units.value, selected]
   )
 
   const batchAcceptSelected = () =>
     act('batch-accept', async () => {
+      let count = 0
       for (const u of selectedDraftUnits) {
-        const revId = u.draftRevisionId || u.currentDraftRevisionId
-        if (revId) {
-          await api(`/revisions/${revId}/accept`, {
+        try {
+          await api(`/revisions/${u.draftRevisionId}/accept`, {
             method: 'POST',
-            body: { expectedAcceptedRevisionId: null },
+            body: { expectedAcceptedRevisionId: u.acceptedRevisionId ?? null },
           })
+        } catch (error) {
+          throw new Error(`已接受 ${count} 段，第 ${u.order + 1} 段接受失败。${error.message}`, { cause: error })
         }
+        count++
+        setSelected(prev => prev.filter(id => id !== u.id))
       }
-      return { count: selectedDraftUnits.length }
     })
 
   const visibleTranslatableIds = useMemo(
@@ -1084,7 +1064,7 @@ function Workbench({ docId, epoch, interactive = true }) {
     })
   }
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!interactive) return undefined
     const onKey = e => {
       if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
@@ -1099,12 +1079,8 @@ function Workbench({ docId, epoch, interactive = true }) {
       if (!(e.ctrlKey || e.metaKey) || !current) return
       if (e.key === 'Enter') {
         e.preventDefault()
-        if (e.shiftKey) {
+        if (e.shiftKey || (unitData?.draft && !dirty)) {
           saveAndAccept()
-        } else if (unitData?.draft && !dirty) {
-          accept().then(result => {
-            if (result && index < visible.length - 1) choose(visible[index + 1].id)
-          })
         } else if (dirty) {
           save()
         }
@@ -1293,7 +1269,7 @@ function Workbench({ docId, epoch, interactive = true }) {
                   <small>
                     {u.acceptedRevisionId
                       ? '✓ 已接受'
-                      : u.draftRevisionId || u.currentDraftRevisionId
+                      : u.draftRevisionId
                         ? '● 草稿'
                         : u.translatable
                           ? '○ 未译'
@@ -1406,7 +1382,7 @@ function Workbench({ docId, epoch, interactive = true }) {
                       className="secondary"
                       busy={!!busy}
                       onClick={save}
-                      disabled={!dirty || !text.trim()}
+                      disabled={!canSave}
                     >
                       保存草稿
                     </Button>
