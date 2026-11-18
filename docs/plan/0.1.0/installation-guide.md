@@ -59,6 +59,8 @@ node node_modules/ivoraige/src/launch.mjs
 - **程序更新**：更新程序时使用新目录并指向原数据目录，不要用程序文件覆盖数据目录。Windows 便携包内的 `runtime/node.exe` 独立于系统 Node；仅升级系统 Node 不会更新旧程序目录中的运行时。替换旧程序目录前先确认外置数据目录位置并完整保留，切勿将外置用户数据当作程序文件删除。
 - **兼容性边界**：已有验收覆盖旧 Windows 包及 `0.1.0` macOS npm 包的同版本替换；跨版本迁移需单独验证。组件按版本保存，不自动更新或清理旧版本。撤下远端 Release 不会影响本机已装组件和用户数据。
 
+<a id="offline-independent-source-plugins"></a>
+
 ## 离线独立来源插件
 
 ### 打包与交付边界
