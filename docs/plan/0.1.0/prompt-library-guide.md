@@ -10,7 +10,7 @@
 ivoraige prompts
 ivoraige prompts copy --set '{"name":"My translation style"}'
 ivoraige prompts update --set '{"id":"<copied-id>","expectedVersion":"1","style":"Use concise academic prose."}'
-ivoraige prompts bind --set '{"pluginId":"ivoraige.translationModel","featureId":"translate-unit","configurationId":"<selectedModel.configurationId>"}'
+ivoraige prompts bind --set '{"pluginId":"ivoraige.translationModel","featureId":"translate-unit","configurationId":"<selectedModel.configurationId>","templateId":"<copied-id>"}'
 ivoraige prompts resolve --set '{"pluginId":"ivoraige.translationModel","featureId":"translate-unit","configurationId":"<selectedModel.configurationId>"}'
 ivoraige translate <document-id> --target-lang zh-CN --prompt <copied-id>
 ivoraige prompts restore --set '{"pluginId":"ivoraige.translationModel","featureId":"translate-unit","configurationId":"<selectedModel.configurationId>"}'
@@ -19,7 +19,7 @@ ivoraige prompts restore --set '{"pluginId":"ivoraige.translationModel","feature
 - **连接标识计算**：`selectedModel.configurationId` 由提供商、模型 ID、端点／路由和该模型配置共同计算，而非显示名称；模型连接改变后不会误用旧绑定。
 - **作用范围与优先级**：`bind` 可额外传入 `docId` 将选择限定到指定文档。解析优先级从高到低依次为：**单次 `--prompt` 覆盖 → 文档绑定 → 全局绑定 → 兼容内置默认**。普通翻译命令无需新增参数；未指定 `--prompt` 时自动采用适用的文档或全局绑定，无自定义绑定时使用内置默认。
 - **恢复与版本控制**：`restore` 删除对应范围的绑定（若只恢复文档绑定，全局绑定继续生效）。内置模板须先 `copy` 生成副本后才能编辑；`update` 需传入当前 `expectedVersion`，每次保存都会创建新版本而不覆盖旧版。提示词库与文档记录保存在同一受管 SQLite 存储中，可跨文档显式复用。
-- **远程与通用调用**：`prompts` 子命令支持 `--url` 连接运行中的服务；所有操作也可通过 `call OPERATION --set JSON` 和 HTTP 动态操作入口调用。提示词库不含凭据，`style` 中请勿填入密钥或未授权的个人资料。
+- **远程与通用调用**：`prompts` 子命令通过相同的 `--store` 连接常驻宿主，`--url` 可核对服务地址；所有操作也可通过 `call OPERATION --set JSON` 和 HTTP 动态操作入口调用。提示词库不含凭据，`style` 中请勿填入密钥或未授权的个人资料。
 
 ## 模板解析、修订追溯与复用规则
 

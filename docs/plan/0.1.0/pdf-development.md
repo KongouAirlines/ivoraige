@@ -42,7 +42,7 @@ npm run build
 node src/cli.mjs serve --store ./evaluation/runs/workbench/store.sqlite --pdf-config ./examples/pdf-windows.json
 ```
 
-也可在 VS Code“运行和调试”中选择 **ivoraige: 启动 PDF 工作台**（首次运行前须按上一步准备 Python 组件）。浏览器打开终端打印的地址（默认 `http://127.0.0.1:8787`）。同一 SQLite 文件同时只运行一个服务进程；其他 CLI 命令用 `--url` 连接该服务。
+也可在 VS Code“运行和调试”中选 **ivoraige: 启动 PDF 工作台**；首次按上一步准备 Python 组件。浏览器工作台须通过启动器配对，详见[本机宿主指南](../0.1.x/host-control-guide.md)。使用同一 SQLite 文件时只运行一个服务进程；其他 CLI 命令用相同的 `--store` 附加到 owner；`--url` 只能附带核对 HTTP origin。
 
 1. 在“设置”页保存翻译模型及凭据。在首页或“文档”页上传不超过 7 MiB 的原生文本英文 PDF，原文语言选 `English`。导入会立即返回任务句柄，任务页显示捕获进度、失败与取消；完成后点击“打开文档”。（PDF 组件状态区分“已配置，首次处理时验证”“已验证”与“不可用”；首次显示“已配置”不代表资产已通过检查。）
 2. 在工作台选择目标语言“简体中文（zh-CN）”，按需使用“精细 · 保留草稿”或“快速 · 自动接受”。`zh` 与 `zh-CN` 是不同的修订作用域；若既有 CLI 任务使用 `zh`，须在工作台明确切换到“中文（zh）”才能看到对应译文。
@@ -51,12 +51,12 @@ node src/cli.mjs serve --store ./evaluation/runs/workbench/store.sqlite --pdf-co
 服务启动后的 CLI 操作示例：
 
 ```powershell
-node src/cli.mjs --url http://127.0.0.1:8787 import --path C:/path/to/native-text.pdf --source-lang en --format pdf --json
-node src/cli.mjs --url http://127.0.0.1:8787 documents --json
-node src/cli.mjs --url http://127.0.0.1:8787 export DOC_ID --target-lang zh-CN --format pdf,md,json --json
+node src/cli.mjs --store ./evaluation/runs/workbench/store.sqlite import --path C:/path/to/native-text.pdf --source-lang en --format pdf --json
+node src/cli.mjs --store ./evaluation/runs/workbench/store.sqlite documents --json
+node src/cli.mjs --store ./evaluation/runs/workbench/store.sqlite export DOC_ID --target-lang zh-CN --format pdf,md,json --json
 ```
 
-默认 CLI 会等待 PDF 导入任务完成并输出包含 `document` 和 `taskId` 的 JSON；远程追加 `--no-wait` 则立即返回 `taskId`，随后可用 `task TASK_ID --json` 查询。注意远程 `--path` 指**服务端**可访问的路径；浏览器上传则发送二进制 PDF 的 Base64。重启服务时请保持相同的 `--store` 和 `--pdf-config`；受管理的原始 PDF 副本位于数据库同级的 `pdf/sources/`，切勿手工修改。
+默认 CLI 会等 PDF 导入任务完成并输出一次带 `document` 和 `taskId` 的 JSON；远程 `--no-wait` 立即返回 `taskId`，随后用 `task TASK_ID --json` 查询。CLI 相对 `--path` 按调用者工作目录转为绝对路径，owner 仍须能访问该文件；浏览器上传则使用二进制 PDF 的 Base64。重新启动服务时保持相同的 `--store` 和 `--pdf-config`；受管理的原始 PDF 副本放在数据库旁的 `pdf/sources/`，不要手工修改。
 
 ## 当前验收边界
 

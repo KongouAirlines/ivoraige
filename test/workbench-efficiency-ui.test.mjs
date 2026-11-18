@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { test } from 'node:test'
+import { mockOwnerSession } from './fixtures/browser-owner.mjs'
 import { JSDOM } from 'jsdom'
 import {
   computeWordDiff,
@@ -193,6 +194,7 @@ test('Workbench supports PDF placeholder chips, one-step Save & Accept, keyboard
   }
 
   try {
+    mockOwnerSession(window)
     window.eval(bundle)
     const editor = () => window.document.querySelector('textarea[aria-label="译文编辑"]')
     await until(() => editor(), 'Workbench editor did not mount')

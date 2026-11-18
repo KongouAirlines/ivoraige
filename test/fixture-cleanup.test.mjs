@@ -91,7 +91,7 @@ for (const [file, name, trigger, directory] of [
 ` + body.slice(offset)
     source = source.slice(0, start) + body + (end === -1 ? '' : source.slice(end))
     source = source.replaceAll("'../src/", "'../../src/")
-      .replaceAll("'./fixtures/cleanup.mjs'", "'./cleanup.mjs'")
+      .replaceAll("'./fixtures/", "'./")
     source = "import probeFs from 'node:fs'; const probeOpen = probeFs.promises.open;\n" + source
     const path = new URL(`./fixtures/cleanup-probe-${randomUUID()}.mjs`, import.meta.url)
     try {

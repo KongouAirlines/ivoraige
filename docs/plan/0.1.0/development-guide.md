@@ -35,7 +35,7 @@ npm start
 node src/cli.mjs serve --store ./evaluation/runs/workbench-0.1.0/store.sqlite
 ```
 
-打开终端打印的本机地址。**同一 SQLite 数据库同时只能运行一个内核**；服务运行期间，其他 CLI 命令需加 `--url http://127.0.0.1:8787` 连接它。所有 CLI 参数以 `node src/cli.mjs help` 为准。源码启动若需使用环境代理，可自行设置 `NODE_USE_ENV_PROXY=1`（本机回环服务应绕过代理）。
+需要浏览器工作台时请通过启动器配对。一个数据库只运行一个内核；服务运行时其他 CLI 命令使用相同的 `--store ./evaluation/runs/workbench-0.1.0/store.sqlite` 自动附加；`--url http://127.0.0.1:8787` 只可选地核对该 owner 的 HTTP origin，不能单独用于远程连接。相对 `--path`／`--out` 按 CLI 当前工作目录转成绝对路径再交给 owner。所有 CLI 参数以 `node src/cli.mjs help` 为准。源码启动需要环境代理时自行启用 `NODE_USE_ENV_PROXY=1`，本机服务应绕过代理。
 
 在 VS Code 中首次完成依赖准备后，选择“**ivoraige: 启动文本工作台**”并按 `F5`，构建任务会先行执行。PDF 调试需先按 [PDF 开发参考](pdf-development.md)准备组件；两个启动配置共用同一数据库和端口，切勿同时运行。
 
@@ -65,7 +65,7 @@ npm run smoke:package
 
 优先通过所属插件接入功能并复用 DSH 基础设施；设计时明确能力归属、依赖、缺件行为与生命周期，并验证实际边界。组合原则见 [ADR-0002](../../decisions/0002-plugin-composition-0.1.0.md)；现行规范与拟议目标的层次见[设计导航](../../requirements/README.md)。新能力按 [0.1.x 工作包](../0.1.x/work-packages.md)逐项实现和验收，规划存在不代表契约已启用。
 
-修改行为或配置时同步更新 `README.md` 与 `README.zh-CN.md`：用户操作写入用户指南，历史验证写入阶段实施记录，未完成事项记入 [follow-ups](../follow-ups/README.md)。文档路径按软件版本命名，保留既有历史链接。源码构建包含 MCP `stdio`／`Streamable HTTP` 入口，客户端配置与权限边界见 [MCP 指南](mcp-guide.md)，实际验证见 [MCP 实施记录](mcp.md)。
+修改行为或配置时同步更新 `README.md` 与 `README.zh-CN.md`：用户操作写入用户指南，历史验证写入阶段实施记录，未完成事项记入 [follow-ups](../follow-ups/README.md)。文档路径按软件版本命名，保留既有历史链接。源码构建包含 MCP stdio／Streamable HTTP 入口，客户端配置与权限边界见 [MCP 指南](mcp-guide.md)。HTTP MCP 默认关闭，显式 `serve --mcp-enabled` 才挂载 `/mcp`；stdio `mcp --stdio --store FILE` 仅附加已有常驻 owner，不单独占有数据库。实际验证范围见 [MCP 实施记录](mcp.md)。
 
 ## 0.1.x 基础与生命周期专题
 
@@ -98,13 +98,13 @@ npm run smoke:package
 
 ### P04 操作目录、入口组合与请求生命周期
 
-- **按需挂载与入口开关**：`createApp()` 在无 `store` 时即可暴露 `operationCatalog` 和基础能力描述；`createApp({ settingsDir })` 可在不挂载文档任务的情况下提供模型设置管理。入口可通过 `entries: { cli: false, http: false, mcp: false }` 独立启停，`events: false` 关闭新的状态流（但保留旧 `/api/events` 任务流及远程 CLI `--json-events`；`/api/events/state` 和 `/api/state` 关闭）。未启用的入口不监听端口或启动传输。`components`、`exportDir` 和 `maxArtifactBytes` 要求提供 `store`。
+- **按需挂载与入口开关**：`createApp()` 在无 `store` 时即可暴露 `operationCatalog` 和基础能力描述；`createApp({ settingsDir })` 可在不挂载文档任务的情况下提供模型设置管理。入口可通过 `entries: { cli: false, http: false, mcp: false }` 独立启停，`events: false` 关闭新的状态流（但保留旧 `/api/events` 任务流，附加 CLI 请轮询任务；`/api/events/state` 和 `/api/state` 关闭）。未启用的入口不监听端口或启动传输。`components`、`exportDir` 和 `maxArtifactBytes` 要求提供 `store`。
 - **服务依赖与延迟挂载**：
   - `delete-owned` 调用时要求资源访问与导出服务同时在场，缺一即在修改记录或创建清理标记前返回 `COMPONENT_MISSING`（仅删记录只需 `Records`）。
   - MCP 会列出已注册工具；当工具所需服务尚未挂载时调用返回 `COMPONENT_MISSING`，服务挂载就绪后同一工具即可正常调用。
   - `Operations` 门面构造时仅需 `operationCatalog`，不缓存可选的 `Records`／`Tasks` 服务：即使 `Operations` 先于 `Records`／`Tasks` 挂载，待服务就绪后，`waitTask` 也会在调用开始时解析 `Records` 并在初始读取、订阅后竞态复检及终态重读期间保持同一存储实例。
   - 事件桥支持在桥接器之后挂载 `operationCatalog`，通过服务变更通知自动订阅并在目录卸载或桥接器销毁时释放监听器。
-- **通用操作注册与调用边界**：能力插件通过 `app.operationCatalog.register(...)` 注册输入 schema、结果 schema 与处理函数并持有返回的 disposer，自动映射为内部通用投影 `ivoraige call OPERATION --set JSON`、`POST /api/operations/OPERATION` 和 MCP `ivoraige_op_OPERATION`（共用同一校验器，顶层通信信封固定附加 `apiVersion: "2.0"`）。进程内 CLI 调用可使用 `runCli(args, { app })` 且不会销毁调用方宿主。自建本地宿主的通用 `call` 会拒绝声明为 `longRunning` 或 `cancellable: 'task'` 的操作（含 `--no-wait`），此类操作请使用本地等待型 CLI 别名或连接常驻宿主（`--url`／外部传入 `app`）。HTTP 路径标识符中格式错误的百分号编码统一映射为 `400 INVALID_ARGUMENT`。
+- **通用操作注册与调用边界**：能力插件通过 `app.operationCatalog.register(...)` 注册输入 schema、结果 schema 与处理函数并持有返回的 disposer，自动映射为内部通用投影 `ivoraige call OPERATION --set JSON`、`POST /api/operations/OPERATION` 和 MCP `ivoraige_op_OPERATION`（共用同一校验器，顶层通信信封固定附加 `apiVersion: "2.0"`）。进程内 CLI 调用可使用 `runCli(args, { app })` 且不会销毁调用方宿主。自建本地宿主的通用 `call` 会拒绝声明为 `longRunning` 或 `cancellable: 'task'` 的操作（含 `--no-wait`），此类操作请使用本地等待型 CLI 别名或连接常驻宿主（使用同一 `--store`，或传入已有 `app`）。HTTP 路径标识符中格式错误的百分号编码统一映射为 `400 INVALID_ARGUMENT`。
 - **状态流握手与反压**：工作台订阅 `/api/events/state` 收到 ready 屏障后，携带 `subscriptionId` 读取 `/api/state?subscriptionId=...` 并保持订阅；后续失效通知触发重读，断线、缓冲区溢出或宿主 generation 变化则需重新握手。状态 SSE 在传输反压下等待 `drain` 后继续发送会话内保留的通知。通过编程方式调用 `runCli(['serve', ...], { signal, stdout, stderr })` 会在监听前后响应 abort 信号并关闭所属 HTTP 宿主与存储。HTTP 与 MCP 的产物读取共享同一租约／归属服务，可通过 `maxArtifactBytes` 限制读取体积（默认不限；浏览器上传在 10 MiB HTTP JSON 请求体上限内最高支持 7 MiB 文件）。详见 [P04 验证记录](../0.1.x/evidence/foundation-p04.md)。
 - **MCP HTTP 原始请求生命周期与同步工厂**：`createMcpHttp` 通过 `AsyncLocalStorage` 将底层 Node 请求的 `AbortController` 作用域传递至共享 SDK 服务工厂，监听 `IncomingMessage` 的 `aborted` 与 `ServerResponse` 的 `close`（不将完整 POST 请求体读取完毕后的正常 `IncomingMessage` close 误判为取消），从而规避 Node 26.12.1 下 SDK 旧分支 `Request.clone` 弱控制器异常，并在端点关闭时中止未完成请求。MCP 同步工厂在分配 SDK 对象或注册表订阅前先检查入口可用性，构造过程在完成所有权注册前不发生异步让出；`McpEntry` 关闭时等待所有已持有句柄释放并按注册顺序传播首个错误。
 - **Records 内存归属索引**：`Records` 在加载时构建一次内存 ID 索引；当固定 DSH 的 `domain/changed` 事件在持久化存储与表缓存提交后同步触发时，前置注册的 `Records` 监听器会在公开状态观察者运行前仅增量更新受影响文档中发生变化的集合（写入失败不发布条目）。单元、修订和产物使用各自独立的命名空间，翻译、操作和导入任务共用同一任务命名空间；重复 ID 返回 `CONFLICT`，跨文档请求唯一资源返回 `NOT_FOUND`。已接受修订的复用索引同样按文档维护，检查点复用通过修订索引定位来源。

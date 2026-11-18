@@ -37,12 +37,13 @@
 
 ## 持久化、CLI 连接与格式边界
 
-按 `Ctrl+C` 停止服务后，使用相同的 `--store` 路径重新启动即可恢复文档、修订、任务及模型设置。服务运行期间，其他 CLI 命令需通过 `--url` 连接正在运行的服务（若不带 `--url` 会另起内核，不能与运行中的服务同时占用同一 SQLite 文件）：
+按 Ctrl+C 停止服务后，用相同的 `--store` 路径再次启动，文档、修订、任务及模型设置会读回。服务运行时，其他 CLI 操作用相同的 `--store` 附加到 owner；可选的 `--url` 只核对该 owner 的 HTTP origin，例如：
 
 ```powershell
-node src/cli.mjs --url http://127.0.0.1:8787 documents --json
-node src/cli.mjs --url http://127.0.0.1:8787 tasks --json
+node src/cli.mjs --store ./evaluation/runs/workbench-0.1.0/store.sqlite documents --json
+node src/cli.mjs --store ./evaluation/runs/workbench-0.1.0/store.sqlite tasks --json
 ```
 
+- CLI 按调用者工作目录解析相对 `--path` 和 `--out`。附加到常驻宿主后，请用 `task` 轮询任务进度。
 - **Markdown 支持范围**：当前 Markdown 仅支持已明确绑定来源位置的语法子集。文件开头有效的 YAML 映射头部（含空头部）原样保留、不参与翻译；未闭合或无效头部会报导入错误。表格、内嵌 HTML 等仍会被拒绝，详情见 [Markdown 阶段记录](markdown.md)；后续 QMD 指定 YAML 字段翻译见[后续事项](../follow-ups/quarto-qmd-support.md)。
-- **其他能力入口**：PDF 操作见 [PDF 使用指南](pdf-guide.md)；包含 MCP 的源码构建可通过 `/mcp` 将 AI 客户端连接到同一工作台进程（见 [MCP 指南](mcp-guide.md)）。EPUB、RAG、术语词库及非回环远程访问尚未接入当前工作台。
+- **其他能力入口**：PDF 操作见 [PDF 使用指南](pdf-guide.md)；显式启用 HTTP MCP 并配对后，可通过 `/mcp` 将 AI 客户端连接到同一工作台进程（见 [MCP 指南](mcp-guide.md)）。EPUB、RAG、术语词库及非回环远程访问尚未接入当前工作台。

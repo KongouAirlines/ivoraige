@@ -49,7 +49,7 @@ export async function acquireStoreLock(store) {
     if (sqliteCode === 5 || sqliteCode === 6 ||
         (sqliteCode === undefined && error.message?.includes('database is locked'))) {
       throw new KernelError('CONFLICT',
-        `Store is already open by another process: ${path}. Connect to its server with --url URL, or close the owner first.`,
+        `Store is already open by another process: ${path}. CLI commands attach through the same --store; --url only verifies its HTTP origin. Close the owner first if attachment is unavailable.`,
         { store: path })
     }
     throw error

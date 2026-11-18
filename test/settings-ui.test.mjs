@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { test } from 'node:test'
 import { JSDOM } from 'jsdom'
+import { mockOwnerSession } from './fixtures/browser-owner.mjs'
 
 const bundle = await readFile(new URL('../dist/web/app.js', import.meta.url), 'utf8')
 
@@ -77,6 +78,7 @@ function fixture({ hash = '#/workbench/doc', modelReadFails = 0, deferModelSave 
     else throw new Error(`Unexpected request ${path}`)
     return { ok: true, status: 200, json: async () => data }
   }
+  mockOwnerSession(window)
   window.eval(bundle)
   return { window, calls, streams, snapshots, releaseSave: () => releaseSave?.(), close: () => window.close() }
 }

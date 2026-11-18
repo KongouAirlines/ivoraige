@@ -2,7 +2,7 @@
 
 ivoraige 的 MCP 入口将已装插件贡献的内核能力提供给本机 AI 客户端。当前代码使用官方 TypeScript MCP SDK `@modelcontextprotocol/server` 2.4.0 和 `@modelcontextprotocol/node` 2.1.2，提供 `stdio` 与 `Streamable HTTP` 两种传输方式；文档工具参数沿用 CLI／HTTP 的内核 schema。工具和资源列表随插件装卸动态更新，客户端发现到的能力以正在运行的实例为准。
 
-本页对应 `0.1.0` 源码；旧 `0.1.0-dev.0` Windows 附件不代表本页的 MCP 交付范围。Windows 上已完成官方 SDK 双 transport 测试及 DSH `0.2.0-rc.2` 的真实 HTTP 客户端闭环（证据见源码中的 [MCP 阶段记录](mcp.md)）；其他客户端需按其配置方式验证。
+本页对应 `0.1.0` 源码；旧 `0.1.0-dev.0` Windows 附件不代表本页的 MCP 交付范围。历史 Windows 验证覆盖官方 SDK 双 transport 及 DSH `0.2.0-rc.2` 的真实 HTTP 客户端闭环（证据见源码中的 [MCP 阶段记录](mcp.md)）；其他客户端需按其配置方式验证。
 
 ## 连接方式
 
@@ -10,18 +10,11 @@ ivoraige 的 MCP 入口将已装插件贡献的内核能力提供给本机 AI �
 
 ### 1. 连接已运行的工作台（Streamable HTTP）
 
-常驻服务 `ivoraige serve --store C:/data/ivoraige/store.sqlite` 默认在 `http://127.0.0.1:8787/mcp` 提供 Streamable HTTP 入口（桌面启动器同样在其实际监听端口的 `/mcp` 提供该入口，并在启动时输出服务 URL）。
+常驻服务 `ivoraige serve --store C:/data/ivoraige/store.sqlite` 默认关闭 HTTP MCP。只在本次运行中需要它时使用 `ivoraige serve --store C:/data/ivoraige/store.sqlite --mcp-enabled`，在 `http://127.0.0.1:8787/mcp` 提供 Streamable HTTP；`--no-mcp` 优先将它关闭。启动器不会默认启用 HTTP MCP，目前也没有持久的启用开关。`/mcp` 与所有 `/api/*` 路由一样需要已配对的浏览器 owner 会话；普通 HTTP MCP 客户端不能凭回环地址或服务 URL 获得授权。HTTP 仅监听回环地址，并另外检查 Host 与 Origin。具体边界见[本机宿主指南](../0.1.x/host-control-guide.md)。
 
-- HTTP MCP、WebUI 和远程 CLI 共用同一进程的内核、SQLite 数据库、设置与后台任务，无需另起持有数据库的进程。
-- 传入 `ivoraige serve --no-mcp` 可关闭 MCP 入口。
-- 为保证本机访问边界，HTTP 服务仅允许回环监听，并校验 `Host` 与 `Origin`；当前没有非回环远程认证配置。
+### 2. 附加到常驻宿主（stdio）
 
-### 2. 由客户端启动独立进程（stdio）
-
-使用 `ivoraige mcp --stdio --store C:/data/ivoraige/store.sqlite` 启动独立进程。该进程独占自己的内核与数据库锁，标准输出供 MCP 协议使用：
-
-- **切勿与已打开相同数据库的工作台并行运行**；若需共用工作台中的文档和任务，请使用上面的 `/mcp` HTTP 入口。
-- 省略 `--store` 时使用 CLI 默认数据路径，建议先调用 `ivoraige_capabilities` 核对实际数据目录。
+先启动同一 store 的常驻宿主，再使用 `ivoraige mcp --stdio --store C:/data/ivoraige/store.sqlite`。桥接进程连接已有 owner，不创建内核或持有第二把数据库锁；owner 缺席或只是临时 owner 时直接报错。标准输出仅供 MCP 协议使用；关闭客户端/stdin 只断开桥接，不停止常驻宿主。省略 `--store` 会使用 CLI 的默认数据路径，须确保与已启动宿主一致。
 
 通用 MCP 客户端的 `stdio` 配置示例（具体配置文件位置和字段名以各客户端文档为准）：
 
@@ -69,9 +62,9 @@ ivoraige 的 MCP 入口将已装插件贡献的内核能力提供给本机 AI �
 
 ### 权限边界、响应格式与动态通知
 
-- **写权限控制**：当前还提供快照列表／读取／删除与任务列表工具；设置服务挂载时暴露 `ivoraige_settings_get`、`ivoraige_settings_update`、`ivoraige_credential_set`，组件安装服务挂载时暴露 `ivoraige_component_*` 工具。修改设置、保存凭据／仓库令牌和安装组件拥有本机内核完整写权限，应在用户明确要求后调用。请妥善控制本机可访问该回环端口的客户端。当前没有 RAG、术语库或独立文本翻译工具。
+- **写权限控制**：当前还提供快照列表／读取／删除与任务列表工具；设置服务挂载时暴露 `ivoraige_settings_get`、`ivoraige_settings_update`、`ivoraige_credential_set`，组件安装服务挂载时暴露 `ivoraige_component_*` 工具。修改设置、保存凭据／仓库令牌和安装组件拥有本机内核完整写权限，应在用户明确要求后调用。这些工具通过受保护的 stdio 桥接或已配对的 HTTP 会话访问。当前没有 RAG、术语库或独立文本翻译工具。
 - **返回结构与错误**：成功工具响应的 `structuredContent` 为带 `apiVersion` 的内核业务对象，文本 `content` 为同一对象的 JSON 字符串。业务错误标记 `isError: true`，并在 `structuredContent` 中返回 `{ apiVersion, error: { code, message, details } }`；违反输入 schema 的参数由 MCP SDK 直接返回协议级校验错误；资源读取失败返回 MCP 协议错误。
-- **列表变化通知**：插件装卸后，支持现代协议订阅的 HTTP 客户端会收到工具／资源列表变化通知（使用官方 JS SDK 2.x 时配置 `versionNegotiation: { mode: "auto" }` 和 `listChanged` 回调）；旧协议无状态 HTTP 不推送变化（`listChanged: false`），需重新查询列表；`stdio` 保留连接内通知。
+- **列表变化通知**：插件装卸后，支持现代协议订阅的 HTTP 客户端会收到工具／资源列表变化通知（使用官方 JS SDK 2.x 时配置 `versionNegotiation: { mode: "auto" }` 和 `listChanged` 回调）；旧协议无状态 HTTP 不推送变化（`listChanged: false`），需重新查询列表；附加式 `stdio` 请重新查询或重连。
 
 ### 开发验收依赖
 

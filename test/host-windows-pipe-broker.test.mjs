@@ -11,13 +11,17 @@ import { exchangeHostFrame } from '../src/host-transport.mjs'
 
 const sid = 'S-1-5-21-1000'
 const address = '\\\\.\\pipe\\ivoraige-abcdefghijklmnopqrstuv'
-function helper(t, { killResult = true } = {}) {
+function helper(t, { killResult = true, holdWrites = false } = {}) {
   const child = new EventEmitter()
   child.pid = 123
   child.commands = []
+  child.pendingWrites = []
   child.kills = 0
   child.stdin = new Writable({ write(chunk, encoding, callback) {
-    child.commands.push(JSON.parse(chunk.toString())); callback()
+    const command = JSON.parse(chunk.toString())
+    child.commands.push(command)
+    if (holdWrites && command.type === 'write') child.pendingWrites.push(callback)
+    else callback()
   } })
   child.stdout = new PassThrough()
   child.stderr = new PassThrough()
@@ -115,4 +119,70 @@ test('broker failure after a business frame is submitted reports unknown outcome
   child.emit('error', new Error('injected helper channel failure'))
   await rejected
   assert.equal(child.kills, 1)
+})
+
+test('pipe write callbacks wait for native write ACK, not broker stdin flush', async t => {
+  const child = helper(t, { holdWrites: true })
+  const server = start(child)
+  child.reply({ type: 'listening', id: server.id, sid })
+  const client = connectWindowsPipe(address)
+  const connect = child.commands.find(command => command.type === 'connect')
+  child.reply({ type: 'connected', id: connect.id, peerSid: sid })
+  const chunk = Buffer.alloc(700 * 1024, 0x61)
+  const completed = []
+  client.write(chunk, () => completed.push(1))
+  client.write(chunk, () => completed.push(2))
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(child.commands.filter(command => command.type === 'write').length, 1)
+  assert.deepEqual(completed, [])
+  child.pendingWrites.shift()()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(child.commands.filter(command => command.type === 'write').length, 1)
+  assert.deepEqual(completed, [])
+  const first = child.commands.find(command => command.type === 'write')
+  child.reply({ type: 'written', id: client.id, seq: first.seq })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(child.commands.filter(command => command.type === 'write').length, 2)
+  assert.deepEqual(completed, [1])
+  child.pendingWrites.shift()()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(completed, [1])
+  const second = child.commands.filter(command => command.type === 'write')[1]
+  child.reply({ type: 'written', id: client.id, seq: second.seq })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(completed, [1, 2])
+  client.destroy()
+  child.reply({ type: 'serverClosed', id: server.id })
+  await close(server)
+})
+
+test('native peer closure rejects pending write without waiting for an ACK', async t => {
+  const child = helper(t)
+  const server = start(child)
+  child.reply({ type: 'listening', id: server.id, sid })
+  const client = connectWindowsPipe(address)
+  const connect = child.commands.find(command => command.type === 'connect')
+  child.reply({ type: 'connected', id: connect.id, peerSid: sid })
+  const error = new Promise(resolve => client.once('error', resolve))
+  client.write('pending\n')
+  await new Promise(resolve => setImmediate(resolve))
+  child.reply({ type: 'closed', id: client.id })
+  assert.equal((await error).code, 'PRECONDITION_FAILED')
+  child.reply({ type: 'serverClosed', id: server.id })
+  await close(server)
+})
+
+test('public pipe write queue stays bounded while native ACK is withheld', async t => {
+  const child = helper(t, { holdWrites: true })
+  const server = start(child)
+  child.reply({ type: 'listening', id: server.id, sid })
+  const client = connectWindowsPipe(address)
+  const connect = child.commands.find(command => command.type === 'connect')
+  child.reply({ type: 'connected', id: connect.id, peerSid: sid })
+  const failure = once(client, 'error')
+  for (let i = 0; i < 10 && !client.destroyed; i++) client.write(Buffer.alloc(1024 * 1024, 0x61))
+  assert.equal((await failure)[0].code, 'PRECONDITION_FAILED')
+  assert.equal(client.destroyed, true)
+  child.reply({ type: 'serverClosed', id: server.id })
+  await close(server)
 })

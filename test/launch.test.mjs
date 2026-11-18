@@ -1,57 +1,74 @@
+import './fixtures/host-test-env.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, readFile, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { fileURLToPath } from 'node:url'
 import { launch } from '../src/launch.mjs'
 import { runCli } from '../src/cli.mjs'
+import { createCleanup } from './fixtures/cleanup.mjs'
 
-test('a second launch waits for a slow first instance and reports a bounded conflict', async t => {
+async function launchInTest(t, options) {
+  try { return await launch(options) }
+  catch (error) {
+    if (!process.env.CI && ['EPERM', 'EACCES'].includes(error.code) && error.syscall === 'listen') {
+      t.skip('Local sandbox does not permit owner socket listening')
+      return null
+    }
+    throw error
+  }
+}
+
+test('a second launch reuses the resident owner and rejects a different composition', async t => {
   const dataDir = await mkdtemp(join(tmpdir(), 'ivoraige-launch-race-'))
-  const first = await launch({ dataDir, open: false })
+  const first = await launchInTest(t, { dataDir, open: false })
+  if (!first) { await rm(dataDir, { recursive: true, force: true }); return }
   t.after(async () => { await first.close(); await rm(dataDir, { recursive: true, force: true }) })
-  const path = join(dataDir, 'instance.json')
-  const saved = await readFile(path)
-  await rm(path)
-  const publish = new Promise(resolve => setTimeout(resolve, 2500)).then(() => writeFile(path, saved))
   const second = await launch({ dataDir, open: false })
-  await publish
   assert.equal(second.reused, true)
   assert.equal(second.url, first.url)
-  await rm(path)
-  const started = performance.now()
-  await assert.rejects(launch({ dataDir, open: false }), error => {
+  await second.close()
+  await assert.rejects(launch({ dataDir, open: false, components: { repository: 'different/repository' } }), error => {
     assert.equal(error.code, 'CONFLICT')
-    assert.match(error.message, /请稍后重试/)
+    assert.equal(error.details?.reason, 'owner-config-mismatch')
     return true
   })
-  assert.ok(performance.now() - started < 13_000)
 })
 
-test('component repository environment is overridable by explicit composition', async t => {
+test('stopped owner accepts a repository override without rebinding its data domain', async t => {
+  const defer = createCleanup(t)
   const dataDir = await mkdtemp(join(tmpdir(), 'ivoraige-repository-'))
+  defer(() => rm(dataDir, { recursive: true, force: true }))
   const previous = process.env.IVORAIGE_COMPONENTS_REPOSITORY
-  let running
-  t.after(async () => {
-    await running?.close()
+  defer(() => {
     if (previous === undefined) delete process.env.IVORAIGE_COMPONENTS_REPOSITORY
     else process.env.IVORAIGE_COMPONENTS_REPOSITORY = previous
-    await rm(dataDir, { recursive: true, force: true })
   })
   process.env.IVORAIGE_COMPONENTS_REPOSITORY = 'example/components'
-  running = await launch({ dataDir, open: false })
-  assert.equal((await (await fetch(`${running.url}/api/components`)).json()).repository, 'example/components')
-  await running.close()
-  running = await launch({ dataDir, open: false, components: { repository: 'explicit/components' } })
-  assert.equal((await (await fetch(`${running.url}/api/components`)).json()).repository, 'explicit/components')
+  const first = await launchInTest(t, { dataDir, open: false })
+  if (!first) return
+  defer(() => first.close())
+  assert.equal((await first.app.operations.invoke('componentStatus')).repository, 'example/components')
+  const domain = first.dataDomainRef
+  await first.close()
+  // Capture every successful launch before any assertions: an obsolete
+  // assert.rejects here leaked a resident owner and hung all three CI jobs.
+  const next = await launch({ dataDir, open: false, components: { repository: 'explicit/components' } })
+  defer(() => next.close())
+  assert.equal(next.reused, false)
+  assert.equal(next.dataDomainRef, domain)
+  assert.notEqual(next.generation, first.generation)
+  assert.equal((await next.app.operations.invoke('componentStatus')).repository, 'explicit/components')
 })
 
 test('first launch keeps text usable without PDF and reuses the same running workbench', async t => {
   const dataDir = await mkdtemp(join(tmpdir(), 'ivoraige-launch-'))
   const opened = []
-  const first = await launch({ dataDir, opener: url => opened.push(url) })
+  const first = await launchInTest(t, { dataDir, opener: url => opened.push(url) })
+  if (!first) { await rm(dataDir, { recursive: true, force: true }); return }
   t.after(async () => { await first.close(); await rm(dataDir, { recursive: true, force: true }) })
-  const capabilities = await (await fetch(`${first.url}/api/capabilities`)).json()
+  const capabilities = await first.app.operations.invoke('capabilities')
   assert.ok(capabilities.features.includes('component-installation'))
   assert.ok(capabilities.inputFormats.includes('txt'))
   assert.ok(!capabilities.inputFormats.includes('pdf'))
@@ -59,19 +76,29 @@ test('first launch keeps text usable without PDF and reuses the same running wor
   const second = await launch({ dataDir, opener: url => opened.push(url) })
   assert.equal(second.reused, true)
   assert.equal(second.url, first.url)
-  assert.deepEqual(opened, [first.url, first.url])
+  assert.equal(opened.length, 2)
+  assert.ok(opened.every(url => url.startsWith('file://') && !url.includes('owner=') && !url.includes(first.url)))
+  assert.notEqual(opened[0], opened[1])
+  for (const page of opened) {
+    const file = fileURLToPath(page)
+    const html = await readFile(file, 'utf8')
+    assert.match(html, /location\.replace\("http:\/\/127\.0\.0\.1:[0-9]+\/#owner=/)
+    if (process.platform !== 'win32') assert.equal((await stat(file)).mode & 0o777, 0o600)
+  }
   await second.close()
-  assert.equal((await fetch(`${first.url}/api/capabilities`)).status, 200)
-  const status = await (await fetch(`${first.url}/api/components`)).json()
+  await assert.rejects(readFile(fileURLToPath(opened[1])))
+  assert.equal((await fetch(`${first.url}/api/capabilities`)).status, 401)
+  const status = await first.app.operations.invoke('componentStatus')
   assert.equal(status.credentialConfigured, false)
   assert.equal(status.installed, null)
 })
 
-test('program restart preserves accepted text and frozen output in the user directory', async () => {
+test('program restart preserves accepted text and frozen output in the user directory', async t => {
   const dataDir = await mkdtemp(join(tmpdir(), 'ivoraige-launch-restart-'))
   let running
   try {
-    running = await launch({ dataDir, open: false })
+    running = await launchInTest(t, { dataDir, open: false })
+    if (!running) return
     const { document } = await running.app.records.importDocument({ format: 'txt', content: 'Original text.' },
       { language: 'en', sourceId: 'installation-test' })
     const [unit] = running.app.records.listUnits(document.id, { targetLang: 'zh' })
@@ -103,4 +130,21 @@ test('program restart preserves accepted text and frozen output in the user dire
       else process.env.IVORAIGE_STORE = previousStore
     }
   } finally { await running?.close(); await rm(dataDir, { recursive: true, force: true }) }
+})
+
+test('browser opener failure leaves the owner usable and removes the pairing page', async t => {
+  const dataDir = await mkdtemp(join(tmpdir(), 'ivoraige-launch-opener-'))
+  let page, warning = ''
+  const running = await launchInTest(t, { dataDir,
+    opener: url => { page = url; throw new Error('no desktop opener') },
+    stderr: { write: text => { warning += text } } })
+  if (!running) { await rm(dataDir, { recursive: true, force: true }); return }
+  t.after(async () => { await running.close(); await rm(dataDir, { recursive: true, force: true }) })
+  assert.equal(running.reused, false)
+  assert.match(warning, /owner remains available/)
+  await assert.rejects(readFile(fileURLToPath(page)), { code: 'ENOENT' })
+  assert.ok(await running.app.cli.invoke('capabilities', {}))
+  const second = await launch({ dataDir, open: false })
+  assert.equal(second.reused, true)
+  await second.close()
 })
