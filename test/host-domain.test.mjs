@@ -1,3 +1,4 @@
+import './fixtures/host-test-env.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
@@ -558,4 +559,16 @@ test('an active writer does not prevent attach and proof cannot hide file replac
       return { dataDomainRef: first.dataDomainRef, registrationId: first.registrationId }
     } }), error => error.details.reason === 'domain-registration-mismatch')
   } finally { first.storeLease.release() }
+})
+
+test('full development binding is not silently migrated to a different configuration', async t => {
+  const f = await fixture(t)
+  const original = await create(f)
+  original.storeLease.release()
+  const minimal = { settingsDir: config.settingsDir, componentDir: config.componentRoot }
+  await assert.rejects(createHostDomain({ ...f, ownerConfigBinding: minimal }),
+    error => error.details?.reason === 'owner-config-mismatch')
+  const reopened = await create(f)
+  assert.equal(reopened.dataDomainRef, original.dataDomainRef)
+  reopened.storeLease.release()
 })

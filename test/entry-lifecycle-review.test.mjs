@@ -1,11 +1,13 @@
+import './fixtures/host-test-env.mjs'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { ServerResponse } from 'node:http'
+import { createServer } from 'node:net'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createApp } from '../src/app.mjs'
-import { serve } from '../src/http.mjs'
+import { serve } from './fixtures/owner-http.mjs'
 import { runCli } from '../src/cli.mjs'
 
 const turn = () => new Promise(resolve => setImmediate(resolve))
@@ -13,6 +15,20 @@ const turn = () => new Promise(resolve => setImmediate(resolve))
 test('serve observes a programmatic abort after listening and releases its owned host', { timeout: 10000 }, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'ivoraige-cli-abort-'))
   const store = join(dir, 'store.sqlite')
+  if (process.platform !== 'win32') {
+    const probe = createServer()
+    try {
+      await new Promise((resolveListen, rejectListen) => probe.once('error', rejectListen)
+        .listen(join(dir, 'probe.sock'), resolveListen))
+    } catch (error) {
+      if (!process.env.CI && ['EPERM', 'EACCES'].includes(error.code)) {
+        t.skip('Local sandbox does not permit owner socket listening')
+        await rm(dir, { recursive: true, force: true })
+        return
+      }
+      throw error
+    } finally { if (probe.listening) await new Promise(done => probe.close(done)) }
+  }
   const controller = new AbortController()
   const listeners = ['SIGINT', 'SIGTERM'].map(name => process.listenerCount(name))
   let ready, stderr = '', finished = false
@@ -28,7 +44,7 @@ test('serve observes a programmatic abort after listening and releases its owned
     await rm(dir, { recursive: true, force: true })
   })
   const url = await started
-  assert.equal((await fetch(url + '/api/documents')).status, 200)
+  assert.equal((await fetch(url + '/api/documents')).status, 401)
   controller.abort()
   let timer
   try {
@@ -38,7 +54,8 @@ test('serve observes a programmatic abort after listening and releases its owned
   } finally { clearTimeout(timer) }
   assert.deepEqual(['SIGINT', 'SIGTERM'].map(name => process.listenerCount(name)), listeners)
   await assert.rejects(fetch(url + '/api/documents'))
-  const reopened = await createApp({ store })
+  const reopened = await createApp({ store, settingsDir: join(dir, 'settings'),
+    components: { directory: join(dir, 'components') } })
   await reopened.dispose()
 })
 

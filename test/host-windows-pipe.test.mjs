@@ -118,6 +118,28 @@ test('Windows preserves multiple frames and fails closed when the helper termina
   } finally { client.destroy(); for (const socket of sockets) socket.destroy(); await host.close() }
 })
 
+test('Windows native pipe streams more than 8 MiB without exceeding native buffered-write cap', windows, async () => {
+  const payload = Buffer.alloc(9 * 1024 * 1024, 0x61)
+  const host = await listen(socket => socket.once('data', async () => {
+    try {
+      for (let offset = 0; offset < payload.length; offset += 512 * 1024)
+        await new Promise((resolve, reject) => socket.write(payload.subarray(offset, offset + 512 * 1024),
+          error => error ? reject(error) : resolve()))
+      socket.end()
+    } catch (error) { socket.destroy(error) }
+  }))
+  const client = connectWindowsPipe(host.endpoint)
+  let received = 0
+  client.on('data', chunk => { received += chunk.length; assert.ok(chunk.every(byte => byte === 0x61)) })
+  try {
+    await once(client, 'connect')
+    const ended = once(client, 'end')
+    client.write('go\n')
+    await ended
+    assert.equal(received, payload.length)
+  } finally { client.destroy(); await host.close() }
+})
+
 test('Windows retired pipe reports owner-unreachable rather than a permission failure', windows, async () => {
   const host = await listen()
   await host.close()
