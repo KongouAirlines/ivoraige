@@ -165,4 +165,9 @@ Operations 可以先于 Records/Tasks 挂载。所需服务完成挂载后，即
 
 MCP HTTP 任务轮询断连会释放该请求的订阅，不取消持久任务。并行轮询互相独立；关闭入口会中止该入口尚未完成的请求。
 
+独立本地来源插件通过停机后的 `ivoraige-plugins` 入口安装、禁用及恢复。
+MinerU 的 MIT 桥接包与主体分开打包，不包含原生运行时或模型。
+参见[离线插件安装](docs/plan/0.1.0/installation-guide.md#offline-independent-source-plugins)
+和 [P05 开发说明](docs/plan/0.1.x/plugin-delivery-development.md)。
+
 桌面浏览器打开程序失败时，启动器会提示警告，但保留本地 owner 供 CLI/MCP 使用。请在有浏览器的会话中重新运行启动器进行配对。Linux 沙箱浏览器可能无法读取私有配对页，该桌面路径仍待实测，详见[主机控制指南](docs/plan/0.1.x/host-control-guide.md#browser-opener-limits)。
