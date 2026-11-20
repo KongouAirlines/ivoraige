@@ -57,8 +57,9 @@ test('empty Cordis host and parser composition activate only selected services',
 test('records provider withdrawal awaits an asynchronous injected consumer before closing storage', { timeout: 10_000 }, async t => {
   const root = await directory(t)
   const app = await createApp({ store: join(root, 'records.sqlite') })
-  t.after(async () => { await app.dispose(); await rm(root, { recursive: true, force: true }) })
   const entered = deferred(), release = deferred()
+  // An assertion or timeout must not leave the consumer gate blocking cleanup.
+  t.after(async () => { release.resolve(); await app.dispose(); await rm(root, { recursive: true, force: true }) })
   const records = app.records
   class Consumer extends Service {
     static inject = ['ivoraige.records']
@@ -76,7 +77,10 @@ test('records provider withdrawal awaits an asynchronous injected consumer befor
   }
   await app.ctx.plugin(Consumer)
   const closing = app.ctx.fiber.dispose()
-  await entered.promise
+  // Surface early disposal failure instead of waiting for a gate never entered.
+  await Promise.race([entered.promise, closing.then(() => {
+    assert.fail('records provider closed before its injected consumer entered disposal')
+  })])
   assert.equal(records.domain.closed, false)
   release.resolve()
   await closing
