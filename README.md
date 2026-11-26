@@ -151,4 +151,9 @@ Operations may mount before Records and Tasks. After those services finish mount
 
 Disconnecting an MCP HTTP task poll releases its subscription and leaves the persistent task running. Concurrent polls remain independent; closing the endpoint stops its outstanding requests.
 
+Independent local source plugins use the stopped-host `ivoraige-plugins` recovery
+entry. The MinerU MIT bridge is packed separately from the core; native runtimes
+and models are not included. See [offline plugin installation](docs/plan/0.1.0/installation-guide.md#offline-independent-source-plugins)
+and the [P05 development notes](docs/plan/0.1.x/plugin-delivery-development.md).
+
 If the desktop browser opener fails, the launcher reports a warning but keeps the local owner running for CLI/MCP. Re-run the launcher from a browser-enabled session to pair the workbench. Sandboxed Linux browsers may be unable to read the private pairing file; this desktop path remains unverified. See the [host control guide](docs/plan/0.1.x/host-control-guide.md#browser-opener-limits).

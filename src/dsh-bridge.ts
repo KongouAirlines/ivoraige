@@ -1,5 +1,5 @@
 // Resolved by scripts/build.mjs against the pinned DSH source tree.
-export { Context, Service } from '@deepseek-ai/cordis'
+export { Context, Service, FiberState } from '@deepseek-ai/cordis'
 export { default as LlmRuntime, createUserMessage, BlockAssembler } from '@deepseek-ai/dsh-llm'
 export * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 export { resolveProfiles as resolvePiAiProfiles } from '@deepseek-ai/dsh-llm-pi-ai/src/config.ts'
@@ -16,3 +16,7 @@ export * as StorageDomain from '@deepseek-ai/dsh-storage-domain'
 export * as StorageJson from '@deepseek-ai/dsh-storage-json'
 export * as StorageSqlite from '@deepseek-ai/dsh-storage-sqlite'
 export { z } from 'zod'
+// Offline package delivery reuses the pinned manager's package operation path.
+export { runProfilePnpm } from '@deepseek-ai/dsh-plugin-manager/src/operations.ts'
+export { writeFileAtomic } from '@deepseek-ai/dsh-atomic-write'
+export { awaitTreeGone, treeAlive } from '@deepseek-ai/dsh-plugin-manager/src/run-tree.ts'
