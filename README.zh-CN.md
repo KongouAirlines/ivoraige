@@ -170,4 +170,6 @@ MinerU 的 MIT 桥接包与主体分开打包，不包含原生运行时或模�
 参见[离线插件安装](docs/plan/0.1.0/installation-guide.md#offline-independent-source-plugins)
 和 [P05 开发说明](docs/plan/0.1.x/plugin-delivery-development.md)。
 
+可选独立 BabelDOC 来源/输出包 `0.1.1`，对应引擎 `0.7.1+ivoraige.3`：[安装与兼容边界](plugins/babeldoc/README.md)。运行时准备及 PDF 质量仍需分别验证。
+
 桌面浏览器打开程序失败时，启动器会提示警告，但保留本地 owner 供 CLI/MCP 使用。请在有浏览器的会话中重新运行启动器进行配对。Linux 沙箱浏览器可能无法读取私有配对页，该桌面路径仍待实测，详见[主机控制指南](docs/plan/0.1.x/host-control-guide.md#browser-opener-limits)。

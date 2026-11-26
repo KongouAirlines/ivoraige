@@ -1,5 +1,6 @@
 import { Service } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
+import { callAdapter } from './adapter-error.mjs'
 
 const language = value => typeof value === 'string' && value !== 'auto' &&
   /^[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*$/.test(value)
@@ -17,7 +18,8 @@ export class Importer extends Service {
     const input = this.parse.prepareInput(file)
     try {
       const selection = this.parse.selectPrepared(input)
-      selection.adapter.validateSourceLanguage?.(input.file.language)
+      if (selection.adapter.validateSourceLanguage)
+        callAdapter(selection.adapter, 'validateSourceLanguage', [input.file.language])
       return selection
     }
     catch (error) {

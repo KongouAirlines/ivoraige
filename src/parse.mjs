@@ -1,7 +1,9 @@
 import { Service } from '../dist/dsh.mjs'
 import { KernelError } from './errors.mjs'
+import { callAdapter, invokeAdapter } from './adapter-error.mjs'
 
-const unavailable = adapter => ['unavailable', 'disabled', 'failed'].includes(adapter.status?.().state)
+const unavailable = adapter => ['unavailable', 'disabled', 'failed'].includes(
+  (adapter.status ? callAdapter(adapter, 'status') : undefined)?.state)
 
 function validateIr(parsed, adapterId) {
   const validUnit = (unit, index) => unit && typeof unit === 'object' &&
@@ -22,7 +24,7 @@ function validateIr(parsed, adapterId) {
 function bestView(adapter, views) {
   let score = 0, file
   for (const view of views) {
-    const current = adapter.match(view)
+    const current = callAdapter(adapter, 'match', [view])
     if (typeof current !== 'number' || !Number.isFinite(current) || current < 0 || current > 1)
       throw new KernelError('INVALID_ARGUMENT', `Invalid match score from source adapter: ${adapter.id}`)
     // Equal views of one descriptor prefer original bytes, not self-conflict.
@@ -83,7 +85,7 @@ export class Parse extends Service {
 
   componentStatus() {
     return Object.fromEntries([...this.adapters.values()].filter(adapter => adapter.status)
-      .map(adapter => [adapter.id, adapter.status()]))
+      .map(adapter => [adapter.id, callAdapter(adapter, 'status')]))
   }
 
   validateTranslation(binding, unit, text, provenance = {}) {
@@ -96,7 +98,7 @@ export class Parse extends Service {
           provenance.bindingSchemaVersion !== (adapter.bindingSchemaVersion ?? 1)))
       throw new KernelError('PRECONDITION_FAILED', 'Source validation adapter version is incompatible',
         { adapterId: binding.adapterId })
-    adapter.validateTranslation?.(binding, unit, text)
+    if (adapter.validateTranslation) callAdapter(adapter, 'validateTranslation', [binding, unit, text])
   }
 
   // Structural compatibility only: discovery must never execute projections.
@@ -132,11 +134,12 @@ export class Parse extends Service {
     const needsReadable = views.includes('readable-text')
     const units = frozen.units.map(item => {
       if (!needsReadable) return item
-      const readableText = adapter.readableText(binding, item.unit, item.text)
+      const readableText = callAdapter(adapter, 'readableText', [binding, item.unit, item.text])
       if (typeof readableText !== 'string') throw new KernelError('INTERNAL', 'Source adapter returned invalid readable text')
       return { ...item, readableText }
     })
-    const nativeMarkdown = views.includes('native-markdown') ? adapter.renderMarkdown?.(frozen) : undefined
+    const nativeMarkdown = views.includes('native-markdown') && adapter.renderMarkdown
+      ? callAdapter(adapter, 'renderMarkdown', [frozen]) : undefined
     if (nativeMarkdown !== undefined && typeof nativeMarkdown !== 'string')
       throw new KernelError('INTERNAL', 'Source adapter returned invalid Markdown')
     return { ...frozen, units, ...(nativeMarkdown === undefined ? {} : { nativeMarkdown }) }
@@ -280,7 +283,7 @@ export class Parse extends Service {
 
   async parse(file) {
     const selected = this.selectPrepared(this.prepareInput(file))
-    const parsed = await selected.parse.call(selected.adapter, this.executionInput(selected, file))
+    const parsed = await invokeAdapter(selected.parse, selected.adapter, [this.executionInput(selected, file)])
     this.assertSelection(selected)
     return this.resolved(parsed, selected.descriptor.id)
   }
@@ -296,7 +299,7 @@ export class Parse extends Service {
       return persist(this.resolved(parsed, selected.descriptor.id))
     }
     const input = this.executionInput(selected, file)
-    return selected.import ? selected.import.call(selected.adapter, input, accept, isReferenced)
-      : accept(await selected.parse.call(selected.adapter, input))
+    return selected.import ? invokeAdapter(selected.import, selected.adapter, [input, accept, isReferenced])
+      : accept(await invokeAdapter(selected.parse, selected.adapter, [input]))
   }
 }
