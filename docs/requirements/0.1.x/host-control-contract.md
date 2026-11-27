@@ -199,7 +199,7 @@ inspect 不启动业务 host；返回观察条件的 diagnosticRevision、域/�
 
 交换端点只消费已有凭证，不能匿名签发；其成功/失败都不返回密钥。生产日志、导出诊断及 schema fixtures 不含真实 credential/token。无配对页面仅显示本机授权步骤，不提供私有快照。临时 CLI owner 无管理页会话。
 
-启用 A 管理页时必须同步鉴权/关闭 componentInstall、组件本地导入、通用 call 管理操作、HTTP 管理、`/api/events`/state 与产物下载。旧匿名 HTTP-MCP 默认关闭；持久 enabled 与本次 `--no-mcp` 强制关闭分开，后者最高优先且不擦除前者。EntryControl@1 另细化路由开关，不能调用共享 HttpEntry.close。未实现的入站 OpenAI 一直 unavailable、地址 null。
+启用 A 管理页时必须同步鉴权/关闭 componentInstall、组件本地导入、通用 call 管理操作、HTTP 管理、`/api/events`/state 与产物下载。旧匿名 HTTP-MCP 默认关闭；持久 enabled 与本次 `--no-mcp` 初始关闭分开；目标允许后续受信 owner 明确开启覆盖，不允许 attach/重连隐式启用，覆盖持久化策略待定。该目标变更不代表当前强制关闭实现已迁移，见[渐进路线](../../plan/0.1.x/desktop-ui-roadmap.md)。EntryControl@1 另细化路由开关，不能调用共享 HttpEntry.close。未实现的入站 OpenAI 一直 unavailable、地址 null。
 
 这是旧匿名客户端的行为破坏性迁移，实施 PR 要同步 v2 协议的实际支持说明、双语 README 和升级提示；保留业务 JSON/错误/ID，不保留匿名管理回退开关。I01.shared 的业务主体隔离/限额仍是外部开放前置。
 
