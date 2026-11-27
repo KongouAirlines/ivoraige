@@ -1018,6 +1018,15 @@ function Workbench({ docId, epoch, interactive = true }) {
         } catch (error) {
           throw new Error(`已接受 ${count} 段，第 ${u.order + 1} 段接受失败。${error.message}`, { cause: error })
         }
+        // This acceptance is our own confirmed write, not an external refresh.
+        // Keep dirty text intact, but advance its accepted baseline before a
+        // later save-and-accept uses optimistic concurrency checks.
+        if (JSON.stringify([docId, targetLang, u.id]) === viewKeyRef.current) {
+          loadRef.current++
+          setUnitData(prev => prev?.draft?.id === u.draftRevisionId
+            ? { ...prev, draft: null, accepted: { ...prev.draft, status: 'accepted' } }
+            : prev)
+        }
         count++
         setSelected(prev => prev.filter(id => id !== u.id))
       }

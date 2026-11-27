@@ -57,6 +57,7 @@ import { fileURLToPath } from 'node:url'
 const exec = promisify(execFile)
 
 for (const [file, name, trigger, directory] of [
+  ['foundation-runtime', 'records provider withdrawal', '  release.resolve()\n  await closing', 'root'],
   ['resource-access', 'the shared resource file-stat await', '  await entered.promise\n', 'dir'],
   ['resource-access', 'shutdown keeps storage owned', '  await entered\n', 'dir'],
   ['source-mode', 'CLI accepts source content', "  const { document } = await app.records.importDocument", 'directory'],
@@ -76,7 +77,7 @@ for (const [file, name, trigger, directory] of [
       'const { app, document', 'const { app, dir, document')
     const position = body.indexOf(trigger)
     assert.notEqual(position, -1)
-    const offset = file === 'source-mode' ? position : position + trigger.length
+    const offset = ['source-mode', 'foundation-runtime'].includes(file) ? position : position + trigger.length
     body = body.slice(0, offset) + `
   let probeDisposed = false
   const probeDispose = app.dispose
@@ -92,12 +93,15 @@ for (const [file, name, trigger, directory] of [
     source = source.slice(0, start) + body + (end === -1 ? '' : source.slice(end))
     source = source.replaceAll("'../src/", "'../../src/")
       .replaceAll("'./fixtures/", "'./")
+      .replaceAll("'../dist/", "'../../dist/")
     source = "import probeFs from 'node:fs'; const probeOpen = probeFs.promises.open;\n" + source
     const path = new URL(`./fixtures/cleanup-probe-${randomUUID()}.mjs`, import.meta.url)
     try {
       await writeFile(path, source)
       await assert.rejects(exec(process.execPath, ['--test', '--test-name-pattern', name,
-        fileURLToPath(path)], { timeout: 10000,
+        fileURLToPath(path)], {
+        // Allow process startup and teardown around the fixture's unchanged 10s deadline.
+        timeout: file === 'foundation-runtime' ? 30000 : 10000,
         env: Object.fromEntries(Object.entries(process.env).filter(([key]) => key !== 'NODE_TEST_CONTEXT')) }), error => {
         assert.equal(error.code, 1)
         assert.match(error.stdout, /injected fixture body failure/)
